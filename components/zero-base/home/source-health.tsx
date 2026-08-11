@@ -19,7 +19,14 @@ const FRESHNESS_WORD = {
   unknown: "unknown",
 } as const;
 
-export function BannerStack({ banners }: { banners: readonly HomeBanner[] }) {
+export function BannerStack({
+  banners,
+  connectHref = null,
+}: {
+  banners: readonly HomeBanner[];
+  /** Where an unconfigured source is connected. Absent when there is nowhere. */
+  connectHref?: string | null;
+}) {
   if (banners.length === 0) return null;
   return (
     <div data-banner-stack="" style={{ display: "grid", gap: 8, marginBottom: 16 }}>
@@ -50,6 +57,18 @@ export function BannerStack({ banners }: { banners: readonly HomeBanner[] }) {
               without it. */}
           <strong>{banner.severity === "hard" ? "Unavailable: " : "Incomplete: "}</strong>
           {banner.message}
+          {banner.severity === "hard" && connectHref ? (
+            <>
+              {" "}
+              <a
+                href={connectHref}
+                data-ctl="live:INTEGRATION-03 connect"
+                style={{ color: "inherit", fontWeight: 600 }}
+              >
+                Connect this source
+              </a>
+            </>
+          ) : null}
         </p>
       ))}
     </div>
@@ -160,15 +179,6 @@ export function SourceHealthPanel({
               <td style={{ padding: "6px 8px" }}>
                 {/* Word first, colour second. */}
                 {source.state === "ok" ? "Serving" : source.state === "partial" ? "Incomplete" : "Unavailable"}
-                {source.state !== "ok" && connectHref && (source.remedy ?? "connect") === "connect" ? (
-                  <a
-                    href={connectHref}
-                    data-ctl="live:INTEGRATION-03 connect"
-                    style={{ display: "block", fontSize: 12, color: "var(--ledger-accent-action)" }}
-                  >
-                    {copy.connectThisSource}
-                  </a>
-                ) : null}
                 {source.reason ? (
                   <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {source.reason}

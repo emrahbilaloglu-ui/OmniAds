@@ -26,6 +26,7 @@ function fact(overrides: Partial<VisualFact> & { key: string }): VisualFact {
     orderInOwner: 0,
     visible: true,
     clipped: false,
+    overlaid: false,
     box: { x: 0, y: 0, width: 0.5, height: 0.2 },
     pixels: { width: 200, height: 40 },
     tag: "div",
@@ -44,8 +45,12 @@ function fact(overrides: Partial<VisualFact> & { key: string }): VisualFact {
   };
 }
 
-function snapshot(facts: VisualFact[], palette: string[] = ["rgb(36, 32, 26)"]): VisualSnapshot {
-  return { id: "H03", width: 1440, theme: "light", facts, typeScale: [13], palette };
+function snapshot(
+  facts: VisualFact[],
+  palette: string[] = ["rgb(36, 32, 26)"],
+  sidewaysScroll = false,
+): VisualSnapshot {
+  return { id: "H03", width: 1440, theme: "light", facts, typeScale: [13], palette, sidewaysScroll };
 }
 
 const run = (
@@ -196,6 +201,76 @@ describe("G10 fidelity mutation controls", () => {
       fact({ key: "collection:sources", owner: null, ownerPath: [] }),
     ]);
     expect(kinds(run(REFERENCE, allElsewhere))).toContain("wrong-owner");
+  });
+
+  it("order is not compared across an overlay boundary", () => {
+    const reference = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.1, width: 1, height: 0.1 } }),
+      fact({ key: "ctl:live:a", tag: "button", box: { x: 0, y: 0.6, width: 0.2, height: 0.05 } }),
+    ]);
+    // The sheet is drawn over the panel, not after it.
+    const overlay = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.6, width: 1, height: 0.1 } }),
+      fact({ key: "ctl:live:a", tag: "button", overlaid: true, box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+    ]);
+    expect(kinds(run(reference, overlay))).not.toContain("placement");
+  });
+
+  it("REGRESSION: order within one layer is still compared", () => {
+    const reference = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.1, width: 1, height: 0.1 } }),
+      fact({ key: "ctl:live:a", tag: "button", box: { x: 0, y: 0.6, width: 0.2, height: 0.05 } }),
+    ]);
+    const flipped = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.6, width: 1, height: 0.1 } }),
+      fact({ key: "ctl:live:a", tag: "button", box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+    ]);
+    expect(kinds(run(reference, flipped))).toContain("placement");
+  });
+
+  it("order is not compared between a row and the page around it", () => {
+    const reference = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.1, width: 1, height: 0.1 } }),
+      fact({ key: "ctl:live:a", tag: "button", box: { x: 0, y: 0.6, width: 0.2, height: 0.05 } }),
+    ]);
+    const rowMoved = snapshot([
+      fact({ key: "el:panel", box: { x: 0, y: 0.6, width: 1, height: 0.1 } }),
+      fact({
+        key: "ctl:live:a",
+        tag: "button",
+        owner: "collection:rows",
+        ownerPath: ["collection:rows"],
+        box: { x: 0, y: 0.1, width: 0.2, height: 0.05 },
+      }),
+    ]);
+    expect(kinds(run(reference, rowMoved))).not.toContain("placement");
+  });
+
+  it("REGRESSION: order between two rows of one collection is still compared", () => {
+    const reference = snapshot([
+      fact({ key: "ctl:live:a", tag: "button", owner: "collection:rows", ownerPath: ["collection:rows"], box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:b", tag: "button", owner: "collection:rows", ownerPath: ["collection:rows"], box: { x: 0, y: 0.6, width: 0.2, height: 0.05 } }),
+    ]);
+    const swapped = snapshot([
+      fact({ key: "ctl:live:a", tag: "button", owner: "collection:rows", ownerPath: ["collection:rows"], box: { x: 0, y: 0.6, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:b", tag: "button", owner: "collection:rows", ownerPath: ["collection:rows"], box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+    ]);
+    expect(kinds(run(reference, swapped))).toContain("placement");
+  });
+
+  it("REGRESSION: a surface that scrolls sideways fails", () => {
+    const wide = snapshot(MATCHING.facts, ["rgb(36, 32, 26)"], true);
+    expect(kinds(run(REFERENCE, wide))).toContain("sideways-scroll");
+  });
+
+  it("the mock's own canvas width is not what this is judged against", () => {
+    // The reference document holds every artboard, so it scrolls sideways on
+    // almost all of them. Reading that as permission made the check inert.
+    const reference = snapshot(REFERENCE.facts, ["rgb(36, 32, 26)"], true);
+    const wide = snapshot(MATCHING.facts, ["rgb(36, 32, 26)"], true);
+    expect(kinds(run(reference, wide))).toContain("sideways-scroll");
+    const fits = snapshot(MATCHING.facts, ["rgb(36, 32, 26)"], false);
+    expect(kinds(run(reference, fits))).not.toContain("sideways-scroll");
   });
 
   it("REGRESSION: a control on a non-control element fails", () => {

@@ -690,8 +690,8 @@ const SOURCE_PANELS = [
 
 const analyticsOverview = () => (
   <div style={{ display: "grid", gap: 16 }}>
-    {trendBoard("Sessions & revenue trend", "analytics")}
   <SourceOverviewView
+    trend={trendBoard("Sessions & revenue trend", "analytics")}
     panels={SOURCE_PANELS}
     overview={{
       propertyName: "Halcyon Supply Co. — GA4",
@@ -790,13 +790,6 @@ const trendBoard = (title: string, surface: string) => (
 /** The media states board: every state the design draws, side by side. */
 const mediaBoard = () => (
   <div style={{ display: "grid", gap: 16 }}>
-    <CreativeCarousel
-      label="Summer carousel"
-      cards={[
-        { id: "a", media: { kind: "ready", url: PIXEL, origin: "snapshot" } },
-        { id: "b", media: { kind: "missing", reason: "No preview was captured." } },
-      ]}
-    />
     <CreativeMedia
       state={{
         kind: "video",
@@ -806,6 +799,13 @@ const mediaBoard = () => (
         origin: "snapshot",
       }}
       label="Summer hero"
+    />
+    <CreativeCarousel
+      label="Summer carousel"
+      cards={[
+        { id: "a", media: { kind: "ready", url: PIXEL, origin: "snapshot" } },
+        { id: "b", media: { kind: "missing", reason: "No preview was captured." } },
+      ]}
     />
     <CreativeMedia
       state={{ kind: "failed", reason: "Stream returned 502.", alt: "Summer hero" }}

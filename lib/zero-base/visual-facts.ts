@@ -46,6 +46,15 @@ export interface VisualFact {
   visible: boolean;
   /** True when an ancestor's overflow hides this element. */
   clipped: boolean;
+  /**
+   * True when this sits inside a fixed or absolutely positioned layer.
+   *
+   * An overlay is drawn on top of the page rather than in its flow, so its
+   * vertical position says nothing about whether it comes before or after the
+   * content beneath it. The mock draws overlay contents inline under the
+   * surface they cover; the product renders them over it.
+   */
+  overlaid: boolean;
   /** Box relative to the artboard root, as fractions of its width/height. */
   box: { x: number; y: number; width: number; height: number };
   /** Pixel box, for control-anatomy checks like minimum target size. */
@@ -75,6 +84,8 @@ export interface VisualSnapshot {
   typeScale: number[];
   /** Every distinct colour painted, as `rgb(...)`. */
   palette: string[];
+  /** True when something on the surface scrolls horizontally at this width. */
+  sidewaysScroll: boolean;
 }
 
 /**
@@ -105,22 +116,46 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
 
   const isMarker = (node) => node.nodeType === 1 && markerKey(node) !== null;
 
-  // Clipping: an ancestor with hidden/scroll overflow whose box does not
-  // contain this element. A scrolled-away control is invisible in the capture
-  // even though getComputedStyle reports it as displayed.
+  // Clipping: an ancestor that cuts this element off with no way to reach it.
+  //
+  // Judged per axis, because the two are not the same failure. An ancestor
+  // with hidden overflow removes the element from the reader entirely. An
+  // ancestor that *scrolls* does not: the content below the fold of a scrolling
+  // panel is reached by scrolling, which is what a page is. So the first
+  // scrollable ancestor in an axis settles that axis — anything further up is
+  // measuring a scroll offset, not a clip.
   const isClipped = (node, rect) => {
     let parent = node.parentElement;
-    while (parent && parent !== document.body) {
+    let xResolved = false;
+    let yResolved = false;
+    while (parent && parent !== document.body && !(xResolved && yResolved)) {
       const cs = getComputedStyle(parent);
-      if (cs.overflow !== "visible" || cs.overflowX !== "visible" || cs.overflowY !== "visible") {
-        const pr = parent.getBoundingClientRect();
-        const outside =
-          rect.bottom <= pr.top + 0.5 ||
-          rect.top >= pr.bottom - 0.5 ||
-          rect.right <= pr.left + 0.5 ||
-          rect.left >= pr.right - 0.5;
-        if (outside) return true;
+      const pr = parent.getBoundingClientRect();
+      const hiddenX = cs.overflowX === "hidden" || cs.overflowX === "clip";
+      const hiddenY = cs.overflowY === "hidden" || cs.overflowY === "clip";
+      const scrollsX = cs.overflowX === "auto" || cs.overflowX === "scroll";
+      const scrollsY = cs.overflowY === "auto" || cs.overflowY === "scroll";
+      const outsideX = rect.right <= pr.left + 0.5 || rect.left >= pr.right - 0.5;
+      const outsideY = rect.bottom <= pr.top + 0.5 || rect.top >= pr.bottom - 0.5;
+
+      if (!xResolved) {
+        if (hiddenX && outsideX) return true;
+        if (scrollsX) xResolved = true;
       }
+      if (!yResolved) {
+        if (hiddenY && outsideY) return true;
+        if (scrollsY) yResolved = true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  };
+
+  const isOverlaid = (node) => {
+    let parent = node;
+    while (parent && parent !== document.body) {
+      const position = getComputedStyle(parent).position;
+      if (position === "fixed" || position === "absolute") return true;
       parent = parent.parentElement;
     }
     return false;
@@ -167,6 +202,7 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
       orderInOwner: order,
       visible,
       clipped: visible ? isClipped(node, rect) : false,
+      overlaid: isOverlaid(node),
       box: {
         x: rootRect.width ? (rect.left - rootRect.left) / rootRect.width : 0,
         y: rootRect.height ? (rect.top - rootRect.top) / rootRect.height : 0,
@@ -216,9 +252,34 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
     }
   }
 
+  // Does the surface scroll sideways at this width?
+  //
+  // Vertical scrolling is what a page does; horizontal scrolling is a layout
+  // that did not fit and said nothing about it. At 320 and 390 it is how a
+  // table pushes its own row actions off the side of the screen, and no single
+  // marker's geometry reveals it — the control is reachable, by a gesture
+  // nobody knows is available.
+  //
+  // A container that declares itself a horizontal scroller is exempt. Some
+  // content genuinely cannot fit 320px — a six-column plan table is the
+  // example — and scrolling that table inside its own frame is the answer.
+  // Scrolling the whole surface is not: it moves the navigation, the heading
+  // and every other column along with it. The distinction is declared in the
+  // markup rather than guessed at here.
+  let sidewaysScroll = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
+  if (!sidewaysScroll) {
+    for (const node of root.querySelectorAll("*")) {
+      if (node.hasAttribute("data-scroll-x")) continue;
+      const cs = getComputedStyle(node);
+      if (cs.overflowX !== "auto" && cs.overflowX !== "scroll") continue;
+      if (node.scrollWidth > node.clientWidth + 1) { sidewaysScroll = true; break; }
+    }
+  }
+
   return {
     facts,
     typeScale: [...sizes].sort((a, b) => a - b),
     palette: [...colors].sort(),
+    sidewaysScroll,
   };
 }`;

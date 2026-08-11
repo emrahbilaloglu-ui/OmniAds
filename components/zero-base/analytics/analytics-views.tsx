@@ -94,12 +94,15 @@ export function SourceOverviewView({
   overview,
   insight,
   unavailableReason,
+  trend,
 }: {
   panels: readonly SourcePanel[];
   /** The adapted `AnalyticsOverviewResponse`. Null when the shape was wrong. */
   overview: AdaptedAnalyticsOverview | null;
   insight: AdaptedInsight;
   unavailableReason?: string | null;
+  /** The trend drawn for the chosen source, between the choice and the panels. */
+  trend?: React.ReactNode;
 }) {
   const copy = useCopy();
   return (
@@ -116,6 +119,7 @@ export function SourceOverviewView({
           { id: "shopify", label: "Shopify", content: null },
         ]}
       />
+      {trend}
       <SourcePanels panels={panels} />
       {unavailableReason || !overview ? (
         <div style={{ marginTop: 12 }}>

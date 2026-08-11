@@ -8003,3 +8003,23 @@
     order: 1;
   }
 }
+
+/* Form controls measure their own padding and border. Without this an input
+   that fills its container overflows it by exactly its padding — 6px on every
+   dialog and drawer, enough to make the surface itself scroll sideways. */
+[data-adc-ui="zero-base"] input,
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea,
+[data-adc-ui="zero-base"] button {
+  box-sizing: border-box;
+}
+
+/* Grid and flex items may shrink below their own content.
+   Their default `min-width: auto` means a six-column table can never narrow,
+   so the surface becomes as wide as the table instead of the table scrolling
+   inside it — at 320 that pushed the heading and the plan controls off the
+   side of the screen. Controls that declare a minimum target size set it
+   inline, which still wins. */
+[data-adc-ui="zero-base"] * {
+  min-width: 0;
+}

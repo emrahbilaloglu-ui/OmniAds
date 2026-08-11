@@ -245,6 +245,23 @@ export function DecisionsView({
         </fieldset>
       </div>
 
+      {adsManagerHref ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
+          {/* Offered with the controls that scope the list rather than after
+              every row: an operator heading into Ads Manager is leaving, and
+              the way out belongs where the reading starts. */}
+          <a
+            href={adsManagerHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-ctl="live:META-DEC-13 open"
+            style={{ color: "var(--ledger-accent-action)" }}
+          >
+            {copy.openMetaAdsManager}
+          </a>
+        </p>
+      ) : null}
+
       <div data-lane-region="">
       <ZeroBaseTabs
         label={copy.decisionLanes}
@@ -403,19 +420,6 @@ export function DecisionsView({
       />
       </div>
 
-      {adsManagerHref ? (
-        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
-          <a
-            href={adsManagerHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-ctl="live:META-DEC-13 open"
-            style={{ color: "var(--ledger-accent-action)" }}
-          >
-            {copy.openMetaAdsManager}
-          </a>
-        </p>
-      ) : null}
 
 
 
@@ -538,7 +542,7 @@ function DecisionInspector({
       </dl>
 
       {stickyBar ? (
-        <div
+      <div
           data-decision-sticky-bar=""
           style={{
             position: "sticky",

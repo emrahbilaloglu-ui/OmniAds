@@ -98,7 +98,7 @@ export function HomeView({
         ) : null}
       </header>
 
-      <BannerStack banners={banners} />
+      <BannerStack banners={banners} connectHref={connectHref} />
 
       {/* Refresh never blanks the surface. While it runs, and if it fails, the
           previous numbers stay visible and are labelled for what they are. */}

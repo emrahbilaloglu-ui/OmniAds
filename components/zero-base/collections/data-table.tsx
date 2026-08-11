@@ -65,6 +65,11 @@ export function DataTable<Row>({
   const padding = density === "dense" ? "8px 12px" : "12px 14px";
 
   return (
+    // A table wide enough to need it scrolls inside its own frame. Letting the
+    // surface scroll instead drags the heading and the navigation sideways with
+    // it, and the columns that go off the edge — where the row actions are —
+    // give no sign they exist.
+    <div data-scroll-x="" style={{ overflowX: "auto", maxWidth: "100%" }}>
     <table
       data-collection={collection}
       style={{
@@ -138,6 +143,7 @@ export function DataTable<Row>({
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 

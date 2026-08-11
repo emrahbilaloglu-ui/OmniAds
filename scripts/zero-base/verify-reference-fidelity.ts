@@ -91,7 +91,8 @@ export interface FidelityFinding {
     | "placement"
     | "typography"
     | "line-height"
-    | "untokenised-colour";
+    | "untokenised-colour"
+    | "sideways-scroll";
   detail: string;
 }
 
@@ -321,6 +322,26 @@ export function compareFrame(
     }
   }
 
+  // A surface that runs off the side of the screen.
+  //
+  // Not derived from any one marker: the controls pushed off the edge are
+  // technically reachable, by a horizontal scroll nobody knows is there.
+  //
+  // Judged against the width the artboard declares, not against whether the
+  // mock's own page scrolls. The reference is a long document holding every
+  // artboard, so its canvas is wider than any one of them on 77 of the 83 —
+  // comparing against that made this check inert. What the design states is
+  // the width; a surface that does not fit the width it was drawn for has not
+  // met it.
+  if (implementation.sidewaysScroll) {
+    findings.push({
+      frame: reference.id,
+      key: `frame:${reference.id}`,
+      kind: "sideways-scroll",
+      detail: `something on this surface scrolls horizontally at ${implementation.width}px, the width this artboard is drawn for`,
+    });
+  }
+
   // Relative placement: what the reference fixes about the order of regions on
   // screen, independent of their size.
   const pairs = refFacts.filter((fact) => impl.has(fact.key));
@@ -352,6 +373,17 @@ export function compareFrame(
       // The mock draws its markers as a flat strip; that is how it was drawn,
       // not an ordering it states.
       if (ownerChain(ia).includes(b.key) || ownerChain(ib).includes(a.key)) continue;
+      // Not between the page and something drawn on top of it. An overlay's
+      // contents cover the surface rather than following it, so "above" and
+      // "below" do not apply across that boundary.
+      if (ia.overlaid !== ib.overlaid) continue;
+      // Not between a row and the page around it. Where a marker sits inside a
+      // collection, its height on screen is decided by how many rows precede it
+      // in the data — a fixture with one more decision moves it. The design
+      // fixes where the collection goes, not which row lands beside what.
+      const inCollection = (fact: VisualFact) =>
+        ownerChain(fact).some((entry) => entry.startsWith("collection:"));
+      if (inCollection(ia) !== inCollection(ib)) continue;
       // Only pairs the reference separates clearly, so a 1px difference in a
       // shared row is not treated as an ordering fact.
       if (a.box.y + 0.02 < b.box.y && ia.box.y > ib.box.y + 0.02) {
@@ -418,6 +450,25 @@ async function main() {
         waitUntil: "domcontentloaded",
       });
       await page.waitForTimeout(120);
+
+      // Measure the whole frame, not one screenful of it.
+      //
+      // The harness sizes each frame to one device viewport so captures are
+      // device-sized. Nothing is altered here — the shell's own scroll region
+      // is left exactly as it renders — but the viewport is grown to the
+      // content so the measurement covers the whole surface rather than the
+      // part that happens to be above the fold. The reference artboards are
+      // measured as whole drawings, so these are too.
+      const contentHeight = await page.evaluate(() => {
+        const scroller = document.querySelector("main");
+        return Math.ceil(
+          Math.max(scroller?.scrollHeight ?? 0, document.documentElement.scrollHeight),
+        );
+      });
+      if (contentHeight > 1600) {
+        await page.setViewportSize({ width: spec.width, height: Math.min(contentHeight + 80, 12000) });
+        await page.waitForTimeout(60);
+      }
 
       // Resolve the token palette in this document, so light and dark each
       // contribute the colours they actually produce.

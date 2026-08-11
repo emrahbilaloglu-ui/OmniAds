@@ -13,6 +13,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6238151041666666,
             "y": 0.4447852760736196,
@@ -48,6 +49,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8297265625,
             "y": 0.44785276073619634,
@@ -96,7 +98,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B02",
@@ -110,6 +113,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.21166666666666667,
             "y": 0.1791044776119403,
@@ -145,6 +149,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.21166666666666667,
             "y": 0.25522388059701495,
@@ -180,6 +185,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.21166666666666667,
             "y": 0.33134328358208953,
@@ -215,6 +221,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.21166666666666667,
             "y": 0.40746268656716417,
@@ -250,6 +257,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.21166666666666667,
             "y": 0.4835820895522388,
@@ -285,6 +293,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 1.0275,
             "y": 0.0708955223880597,
@@ -320,6 +329,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7362109375,
             "y": 0.4184701492537313,
@@ -355,6 +365,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6808333333333333,
             "y": 0.48563432835820897,
@@ -405,7 +416,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B03",
@@ -419,6 +431,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.31009114583333336,
             "y": 0.25181159420289856,
@@ -454,6 +467,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6294401041666666,
             "y": 0.23731884057971014,
@@ -489,6 +503,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6391666666666667,
             "y": 0.3351449275362319,
@@ -524,6 +539,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6391666666666667,
             "y": 0.5456295289855072,
@@ -559,6 +575,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7172135416666666,
             "y": 0.4774682971014493,
@@ -605,7 +622,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B04",
@@ -619,6 +637,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.21083333333333334,
             "y": 0.16847826086956522,
@@ -654,6 +673,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 1.0001432291666668,
             "y": 0.16847826086956522,
@@ -689,6 +709,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4166666666666667,
             "y": 0.2608695652173913,
@@ -726,6 +747,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4241666666666667,
             "y": 0.40398550724637683,
@@ -763,6 +785,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4483333333333333,
             "y": 0.40398550724637683,
@@ -800,6 +823,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4725,
             "y": 0.40398550724637683,
@@ -837,6 +861,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.49666666666666665,
             "y": 0.40398550724637683,
@@ -874,6 +899,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5208333333333334,
             "y": 0.40398550724637683,
@@ -911,6 +937,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5872135416666666,
             "y": 0.40398550724637683,
@@ -946,6 +973,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6263802083333333,
             "y": 0.2608695652173913,
@@ -981,6 +1009,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8361067708333333,
             "y": 0.2608695652173913,
@@ -1030,7 +1059,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B05",
@@ -1044,6 +1074,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01171875,
             "y": 0.058084772370486655,
@@ -1079,6 +1110,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.07682291666666667,
             "y": 0.058084772370486655,
@@ -1114,6 +1146,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9309895833333334,
             "y": 0.058084772370486655,
@@ -1149,6 +1182,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3294270833333333,
             "y": 0.061224489795918366,
@@ -1184,6 +1218,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.13814756671899528,
@@ -1219,6 +1254,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.21036106750392464,
@@ -1254,6 +1290,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.282574568288854,
@@ -1289,6 +1326,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.35478806907378335,
@@ -1324,6 +1362,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.42700156985871274,
@@ -1359,6 +1398,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.49921507064364207,
@@ -1394,6 +1434,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.01171875,
             "y": 0.5714285714285714,
@@ -1441,7 +1482,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B06",
@@ -1455,6 +1497,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01171875,
             "y": 0.08149779735682819,
@@ -1490,6 +1533,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.07682291666666667,
             "y": 0.08149779735682819,
@@ -1525,6 +1569,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01953125,
             "y": 0.22026431718061673,
@@ -1560,6 +1605,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15159098307291666,
             "y": 0.22026431718061673,
@@ -1595,6 +1641,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3038330078125,
             "y": 0.22026431718061673,
@@ -1630,6 +1677,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.020833333333333332,
             "y": 0.3700440528634361,
@@ -1665,6 +1713,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.020833333333333332,
             "y": 0.4911894273127753,
@@ -1700,6 +1749,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.020833333333333332,
             "y": 0.6123348017621145,
@@ -1735,6 +1785,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.020833333333333332,
             "y": 0.7334801762114538,
@@ -1770,6 +1821,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.0390625,
             "y": 0.8766519823788547,
@@ -1816,7 +1868,8 @@
         "rgb(60, 79, 98)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B07",
@@ -1830,6 +1883,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9205729166666666,
             "y": 0.060561299852289516,
@@ -1865,6 +1919,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.2903645833333333,
             "y": 0.8493353028064993,
@@ -1913,7 +1968,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B08",
@@ -1927,6 +1983,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01171875,
             "y": 0.07020872865275142,
@@ -1962,6 +2019,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.90057373046875,
             "y": 0.07020872865275142,
@@ -1997,6 +2055,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01953125,
             "y": 0.18975332068311196,
@@ -2032,6 +2091,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.036458333333333336,
             "y": 0.31688804554079697,
@@ -2069,6 +2129,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.049479166666666664,
             "y": 0.4781783681214421,
@@ -2106,6 +2167,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.11328125,
             "y": 0.4781783681214421,
@@ -2143,6 +2205,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.17708333333333334,
             "y": 0.4781783681214421,
@@ -2180,6 +2243,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.24088541666666666,
             "y": 0.4781783681214421,
@@ -2217,6 +2281,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3046875,
             "y": 0.4781783681214421,
@@ -2254,6 +2319,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3684895833333333,
             "y": 0.4781783681214421,
@@ -2289,6 +2355,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.505859375,
             "y": 0.31688804554079697,
@@ -2324,6 +2391,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.036458333333333336,
             "y": 0.5939278937381404,
@@ -2359,6 +2427,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01953125,
             "y": 0.888045540796964,
@@ -2406,7 +2475,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "B09",
@@ -2420,6 +2490,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.01308139534883721,
             "y": 0.06271186440677966,
@@ -2455,6 +2526,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.08575581395348837,
             "y": 0.06271186440677966,
@@ -2490,6 +2562,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.0436046511627907,
             "y": 0.2305084745762712,
@@ -2525,6 +2598,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.563953488372093,
             "y": 0.2305084745762712,
@@ -2560,6 +2634,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.5377225654069767,
             "y": 0.5502383474576271,
@@ -2595,6 +2670,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6617914244186046,
             "y": 0.5502383474576271,
@@ -2638,7 +2714,8 @@
         "rgb(63, 58, 51)",
         "rgb(84, 94, 150)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H01",
@@ -2652,6 +2729,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8061465992647059,
             "y": 0.12347117064647642,
@@ -2687,6 +2765,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7266084558823529,
             "y": 0.1537565521258008,
@@ -2722,6 +2801,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.26907396622015145,
@@ -2757,6 +2837,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.32847990681421085,
@@ -2792,6 +2873,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.38788584740827026,
@@ -2827,6 +2909,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.44729178800232966,
@@ -2862,6 +2945,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.5066977285963891,
@@ -2897,6 +2981,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.5661036691904484,
@@ -2932,6 +3017,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.6255096097845079,
@@ -2967,6 +3053,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.6849155503785672,
@@ -3002,6 +3089,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.7443214909726267,
@@ -3037,6 +3125,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9573529411764706,
             "y": 0.8037274315666861,
@@ -3072,6 +3161,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.8654630168899243,
@@ -3123,7 +3213,8 @@
         "rgb(88, 81, 74)",
         "rgb(94, 67, 83)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H02",
@@ -3137,6 +3228,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.18351063829787234,
@@ -3172,6 +3264,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6137867647058823,
             "y": 0.26861702127659576,
@@ -3207,6 +3300,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6137867647058823,
             "y": 0.3537234042553192,
@@ -3242,6 +3336,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6137867647058823,
             "y": 0.43882978723404253,
@@ -3277,6 +3372,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6137867647058823,
             "y": 0.523936170212766,
@@ -3312,6 +3408,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6137867647058823,
             "y": 0.6090425531914894,
@@ -3347,6 +3444,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6914893617021277,
@@ -3382,6 +3480,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6216796875,
             "y": 0.6848404255319149,
@@ -3417,6 +3516,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7051470588235295,
             "y": 0.13430851063829788,
@@ -3469,7 +3569,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H03",
@@ -3483,6 +3584,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.20892018779342722,
@@ -3518,6 +3620,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6300206801470588,
             "y": 0.36384976525821594,
@@ -3553,6 +3656,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.716796875,
             "y": 0.3438967136150235,
@@ -3590,6 +3694,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8161190257352942,
             "y": 0.36384976525821594,
@@ -3625,6 +3730,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.729296875,
             "y": 0.6675836267605634,
@@ -3675,7 +3781,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H04",
@@ -3689,6 +3796,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5109145220588235,
             "y": 0.36904761904761907,
@@ -3724,6 +3832,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5842945772058824,
             "y": 0.5282738095238095,
@@ -3759,6 +3868,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5842945772058824,
             "y": 0.5803571428571429,
@@ -3794,6 +3904,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5775160845588235,
             "y": 0.6324404761904762,
@@ -3829,6 +3940,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5623736213235294,
             "y": 0.6845238095238095,
@@ -3878,7 +3990,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H05",
@@ -3892,6 +4005,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8943014705882353,
             "y": 0.06533333333333333,
@@ -3927,6 +4041,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.94609375,
             "y": 0.06533333333333333,
@@ -3962,6 +4077,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.993359375,
             "y": 0.06533333333333333,
@@ -3997,6 +4113,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.24533333333333332,
@@ -4032,6 +4149,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.35333333333333333,
@@ -4067,6 +4185,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.444,
@@ -4102,6 +4221,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.49733333333333335,
@@ -4137,6 +4257,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.5426666666666666,
@@ -4172,6 +4293,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.652,
@@ -4207,6 +4329,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39705882352941174,
             "y": 0.7106666666666667,
@@ -4242,6 +4365,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5126378676470589,
             "y": 0.78,
@@ -4277,6 +4401,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3845588235294118,
             "y": 0.8666666666666667,
@@ -4326,7 +4451,8 @@
         "rgb(68, 77, 132)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H06",
@@ -4340,6 +4466,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.3238805970149254,
@@ -4375,6 +4502,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.42835820895522386,
@@ -4410,6 +4538,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.48507462686567165,
@@ -4445,6 +4574,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.5417910447761194,
@@ -4480,6 +4610,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.5985074626865672,
@@ -4515,6 +4646,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.5985074626865672,
@@ -4561,7 +4693,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H07",
@@ -4575,6 +4708,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.21029411764705883,
             "y": 0.44811021959459457,
@@ -4610,6 +4744,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7227941176470588,
             "y": 0.7863175675675675,
@@ -4655,7 +4790,8 @@
         "rgb(36, 32, 26)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H08",
@@ -4685,7 +4821,8 @@
         "rgb(36, 32, 26)",
         "rgb(36, 33, 29)",
         "rgb(42, 46, 71)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H09",
@@ -4699,6 +4836,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.27277113970588235,
             "y": 0.15134529147982062,
@@ -4734,6 +4872,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.34881663602941176,
             "y": 0.15134529147982062,
@@ -4769,6 +4908,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4653377757352941,
             "y": 0.15134529147982062,
@@ -4804,6 +4944,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7914636948529412,
             "y": 0.15358744394618834,
@@ -4839,6 +4980,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8773552389705882,
             "y": 0.15246636771300448,
@@ -4874,6 +5016,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9709099264705883,
             "y": 0.15358744394618834,
@@ -4909,6 +5052,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.23430493273542602,
@@ -4946,6 +5090,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4649356617647059,
             "y": 0.25672645739910316,
@@ -4983,6 +5128,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8735753676470588,
             "y": 0.257847533632287,
@@ -5018,6 +5164,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.30493273542600896,
@@ -5055,6 +5202,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4649356617647059,
             "y": 0.3273542600896861,
@@ -5092,6 +5240,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8735753676470588,
             "y": 0.32847533632286996,
@@ -5127,6 +5276,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.3755605381165919,
@@ -5164,6 +5314,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4649356617647059,
             "y": 0.39798206278026904,
@@ -5201,6 +5352,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8735753676470588,
             "y": 0.3991031390134529,
@@ -5236,6 +5388,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.4461883408071749,
@@ -5273,6 +5426,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4649356617647059,
             "y": 0.46860986547085204,
@@ -5310,6 +5464,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8735753676470588,
             "y": 0.4697309417040359,
@@ -5345,6 +5500,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.5257847533632287,
@@ -5380,6 +5536,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 1.0016888786764706,
             "y": 0.577354260089686,
@@ -5415,6 +5572,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6412556053811659,
@@ -5471,7 +5629,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H10",
@@ -5485,6 +5644,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 1.0227941176470587,
             "y": 0.052808988764044947,
@@ -5520,6 +5680,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9602251838235294,
             "y": 0.15056179775280898,
@@ -5555,6 +5716,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8852941176470588,
             "y": 0.3425561797752809,
@@ -5590,6 +5752,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7308823529411764,
             "y": 0.8067942415730337,
@@ -5625,6 +5788,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7198529411764706,
             "y": 0.9333391853932584,
@@ -5660,6 +5824,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7198529411764706,
             "y": 0.9333391853932584,
@@ -5695,6 +5860,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8436695772058823,
             "y": 0.9333391853932584,
@@ -5745,7 +5911,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H11",
@@ -5759,6 +5926,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.27277113970588235,
             "y": 0.17142176897742153,
@@ -5794,6 +5962,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.34819623161764707,
             "y": 0.17142176897742153,
@@ -5829,6 +5998,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4661764705882353,
             "y": 0.17142176897742153,
@@ -5864,6 +6034,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4148207720588235,
             "y": 0.28570294829570253,
@@ -5899,6 +6070,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9999885110294118,
             "y": 0.2818935756517599,
@@ -5934,6 +6106,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4148207720588235,
             "y": 0.3479227014801,
@@ -5969,6 +6142,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9999885110294118,
             "y": 0.3568112376492996,
@@ -6004,6 +6178,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4148207720588235,
             "y": 0.4342684814094679,
@@ -6039,6 +6214,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9999885110294118,
             "y": 0.4304591087655252,
@@ -6074,6 +6250,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.4990278163564938,
@@ -6109,6 +6286,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9686465992647059,
             "y": 0.4926788619499226,
@@ -6144,6 +6322,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.6018808777429467,
@@ -6179,6 +6358,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.6399746041823737,
@@ -6214,6 +6394,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.6780683306218007,
@@ -6249,6 +6430,7 @@
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.7161620570612277,
@@ -6284,6 +6466,7 @@
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.7542557835006547,
@@ -6319,6 +6502,7 @@
           "orderInOwner": 16,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.7923495099400818,
@@ -6354,6 +6538,7 @@
           "orderInOwner": 17,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.8304432363795088,
@@ -6405,7 +6590,8 @@
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H12",
@@ -6419,6 +6605,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.35073529411764703,
             "y": 0.3236363636363636,
@@ -6456,6 +6643,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.4924057904411765,
             "y": 0.6309090909090909,
@@ -6493,6 +6681,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.5798368566176471,
             "y": 0.6309090909090909,
@@ -6539,7 +6728,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H13",
@@ -6553,6 +6743,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6625,
             "y": 0.3648972602739726,
@@ -6588,6 +6779,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6625,
             "y": 0.48818493150684933,
@@ -6625,6 +6817,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9992991727941176,
             "y": 0.5059931506849316,
@@ -6660,6 +6853,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8425666360294117,
             "y": 0.9301369863013699,
@@ -6695,6 +6889,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.903860294117647,
             "y": 0.9301369863013699,
@@ -6743,7 +6938,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(92, 51, 32)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H14",
@@ -6757,6 +6953,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.36764705882352944,
             "y": 0.39776348039215687,
@@ -6792,6 +6989,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.547414981617647,
             "y": 0.6434129901960784,
@@ -6827,6 +7025,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6072380514705882,
             "y": 0.6434129901960784,
@@ -6869,7 +7068,8 @@
         "rgb(36, 32, 26)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H15",
@@ -6883,6 +7083,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6301470588235294,
             "y": 0.15538461538461537,
@@ -6920,6 +7121,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6426470588235295,
             "y": 0.43317307692307694,
@@ -6955,6 +7157,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9927734375,
             "y": 0.9153846153846154,
@@ -7002,7 +7205,8 @@
         "rgb(66, 92, 77)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H16",
@@ -7016,6 +7220,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6301470588235294,
             "y": 0.15538461538461537,
@@ -7064,7 +7269,8 @@
         "rgb(36, 32, 26)",
         "rgb(61, 70, 119)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H17",
@@ -7078,6 +7284,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9312385110294118,
             "y": 0.17045454545454544,
@@ -7113,6 +7320,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.22601010101010102,
@@ -7148,6 +7356,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.24002757352941176,
             "y": 0.22601010101010102,
@@ -7183,6 +7392,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3180951286764706,
             "y": 0.22601010101010102,
@@ -7218,6 +7428,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3876838235294118,
             "y": 0.22601010101010102,
@@ -7253,6 +7464,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.43934972426470587,
             "y": 0.22601010101010102,
@@ -7288,6 +7500,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5049862132352941,
             "y": 0.22601010101010102,
@@ -7323,6 +7536,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5692784926470589,
             "y": 0.22601010101010102,
@@ -7358,6 +7572,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5597311580882353,
             "y": 0.4861111111111111,
@@ -7393,6 +7608,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6174057904411765,
             "y": 0.48737373737373735,
@@ -7428,6 +7644,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5597311580882353,
             "y": 0.5669191919191919,
@@ -7463,6 +7680,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6174057904411765,
             "y": 0.5681818181818182,
@@ -7498,6 +7716,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6300505050505051,
@@ -7533,6 +7752,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6300505050505051,
@@ -7568,6 +7788,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7158777573529411,
             "y": 0.4356060606060606,
@@ -7619,7 +7840,8 @@
         "rgb(61, 70, 119)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H18",
@@ -7633,6 +7855,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2525045955882353,
             "y": 0.163855421686747,
@@ -7668,6 +7891,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3453125,
             "y": 0.163855421686747,
@@ -7703,6 +7927,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4435776654411765,
             "y": 0.16265060240963855,
@@ -7738,6 +7963,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.2253012048192771,
@@ -7773,6 +7999,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.28674698795180725,
@@ -7808,6 +8035,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.3481927710843373,
@@ -7843,6 +8071,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.40963855421686746,
@@ -7878,6 +8107,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.4710843373493976,
@@ -7913,6 +8143,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9661764705882353,
             "y": 0.5325301204819277,
@@ -7948,6 +8179,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4088465073529412,
             "y": 0.5903614457831325,
@@ -7983,6 +8215,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.45718060661764703,
             "y": 0.5951807228915663,
@@ -8018,6 +8251,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.6313253012048192,
@@ -8053,6 +8287,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 1.0227941176470587,
             "y": 0.056626506024096385,
@@ -8088,6 +8323,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7051470588235295,
             "y": 0.10481927710843374,
@@ -8144,7 +8380,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H19",
@@ -8158,6 +8395,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.21748878923766815,
@@ -8195,6 +8433,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.41591928251121074,
@@ -8230,6 +8469,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2139705882352941,
             "y": 0.554932735426009,
@@ -8265,6 +8505,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3309972426470588,
             "y": 0.554932735426009,
@@ -8300,6 +8541,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4480353860294118,
             "y": 0.554932735426009,
@@ -8335,6 +8577,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5650620404411765,
             "y": 0.554932735426009,
@@ -8370,6 +8613,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.701953125,
             "y": 0.31533772421524664,
@@ -8405,6 +8649,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.689453125,
             "y": 0.42856642376681614,
@@ -8457,7 +8702,8 @@
         "rgb(70, 83, 95)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H20",
@@ -8471,6 +8717,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8964269301470589,
             "y": 0.23734177215189872,
@@ -8519,7 +8766,8 @@
         "rgb(63, 58, 51)",
         "rgb(70, 83, 95)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H21",
@@ -8533,6 +8781,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.21182266009852216,
@@ -8568,6 +8817,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2752642463235294,
             "y": 0.21182266009852216,
@@ -8603,6 +8853,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3234719669117647,
             "y": 0.21182266009852216,
@@ -8638,6 +8889,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.37161075367647056,
             "y": 0.21182266009852216,
@@ -8673,6 +8925,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.42478170955882355,
             "y": 0.21182266009852216,
@@ -8708,6 +8961,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5117302389705882,
             "y": 0.21182266009852216,
@@ -8743,6 +8997,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.2697044334975369,
@@ -8778,6 +9033,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.31596966911764707,
             "y": 0.2697044334975369,
@@ -8813,6 +9069,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4563878676470588,
             "y": 0.2697044334975369,
@@ -8848,6 +9105,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8354549632352941,
             "y": 0.2697044334975369,
@@ -8885,6 +9143,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9891659007352941,
             "y": 0.2697044334975369,
@@ -8920,6 +9179,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.31527093596059114,
@@ -8955,6 +9215,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.39532019704433496,
@@ -8990,6 +9251,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.4753694581280788,
@@ -9025,6 +9287,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.5554187192118226,
@@ -9060,6 +9323,7 @@
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.6354679802955665,
@@ -9095,6 +9359,7 @@
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.7266009852216748,
@@ -9148,7 +9413,8 @@
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H22",
@@ -9162,6 +9428,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6376262626262627,
@@ -9197,6 +9464,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3153033088235294,
             "y": 0.6376262626262627,
@@ -9232,6 +9500,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5867532169117647,
             "y": 0.2932844065656566,
@@ -9267,6 +9536,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.43823529411764706,
             "y": 0.5411142676767676,
@@ -9319,7 +9589,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H23",
@@ -9333,6 +9604,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4088235294117647,
             "y": 0.30743243243243246,
@@ -9378,7 +9650,8 @@
         "rgb(61, 70, 119)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H24",
@@ -9392,6 +9665,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6364278590425532,
@@ -9427,6 +9701,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2864889705882353,
             "y": 0.6364278590425532,
@@ -9462,6 +9737,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7170496323529412,
             "y": 0.3803191489361702,
@@ -9497,6 +9773,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7170496323529412,
             "y": 0.511968085106383,
@@ -9550,7 +9827,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H25",
@@ -9564,6 +9842,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6169117647058824,
             "y": 0.17045454545454544,
@@ -9599,6 +9878,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6169117647058824,
             "y": 0.17045454545454544,
@@ -9634,6 +9914,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8883961397058824,
             "y": 0.2588383838383838,
@@ -9669,6 +9950,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7266084558823529,
             "y": 0.34974747474747475,
@@ -9704,6 +9986,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9385225183823529,
             "y": 0.5075757575757576,
@@ -9739,6 +10022,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9880629595588235,
             "y": 0.5075757575757576,
@@ -9791,7 +10075,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H26",
@@ -9805,6 +10090,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2073529411764706,
             "y": 0.3220858895705521,
@@ -9840,6 +10126,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3197610294117647,
             "y": 0.3220858895705521,
@@ -9890,7 +10177,8 @@
         "rgb(66, 92, 77)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H27",
@@ -9904,6 +10192,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9090188419117647,
             "y": 0.172,
@@ -9939,6 +10228,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9719554227941176,
             "y": 0.172,
@@ -9974,6 +10264,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9090188419117647,
             "y": 0.23466666666666666,
@@ -10009,6 +10300,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9719554227941176,
             "y": 0.23466666666666666,
@@ -10044,6 +10336,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.332,
@@ -10079,6 +10372,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3602941176470588,
             "y": 0.33616666666666667,
@@ -10116,6 +10410,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3602941176470588,
             "y": 0.33616666666666667,
@@ -10153,6 +10448,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.5323529411764706,
             "y": 0.33616666666666667,
@@ -10188,6 +10484,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3602941176470588,
             "y": 0.44816666666666666,
@@ -10223,6 +10520,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3698529411764706,
             "y": 0.5828333333333333,
@@ -10258,6 +10556,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.3589613970588235,
             "y": 0.674,
@@ -10293,6 +10592,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.4187844669117647,
             "y": 0.6633333333333333,
@@ -10328,6 +10628,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6421645220588236,
             "y": 0.6773333333333333,
@@ -10379,7 +10680,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H28",
@@ -10393,6 +10695,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6701066300675675,
@@ -10428,6 +10731,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6701066300675675,
@@ -10477,7 +10781,8 @@
         "rgb(63, 58, 51)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H29",
@@ -10491,6 +10796,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6323874080882353,
             "y": 0.3817733990147783,
@@ -10526,6 +10832,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6564039408866995,
@@ -10561,6 +10868,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6884236453201971,
@@ -10596,6 +10904,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7287224264705883,
             "y": 0.6317541564039408,
@@ -10646,7 +10955,8 @@
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H30",
@@ -10660,6 +10970,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2572265625,
             "y": 0.17045454545454544,
@@ -10697,6 +11008,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2572265625,
             "y": 0.17045454545454544,
@@ -10734,6 +11046,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3284811580882353,
             "y": 0.17045454545454544,
@@ -10771,6 +11084,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.38646599264705883,
             "y": 0.17045454545454544,
@@ -10806,6 +11120,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9297334558823529,
             "y": 0.31502525252525254,
@@ -10841,6 +11156,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9297334558823529,
             "y": 0.4305555555555556,
@@ -10876,6 +11192,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9297334558823529,
             "y": 0.5164141414141414,
@@ -10911,6 +11228,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.5833333333333334,
@@ -10964,7 +11282,8 @@
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H31",
@@ -10978,6 +11297,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6625,
             "y": 0.3687104430379747,
@@ -11013,6 +11333,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6735294117647059,
             "y": 0.7400909810126582,
@@ -11048,6 +11369,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7646943933823529,
             "y": 0.7400909810126582,
@@ -11083,6 +11405,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8595358455882353,
             "y": 0.7400909810126582,
@@ -11118,6 +11441,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6625,
             "y": 0.8704707278481013,
@@ -11153,6 +11477,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.7315257352941177,
             "y": 0.8805973101265823,
@@ -11201,7 +11526,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H32",
@@ -11215,6 +11541,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2884076286764706,
             "y": 0.19672131147540983,
@@ -11250,6 +11577,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5541015625,
             "y": 0.18442622950819673,
@@ -11285,6 +11613,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6190487132352941,
             "y": 0.18442622950819673,
@@ -11320,6 +11649,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5781135110294118,
             "y": 0.2650273224043716,
@@ -11355,6 +11685,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.39967554644808745,
@@ -11390,6 +11721,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5781135110294118,
             "y": 0.49556010928961747,
@@ -11425,6 +11757,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.6039959016393442,
@@ -11460,6 +11793,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5781135110294118,
             "y": 0.6998804644808743,
@@ -11495,6 +11829,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.808316256830601,
@@ -11530,6 +11865,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7164636948529411,
             "y": 0.24043715846994534,
@@ -11565,6 +11901,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7164636948529411,
             "y": 0.5002988387978142,
@@ -11615,7 +11952,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H33",
@@ -11629,6 +11967,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.21323529411764705,
             "y": 0.25029254172568827,
@@ -11666,6 +12005,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2301470588235294,
             "y": 0.33306645316253003,
@@ -11719,7 +12059,8 @@
         "rgb(66, 92, 77)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H34",
@@ -11733,6 +12074,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.17952127659574468,
@@ -11768,6 +12110,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2806066176470588,
             "y": 0.17952127659574468,
@@ -11803,6 +12146,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3501953125,
             "y": 0.17952127659574468,
@@ -11838,6 +12182,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4083295036764706,
             "y": 0.17952127659574468,
@@ -11873,6 +12218,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.49562270220588234,
             "y": 0.17952127659574468,
@@ -11908,6 +12254,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.582571231617647,
             "y": 0.17952127659574468,
@@ -11943,6 +12290,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6195427389705882,
             "y": 0.42021276595744683,
@@ -11978,6 +12326,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.601063829787234,
@@ -12013,6 +12362,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7158777573529411,
             "y": 0.5782912234042553,
@@ -12065,7 +12415,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H35",
@@ -12079,6 +12430,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.5639880952380952,
@@ -12116,6 +12468,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6210477941176471,
             "y": 0.5773809523809523,
@@ -12151,6 +12504,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7039636948529412,
             "y": 0.20089285714285715,
@@ -12188,6 +12542,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7164636948529411,
             "y": 0.25892857142857145,
@@ -12242,7 +12597,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H36",
@@ -12256,6 +12612,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.32699908088235297,
             "y": 0.20461309523809523,
@@ -12291,6 +12648,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.4270833333333333,
@@ -12341,7 +12699,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H37",
@@ -12355,6 +12714,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9282973345588236,
             "y": 0.21360759493670886,
@@ -12390,6 +12750,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8755170036764706,
             "y": 0.314873417721519,
@@ -12425,6 +12786,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9091222426470589,
             "y": 0.314873417721519,
@@ -12460,6 +12822,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9355928308823529,
             "y": 0.314873417721519,
@@ -12495,6 +12858,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9880744485294117,
             "y": 0.314873417721519,
@@ -12530,6 +12894,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8755170036764706,
             "y": 0.40189873417721517,
@@ -12565,6 +12930,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9091222426470589,
             "y": 0.40189873417721517,
@@ -12600,6 +12966,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9355928308823529,
             "y": 0.40189873417721517,
@@ -12635,6 +13002,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9880744485294117,
             "y": 0.40189873417721517,
@@ -12670,6 +13038,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8755170036764706,
             "y": 0.4889240506329114,
@@ -12705,6 +13074,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9091222426470589,
             "y": 0.4889240506329114,
@@ -12740,6 +13110,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9355928308823529,
             "y": 0.4889240506329114,
@@ -12775,6 +13146,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9880744485294117,
             "y": 0.4889240506329114,
@@ -12810,6 +13182,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.5727848101265823,
@@ -12845,6 +13218,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.5727848101265823,
@@ -12880,6 +13254,7 @@
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9686810661764705,
             "y": 0.564873417721519,
@@ -12926,7 +13301,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H38",
@@ -12940,6 +13316,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.1889705882352941,
             "y": 0.0837742504409171,
@@ -12975,6 +13352,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.1889705882352941,
             "y": 0.0837742504409171,
@@ -13010,6 +13388,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2,
             "y": 0.35978835978835977,
@@ -13045,6 +13424,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2357077205882353,
             "y": 0.35978835978835977,
@@ -13080,6 +13460,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.27960707720588235,
             "y": 0.35978835978835977,
@@ -13115,6 +13496,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2,
             "y": 0.3853615520282187,
@@ -13150,6 +13532,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.24672564338235295,
             "y": 0.3853615520282187,
@@ -13185,6 +13568,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2774816176470588,
             "y": 0.3853615520282187,
@@ -13220,6 +13604,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2,
             "y": 0.4109347442680776,
@@ -13255,6 +13640,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8413143382352941,
             "y": 0.0873015873015873,
@@ -13290,6 +13676,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9942440257352941,
             "y": 0.0837742504409171,
@@ -13325,6 +13712,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39558823529411763,
             "y": 0.13403880070546736,
@@ -13362,6 +13750,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.40294117647058825,
             "y": 0.21075837742504408,
@@ -13399,6 +13788,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.425,
             "y": 0.21075837742504408,
@@ -13436,6 +13826,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4470588235294118,
             "y": 0.21075837742504408,
@@ -13473,6 +13864,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.46911764705882353,
             "y": 0.21075837742504408,
@@ -13510,6 +13902,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.49779411764705883,
             "y": 0.21075837742504408,
@@ -13547,6 +13940,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5219439338235294,
             "y": 0.21075837742504408,
@@ -13584,6 +13978,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.54609375,
             "y": 0.21075837742504408,
@@ -13621,6 +14016,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5702435661764705,
             "y": 0.21075837742504408,
@@ -13658,6 +14054,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.40294117647058825,
             "y": 0.23721340388007053,
@@ -13693,6 +14090,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6093060661764705,
             "y": 0.13403880070546736,
@@ -13728,6 +14126,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8325942095588236,
             "y": 0.18094135802469136,
@@ -13763,6 +14162,7 @@
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.39558823529411763,
             "y": 0.2751322751322751,
@@ -13800,6 +14200,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7535615808823529,
             "y": 0.2848324514991182,
@@ -13837,6 +14238,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4051470588235294,
             "y": 0.3507771164021164,
@@ -13872,6 +14274,7 @@
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8230353860294117,
             "y": 0.2751322751322751,
@@ -13907,6 +14310,7 @@
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0,
             "y": 0.7107583774250441,
@@ -13944,6 +14348,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.013970588235294118,
             "y": 0.7451499118165785,
@@ -13997,7 +14402,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H39",
@@ -14011,6 +14417,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.23161764705882354,
             "y": 0.1316356513222331,
@@ -14054,7 +14461,8 @@
         "rgb(36, 32, 26)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H40",
@@ -14068,6 +14476,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.29411764705882354,
             "y": 0.15648529069316153,
@@ -14113,7 +14522,8 @@
         "rgb(63, 58, 51)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H41",
@@ -14127,6 +14537,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.21010638297872342,
@@ -14164,6 +14575,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8423483455882353,
             "y": 0.26728723404255317,
@@ -14201,6 +14613,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8924517463235294,
             "y": 0.26728723404255317,
@@ -14238,6 +14651,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8423483455882353,
             "y": 0.32978723404255317,
@@ -14275,6 +14689,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8423483455882353,
             "y": 0.39228723404255317,
@@ -14312,6 +14727,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8423483455882353,
             "y": 0.45478723404255317,
@@ -14349,6 +14765,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8423483455882353,
             "y": 0.5172872340425532,
@@ -14386,6 +14803,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.8830537683823529,
             "y": 0.5172872340425532,
@@ -14423,6 +14841,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.5651595744680851,
@@ -14470,7 +14889,8 @@
         "rgb(63, 58, 51)",
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H42",
@@ -14484,6 +14904,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6757352941176471,
             "y": 0.049206349206349205,
@@ -14519,6 +14940,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6919117647058823,
             "y": 0.1873015873015873,
@@ -14554,6 +14976,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6919117647058823,
             "y": 0.30793650793650795,
@@ -14589,6 +15012,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6919117647058823,
             "y": 0.42857142857142855,
@@ -14624,6 +15048,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6919117647058823,
             "y": 0.5492063492063493,
@@ -14659,6 +15084,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8863396139705882,
             "y": 0.9063492063492063,
@@ -14694,6 +15120,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.9476332720588235,
             "y": 0.8936507936507937,
@@ -14739,7 +15166,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H43",
@@ -14753,6 +15181,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6030330882352941,
             "y": 0.13524590163934427,
@@ -14788,6 +15217,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.37643612132352944,
             "y": 0.2185792349726776,
@@ -14823,6 +15253,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.37643612132352944,
             "y": 0.29098360655737704,
@@ -14858,6 +15289,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6355009191176471,
             "y": 0.29098360655737704,
@@ -14893,6 +15325,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.37643612132352944,
             "y": 0.3633879781420765,
@@ -14928,6 +15361,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5876378676470588,
             "y": 0.3633879781420765,
@@ -14963,6 +15397,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6350068933823529,
             "y": 0.3633879781420765,
@@ -14998,6 +15433,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.37643612132352944,
             "y": 0.43579234972677594,
@@ -15033,6 +15469,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6350068933823529,
             "y": 0.43579234972677594,
@@ -15068,6 +15505,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.4890710382513661,
@@ -15103,6 +15541,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7039636948529412,
             "y": 0.13524590163934427,
@@ -15138,6 +15577,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9465992647058824,
             "y": 0.6635288592896175,
@@ -15173,6 +15613,7 @@
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9931181066176471,
             "y": 0.6635288592896175,
@@ -15225,7 +15666,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H44",
@@ -15239,6 +15681,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7232421875,
             "y": 0.28322784810126583,
@@ -15274,6 +15717,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.35443037974683544,
@@ -15309,6 +15753,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.5085294699367089,
@@ -15356,7 +15801,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H45",
@@ -15370,6 +15816,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.1717171717171717,
@@ -15407,6 +15854,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5176470588235295,
             "y": 0.2361111111111111,
@@ -15444,6 +15892,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5176470588235295,
             "y": 0.2828282828282828,
@@ -15481,6 +15930,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5176470588235295,
             "y": 0.32954545454545453,
@@ -15518,6 +15968,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5176470588235295,
             "y": 0.37626262626262624,
@@ -15553,6 +16004,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9455882352941176,
             "y": 0.2361111111111111,
@@ -15588,6 +16040,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9455882352941176,
             "y": 0.2828282828282828,
@@ -15623,6 +16076,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.9455882352941176,
             "y": 0.32954545454545453,
@@ -15658,6 +16112,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.4823232323232323,
@@ -15693,6 +16148,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.6898871527777778,
@@ -15730,6 +16186,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20588235294117646,
             "y": 0.8355823863636364,
@@ -15786,7 +16243,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 74, 30)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H46",
@@ -15800,6 +16258,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.23809523809523808,
@@ -15835,6 +16294,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.3333333333333333,
@@ -15870,6 +16330,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.20441176470588235,
             "y": 0.4568452380952381,
@@ -15905,6 +16366,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.2708065257352941,
             "y": 0.4568452380952381,
@@ -15940,6 +16402,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5772058823529411,
             "y": 0.23809523809523808,
@@ -15975,6 +16438,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5772058823529411,
             "y": 0.3318452380952381,
@@ -16010,6 +16474,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5772058823529411,
             "y": 0.39880952380952384,
@@ -16045,6 +16510,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5647058823529412,
             "y": 0.49255952380952384,
@@ -16082,6 +16548,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5772058823529411,
             "y": 0.6224423363095238,
@@ -16130,7 +16597,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H47",
@@ -16144,6 +16612,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.2085889570552147,
@@ -16179,6 +16648,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.4085745782208589,
@@ -16227,7 +16697,8 @@
         "rgb(36, 32, 26)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H48",
@@ -16241,6 +16712,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19191176470588237,
             "y": 0.13164893617021275,
@@ -16276,6 +16748,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5783777573529412,
             "y": 0.2646276595744681,
@@ -16311,6 +16784,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5783777573529412,
             "y": 0.32978723404255317,
@@ -16346,6 +16820,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5783777573529412,
             "y": 0.3949468085106383,
@@ -16381,6 +16856,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5783777573529412,
             "y": 0.4601063829787234,
@@ -16416,6 +16892,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.19264705882352942,
             "y": 0.511968085106383,
@@ -16451,6 +16928,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7158777573529411,
             "y": 0.3521027260638298,
@@ -16499,7 +16977,8 @@
         "rgb(36, 32, 26)",
         "rgb(63, 58, 51)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H49",
@@ -16513,6 +16992,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.0007352941176470588,
             "y": 0.933993399339934,
@@ -16561,7 +17041,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H50",
@@ -16575,6 +17056,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.07238883143743537,
@@ -16610,6 +17092,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.07238883143743537,
@@ -16645,6 +17128,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.07238883143743537,
@@ -16680,6 +17164,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.8293691830403309,
@@ -16724,7 +17209,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H51",
@@ -16738,6 +17224,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.05663430420711974,
@@ -16773,6 +17260,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.05663430420711974,
@@ -16808,6 +17296,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.15857605177993528,
@@ -16843,6 +17332,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.2459546925566343,
@@ -16878,6 +17368,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.2459546925566343,
@@ -16913,6 +17404,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.3656957928802589,
@@ -16948,6 +17440,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.4854368932038835,
@@ -16983,6 +17476,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.6051779935275081,
@@ -17018,6 +17512,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.7491909385113269,
@@ -17053,6 +17548,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6830929487179487,
             "y": 0.7249190938511327,
@@ -17088,6 +17584,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.8090614886731392,
@@ -17136,7 +17633,8 @@
         "rgb(88, 81, 74)",
         "rgb(94, 67, 83)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H52",
@@ -17150,6 +17648,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.06505576208178439,
@@ -17185,6 +17684,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.06505576208178439,
@@ -17220,6 +17720,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.8104089219330854,
@@ -17255,6 +17756,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.6897435897435897,
             "y": 0.8104089219330854,
@@ -17301,7 +17803,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 51, 32)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H53",
@@ -17315,6 +17818,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.06523765144454799,
@@ -17350,6 +17854,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.06523765144454799,
@@ -17385,6 +17890,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.5312208760484622,
@@ -17420,6 +17926,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.809878844361603,
@@ -17455,6 +17962,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5153846153846153,
             "y": 0.809878844361603,
@@ -17490,6 +17998,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7307692307692307,
             "y": 0.809878844361603,
@@ -17536,7 +18045,8 @@
         "rgb(70, 83, 95)",
         "rgb(84, 94, 150)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H54",
@@ -17550,6 +18060,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0,
             "y": 0.04517950786607503,
@@ -17587,6 +18098,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.4282051282051282,
             "y": 0.28075837031060913,
@@ -17635,7 +18147,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H55",
@@ -17649,6 +18162,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.0658165364047717,
@@ -17684,6 +18198,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.0658165364047717,
@@ -17719,6 +18234,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.0658165364047717,
@@ -17757,6 +18273,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.10906740318505025,
@@ -17792,6 +18309,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.040625,
             "y": 0.8081918081918081,
@@ -17836,7 +18354,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H56",
@@ -17850,6 +18369,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.07584772408455473,
@@ -17885,6 +18405,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.07584772408455473,
@@ -17920,6 +18441,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.17027040100614327,
@@ -17955,6 +18477,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.2848159435011851,
@@ -17990,6 +18513,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.39936148599622695,
@@ -18025,6 +18549,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.666455078125,
             "y": 0.5139070284912688,
@@ -18060,6 +18585,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.594398490785082,
@@ -18107,7 +18633,8 @@
         "rgb(88, 81, 74)",
         "rgb(94, 67, 83)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H57",
@@ -18121,6 +18648,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.0967632447776852,
@@ -18156,6 +18684,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.0967632447776852,
@@ -18191,6 +18720,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.6958869449844179,
@@ -18226,6 +18756,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.7985744700546145,
@@ -18272,7 +18803,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 51, 32)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H58",
@@ -18286,6 +18818,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.07278871774874894,
@@ -18321,6 +18854,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.07278871774874894,
@@ -18356,6 +18890,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.5528693052576851,
@@ -18391,6 +18926,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.6797296419055047,
@@ -18426,6 +18962,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.034375,
             "y": 0.787872879703646,
@@ -18461,6 +18998,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5125,
             "y": 0.787872879703646,
@@ -18506,7 +19044,8 @@
         "rgb(70, 83, 95)",
         "rgb(84, 94, 150)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H59",
@@ -18520,6 +19059,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0,
             "y": 0.052560567841849,
@@ -18557,6 +19097,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.41875,
             "y": 0.28157447058133395,
@@ -18602,7 +19143,8 @@
         "rgb(51, 114, 76)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H60",
@@ -18616,6 +19158,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.051698670605613,
@@ -18651,6 +19194,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.051698670605613,
@@ -18686,6 +19230,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.6384615384615384,
             "y": 0.05465288035450517,
@@ -18721,6 +19266,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.1255539143279173,
@@ -18756,6 +19302,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.20236336779911374,
@@ -18791,6 +19338,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.20236336779911374,
@@ -18826,6 +19374,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.28064992614475626,
@@ -18861,6 +19410,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.34711964549483015,
@@ -18896,6 +19446,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.413589364844904,
@@ -18931,6 +19482,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.48005908419497784,
@@ -18966,6 +19518,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.5465288035450517,
@@ -19001,6 +19554,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.6129985228951256,
@@ -19036,6 +19590,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.6794682422451994,
@@ -19083,7 +19638,8 @@
         "rgb(61, 70, 119)",
         "rgb(84, 94, 150)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H61",
@@ -19097,6 +19653,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.054945054945054944,
@@ -19132,6 +19689,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.054945054945054944,
@@ -19167,6 +19725,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.690625,
             "y": 0.058084772370486655,
@@ -19202,6 +19761,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.040625,
             "y": 0.13343799058084774,
@@ -19237,6 +19797,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.040625,
             "y": 0.2150706436420722,
@@ -19272,6 +19833,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.040625,
             "y": 0.2150706436420722,
@@ -19307,6 +19869,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.29827315541601257,
@@ -19342,6 +19905,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.36891679748822603,
@@ -19377,6 +19941,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.43956043956043955,
@@ -19412,6 +19977,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.5102040816326531,
@@ -19447,6 +20013,7 @@
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.5808477237048666,
@@ -19482,6 +20049,7 @@
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.6514913657770801,
@@ -19517,6 +20085,7 @@
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.028125,
             "y": 0.7221350078492935,
@@ -19564,7 +20133,8 @@
         "rgb(61, 70, 119)",
         "rgb(84, 94, 150)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H62",
@@ -19592,7 +20162,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 51, 32)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H63",
@@ -19606,6 +20177,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.04827586206896552,
@@ -19641,6 +20213,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.04827586206896552,
@@ -19676,6 +20249,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.2827586206896552,
@@ -19713,6 +20287,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.8487179487179487,
             "y": 0.2979310344827586,
@@ -19750,6 +20325,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.3737931034482759,
@@ -19787,6 +20363,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.3737931034482759,
@@ -19824,6 +20401,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.43586206896551727,
@@ -19861,6 +20439,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.43586206896551727,
@@ -19898,6 +20477,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.4979310344827586,
@@ -19935,6 +20515,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.56,
@@ -19972,6 +20553,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.56,
@@ -20009,6 +20591,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.6220689655172413,
@@ -20046,6 +20629,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.6841379310344827,
@@ -20083,6 +20667,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.7462068965517241,
@@ -20120,6 +20705,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.7462068965517241,
@@ -20157,6 +20743,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.8082758620689655,
@@ -20200,7 +20787,8 @@
         "rgb(252, 252, 249)",
         "rgb(36, 32, 26)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H64",
@@ -20214,6 +20802,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.028125,
             "y": 0.04701141705842848,
@@ -20249,6 +20838,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.184375,
             "y": 0.04701141705842848,
@@ -20284,6 +20874,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.27535258562793824,
@@ -20321,6 +20912,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.815625,
             "y": 0.29012760241773,
@@ -20358,6 +20950,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.36400268636668903,
@@ -20395,6 +20988,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.36400268636668903,
@@ -20432,6 +21026,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.4244459368703828,
@@ -20469,6 +21064,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.4244459368703828,
@@ -20506,6 +21102,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.48488918737407655,
@@ -20543,6 +21140,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.5453324378777703,
@@ -20580,6 +21178,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.5453324378777703,
@@ -20617,6 +21216,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.6057756883814641,
@@ -20654,6 +21254,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.6662189388851578,
@@ -20691,6 +21292,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.7266621893888516,
@@ -20728,6 +21330,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.7266621893888516,
@@ -20765,6 +21368,7 @@
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
+          "overlaid": true,
           "box": {
             "x": 0.003125,
             "y": 0.7871054398925453,
@@ -20808,7 +21412,8 @@
         "rgb(252, 252, 249)",
         "rgb(36, 32, 26)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H65",
@@ -20822,6 +21427,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.047153714906157905,
@@ -20857,6 +21463,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.047153714906157905,
@@ -20892,6 +21499,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.1253296106716302,
@@ -20927,6 +21535,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.19233752132774934,
@@ -20964,6 +21573,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.19233752132774934,
@@ -21001,6 +21611,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.28416317667132,
@@ -21036,6 +21647,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.37598883201489064,
@@ -21071,6 +21683,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.505700325732899,
@@ -21106,6 +21719,7 @@
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.6049713044827051,
@@ -21143,6 +21757,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.06666666666666667,
             "y": 0.6742671009771987,
@@ -21178,6 +21793,7 @@
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.752442996742671,
@@ -21215,6 +21831,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.06666666666666667,
             "y": 0.8331006669768884,
@@ -21263,7 +21880,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "H66",
@@ -21277,6 +21895,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.08373205741626795,
@@ -21312,6 +21931,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.08373205741626795,
@@ -21347,6 +21967,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.002564102564102564,
             "y": 0.20574162679425836,
@@ -21384,6 +22005,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.23444976076555024,
@@ -21421,6 +22043,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.48325358851674644,
@@ -21458,6 +22081,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.6124401913875598,
@@ -21502,7 +22126,8 @@
         "rgb(61, 70, 119)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "P01",
@@ -21516,6 +22141,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.84953447640118,
             "y": 0.13988095238095238,
@@ -21558,7 +22184,8 @@
         "rgb(68, 77, 132)",
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P02",
@@ -21572,6 +22199,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.84953447640118,
             "y": 0.14992025518341306,
@@ -21617,7 +22245,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P03",
@@ -21637,7 +22266,8 @@
         "rgb(51, 114, 76)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P04",
@@ -21651,6 +22281,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.1439697265625,
             "y": 0.09895720963682128,
@@ -21686,6 +22317,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.844189453125,
             "y": 0.2830636461704423,
@@ -21730,7 +22362,8 @@
         "rgb(68, 77, 132)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P05",
@@ -21744,6 +22377,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.3220588235294118,
             "y": 0.14332904092715973,
@@ -21779,6 +22413,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5301470588235294,
             "y": 0.3386148591904149,
@@ -21814,6 +22449,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5522058823529412,
             "y": 0.3386148591904149,
@@ -21849,6 +22485,7 @@
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5742647058823529,
             "y": 0.3386148591904149,
@@ -21884,6 +22521,7 @@
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5963235294117647,
             "y": 0.3386148591904149,
@@ -21919,6 +22557,7 @@
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.5499770220588235,
             "y": 0.6696713509881865,
@@ -21968,7 +22607,8 @@
         "rgb(84, 94, 150)",
         "rgb(88, 81, 74)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P06",
@@ -21982,6 +22622,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.024934383202099737,
             "y": 0.09635974304068523,
@@ -22017,6 +22658,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.7737655839895013,
             "y": 0.816916488222698,
@@ -22069,7 +22711,8 @@
         "rgb(88, 81, 74)",
         "rgb(94, 67, 83)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": false
     },
     {
       "id": "P07",
@@ -22083,6 +22726,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.023076923076923078,
             "y": 0.06961839242664786,
@@ -22118,6 +22762,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.15128205128205127,
             "y": 0.06961839242664786,
@@ -22153,6 +22798,7 @@
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.03333333333333333,
             "y": 0.771388251896278,
@@ -22200,7 +22846,8 @@
         "rgb(88, 81, 74)",
         "rgb(92, 51, 32)",
         "rgb(99, 92, 85)"
-      ]
+      ],
+      "sidewaysScroll": true
     },
     {
       "id": "P08",
@@ -22214,6 +22861,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0,
             "y": 0.14757709251101322,
@@ -22251,6 +22899,7 @@
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.11612903225806452,
             "y": 0.27973568281938327,
@@ -22288,6 +22937,7 @@
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
+          "overlaid": false,
           "box": {
             "x": 0.594304435483871,
             "y": 0.27973568281938327,
@@ -22345,7 +22995,8 @@
         "rgb(42, 30, 39)",
         "rgb(43, 37, 23)",
         "rgb(46, 33, 26)"
-      ]
+      ],
+      "sidewaysScroll": true
     }
   ]
 }

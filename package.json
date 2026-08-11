@@ -173,7 +173,7 @@
     "test:zero-base:a11y": "npm run zero-base:shell:harness && npm run zero-base:legibility && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-a11y-chromium",
     "zero-base:visual": "node --import tsx scripts/zero-base/visual-regression.ts",
     "test:zero-base:visual": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-visual-chromium",
-    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:locale && npm run test:zero-base:flows && npm run test:zero-base:states && npm run zero-base:reconcile:frames && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive",
+    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:locale && npm run test:zero-base:flows && npm run test:zero-base:states && npm run test:zero-base:reference && npm run zero-base:reconcile:frames && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive",
     "zero-base:locale": "node --import tsx scripts/zero-base/verify-locale-coverage.ts",
     "test:zero-base:routes:http": "node --import tsx scripts/zero-base/route-http-smoke.ts",
     "zero-base:perf:bundles": "node --import tsx scripts/zero-base/measure-performance.ts",
@@ -186,7 +186,9 @@
     "test:zero-base:routes:roles": "node --import tsx scripts/zero-base/route-role-matrix.ts",
     "test:zero-base:states": "vitest run components/zero-base/states/state-matrix.test.tsx components/zero-base/interactions && node --import tsx scripts/zero-base/reconcile-states.ts",
     "zero-base:frames:build": "node --import tsx scripts/zero-base/build-frame-harness.tsx",
-    "test:zero-base:frames": "npm run zero-base:frames:build && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-frames-chromium && node --import tsx scripts/zero-base/reconcile-frames.ts"
+    "test:zero-base:frames": "npm run zero-base:frames:build && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-frames-chromium && node --import tsx scripts/zero-base/reconcile-frames.ts",
+    "zero-base:reference:extract": "node --import tsx scripts/zero-base/extract-design-reference.ts",
+    "test:zero-base:reference": "npm run zero-base:reference:extract && npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-anatomy.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

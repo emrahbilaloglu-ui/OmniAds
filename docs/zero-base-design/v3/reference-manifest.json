@@ -1,0 +1,2591 @@
+{
+  "zipSha256": "0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d",
+  "generatedFrom": "Adsecute Zero-Base Design.zip",
+  "frames": [
+    {
+      "id": "B01",
+      "label": "B01 Client Home at 1280",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "live:chart-table-toggle"
+      ],
+      "collections": [
+        "b01-sources"
+      ]
+    },
+    {
+      "id": "B02",
+      "label": "B02 Meta Decisions + inspector at 1280",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 1280,
+      "els": [],
+      "ctls": [
+        "gated:META-WF-02..08 menu",
+        "gated:META-WRITE-01 open-manual",
+        "live:META-DEC-05 open-inspector",
+        "live:close"
+      ],
+      "collections": [
+        "b02-decisions"
+      ]
+    },
+    {
+      "id": "B03",
+      "label": "B03 Google Manual Plan at 1280",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 1280,
+      "els": [],
+      "ctls": [
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy-all"
+      ],
+      "collections": [
+        "b03-journal",
+        "b03-plan"
+      ]
+    },
+    {
+      "id": "B04",
+      "label": "B04 Reports Builder at 1280",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 1280,
+      "els": [],
+      "ctls": [
+        "live:REPORT-03 exit",
+        "live:REPORT-03 nudge-move",
+        "live:REPORT-03 nudge-resize",
+        "live:REPORT-03 undo",
+        "live:REPORT-03 widget-select",
+        "{{ s.ctl }}"
+      ],
+      "collections": [
+        "b04-sources"
+      ]
+    },
+    {
+      "id": "B05",
+      "label": "B05 Rail-to-drawer at 768 — open",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 1280,
+      "els": [],
+      "ctls": [
+        "live:MOBILE-02 scope-sheet",
+        "live:SCOPE-11 search",
+        "live:nav",
+        "live:nav-drawer",
+        "live:nav-drawer close"
+      ],
+      "collections": []
+    },
+    {
+      "id": "B06",
+      "label": "B06 Meta Decisions table at 768",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 768,
+      "els": [],
+      "ctls": [
+        "live:META-DEC-05 open-inspector",
+        "live:MOBILE-02 scope-sheet",
+        "live:lane",
+        "live:nav-drawer"
+      ],
+      "collections": [
+        "b06-decisions"
+      ]
+    },
+    {
+      "id": "B07",
+      "label": "B07 Decision inspector as sheet at 768",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 768,
+      "els": [],
+      "ctls": [
+        "gated:META-WRITE-01 open-manual",
+        "live:close"
+      ],
+      "collections": []
+    },
+    {
+      "id": "B08",
+      "label": "B08 Reports Builder at 768",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 768,
+      "els": [],
+      "ctls": [
+        "live:REPORT-03 exit",
+        "live:REPORT-03 nudge-move",
+        "live:REPORT-03 nudge-resize",
+        "live:REPORT-03 undo",
+        "live:REPORT-03 widget-select",
+        "live:REPORT-07 breakdown",
+        "live:nav-drawer",
+        "{{ s.ctl }}"
+      ],
+      "collections": [
+        "b08-sources"
+      ]
+    },
+    {
+      "id": "B09",
+      "label": "B09 Google manual plan + confirm dialog at 768",
+      "file": "18 Critical Flows at 1280 and 768.dc.html",
+      "fileSha256": "a7da019f93d4c461d09bb873a6534e31f7e18fb3b231cadfce73c7e982452633",
+      "width": 768,
+      "els": [],
+      "ctls": [
+        "live:GOOGLE-26 dismiss",
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy",
+        "live:MOBILE-02 scope-sheet",
+        "live:cancel",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H01",
+      "label": "H01 Agency Desk — Today",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": null,
+      "els": [
+        "withheld-tile"
+      ],
+      "ctls": [
+        "live:AGENCY-02 withheld-explainer",
+        "live:AGENCY-04 open-client"
+      ],
+      "collections": [
+        "h01-clients"
+      ]
+    },
+    {
+      "id": "H02",
+      "label": "H02 Agency Desk — Clients + withheld explainer",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [
+        "withheld-explainer"
+      ],
+      "ctls": [
+        "live:AGENCY-04 load-more",
+        "live:AGENCY-04 open-client",
+        "live:SCOPE-11 client-search"
+      ],
+      "collections": [
+        "h02-clients"
+      ]
+    },
+    {
+      "id": "H03",
+      "label": "H03 Client Home",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [
+        "home-kpis",
+        "source-readiness"
+      ],
+      "ctls": [
+        "live:ECON-04 divergence-link",
+        "live:chart-table-toggle"
+      ],
+      "collections": [
+        "h03-sources"
+      ]
+    },
+    {
+      "id": "H04",
+      "label": "H04 Client Home — partial sources",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [],
+      "ctls": [
+        "live:INTEGRATION-03 connect",
+        "{{ s.ctl }}"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H05",
+      "label": "H05 Login",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [
+        "login-form"
+      ],
+      "ctls": [
+        "live:AUTH-01",
+        "live:AUTH-02 email",
+        "live:AUTH-02 password",
+        "live:AUTH-02 submit",
+        "live:AUTH-03 google",
+        "live:AUTH-04 facebook",
+        "live:AUTH-05 forgot",
+        "live:AUTH-06 demo",
+        "live:PUBLIC-03",
+        "live:PUBLIC-05"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H06",
+      "label": "H06 Global search open",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [
+        "search-results"
+      ],
+      "ctls": [
+        "live:SCOPE-12 result"
+      ],
+      "collections": [
+        "h06-search"
+      ]
+    },
+    {
+      "id": "H07",
+      "label": "H07 Business switch — context reset",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [
+        "context-reset"
+      ],
+      "ctls": [
+        "live:SCOPE-03 assign"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H08",
+      "label": "H08 Client Home — dark theme",
+      "file": "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+      "fileSha256": "9d580e7a54f4d5930f3290e71a02895f84e910f45827b2bf9ef2c0f8ec8a93a1",
+      "width": 1440,
+      "els": [],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H09",
+      "label": "H09 Meta Decisions workspace",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": null,
+      "els": [
+        "stale-demoted",
+        "verdict-chip",
+        "wf-chip"
+      ],
+      "ctls": [
+        "live:INV-18 share-view",
+        "live:META-DEC-01 lane",
+        "live:META-DEC-02 level",
+        "live:META-DEC-05 open-inspector",
+        "live:META-DEC-13 open",
+        "live:META-DEC-17 search"
+      ],
+      "collections": [
+        "h09-decisions"
+      ]
+    },
+    {
+      "id": "H10",
+      "label": "H10 Decision inspector",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "asof-row",
+        "evidence-window",
+        "provenance-gap",
+        "row-action"
+      ],
+      "ctls": [
+        "gated:META-WRITE-01 open-manual",
+        "live:CREATIVE-07 brief",
+        "live:close"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H11",
+      "label": "H11 Needs Resolution + workflow menu",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "blocker-chip"
+      ],
+      "ctls": [
+        "gated:META-WF-02..08 menu",
+        "live:META-DEC-05 load-more",
+        "live:lane"
+      ],
+      "collections": [
+        "h11-needsres"
+      ]
+    },
+    {
+      "id": "H12",
+      "label": "H12 Workflow conflict dialog",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "conflict-dialog"
+      ],
+      "ctls": [
+        "live:META-WF-11 keep",
+        "live:META-WF-11 reapply"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H13",
+      "label": "H13 Manual write — preflight",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "before-after",
+        "preflight-age"
+      ],
+      "ctls": [
+        "gated:META-WRITE-02 continue",
+        "live:META-WRITE-06 rerun",
+        "live:cancel"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H14",
+      "label": "H14 Manual write — confirmation",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "confirm-restate"
+      ],
+      "ctls": [
+        "gated:META-WRITE-02 submit",
+        "live:cancel"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H15",
+      "label": "H15 Manual write — verified receipt",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "receipt"
+      ],
+      "ctls": [
+        "live:META-WRITE-08 copy-receipt",
+        "live:done"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H16",
+      "label": "H16 Manual write — reconciliation",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "reconciliation-state"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H17",
+      "label": "H17 Meta Account Intelligence",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "intel-recs",
+        "label-chips"
+      ],
+      "ctls": [
+        "gated:META-INTEL-09 run-snapshot",
+        "live:META-INTEL-07 respond",
+        "live:tab"
+      ],
+      "collections": [
+        "h17-recs"
+      ]
+    },
+    {
+      "id": "H18",
+      "label": "H18 Meta History + replay",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "history-gap",
+        "replay-banner"
+      ],
+      "ctls": [
+        "live:META-HIST-05 cursor",
+        "live:META-HIST-05 filter",
+        "live:META-HIST-05 search",
+        "live:META-HIST-06 replay",
+        "live:close"
+      ],
+      "collections": [
+        "h18-history"
+      ]
+    },
+    {
+      "id": "H19",
+      "label": "H19 Automation & Meta Stop",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [
+        "google-posture-row",
+        "guardrails-readonly"
+      ],
+      "ctls": [
+        "gated:AUTO-01A engage",
+        "gated:AUTO-03 mode"
+      ],
+      "collections": [
+        "h19-guardrails"
+      ]
+    },
+    {
+      "id": "H20",
+      "label": "H20 Meta stop engaged + release preflight",
+      "file": "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+      "fileSha256": "e70ad438708666cd8f1e90f5b08ff810cf0dfafa2963abea0f70de42d817b895",
+      "width": 1440,
+      "els": [],
+      "ctls": [
+        "gated:AUTO-02 release"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H21",
+      "label": "H21 Creative performance list",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": null,
+      "els": [
+        "engine-posture"
+      ],
+      "ctls": [
+        "live:CREATIVE-02 open",
+        "live:CREATIVE-12 preset",
+        "live:CREATIVE-12 sort",
+        "live:CREATIVE-13 filter",
+        "live:META-DEC-05 load-more",
+        "live:tab"
+      ],
+      "collections": [
+        "h21-creatives"
+      ]
+    },
+    {
+      "id": "H22",
+      "label": "H22 Creative detail — actionable",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "enrichment-label",
+        "hysteresis-note"
+      ],
+      "ctls": [
+        "live:CREATIVE-07 brief",
+        "live:CREATIVE-10 share"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H23",
+      "label": "H23 Creative detail — shadow-only",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "shadow-review-band"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H24",
+      "label": "H24 Creative brief — detail",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "brief-lineage"
+      ],
+      "ctls": [
+        "live:CREATIVE-02 back",
+        "live:CREATIVE-07 status"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H25",
+      "label": "H25 Launchpad — validation",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "launch-validation"
+      ],
+      "ctls": [
+        "gated:LAUNCH-03 delete",
+        "live:LAUNCH-01 fix",
+        "live:LAUNCH-02 fix",
+        "live:LAUNCH-03 duplicate",
+        "live:LAUNCH-05 validate"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H26",
+      "label": "H26 Launchpad — execution disabled",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [],
+      "ctls": [
+        "disabled:LAUNCH-06 launch",
+        "disabled:LAUNCH-07 add"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H27",
+      "label": "H27 Creative shares + tier warning",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "share-tiers"
+      ],
+      "ctls": [
+        "disabled:CREATIVE-10 mint",
+        "live:CREATIVE-10 expiry",
+        "live:CREATIVE-10 mint",
+        "live:CREATIVE-10 revoke",
+        "live:CREATIVE-10 rotate",
+        "live:CREATIVE-11 ack",
+        "live:CREATIVE-11 tier",
+        "live:cancel"
+      ],
+      "collections": [
+        "h27-links"
+      ]
+    },
+    {
+      "id": "H28",
+      "label": "H28 Landing pages — AI commentary",
+      "file": "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+      "fileSha256": "a89520b208ff9bfaefa2371d9516c66819ae99c8375b852958afad0f0a664a88",
+      "width": 1440,
+      "els": [
+        "lp-ai-commentary"
+      ],
+      "ctls": [],
+      "collections": [
+        "h28-landing-pages"
+      ]
+    },
+    {
+      "id": "H29",
+      "label": "H29 Google Overview",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": null,
+      "els": [
+        "google-vocab"
+      ],
+      "ctls": [
+        "live:GOOGLE-32 portfolio",
+        "live:chart-table-toggle"
+      ],
+      "collections": [
+        "h29-gcamps"
+      ]
+    },
+    {
+      "id": "H30",
+      "label": "H30 Google Advisor",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "advisor-buckets"
+      ],
+      "ctls": [
+        "live:GOOGLE-13 bucket",
+        "live:GOOGLE-16 open-card"
+      ],
+      "collections": [
+        "h30-advisor"
+      ]
+    },
+    {
+      "id": "H31",
+      "label": "H31 Google change card — default-off",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "default-off-card",
+        "google-trust"
+      ],
+      "ctls": [
+        "live:GOOGLE-26 dismiss",
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy",
+        "live:GOOGLE-ESC-01 csv"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H32",
+      "label": "H32 Google Manual Plan & Activity",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "journal-gap"
+      ],
+      "ctls": [
+        "live:GOOGLE-28 mark-applied",
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy-all",
+        "live:GOOGLE-ESC-01 csv-all"
+      ],
+      "collections": [
+        "h32-journal",
+        "h32-plan"
+      ]
+    },
+    {
+      "id": "H33",
+      "label": "H33 Google batch — reference, partially applied",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "batch-partial"
+      ],
+      "ctls": [],
+      "collections": [
+        "h33-batch"
+      ]
+    },
+    {
+      "id": "H34",
+      "label": "H34 Analytics — GA4/Shopify + AI insights",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "source-missing-state"
+      ],
+      "ctls": [
+        "live:chart-table-toggle",
+        "live:tab"
+      ],
+      "collections": [
+        "h34-traffic"
+      ]
+    },
+    {
+      "id": "H35",
+      "label": "H35 SEO — findings + AI analysis states",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "seo-gen-states"
+      ],
+      "ctls": [
+        "gated:SEO-04 run",
+        "live:SEO-01 load-more"
+      ],
+      "collections": [
+        "h35-seo"
+      ]
+    },
+    {
+      "id": "H36",
+      "label": "H36 GEO — dual-source gated",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "geo-gated"
+      ],
+      "ctls": [],
+      "collections": [
+        "h36-geo"
+      ]
+    },
+    {
+      "id": "H37",
+      "label": "H37 Reports — library",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "reports-lib"
+      ],
+      "ctls": [
+        "gated:REPORT-01 delete",
+        "live:REPORT-01 duplicate",
+        "live:REPORT-01 load-more",
+        "live:REPORT-02 edit",
+        "live:REPORT-08 open",
+        "live:REPORT-13 new"
+      ],
+      "collections": [
+        "h37-reports"
+      ]
+    },
+    {
+      "id": "H38",
+      "label": "H38 Report builder — sources & breakdown limits",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "builder-sources",
+        "h38-handoff",
+        "source-contracts"
+      ],
+      "ctls": [
+        "live:REPORT-03 exit",
+        "live:REPORT-03 keyboard-mode",
+        "live:REPORT-03 nudge-move",
+        "live:REPORT-03 nudge-resize",
+        "live:REPORT-03 undo",
+        "live:REPORT-03 widget-select",
+        "live:REPORT-04 csv",
+        "live:REPORT-07 breakdown",
+        "live:REPORT-08 retry",
+        "{{ s.ctl }}"
+      ],
+      "collections": [
+        "h38-sources",
+        "h38-table"
+      ]
+    },
+    {
+      "id": "H39",
+      "label": "H39 Report — print/PDF view",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "print-view"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H40",
+      "label": "H40 Report share — disabled",
+      "file": "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+      "fileSha256": "0886c053b5b348ba88ea7e5b6af75ffde85b0494842a10bbe6f8de430ae12f82",
+      "width": 1440,
+      "els": [
+        "share-disabled-panel"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H41",
+      "label": "H41 Integrations & Data health",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": null,
+      "els": [
+        "provider-states"
+      ],
+      "ctls": [
+        "{{ a.ctl }}"
+      ],
+      "collections": [
+        "h41-providers"
+      ]
+    },
+    {
+      "id": "H42",
+      "label": "H42 Account assignment sheet",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "assignment-sheet"
+      ],
+      "ctls": [
+        "live:INTEGRATION-07 assign",
+        "live:INTEGRATION-07 save",
+        "live:cancel"
+      ],
+      "collections": [
+        "h42-accounts"
+      ]
+    },
+    {
+      "id": "H43",
+      "label": "H43 Team & Access",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "role-permission-state"
+      ],
+      "ctls": [
+        "gated:TEAM-02 role",
+        "gated:TEAM-04 invite",
+        "gated:TEAM-05 approve",
+        "gated:TEAM-05 deny",
+        "{{ a.ctl }}"
+      ],
+      "collections": [
+        "h43-members"
+      ]
+    },
+    {
+      "id": "H44",
+      "label": "H44 Reviewer & demo states",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "demo-refusal",
+        "reviewer-banner"
+      ],
+      "ctls": [
+        "disabled:INV-24 reviewer-block"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H45",
+      "label": "H45 Business Settings — economics divergence",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "biz-settings-form",
+        "econ-divergence",
+        "no-readback-warning"
+      ],
+      "ctls": [
+        "gated:SCOPE-01 delete",
+        "live:ECON-01 edit",
+        "live:ECON-03 edit"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H46",
+      "label": "H46 Account & Security",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "destructive-ceremony"
+      ],
+      "ctls": [
+        "live:AUTH-11 email",
+        "live:AUTH-11 name",
+        "live:AUTH-12 current",
+        "live:AUTH-12 new",
+        "live:AUTH-12 save",
+        "live:AUTH-13 revoke",
+        "live:I18N-02 lang"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H47",
+      "label": "H47 Plan & Billing — remediation-gated",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "billing-gated",
+        "plan-presentation-chip"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H48",
+      "label": "H48 Admin incident — sync health",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "admin-incident",
+        "admin-receipt-gap"
+      ],
+      "ctls": [
+        "gated:ADMIN-12 repair"
+      ],
+      "collections": [
+        "h48-sync"
+      ]
+    },
+    {
+      "id": "H49",
+      "label": "H49 Public creative share — desktop",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "public-share"
+      ],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H50",
+      "label": "H50 Mobile client Home",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 1440,
+      "els": [
+        "mobile-scope"
+      ],
+      "ctls": [
+        "live:MOBILE-01",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H51",
+      "label": "H51 Mobile Agency Desk — operable rows",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "flow-a-direction-enter"
+      ],
+      "ctls": [
+        "live:AGENCY-02 withheld-explainer",
+        "live:AGENCY-04 load-more",
+        "live:AGENCY-04 open-client",
+        "live:MOBILE-02 scope-sheet",
+        "live:SCOPE-11 client-search",
+        "live:nav-drawer"
+      ],
+      "collections": [
+        "h51-clients"
+      ]
+    },
+    {
+      "id": "H52",
+      "label": "H52 Mobile Meta decision detail",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [],
+      "ctls": [
+        "gated:META-WRITE-01",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H53",
+      "label": "H53 Mobile Google manual plan",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [],
+      "ctls": [
+        "live:GOOGLE-28 mark-applied",
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy",
+        "live:GOOGLE-ESC-01 csv",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H54",
+      "label": "H54 Mobile public creative share",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "public-share"
+      ],
+      "ctls": [
+        "live:media-play"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H55",
+      "label": "H55 Narrow client Home",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "mobile-scope",
+        "win-320"
+      ],
+      "ctls": [
+        "live:MOBILE-01",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H56",
+      "label": "H56 Narrow Agency Desk — wrapping & truncation",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [],
+      "ctls": [
+        "live:AGENCY-02 withheld-explainer",
+        "live:AGENCY-04 load-more",
+        "live:AGENCY-04 open-client",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H57",
+      "label": "H57 Narrow Meta decision detail — stacked sticky actions",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [],
+      "ctls": [
+        "gated:META-WRITE-01",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H58",
+      "label": "H58 Narrow Google manual plan",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [],
+      "ctls": [
+        "live:GOOGLE-28 mark-applied",
+        "live:GOOGLE-30 deeplink",
+        "live:GOOGLE-ESC-01 copy",
+        "live:GOOGLE-ESC-01 csv",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H59",
+      "label": "H59 Narrow public creative share",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [
+        "public-share"
+      ],
+      "ctls": [
+        "live:media-play"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H60",
+      "label": "H60 Navigation drawer — open at 390",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "agency-return"
+      ],
+      "ctls": [
+        "live:AUTH-10 business-switcher",
+        "live:AUTH-10 scope-switch",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav",
+        "live:nav-drawer",
+        "live:nav-drawer close"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H61",
+      "label": "H61 Navigation drawer — open at 320",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [
+        "agency-return"
+      ],
+      "ctls": [
+        "live:AUTH-10 business-switcher",
+        "live:AUTH-10 scope-switch",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav",
+        "live:nav-drawer",
+        "live:nav-drawer close"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H62",
+      "label": "H62 Flow A on mobile — Agency Desk to selected client",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "H63",
+      "label": "H63 Scope sheet — open (MOBILE-02)",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [
+        "scope-f-account",
+        "scope-f-business",
+        "scope-f-context",
+        "scope-f-currency",
+        "scope-f-freshness",
+        "scope-f-provider",
+        "scope-f-timezone",
+        "scope-f-window",
+        "scope-sheet-open"
+      ],
+      "ctls": [
+        "live:AUTH-10 business-switcher",
+        "live:AUTH-10 scope-switch",
+        "live:MOBILE-02 scope-sheet",
+        "live:SCOPE-03 account-picker",
+        "live:SCOPE-10 window-picker",
+        "live:cancel",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H64",
+      "label": "H64 Scope sheet — open at 320",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "scope-f-account",
+        "scope-f-business",
+        "scope-f-context",
+        "scope-f-currency",
+        "scope-f-freshness",
+        "scope-f-provider",
+        "scope-f-timezone",
+        "scope-f-window",
+        "scope-sheet-open"
+      ],
+      "ctls": [
+        "live:AUTH-10 business-switcher",
+        "live:AUTH-10 scope-switch",
+        "live:MOBILE-02 scope-sheet",
+        "live:SCOPE-03 account-picker",
+        "live:SCOPE-10 window-picker",
+        "live:cancel",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H65",
+      "label": "H65 Agency ⇄ Client switch — eligible, denied, loading, empty, error",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 320,
+      "els": [
+        "switch-denied",
+        "switch-eligible",
+        "switch-empty",
+        "switch-error",
+        "switch-loading"
+      ],
+      "ctls": [
+        "live:AUTH-10 business-switcher",
+        "live:AUTH-10 scope-switch",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "H66",
+      "label": "H66 Flow A return — preserved Agency Desk context",
+      "file": "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+      "fileSha256": "f54173d65d00b8455dbd16e0f833a9a32960a7c112c3b67dd2cfc3d06735d8a9",
+      "width": 390,
+      "els": [
+        "agency-return",
+        "flow-a-direction-return"
+      ],
+      "ctls": [
+        "live:AGENCY-04 open-client",
+        "live:MOBILE-02 scope-sheet",
+        "live:SCOPE-11 client-search",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P01",
+      "label": "P01 Meta trend chart",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "live:chart-table-toggle"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P02",
+      "label": "P02 Google trend chart",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "live:chart-table-toggle"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P03",
+      "label": "P03 Report trend widget — success",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [],
+      "collections": []
+    },
+    {
+      "id": "P04",
+      "label": "P04 Sparkline, table toggle, Unavailable comparison",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "live:chart-table-toggle"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P05",
+      "label": "P05 Media states board",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "live:CREATIVE-02 carousel-dot",
+        "live:media-play",
+        "live:media-retry"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P06",
+      "label": "P06 Turkish long strings — desktop",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [
+        "turkish-strings"
+      ],
+      "ctls": [
+        "gated:META-WRITE-01"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P07",
+      "label": "P07 Turkish long strings — mobile 390",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": null,
+      "els": [],
+      "ctls": [
+        "gated:META-WRITE-01",
+        "live:MOBILE-02 scope-sheet",
+        "live:nav-drawer"
+      ],
+      "collections": []
+    },
+    {
+      "id": "P08",
+      "label": "P08 Dark theme acceptance board",
+      "file": "19 Implementation Proofs.dc.html",
+      "fileSha256": "16dc9b39d5972f3e0cf1a0a77e59dbcaeacb8b23a684799575a9b3f41f810c64",
+      "width": 390,
+      "els": [
+        "dark-board"
+      ],
+      "ctls": [
+        "live:tab"
+      ],
+      "collections": []
+    }
+  ],
+  "contracts": [
+    {
+      "key": "live:AUTH-01",
+      "event": "signup_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ /signup; email prefilled from invite when present (3.3.7)",
+      "focus": "focus → email field",
+      "failure": "duplicate email → inline error under field, field keeps value"
+    },
+    {
+      "key": "live:AUTH-02 email",
+      "event": "login_field_input",
+      "trigger": "type/paste (paste never blocked)",
+      "outcome": "value buffered client-side only",
+      "focus": "label-bound input; Enter moves to password",
+      "failure": "validation on blur: format error inline + aria-describedby"
+    },
+    {
+      "key": "live:AUTH-02 password",
+      "event": "login_field_input",
+      "trigger": "type/paste",
+      "outcome": "value buffered; managers supported (3.3.8)",
+      "focus": "Enter submits form",
+      "failure": "caps-lock hint; no cognitive puzzle"
+    },
+    {
+      "key": "live:AUTH-02 submit",
+      "event": "login_submit",
+      "trigger": "click/Enter",
+      "outcome": "POST /api/auth/login → session → last workspace or Agency Desk",
+      "focus": "focus → progress status (role=status), then page h1",
+      "failure": "invalid: verbatim server error above form; rate-limited: retry-after shown; offline: banner, button re-enabled"
+    },
+    {
+      "key": "live:AUTH-03 google",
+      "event": "oauth_google_start",
+      "trigger": "click/Enter",
+      "outcome": "OAuth redirect; callback shows pending → session",
+      "focus": "focus preserved to button on return-error",
+      "failure": "denied/error: callback state page with verbatim reason + retry"
+    },
+    {
+      "key": "live:AUTH-04 facebook",
+      "event": "oauth_facebook_start",
+      "trigger": "click/Enter",
+      "outcome": "OAuth redirect (same contract as Google)",
+      "focus": "as Google",
+      "failure": "as Google"
+    },
+    {
+      "key": "live:AUTH-05 forgot",
+      "event": "password_reset_requested",
+      "trigger": "click/Enter",
+      "outcome": "→ reset-request form; always claims sent (PARTIAL: delivery unverified — copy discloses)",
+      "focus": "focus → email field",
+      "failure": "unknown email indistinguishable by design; rate-limited shown"
+    },
+    {
+      "key": "live:AUTH-06 demo",
+      "event": "demo_entered",
+      "trigger": "click/Enter",
+      "outcome": "→ demo workspace, demo banner pinned; synthetic fixtures",
+      "focus": "focus → workspace h1",
+      "failure": "demo refusals per feature: 'Not available in demo'"
+    },
+    {
+      "key": "live:AUTH-07 user-menu",
+      "event": "user_menu_opened",
+      "trigger": "click/Enter/Space",
+      "outcome": "menu: profile, language, theme, logout",
+      "focus": "roving focus; Esc closes, returns to trigger",
+      "failure": "—"
+    },
+    {
+      "key": "live:AUTH-10 scope-switch",
+      "event": "scope_switched",
+      "trigger": "click/Enter on segment",
+      "outcome": "Agency ↔ Client scope; URL updates; rail regroups",
+      "focus": "radiogroup arrows; announced",
+      "failure": "no agency membership → segment absent (never disabled-teaser)"
+    },
+    {
+      "key": "live:AUTH-10 business-switcher",
+      "event": "business_switch_opened",
+      "trigger": "click/Enter",
+      "outcome": "searchable combobox (recent, then alphabetical) → switch keeps surface, resets non-transferable context with explicit message (H07)",
+      "focus": "combobox APG: type-ahead, ↑↓, Enter, Esc",
+      "failure": "invalid account context → reset toast + assign panel"
+    },
+    {
+      "key": "live:AUTH-11 name",
+      "event": "profile_edited",
+      "trigger": "edit + blur",
+      "outcome": "PATCH profile; read-back re-renders",
+      "focus": "inline validation on blur",
+      "failure": "server error verbatim beside field; value kept"
+    },
+    {
+      "key": "live:AUTH-11 email",
+      "event": "profile_edited",
+      "trigger": "edit + blur",
+      "outcome": "PATCH + re-verification email flow",
+      "focus": "as name",
+      "failure": "conflict → inline error"
+    },
+    {
+      "key": "live:AUTH-12 current",
+      "event": "password_change_input",
+      "trigger": "type",
+      "outcome": "buffered",
+      "focus": "standard",
+      "failure": "wrong current → inline error on submit"
+    },
+    {
+      "key": "live:AUTH-12 new",
+      "event": "password_change_input",
+      "trigger": "type",
+      "outcome": "buffered; strength hint text",
+      "focus": "standard",
+      "failure": "policy fail → inline list of unmet rules"
+    },
+    {
+      "key": "live:AUTH-12 save",
+      "event": "password_changed",
+      "trigger": "click/Enter",
+      "outcome": "POST change → success status line; sessions kept",
+      "focus": "focus → status (role=status)",
+      "failure": "failure verbatim; fields kept except passwords cleared"
+    },
+    {
+      "key": "live:AUTH-13 revoke",
+      "event": "sessions_revoke_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens typed-confirm dialog restating 'signs you out here, too' → POST revoke-all → hard logout to /login with notice",
+      "focus": "dialog traps focus; initial focus on Cancel; Esc cancels",
+      "failure": "failure: dialog error verbatim, nothing revoked; offline: blocked with banner"
+    },
+    {
+      "key": "live:cancel",
+      "event": "dialog_cancelled",
+      "trigger": "click/Esc",
+      "outcome": "closes dialog/sheet; no mutation",
+      "focus": "focus returns to trigger",
+      "failure": "—"
+    },
+    {
+      "key": "live:close",
+      "event": "overlay_closed",
+      "trigger": "click/Esc",
+      "outcome": "closes inspector/drawer; selection state kept in URL",
+      "focus": "focus returns to originating row",
+      "failure": "—"
+    },
+    {
+      "key": "live:done",
+      "event": "dialog_done",
+      "trigger": "click/Enter",
+      "outcome": "closes outcome dialog; underlying list re-renders from authoritative read",
+      "focus": "focus returns to row; outcome announced",
+      "failure": "—"
+    },
+    {
+      "key": "live:tab",
+      "event": "tab_selected",
+      "trigger": "click/Enter; ←→ within tablist",
+      "outcome": "switches tab panel; tab state in URL query (INV-18)",
+      "focus": "role=tablist roving focus; Home/End",
+      "failure": "unavailable tab content renders its truth-state panel, tab never hidden"
+    },
+    {
+      "key": "live:lane",
+      "event": "lane_selected",
+      "trigger": "click/Enter",
+      "outcome": "filters decision list to lane; count chips are server-served",
+      "focus": "radiogroup arrows",
+      "failure": "empty lane → empty state 'no rows served in this lane'"
+    },
+    {
+      "key": "live:nav",
+      "event": "nav_item_selected",
+      "trigger": "click/Enter",
+      "outcome": "routes to surface; active item = tint + edge",
+      "focus": "nav landmark; ↑↓ move, Enter opens; skip-link precedes",
+      "failure": "unavailable module never appears (absence over theatre)"
+    },
+    {
+      "key": "live:nav-drawer",
+      "event": "nav_drawer_opened",
+      "trigger": "click/Enter on hamburger (≥44px)",
+      "outcome": "opens rail as drawer over scrim; body scroll locked",
+      "focus": "focus trapped in drawer; first item focused; Esc closes → focus returns to hamburger",
+      "failure": "—"
+    },
+    {
+      "key": "live:nav-drawer close",
+      "event": "nav_drawer_closed",
+      "trigger": "click ✕ / Esc / scrim tap",
+      "outcome": "drawer closes",
+      "focus": "focus returns to hamburger",
+      "failure": "—"
+    },
+    {
+      "key": "live:chart-table-toggle",
+      "event": "chart_table_toggled",
+      "trigger": "click/Enter",
+      "outcome": "swaps chart ⇄ real <table> markup in place; preference persisted per surface",
+      "focus": "button; announced 'table view'",
+      "failure": "—"
+    },
+    {
+      "key": "live:SCOPE-03 account-picker",
+      "event": "account_picker_opened",
+      "trigger": "click/Enter",
+      "outcome": "account combobox; selection re-scopes surface + URL",
+      "focus": "combobox APG",
+      "failure": "no accounts → assign panel (H07/H42)"
+    },
+    {
+      "key": "live:SCOPE-03 assign",
+      "event": "account_assign_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens assignment sheet (H42)",
+      "focus": "sheet traps focus",
+      "failure": "—"
+    },
+    {
+      "key": "live:SCOPE-05",
+      "event": "ga4_property_reassign",
+      "trigger": "click/Enter",
+      "outcome": "property picker; save reads back authoritative assignment",
+      "focus": "combobox",
+      "failure": "dual-writer risk disclosed; read-back mandatory"
+    },
+    {
+      "key": "live:SCOPE-06",
+      "event": "sc_site_selected",
+      "trigger": "click/Enter",
+      "outcome": "site picker; save + read-back",
+      "focus": "combobox",
+      "failure": "no site → SEO/GEO show source-missing states"
+    },
+    {
+      "key": "live:SCOPE-10 window-picker",
+      "event": "window_changed",
+      "trigger": "click/Enter",
+      "outcome": "evidence-window menu; all metrics re-fetch; window echoed in every evidence panel",
+      "focus": "menu roving focus",
+      "failure": "unsupported window → option absent"
+    },
+    {
+      "key": "live:SCOPE-11 search",
+      "event": "search_focused",
+      "trigger": "click or / key",
+      "outcome": "opens global search overlay (H06), scope-labelled",
+      "focus": "input focused; Esc closes; listbox roving",
+      "failure": "—"
+    },
+    {
+      "key": "live:SCOPE-11 client-search",
+      "event": "client_search_input",
+      "trigger": "type",
+      "outcome": "filters client cards by name (client-side on served page)",
+      "focus": "results count announced",
+      "failure": "no matches → empty state with clear-search"
+    },
+    {
+      "key": "live:SCOPE-12 result",
+      "event": "search_result_opened",
+      "trigger": "click/Enter",
+      "outcome": "routes to result's surface in its business context only — never claims causality",
+      "focus": "listbox Enter; Cmd/Ctrl-Enter keeps overlay",
+      "failure": "permission-empty note when items are hidden by access"
+    },
+    {
+      "key": "live:AGENCY-02 withheld-explainer",
+      "event": "agency_withheld_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ withheld explainer panel (H02)",
+      "focus": "anchor navigation; target h2 focused",
+      "failure": "—"
+    },
+    {
+      "key": "live:AGENCY-04 open-client",
+      "event": "agency_client_opened",
+      "trigger": "click/Enter (row or Open)",
+      "outcome": "enters client business context → client Home; deep link = business context only",
+      "focus": "row is single button; Enter opens",
+      "failure": "membership revoked mid-session → permission page with request-access"
+    },
+    {
+      "key": "live:AGENCY-04 load-more",
+      "event": "agency_clients_paged",
+      "trigger": "click/Enter",
+      "outcome": "appends next server page; footer restates 'showing X of Y'",
+      "focus": "focus stays on control; new count announced",
+      "failure": "end of list → control replaced by 'all Y shown'"
+    },
+    {
+      "key": "live:HEALTH-01",
+      "event": "integration_detail_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ Integrations & Data row detail (H41)",
+      "focus": "standard link",
+      "failure": "—"
+    },
+    {
+      "key": "live:INTEGRATION-02",
+      "event": "reconnect_started",
+      "trigger": "click/Enter",
+      "outcome": "provider OAuth reconnect; on return, status re-read from server",
+      "focus": "focus to status on return",
+      "failure": "denied/error: verbatim reason on provider row; stays 'auth expired'"
+    },
+    {
+      "key": "live:INTEGRATION-03",
+      "event": "connect_started",
+      "trigger": "click/Enter",
+      "outcome": "GA4 connect flow → property assignment",
+      "focus": "standard",
+      "failure": "cancel returns unchanged"
+    },
+    {
+      "key": "live:INTEGRATION-03 connect",
+      "event": "connect_started",
+      "trigger": "click/Enter",
+      "outcome": "same as INTEGRATION-03 from Home unavailable-tile",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:INTEGRATION-07",
+      "event": "account_assign_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens Meta account assignment sheet (H42)",
+      "focus": "sheet focus trap",
+      "failure": "—"
+    },
+    {
+      "key": "live:INTEGRATION-07 assign",
+      "event": "account_checkbox_toggled",
+      "trigger": "click/Space on ≥24px checkbox row",
+      "outcome": "toggles pending assignment (explicit choice; discovered-but-unchecked stays unchecked)",
+      "focus": "label = full-row target; state announced",
+      "failure": "—"
+    },
+    {
+      "key": "live:INTEGRATION-07 save",
+      "event": "assignment_saved",
+      "trigger": "click/Enter",
+      "outcome": "POST assignment → authoritative read-back re-renders list + context bar",
+      "focus": "progress → status announced",
+      "failure": "failure verbatim; nothing partially claimed"
+    },
+    {
+      "key": "live:SHOPIFY-01",
+      "event": "integration_detail_opened",
+      "trigger": "click/Enter",
+      "outcome": "Shopify store detail (read-only facts)",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:ECON-01 edit",
+      "event": "target_pack_edited",
+      "trigger": "edit + blur",
+      "outcome": "stages target-pack change; save re-derives break-even server-side; consumer chip shows META DECISIONS impact",
+      "focus": "numeric input, right-aligned; step arrows",
+      "failure": "invalid % → inline error; divergence panel updates only after server read-back"
+    },
+    {
+      "key": "live:ECON-03 edit",
+      "event": "cost_model_edited",
+      "trigger": "edit + blur",
+      "outcome": "stages cost-model change; consumers OVERVIEW + GOOGLE named; does NOT touch Meta decisions",
+      "focus": "as ECON-01",
+      "failure": "as ECON-01"
+    },
+    {
+      "key": "live:ECON-04 divergence-link",
+      "event": "econ_divergence_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ Business Settings economics panel (H45) with both sources + consumers",
+      "focus": "standard link",
+      "failure": "—"
+    },
+    {
+      "key": "live:I18N-02 lang",
+      "event": "language_changed",
+      "trigger": "click/Enter",
+      "outcome": "writes preference; server copy re-resolves EN/TR; non-translatable terms stay verbatim",
+      "focus": "radiogroup; change announced",
+      "failure": "public-site selector limitation disclosed inline"
+    },
+    {
+      "key": "live:PUBLIC-03",
+      "event": "public_nav_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ public marketing page (Product/Pricing)",
+      "focus": "standard link",
+      "failure": "—"
+    },
+    {
+      "key": "live:PUBLIC-05",
+      "event": "public_contact_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ Contact (the single consistent help channel, 3.2.6)",
+      "focus": "standard link",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-DEC-01 lane",
+      "event": "lane_selected",
+      "trigger": "click/Enter",
+      "outcome": "filters to lane; lane counts are served values",
+      "focus": "radiogroup arrows",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-DEC-02 level",
+      "event": "level_changed",
+      "trigger": "click/Enter",
+      "outcome": "campaign/ad set/ad level switch; URL param (INV-18)",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-DEC-05 open-inspector",
+      "event": "decision_inspector_opened",
+      "trigger": "click/Enter on row (row = one button)",
+      "outcome": "opens 480px inspector (H10); row id in URL",
+      "focus": "focus → inspector title; Esc returns to row",
+      "failure": "row gone on refresh → 'row no longer served' note in inspector"
+    },
+    {
+      "key": "live:META-DEC-05 load-more",
+      "event": "decision_list_paged",
+      "trigger": "click/Enter",
+      "outcome": "appends next served page; 'showing X of Y' restated",
+      "focus": "count announced",
+      "failure": "cap reached → 'all Y served rows shown'"
+    },
+    {
+      "key": "live:META-DEC-13 open",
+      "event": "inactive_assets_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens advisory inactive-assets strip detail (read-only)",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-DEC-17 search",
+      "event": "entity_search_focused",
+      "trigger": "click or / key",
+      "outcome": "global entity search pre-scoped to this account",
+      "focus": "as SCOPE-11",
+      "failure": "—"
+    },
+    {
+      "key": "live:INV-18 share-view",
+      "event": "view_link_copied",
+      "trigger": "click/Enter",
+      "outcome": "copies URL carrying account/lane/level/window params; recipient with permission reproduces view",
+      "focus": "'copied' announced (role=status)",
+      "failure": "clipboard denied → manual-copy popover with selected text"
+    },
+    {
+      "key": "gated:META-WF-02..08 menu",
+      "event": "triage_event",
+      "trigger": "click/Enter on ⋯ (collaborator+)",
+      "outcome": "workflow menu: acknowledge/investigate/resolve…; optimistic chip + POST with expectedVersion",
+      "focus": "menu roving focus; Esc closes",
+      "failure": "version conflict → conflict dialog (H12): keep-mine / take-server; guest/reviewer: menu absent/disabled with reason"
+    },
+    {
+      "key": "live:META-WF-11 keep",
+      "event": "conflict_kept_mine",
+      "trigger": "click/Enter",
+      "outcome": "re-submits transition with fresh expectedVersion",
+      "focus": "dialog focus rules",
+      "failure": "second conflict → same dialog, never silent overwrite"
+    },
+    {
+      "key": "live:META-WF-11 reapply",
+      "event": "conflict_took_server",
+      "trigger": "click/Enter",
+      "outcome": "discards local transition; row re-renders server state",
+      "focus": "focus returns to row",
+      "failure": "—"
+    },
+    {
+      "key": "gated:META-WRITE-01",
+      "event": "write_sheet_opened",
+      "trigger": "click/Enter (collaborator+, non-reviewer)",
+      "outcome": "opens manual action sheet routed by server availability",
+      "focus": "sheet traps focus",
+      "failure": "reviewer/guest: disabled with reason; availability=none: no CTA exists"
+    },
+    {
+      "key": "gated:META-WRITE-01 open-manual",
+      "event": "write_sheet_opened",
+      "trigger": "click/Enter",
+      "outcome": "same contract as META-WRITE-01 from inspector",
+      "focus": "as above",
+      "failure": "as above"
+    },
+    {
+      "key": "live:META-WRITE-06 rerun",
+      "event": "write_preflight_rerun",
+      "trigger": "click/Enter",
+      "outcome": "re-reads persisted state; age line updates via live region; 'Meta was not contacted' copy fixed",
+      "focus": "button; announced",
+      "failure": "target vanished → hard stop 'target not found', continue disabled"
+    },
+    {
+      "key": "gated:META-WRITE-02 continue",
+      "event": "write_confirm_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ confirmation restating scope + before→after + preflight age",
+      "focus": "initial focus on Cancel",
+      "failure": "aged preflight (>15m) forces re-run before continue"
+    },
+    {
+      "key": "gated:META-WRITE-02 submit",
+      "event": "write_submitted",
+      "trigger": "click/Enter (typed-confirm complete where destructive)",
+      "outcome": "POST write → progress → outcome: verified receipt (H15) / failed verbatim / reconciliation (H16); never auto-retried",
+      "focus": "progress role=status; outcome focus → receipt title",
+      "failure": "ambiguous → reconciliation state, no retry control; silent failure modeled in M7"
+    },
+    {
+      "key": "live:META-WRITE-08 copy-receipt",
+      "event": "receipt_copied",
+      "trigger": "click/Enter",
+      "outcome": "copies mono receipt block",
+      "focus": "'copied' announced",
+      "failure": "no durable receipt → button absent, gap stated (META-DEC-20)"
+    },
+    {
+      "key": "gated:META-INTEL-09 run-snapshot",
+      "event": "snapshot_run_now",
+      "trigger": "click/Enter (collaborator+)",
+      "outcome": "queues snapshot run; progress fact appears in recent-facts",
+      "focus": "status announced",
+      "failure": "rate-limited: retry-after; failure verbatim"
+    },
+    {
+      "key": "live:META-INTEL-07 respond",
+      "event": "intel_prompt_answered",
+      "trigger": "click/Enter",
+      "outcome": "records structured response; read-back renders it",
+      "focus": "radiogroup",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-HIST-05 filter",
+      "event": "history_filtered",
+      "trigger": "click/Enter",
+      "outcome": "filter menu; params in URL (INV-18)",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:META-HIST-05 search",
+      "event": "history_searched",
+      "trigger": "type",
+      "outcome": "server-side search of history projection",
+      "focus": "results count announced",
+      "failure": "projection gaps disclosed ('actor not recorded')"
+    },
+    {
+      "key": "live:META-HIST-05 cursor",
+      "event": "history_paged",
+      "trigger": "click/Enter",
+      "outcome": "cursor pagination; 'showing X of Y loaded' restated",
+      "focus": "count announced",
+      "failure": "end → control disabled with 'end of projection'"
+    },
+    {
+      "key": "live:META-HIST-06 replay",
+      "event": "history_replayed",
+      "trigger": "click/Enter",
+      "outcome": "opens replay of stored snapshot with permanent 'not live state' banner + version badge",
+      "focus": "sheet focus trap",
+      "failure": "missing snapshot → 'snapshot not retained' state, never reconstructed"
+    },
+    {
+      "key": "gated:AUTO-01A engage",
+      "event": "meta_stop_engage",
+      "trigger": "click/Enter (admin) → typed confirm",
+      "outcome": "business-scoped Meta write stop engages; posture row flips; Google posture row unchanged and restated",
+      "focus": "dialog trap; typed confirm gates Enter",
+      "failure": "non-admin: disabled with role reason; result read back before banner"
+    },
+    {
+      "key": "gated:AUTO-02 release",
+      "event": "meta_stop_release",
+      "trigger": "click/Enter (admin) → preflight + confirm",
+      "outcome": "release walks same ceremony incl. preflight age",
+      "focus": "as engage",
+      "failure": "as engage"
+    },
+    {
+      "key": "gated:AUTO-03 mode",
+      "event": "automation_mode_changed",
+      "trigger": "click/Enter (admin)",
+      "outcome": "switches automation mode among served modes only",
+      "focus": "radiogroup",
+      "failure": "guardrails AUTO-05..10 remain read-only rows"
+    },
+    {
+      "key": "live:CREATIVE-02 open",
+      "event": "creative_opened",
+      "trigger": "click/Enter on row",
+      "outcome": "→ creative detail (H22/H23)",
+      "focus": "row = one button",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-02 back",
+      "event": "creative_back_to_decision",
+      "trigger": "click/Enter",
+      "outcome": "→ originating decision row; lineage chip highlighted",
+      "focus": "focus → decision row",
+      "failure": "decision no longer served → decisions list with notice"
+    },
+    {
+      "key": "live:CREATIVE-02 carousel-dot",
+      "event": "carousel_card_selected",
+      "trigger": "click/Enter; ←→ when focused",
+      "outcome": "shows card N of M; position text updates",
+      "focus": "dots ≥24px; position announced",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-07 brief",
+      "event": "brief_created",
+      "trigger": "click/Enter",
+      "outcome": "creates brief prefilled with served identifiers only (decision, account, evidence); gaps labelled",
+      "focus": "→ brief form, focus title",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-07 status",
+      "event": "brief_status_changed",
+      "trigger": "click/Enter",
+      "outcome": "lifecycle transition (delivered/archived); no delete exists",
+      "focus": "button",
+      "failure": "conflict → re-read state"
+    },
+    {
+      "key": "live:CREATIVE-10 share",
+      "event": "share_dialog_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens mint dialog (H27)",
+      "focus": "dialog trap; initial focus tier group",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-10 expiry",
+      "event": "share_expiry_changed",
+      "trigger": "click/Enter",
+      "outcome": "expiry menu; server ceilings shown when enforced",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-11 tier",
+      "event": "share_tier_selected",
+      "trigger": "click/Enter",
+      "outcome": "selects client/buyer tier; buyer tier reveals mandatory acknowledgement",
+      "focus": "radiogroup",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-11 ack",
+      "event": "share_buyer_ack",
+      "trigger": "click/Space (≥24px target)",
+      "outcome": "acknowledges no-stripping warning; enables Create link for buyer tier",
+      "focus": "checkbox in label row; state announced",
+      "failure": "unchecking re-disables mint"
+    },
+    {
+      "key": "live:CREATIVE-10 mint",
+      "event": "share_minted",
+      "trigger": "click/Enter (enabled state)",
+      "outcome": "POST mint → link row appears with tier + expiry; buyer-tier rows marked 'unstripped'",
+      "focus": "focus → new row; 'link created' announced",
+      "failure": "failure verbatim; nothing copied silently"
+    },
+    {
+      "key": "disabled:CREATIVE-10 mint",
+      "event": "none",
+      "trigger": "non-interactive",
+      "outcome": "Create link disabled while buyer tier selected without acknowledgement — reason rendered inline",
+      "focus": "aria-disabled with description",
+      "failure": "unlocks when live:CREATIVE-11 ack checked"
+    },
+    {
+      "key": "live:CREATIVE-10 revoke",
+      "event": "share_revoked",
+      "trigger": "click/Enter → confirm dialog",
+      "outcome": "revokes link immediately; row flips to 'revoked' with timestamp; public page renders nothing afterward",
+      "focus": "dialog trap; typed confirm not required (reversible by rotate? no — re-mint)",
+      "failure": "failure verbatim; row unchanged"
+    },
+    {
+      "key": "live:CREATIVE-10 rotate",
+      "event": "share_rotated",
+      "trigger": "click/Enter → confirm dialog",
+      "outcome": "mints replacement token + revokes old atomically; new link shown for copy",
+      "focus": "focus → new link; announced",
+      "failure": "partial failure impossible server-side; error verbatim otherwise"
+    },
+    {
+      "key": "live:CREATIVE-12 preset",
+      "event": "creative_preset_changed",
+      "trigger": "click/Enter",
+      "outcome": "preset menu; URL param",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-12 sort",
+      "event": "creative_sorted",
+      "trigger": "click/Enter",
+      "outcome": "sort menu; aria-sort updates",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:CREATIVE-13 filter",
+      "event": "creative_filtered",
+      "trigger": "click/Enter",
+      "outcome": "action-state filter incl. legacy null state",
+      "focus": "menu",
+      "failure": "—"
+    },
+    {
+      "key": "live:LAUNCH-01 fix",
+      "event": "launch_blocker_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ pixel selector for draft",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:LAUNCH-02 fix",
+      "event": "launch_blocker_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ ad editor at failing field",
+      "focus": "field focused",
+      "failure": "—"
+    },
+    {
+      "key": "live:LAUNCH-03 duplicate",
+      "event": "template_duplicated",
+      "trigger": "click/Enter",
+      "outcome": "duplicates template into editable draft (templates have no update route)",
+      "focus": "focus → new draft title",
+      "failure": "—"
+    },
+    {
+      "key": "gated:LAUNCH-03 delete",
+      "event": "template_deleted",
+      "trigger": "click/Enter (owner/admin) → confirm",
+      "outcome": "destructive ceremony: impact copy → confirm → authoritative list refresh",
+      "focus": "dialog trap",
+      "failure": "failure verbatim"
+    },
+    {
+      "key": "live:LAUNCH-05 validate",
+      "event": "draft_validated",
+      "trigger": "click/Enter",
+      "outcome": "POST validate → server blocker list re-renders exactly as served",
+      "focus": "result announced; first blocker focused",
+      "failure": "validation service error verbatim + retry"
+    },
+    {
+      "key": "disabled:LAUNCH-06 launch",
+      "event": "none",
+      "trigger": "non-interactive",
+      "outcome": "execution disabled pending origin+confirmation enforcement (LAUNCH-06); reason inline",
+      "focus": "aria-disabled + described-by reason",
+      "failure": "unlocks only when prerequisite lands and is reverified"
+    },
+    {
+      "key": "disabled:LAUNCH-07 add",
+      "event": "none",
+      "trigger": "non-interactive",
+      "outcome": "add-to-existing disabled (LAUNCH-07); same reason pattern",
+      "focus": "as LAUNCH-06",
+      "failure": "as LAUNCH-06"
+    },
+    {
+      "key": "live:GOOGLE-13 bucket",
+      "event": "advisor_bucket_selected",
+      "trigger": "click/Enter",
+      "outcome": "filters advisor cards to bucket (do now/next/later)",
+      "focus": "radiogroup arrows",
+      "failure": "—"
+    },
+    {
+      "key": "live:GOOGLE-16 open-card",
+      "event": "change_card_opened",
+      "trigger": "click/Enter",
+      "outcome": "opens change card drawer (H31)",
+      "focus": "drawer trap; Esc returns",
+      "failure": "—"
+    },
+    {
+      "key": "live:GOOGLE-26 dismiss",
+      "event": "advisor_dismissed",
+      "trigger": "click/Enter",
+      "outcome": "non-write workflow state; card moves to dismissed filter; reversible",
+      "focus": "announced; undo offered 10s",
+      "failure": "—"
+    },
+    {
+      "key": "live:GOOGLE-28 mark-applied",
+      "event": "plan_marked_applied",
+      "trigger": "click/Space (≥24px target)",
+      "outcome": "records manual confirmation to activity journal (actor + timestamp); row shows 'applied (manual)'; reversible by unchecking until CSV export of the batch",
+      "focus": "checkbox in label; state announced",
+      "failure": "journal write fails → checkbox reverts + error verbatim; Adsecute never claims Google-side verification"
+    },
+    {
+      "key": "live:GOOGLE-30 deeplink",
+      "event": "google_deeplink_opened",
+      "trigger": "click/Enter",
+      "outcome": "same contract as GOOGLE-30",
+      "focus": "as above",
+      "failure": "as above"
+    },
+    {
+      "key": "live:GOOGLE-32 portfolio",
+      "event": "portfolio_mode_opened",
+      "trigger": "click/Enter",
+      "outcome": "labelled portfolio mode; currency proof + timezone drift disclosed; mixed currency withholds totals",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:GOOGLE-ESC-01 copy",
+      "event": "google_escape_copy",
+      "trigger": "click/Enter",
+      "outcome": "copies single change text + journal entry",
+      "focus": "announced",
+      "failure": "as ESC-01"
+    },
+    {
+      "key": "live:GOOGLE-ESC-01 copy-all",
+      "event": "google_escape_copy",
+      "trigger": "click/Enter",
+      "outcome": "copies all queued changes + journal entry",
+      "focus": "announced",
+      "failure": "as ESC-01"
+    },
+    {
+      "key": "live:GOOGLE-ESC-01 csv",
+      "event": "google_escape_csv",
+      "trigger": "click/Enter",
+      "outcome": "downloads CSV of change; journal entry",
+      "focus": "download announced",
+      "failure": "generation failure verbatim"
+    },
+    {
+      "key": "live:GOOGLE-ESC-01 csv-all",
+      "event": "google_escape_csv",
+      "trigger": "click/Enter",
+      "outcome": "downloads CSV of all queued changes",
+      "focus": "announced",
+      "failure": "as csv"
+    },
+    {
+      "key": "gated:SEO-04 run",
+      "event": "seo_ai_run",
+      "trigger": "click/Enter (authorized role)",
+      "outcome": "POST generation → running state → findings re-read",
+      "focus": "progress role=status",
+      "failure": "409 skipped: 'already running' · 500 failed: verbatim + retry · unauthorized: role vocabulary state"
+    },
+    {
+      "key": "live:REPORT-05 source-toggle",
+      "event": "builder_source_toggled",
+      "trigger": "click/Space on ≥24px checkbox row (≥44px in the 768 sheet)",
+      "outcome": "toggles the source for this report; widgets bound to a deselected source render 'source removed' until reassigned; selection persists on save; applies to each of the 5 renderable catalog sources (documented many-to-one)",
+      "focus": "↑↓ move between rows; Space toggles; state announced ('Meta campaigns — selected')",
+      "failure": "save failure reverts the toggle + verbatim server error; catalog rows never disappear"
+    },
+    {
+      "key": "disabled:REPORT-06 source-unavailable",
+      "event": "none",
+      "trigger": "non-interactive",
+      "outcome": "coming-soon catalog row rendered with the exact server copy; never selectable, never hidden",
+      "focus": "focusable for discovery; aria-disabled + describedby reason",
+      "failure": "unlocks only when the renderer ships a branch for the source"
+    },
+    {
+      "key": "live:REPORT-13 new",
+      "event": "report_created_from_template",
+      "trigger": "click/Enter",
+      "outcome": "template picker → new report in builder",
+      "focus": "picker trap",
+      "failure": "—"
+    },
+    {
+      "key": "live:REPORT-08 open",
+      "event": "report_opened",
+      "trigger": "click/Enter",
+      "outcome": "renders report; per-widget states independent",
+      "focus": "standard",
+      "failure": "widget failure → per-widget error+retry, page never blanks"
+    },
+    {
+      "key": "live:REPORT-08 retry",
+      "event": "widget_retried",
+      "trigger": "click/Enter",
+      "outcome": "re-fetches one widget only",
+      "focus": "widget status announced",
+      "failure": "repeat failure keeps error + verbatim reason"
+    },
+    {
+      "key": "live:REPORT-02 edit",
+      "event": "report_edit_opened",
+      "trigger": "click/Enter",
+      "outcome": "→ builder (H38)",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:REPORT-01 duplicate",
+      "event": "report_duplicated",
+      "trigger": "click/Enter",
+      "outcome": "duplicates; focus → new row",
+      "focus": "announced",
+      "failure": "—"
+    },
+    {
+      "key": "gated:REPORT-01 delete",
+      "event": "report_deleted",
+      "trigger": "click/Enter (owner/admin) → destructive ceremony",
+      "outcome": "impact copy → typed confirm → authoritative list refresh",
+      "focus": "dialog trap; Enter gated on typed confirm",
+      "failure": "failure verbatim; row kept"
+    },
+    {
+      "key": "live:REPORT-03 keyboard-mode",
+      "event": "builder_keyboard_mode",
+      "trigger": "click/Enter",
+      "outcome": "enters keyboard move/resize mode on selected widget; exits on Esc/Done",
+      "focus": "arrows move 1 col/row; Shift+arrows resize; position announced each step",
+      "failure": "bound hit → move blocked + announced; Esc cancels & reverts; Ctrl/Cmd+Z undo (50 steps)"
+    },
+    {
+      "key": "live:REPORT-03 widget-select",
+      "event": "builder_widget_selected",
+      "trigger": "click/Enter on widget",
+      "outcome": "selects widget; caption + nudge toolbar attach below (never overlapping content)",
+      "focus": "focus ring 2px; roving between widgets with Tab",
+      "failure": "—"
+    },
+    {
+      "key": "live:REPORT-03 nudge-move",
+      "event": "builder_widget_nudged",
+      "trigger": "click/Enter on ◀▲▼▶ (24px each)",
+      "outcome": "moves selected widget 1 grid cell per activation (single-pointer alternative, 2.5.7)",
+      "focus": "position announced: 'Spend — row 1, col 2 of 3'",
+      "failure": "at bound → button aria-disabled + 'edge reached' announced"
+    },
+    {
+      "key": "live:REPORT-03 nudge-resize",
+      "event": "builder_widget_resized",
+      "trigger": "click/Enter on −/+ width/height (24px each)",
+      "outcome": "resizes by 1 grid cell; min 1×1, max grid width",
+      "focus": "size announced: 'width 2 of 3 columns'",
+      "failure": "at min/max → disabled + announced"
+    },
+    {
+      "key": "live:REPORT-03 undo",
+      "event": "builder_undo",
+      "trigger": "click/Enter or Ctrl/Cmd+Z",
+      "outcome": "reverts last move/resize (stack 50)",
+      "focus": "announced with restored position",
+      "failure": "empty stack → disabled"
+    },
+    {
+      "key": "live:REPORT-03 exit",
+      "event": "builder_mode_exited",
+      "trigger": "click Done / Esc",
+      "outcome": "commits layout; Esc instead cancels uncommitted changes after confirm",
+      "focus": "focus returns to widget",
+      "failure": "—"
+    },
+    {
+      "key": "live:REPORT-04 csv",
+      "event": "csv_export",
+      "trigger": "click/Enter (table widgets only)",
+      "outcome": "downloads CSV of that table widget (the only CSV-eligible widget type)",
+      "focus": "announced",
+      "failure": "non-table widgets never render this control"
+    },
+    {
+      "key": "live:REPORT-07 breakdown",
+      "event": "breakdown_toggled",
+      "trigger": "click/Enter",
+      "outcome": "toggles one of the 7 verified breakdown values",
+      "focus": "pressed-state announced",
+      "failure": "unsafe aggregates stay disabled with reason (REPORT-07)"
+    },
+    {
+      "key": "live:MOBILE-01",
+      "event": "meta_tier0_triage_start",
+      "trigger": "tap (≥44px)",
+      "outcome": "opens mobile Decisions in Tier-0 triage order",
+      "focus": "standard",
+      "failure": "—"
+    },
+    {
+      "key": "live:MOBILE-02 scope-sheet",
+      "event": "stale_freshness_disclosed",
+      "trigger": "tap header scope line (≥44px)",
+      "outcome": "opens scope sheet: business · account · window · currency · timezone · freshness — full values, one tap from any screen",
+      "focus": "sheet trap; Esc/swipe closes",
+      "failure": "—"
+    },
+    {
+      "key": "gated:SCOPE-01 delete",
+      "event": "business_delete_started",
+      "trigger": "click/Enter (admin) → ceremony",
+      "outcome": "impact copy → business name typed exactly → POST delete; NO read-back exists, so the final screen is the warning itself — never a success claim",
+      "focus": "dialog trap; Enter gated on exact typed name; initial focus Cancel",
+      "failure": "failure verbatim; nothing deleted silently; success is never claimed"
+    },
+    {
+      "key": "gated:TEAM-02 role",
+      "event": "member_role_changed",
+      "trigger": "click/Enter (admin)",
+      "outcome": "role menu → change with read-back",
+      "focus": "menu",
+      "failure": "last-admin protection: change blocked with reason"
+    },
+    {
+      "key": "gated:TEAM-03",
+      "event": "member_removed",
+      "trigger": "click/Enter (admin) → destructive ceremony",
+      "outcome": "impact copy → confirm → authoritative member list refresh",
+      "focus": "dialog trap",
+      "failure": "failure verbatim"
+    },
+    {
+      "key": "gated:TEAM-04",
+      "event": "invite_action",
+      "trigger": "click/Enter (admin)",
+      "outcome": "re-send / withdraw invite; state chip updates from read-back",
+      "focus": "buttons",
+      "failure": "expired → re-send available; mismatch state designed"
+    },
+    {
+      "key": "gated:TEAM-04 invite",
+      "event": "invite_sent",
+      "trigger": "click/Enter (admin)",
+      "outcome": "invite dialog: email + role → sent state",
+      "focus": "dialog trap",
+      "failure": "duplicate/mismatch designed states"
+    },
+    {
+      "key": "gated:TEAM-05 approve",
+      "event": "access_request_approved",
+      "trigger": "click/Enter (admin)",
+      "outcome": "grants requested role; member appears via read-back",
+      "focus": "announced",
+      "failure": "failure verbatim"
+    },
+    {
+      "key": "gated:TEAM-05 deny",
+      "event": "access_request_denied",
+      "trigger": "click/Enter (admin)",
+      "outcome": "denies request; requester notified by email only (no in-app bell exists)",
+      "focus": "announced",
+      "failure": "—"
+    },
+    {
+      "key": "gated:INTEGRATION-09",
+      "event": "disconnect_started",
+      "trigger": "click/Enter (admin) → typed confirm",
+      "outcome": "disconnect ceremony; where provider lacks authoritative read-back the result says 'verify by status'",
+      "focus": "dialog trap",
+      "failure": "failure verbatim; never claims success without read-back"
+    },
+    {
+      "key": "gated:ADMIN-12 repair",
+      "event": "ops_repair_started",
+      "trigger": "click/Enter (platform admin)",
+      "outcome": "queues provider resync; running state with progress; receipt coverage gap disclosed (ADMIN-17)",
+      "focus": "status announced",
+      "failure": "failure verbatim; result must be verified on health board"
+    },
+    {
+      "key": "disabled:INV-24 reviewer-block",
+      "event": "none",
+      "trigger": "non-interactive",
+      "outcome": "every write disabled under reviewer read-only authority, regardless of role; reason inline",
+      "focus": "aria-disabled + description",
+      "failure": "lifts only when reviewer flag removed server-side"
+    },
+    {
+      "key": "live:SEO-01 load-more",
+      "event": "seo_findings_paged",
+      "trigger": "click/Enter",
+      "outcome": "appends next server page of findings; 'showing X of Y' restated",
+      "focus": "new count announced",
+      "failure": "end of list → 'all Y shown'"
+    },
+    {
+      "key": "live:REPORT-01 load-more",
+      "event": "report_list_paged",
+      "trigger": "click/Enter",
+      "outcome": "appends next page of reports; 'showing X of Y' restated",
+      "focus": "new count announced",
+      "failure": "end of list → 'all Y shown'"
+    },
+    {
+      "key": "live:media-play",
+      "event": "share_media_played",
+      "trigger": "click/Enter (≥44px)",
+      "outcome": "plays video with poster + captions track; pause toggles",
+      "focus": "button toggles play/pause; state announced",
+      "failure": "stream error → poster + verbatim error + retry"
+    },
+    {
+      "key": "live:media-retry",
+      "event": "media_retried",
+      "trigger": "click/Enter",
+      "outcome": "re-requests failed media asset",
+      "focus": "announced",
+      "failure": "repeat failure keeps error state + alt text"
+    }
+  ],
+  "style": {
+    "palette": [
+      "#15120f",
+      "#1a241d",
+      "#1c1915",
+      "#1f1c18",
+      "#24201a",
+      "#24211d",
+      "#2a2e47",
+      "#2e4635",
+      "#33724c",
+      "#353c68",
+      "#3b3732",
+      "#3c4f62",
+      "#3d4677",
+      "#3f3a33",
+      "#425c4d",
+      "#444d84",
+      "#46535f",
+      "#545e96",
+      "#58514a",
+      "#5c3320",
+      "#5c4a1e",
+      "#5e4353",
+      "#635c55",
+      "#6b645c",
+      "#6f4b00",
+      "#75be8f",
+      "#767066",
+      "#79746d",
+      "#7a4238",
+      "#7d3c66",
+      "#8c857c",
+      "#8d4226",
+      "#96372b",
+      "#9ca7de",
+      "#a29e96",
+      "#b4b0aa",
+      "#b9c0e8",
+      "#c3cbf1",
+      "#cfccc4",
+      "#dfdcd6",
+      "#e3e8fe",
+      "#eae8e3",
+      "#eceae4",
+      "#eef1fe",
+      "#f1efeb",
+      "#f7f6f2",
+      "#fcfcf9",
+      "#ffffff"
+    ],
+    "typeScale": [
+      12,
+      13,
+      13.5,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      28
+    ],
+    "minFontPx": 12
+  }
+}

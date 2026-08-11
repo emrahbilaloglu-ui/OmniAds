@@ -220,7 +220,8 @@ export function IntegrationsView({
         </div>
       ) : (
         <>
-          <p data-no-universal-health="" data-el="provider-states" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          <div data-el="provider-states">
+          <p data-no-universal-health="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {NO_UNIVERSAL_HEALTH}
           </p>
           <div style={{ marginTop: 12 }}>
@@ -325,6 +326,7 @@ export function IntegrationsView({
                 },
               ]}
             />
+          </div>
           </div>
           <CeremonyResult outcome={outcome} name="reconnect" />
           {assignment ? <AssignmentPanel {...assignment} /> : null}

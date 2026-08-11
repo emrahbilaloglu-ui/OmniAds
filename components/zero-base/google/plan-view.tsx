@@ -311,7 +311,8 @@ export function GooglePlanView({
             {t.batchPartiallyApplied}
           </p>
         ) : null}
-        <ul data-collection="batch" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+        <div data-collection="batch" />
+        <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
           {steps.map((step) => (
             <li key={step.id} style={{ fontSize: 12 }}>
               {step.title}

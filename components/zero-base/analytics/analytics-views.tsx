@@ -319,7 +319,7 @@ export function SeoView({
             {seo.rowCount === null ? "" : ` · ${seo.rowCount} rows in window`}
           </p>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
+          <div data-el="seo-gen-states" style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
             <Button
               variant="secondary"
               data-ctl="gated:SEO-04 run"
@@ -338,8 +338,8 @@ export function SeoView({
               </Button>
             ) : null}
           </div>
+          <div data-collection="seo">
           <DataTable
-            collection="seo"
             caption={copy.searchPerformance}
             rows={[...seo.summary]}
             rowKey={(row) => row.key}
@@ -356,6 +356,7 @@ export function SeoView({
               },
             ]}
           />
+          </div>
 
           <SeoList id="leaders" title={copy.leadingQueries} items={seo.leaderQueries} />
           <SeoList id="declining" title={copy.decliningQueries} items={seo.decliningQueries} />

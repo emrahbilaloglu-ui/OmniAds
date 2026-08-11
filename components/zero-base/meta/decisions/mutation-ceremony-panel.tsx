@@ -359,12 +359,21 @@ export function MutationCeremonyPanel({
         <div data-mutation-step="collect" data-el="before-after" style={{ display: "grid", gap: 10 }}>
           {/* How old the check is, always — an operator deciding whether to act
               needs it before the check goes stale, not only after. */}
-          <p
-            data-el="preflight-age"
-            style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
-          >
-            Checked at {step.checkedAt} against persisted state. Meta was not contacted.
-          </p>
+          <div data-el="preflight-age" style={{ display: "grid", gap: 6 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+              Checked at {step.checkedAt} against persisted state. Meta was not contacted.
+            </p>
+            <div>
+              <Button
+                variant="secondary"
+                data-mutation-recheck=""
+                data-ctl="live:META-WRITE-06 rerun"
+                onClick={() => void startPreflight(step.action)}
+              >
+                {t.reCheck}
+              </Button>
+            </div>
+          </div>
           {step.dispatch.note ? (
             <p data-mutation-note="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {step.dispatch.note}
@@ -408,15 +417,6 @@ export function MutationCeremonyPanel({
               onClick={() => review(step)}
             >
               Review {step.action}
-            </Button>
-            <Button
-              variant="secondary"
-              data-mutation-recheck=""
-              data-ctl="live:META-WRITE-06 rerun"
-              onClick={() => void startPreflight(step.action)}
-              style={{ marginLeft: 6 }}
-            >
-              {t.reCheck}
             </Button>
             <Button
               variant="quiet"
@@ -560,9 +560,26 @@ function TerminalPanel({
     >
       <strong style={{ fontWeight: 600 }}>{copy.title}</strong>
       <span>{copy.body}</span>
-      <span data-mutation-detail="" data-el="receipt" style={{ color: "var(--ledger-ink-tertiary)" }}>
-        {outcome.detail}
-      </span>
+      <div data-el="receipt" style={{ display: "grid", gap: 6 }}>
+        <span data-mutation-detail="" style={{ color: "var(--ledger-ink-tertiary)" }}>
+          {outcome.detail}
+        </span>
+        {receipt ? (
+          <div>
+            <Button
+              variant="quiet"
+              data-mutation-receipt=""
+              data-ctl="live:META-WRITE-08 copy-receipt"
+              onClick={() => {
+                void navigator.clipboard?.writeText?.(outcome.reference ?? "").catch(() => {});
+                onCopy();
+              }}
+            >
+              {copied ? "Receipt copied" : "Copy receipt"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       <div>
         <Button variant="secondary" data-mutation-done="" data-ctl="live:done" onClick={onDone}>
@@ -570,21 +587,7 @@ function TerminalPanel({
         </Button>
       </div>
 
-      {receipt ? (
-        <div>
-          <Button
-            variant="quiet"
-            data-mutation-receipt=""
-            data-ctl="live:META-WRITE-08 copy-receipt"
-            onClick={() => {
-              void navigator.clipboard?.writeText?.(outcome.reference ?? "").catch(() => {});
-              onCopy();
-            }}
-          >
-            {copied ? "Receipt copied" : "Copy receipt"}
-          </Button>
-        </div>
-      ) : (
+      {receipt ? null : (
         // Nothing is settled, and a receipt would invite reading "we do not
         // know" as "it worked".
         <span data-mutation-receipt-withheld="" style={{ color: "var(--ledger-ink-tertiary)" }}>

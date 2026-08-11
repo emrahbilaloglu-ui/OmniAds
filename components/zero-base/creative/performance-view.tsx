@@ -176,9 +176,8 @@ export function CreativePerformanceView({
         <strong style={{ fontWeight: 600 }}>{posture.label}.</strong> {posture.explanation}
       </p>
 
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 16 }} data-collection="creatives">
         <DataTable
-          collection="creatives"
           caption={copy.creativePerformance}
           rows={model.rows}
           rowKey={(row) => row.id}

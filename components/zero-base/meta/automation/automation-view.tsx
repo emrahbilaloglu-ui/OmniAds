@@ -210,8 +210,8 @@ export function AutomationView({
             </select>
           </label>
         ) : null}
+        <div data-el="guardrails-readonly">
         <p
-          data-el="guardrails-readonly"
           style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}
         >
           Enforced by the engine. Shown here for reference; they are not editable from this surface.
@@ -232,6 +232,7 @@ export function AutomationView({
             },
           ]}
         />
+        </div>
       </section>
 
       <ZeroBaseDialog

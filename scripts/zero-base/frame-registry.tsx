@@ -460,6 +460,9 @@ const googlePlan = (withLink = true, gap = true) => (
     servedStatuses={["pending", "applied"]}
     journal={googleJournal(gap)}
     onMarkApplied={() => {}}
+    onCopyStep={() => {}}
+    onCsvStep={() => {}}
+    onDismiss={() => {}}
   />
 );
 

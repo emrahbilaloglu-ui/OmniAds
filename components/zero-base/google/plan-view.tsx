@@ -42,6 +42,9 @@ export function GooglePlanView({
   servedStatuses,
   journal,
   onMarkApplied,
+  onCopyStep,
+  onCsvStep,
+  onDismiss,
   markError,
 }: {
   scope: GoogleScope;
@@ -52,6 +55,10 @@ export function GooglePlanView({
   /** Absent when the journal could not be read at all. */
   journal?: JournalPage | null;
   onMarkApplied?: (stepId: string, applied: boolean) => void;
+  onCopyStep?: (stepId: string) => void;
+  onCsvStep?: (stepId: string) => void;
+  /** Dismissing is workflow state only; it never writes to Google. */
+  onDismiss?: (stepId: string) => void;
   /** Verbatim journal-write failure. The checkbox reverts; nothing is claimed. */
   markError?: string | null;
 }) {
@@ -191,6 +198,34 @@ export function GooglePlanView({
                   </span>
                 );
               },
+            },
+            {
+              id: "export",
+              header: "Copy",
+              render: (row) => (
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  {/* Per-step, not only whole-plan: an operator applying one
+                      change at a time should not have to copy the whole plan
+                      and find their line in it. Each export writes its own
+                      journal entry. */}
+                  <Button
+                    variant="secondary"
+                    data-ctl="live:GOOGLE-ESC-01 copy"
+                    aria-label={`Copy ${row.title}`}
+                    onClick={() => onCopyStep?.(row.id)}
+                  >
+                    {t.copy}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    data-ctl="live:GOOGLE-ESC-01 csv"
+                    aria-label={`Download ${row.title} as CSV`}
+                    onClick={() => onCsvStep?.(row.id)}
+                  >
+                    {t.downloadCsv}
+                  </Button>
+                </span>
+              ),
             },
             {
               id: "select",

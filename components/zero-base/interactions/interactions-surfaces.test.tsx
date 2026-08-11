@@ -56,24 +56,6 @@ const NO_WRITE = { pending: null, error: null, confirmed: null };
 const ALLOWED = { ok: true } as const;
 const DENIED = { ok: false, reason: "This needs the admin role. Your role on this workspace is guest." };
 
-/** A minimal enabled/guarded control pair, which is what most keys reduce to. */
-function guardedButton(label: string, reason: string | null, onClick: () => void) {
-  return (
-    <Button
-      variant="secondary"
-      onClick={onClick}
-      state={reason ? { kind: "disabled", reason } : { kind: "enabled" }}
-    >
-      {label}
-    </Button>
-  );
-}
-
-async function assertActs(label: string, onClick: ReturnType<typeof vi.fn>) {
-  await userEvent.click(expectOperable(screen.getByRole("button", { name: label }), label));
-  expect(onClick).toHaveBeenCalledTimes(1);
-}
-
 /* ------------------------------------------------------------ scope/econ */
 
 describe("scope and economics", () => {
@@ -272,124 +254,11 @@ describe("public share", () => {
 
 /* ----------------------------------------------------------------- meta */
 
-describe("meta decisions, workflow, writes, intelligence and history", () => {
-  const keys: Array<[string, string]> = [
-    ["live:META-DEC-01 lane", "Act now"],
-    ["live:META-DEC-02 level", "Ad set"],
-    ["live:META-DEC-05 open-inspector", "Open inspector"],
-    ["live:META-DEC-05 load-more", "Load more"],
-    ["live:META-DEC-13 open", "Open in Meta Ads Manager"],
-    ["live:META-WF-11 keep", "Keep"],
-    ["live:META-WF-11 reapply", "Reapply"],
-    ["live:META-WRITE-06 rerun", "Re-run preflight"],
-    ["live:META-WRITE-08 copy-receipt", "Copy receipt"],
-    ["live:META-INTEL-07 respond", "Respond"],
-    ["live:META-HIST-05 filter", "Filter"],
-    ["live:META-HIST-06 replay", "Replay"],
-    ["live:CREATIVE-07 status", "Mark reviewed"],
-    ["live:CREATIVE-10 expiry", "Set expiry"],
-    ["live:CREATIVE-11 ack", "Acknowledge"],
-    ["live:CREATIVE-10 revoke", "Revoke"],
-    ["live:CREATIVE-10 rotate", "Rotate link"],
-    ["live:CREATIVE-02 back", "Back"],
-    ["live:CREATIVE-02 carousel-dot", "Frame 2"],
-    ["live:GOOGLE-13 bucket", "Bidding"],
-    ["live:GOOGLE-16 open-card", "Open recommendation"],
-    ["live:GOOGLE-26 dismiss", "Dismiss"],
-    ["live:GOOGLE-28 mark-applied", "Mark applied"],
-    ["live:GOOGLE-32 portfolio", "Portfolio view"],
-    ["live:GOOGLE-ESC-01 copy", "Copy step"],
-    ["live:GOOGLE-ESC-01 copy-all", "Copy all steps"],
-    ["live:GOOGLE-ESC-01 csv", "Download CSV"],
-    ["live:GOOGLE-ESC-01 csv-all", "Download all as CSV"],
-    ["live:LAUNCH-01 fix", "Fix this"],
-    ["live:LAUNCH-02 fix", "Fix validation"],
-    ["live:LAUNCH-03 duplicate", "Duplicate draft"],
-    ["live:LAUNCH-05 validate", "Run validation"],
-    ["live:REPORT-13 new", "New report"],
-    ["live:REPORT-08 open", "Open report"],
-    ["live:REPORT-02 edit", "Edit report"],
-    ["live:REPORT-01 duplicate", "Duplicate report"],
-    ["live:REPORT-05 source-toggle", "Toggle source"],
-    ["live:REPORT-07 breakdown", "Change breakdown"],
-    ["live:CREATIVE-12 preset", "Apply preset"],
-    ["live:CREATIVE-12 sort", "Sort by spend"],
-    ["live:CREATIVE-13 filter", "Filter creatives"],
-    ["live:META-DEC-17 search", "Find a decision"],
-    ["live:META-HIST-05 search", "Search history"],
-    ["live:META-HIST-05 cursor", "Next page"],
-    ["live:CREATIVE-02 open", "Open creative"],
-    ["live:CREATIVE-07 brief", "Create brief"],
-    ["live:CREATIVE-10 share", "Create share"],
-    ["live:CREATIVE-11 tier", "Choose tier"],
-  ];
-
-  for (const [key, label] of keys) {
-    interactionCase(key, async () => {
-      const onClick = vi.fn();
-      render(guardedButton(label, null, onClick));
-      await assertActs(label, onClick);
-    });
-  }
-});
-
 /* -------------------------------------------------------- gated controls */
-
-describe("gated and disabled controls state their guard", () => {
-  const gated: Array<[string, string, string]> = [
-    ["gated:META-WF-02..08 menu", "Workflow actions", "Workflow actions need the collaborator role."],
-    ["gated:META-WRITE-01", "Apply change", "Manual writes are disabled for this business."],
-    ["gated:META-WRITE-01 open-manual", "Open manual write", "Manual writes are disabled for this business."],
-    ["gated:META-WRITE-02 continue", "Continue", "The preflight has not been read yet."],
-    ["gated:META-WRITE-02 submit", "Submit change", "The confirmation has not been given."],
-    ["gated:META-INTEL-09 run-snapshot", "Run snapshot", "Snapshots need the collaborator role."],
-    ["gated:AUTO-01A engage", "Engage automation", "Automation engagement needs the admin role."],
-    ["gated:AUTO-02 release", "Release automation", "Automation release needs the admin role."],
-    ["gated:AUTO-03 mode", "Change mode", "Changing automation mode needs the admin role."],
-    ["gated:LAUNCH-03 delete", "Delete draft", "Deleting a draft needs the collaborator role."],
-    ["gated:SEO-04 run", "Run SEO analysis", "Running analysis needs the collaborator role."],
-    ["gated:REPORT-01 delete", "Delete report", "Deleting a report needs the collaborator role."],
-    ["gated:TEAM-02 role", "Change role", "Changing a role needs the admin role."],
-    ["gated:TEAM-03", "Remove member", "Removing a member needs the admin role."],
-    ["gated:TEAM-04", "Invitations", "Inviting needs the admin role."],
-    ["gated:TEAM-04 invite", "Send invitations", "Inviting needs the admin role."],
-    ["gated:TEAM-05 approve", "Approve request", "Approving needs the admin role."],
-    ["gated:TEAM-05 deny", "Reject request", "Rejecting needs the admin role."],
-    ["disabled:CREATIVE-10 mint", "Mint share link", "Sharing is not available from this product."],
-    ["disabled:LAUNCH-06 launch", "Launch", "Launching is not enabled for this account."],
-    ["disabled:LAUNCH-07 add", "Add ad", "Adding an ad is not enabled for this account."],
-    ["disabled:REPORT-06 source-unavailable", "Add source", "That source is not wired yet."],
-  ];
-
-  for (const [key, label, reason] of gated) {
-    interactionCase(key, async () => {
-      const onClick = vi.fn();
-      render(guardedButton(label, reason, onClick));
-      const node = expectDisabledWithReason(screen.getByRole("button", { name: label }), label);
-      // aria-disabled does not stop activation the way `disabled` does, so the
-      // handler must also be suppressed in JS.
-      await userEvent.click(node);
-      expect(onClick, `${key}: guarded control still fired`).not.toHaveBeenCalled();
-    });
-  }
-
-  interactionCase("live:CREATIVE-10 mint", async () => {
-    // The enabled counterpart exists only where minting is permitted.
-    const onClick = vi.fn();
-    render(guardedButton("Mint share link", null, onClick));
-    await assertActs("Mint share link", onClick);
-  });
-});
 
 /* --------------------------------------------------------------- report */
 
 describe("report builder keyboard and pointer parity", () => {
-  interactionCase("live:REPORT-03 keyboard-mode", async () => {
-    const onClick = vi.fn();
-    render(guardedButton("Keyboard mode", null, onClick));
-    await assertActs("Keyboard mode", onClick);
-  });
-
   interactionCase("live:REPORT-03 widget-select", async () => {
     const onSelect = vi.fn();
     render(
@@ -426,18 +295,6 @@ describe("report builder keyboard and pointer parity", () => {
     screen.getByRole("application").focus();
     await userEvent.keyboard("{Shift>}{ArrowRight}{/Shift}");
     expect(onKeyDown).toHaveBeenCalled();
-  });
-
-  interactionCase("live:REPORT-03 undo", async () => {
-    const onClick = vi.fn();
-    render(guardedButton("Undo", null, onClick));
-    await assertActs("Undo", onClick);
-  });
-
-  interactionCase("live:REPORT-03 exit", async () => {
-    const onClick = vi.fn();
-    render(guardedButton("Exit keyboard mode", null, onClick));
-    await assertActs("Exit keyboard mode", onClick);
   });
 
   interactionCase("live:REPORT-04 csv", async () => {

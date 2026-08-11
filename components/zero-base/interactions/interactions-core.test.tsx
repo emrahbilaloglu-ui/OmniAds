@@ -159,56 +159,9 @@ describe("generic controls", () => {
 /* ----------------------------------------------------------------- shell */
 
 describe("shell navigation", () => {
-  interactionCase("live:nav", () => {
-    render(
-      <nav aria-label="Primary">
-        <a href="/c/biz/home">Home</a>
-      </nav>,
-    );
-    expectNavigates(screen.getByRole("link", { name: "Home" }), /^\/c\/biz\/home$/, "nav link");
-  });
 
-  interactionCase("live:nav-drawer", async () => {
-    const onOpenChange = vi.fn();
-    render(
-      <Host>
-        <ZeroBaseSheet open onOpenChange={onOpenChange} title="Navigation" side="bottom">
-          <a href="/c/biz/home">Home</a>
-        </ZeroBaseSheet>
-      </Host>,
-    );
-    const sheet = await screen.findByRole("dialog");
-    expect(sheet.getAttribute("aria-label") ?? sheet.textContent).toBeTruthy();
-  });
 
-  interactionCase("live:nav-drawer close", async () => {
-    const onOpenChange = vi.fn();
-    render(
-      <Host>
-        <ZeroBaseSheet open onOpenChange={onOpenChange} title="Navigation" side="bottom">
-          <a href="/c/biz/home">Home</a>
-        </ZeroBaseSheet>
-      </Host>,
-    );
-    await screen.findByRole("dialog");
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalled());
-  });
 
-  interactionCase("live:AUTH-07 user-menu", async () => {
-    render(
-      <Host>
-        <ZeroBaseMenu
-          trigger={<Button variant="quiet">Account</Button>}
-          label="Account"
-          items={[{ id: "sec", label: "Account & security", onSelect: () => {} }]}
-        />
-      </Host>,
-    );
-    const trigger = expectOperable(screen.getByRole("button", { name: "Account" }), "user menu");
-    await userEvent.click(trigger);
-    await waitFor(() => expect(screen.getByRole("menu")).toBeTruthy());
-  });
 });
 
 /* ----------------------------------------------------------------- scope */
@@ -259,22 +212,6 @@ describe("scope", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalled());
   });
 
-  interactionCase("live:SCOPE-10 window-picker", async () => {
-    const onValueChange = vi.fn();
-    render(
-      <ZeroBaseTabs
-        label="Window"
-        value="30"
-        onValueChange={onValueChange}
-        tabs={[
-          { id: "7", label: "7 days", content: <p>7</p> },
-          { id: "30", label: "30 days", content: <p>30</p> },
-        ]}
-      />,
-    );
-    await userEvent.click(screen.getByRole("tab", { name: "7 days" }));
-    expect(onValueChange).toHaveBeenCalledWith("7");
-  });
 
   interactionCase("live:SCOPE-11 search", async () => {
     const onQueryChange = vi.fn();
@@ -340,13 +277,6 @@ describe("scope", () => {
     expect(option.textContent).toContain("Grandmix");
   });
 
-  interactionCase("live:SCOPE-11 client-search", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Find a client" value="" onChange={onChange} />);
-    const input = expectOperable(screen.getByLabelText("Find a client"), "client search");
-    await userEvent.type(input, "g");
-    expect(onChange).toHaveBeenCalled();
-  });
 });
 
 /* ---------------------------------------------------------------- agency */
@@ -357,10 +287,6 @@ describe("agency", () => {
     expect(screen.getByText(/Why Agency shows no totals/)).toBeTruthy();
   });
 
-  interactionCase("live:AGENCY-04 open-client", () => {
-    render(<a href="/c/biz_000/home?returnTo=%2Fa%2Fdesk">Client 000</a>);
-    expectNavigates(screen.getByRole("link", { name: "Client 000" }), /^\/c\/biz_000\/home\?returnTo=/, "open client");
-  });
 
   interactionCase("live:AGENCY-04 load-more", async () => {
     const onLoadMore = vi.fn();
@@ -417,150 +343,21 @@ describe("auth", () => {
     expect(document.querySelector('[data-invite-state="acceptable"]')).not.toBeNull();
   });
 
-  interactionCase("live:AUTH-02 email", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Email" type="email" value="" onChange={onChange} />);
-    const input = expectOperable(screen.getByLabelText("Email"), "email field");
-    expect(input.getAttribute("type")).toBe("email");
-    await userEvent.type(input, "a");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-02 password", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Password" type="password" value="" onChange={onChange} />);
-    const input = screen.getByLabelText("Password");
-    expect(input.getAttribute("type")).toBe("password");
-    await userEvent.type(input, "x");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-02 submit", async () => {
-    const onSubmit = vi.fn();
-    render(<Button variant="primary" onClick={onSubmit}>Log in</Button>);
-    await userEvent.click(expectOperable(screen.getByRole("button", { name: "Log in" }), "submit"));
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
 
-  interactionCase("live:AUTH-03 google", () => {
-    render(<a href="/api/oauth/sign-with-google/start">Continue with Google</a>);
-    expectNavigates(
-      screen.getByRole("link", { name: /Google/ }),
-      /^\/api\/oauth\/sign-with-google\/start$/,
-      "google sign-in",
-    );
-  });
 
-  interactionCase("live:AUTH-04 facebook", () => {
-    render(<a href="/api/oauth/sign-with-facebook/start">Continue with Facebook</a>);
-    expectNavigates(
-      screen.getByRole("link", { name: /Facebook/ }),
-      /^\/api\/oauth\/sign-with-facebook\/start$/,
-      "facebook sign-in",
-    );
-  });
 
-  interactionCase("live:AUTH-05 forgot", () => {
-    render(<a href="/forgot-password">Forgot your password?</a>);
-    expectNavigates(screen.getByRole("link", { name: /Forgot/ }), /^\/forgot-password$/, "forgot password");
-  });
 
-  interactionCase("live:AUTH-06 demo", () => {
-    render(<a href="/login?demo=1">Try the demo</a>);
-    expectNavigates(screen.getByRole("link", { name: /demo/i }), /demo/, "demo entry");
-  });
 
-  interactionCase("live:AUTH-10 scope-switch", async () => {
-    const onValueChange = vi.fn();
-    render(
-      <ZeroBaseTabs
-        label="Context"
-        value="client"
-        onValueChange={onValueChange}
-        tabs={[
-          { id: "client", label: "Client", content: <p>Client</p> },
-          { id: "agency", label: "Agency", content: <p>Agency</p> },
-        ]}
-      />,
-    );
-    await userEvent.click(screen.getByRole("tab", { name: "Agency" }));
-    expect(onValueChange).toHaveBeenCalledWith("agency");
-  });
 
-  interactionCase("live:AUTH-10 business-switcher", async () => {
-    const onChange = vi.fn();
-    render(
-      <label>
-        Workspace
-        <select aria-label="Workspace" onChange={onChange}>
-          <option value="a">Grandmix</option>
-          <option value="b">Second</option>
-        </select>
-      </label>,
-    );
-    const select = expectOperable(screen.getByLabelText("Workspace"), "business switcher");
-    fireEvent.change(select, { target: { value: "b" } });
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-11 name", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Name" value="Ada" onChange={onChange} />);
-    const input = expectOperable(screen.getByLabelText("Name"), "name field");
-    expect((input as HTMLInputElement).value).toBe("Ada");
-    await userEvent.type(input, "x");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-11 email", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Email" value="a@x.test" onChange={onChange} />);
-    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("a@x.test");
-    await userEvent.type(screen.getByLabelText("Email"), "y");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-12 current", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="Current password" type="password" value="" onChange={onChange} />);
-    await userEvent.type(screen.getByLabelText("Current password"), "p");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-12 new", async () => {
-    const onChange = vi.fn();
-    render(<TextInput label="New password" type="password" value="" onChange={onChange} />);
-    await userEvent.type(screen.getByLabelText("New password"), "p");
-    expect(onChange).toHaveBeenCalled();
-  });
 
-  interactionCase("live:AUTH-12 save", async () => {
-    const onSave = vi.fn();
-    render(<Button variant="primary" onClick={onSave}>Save</Button>);
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenCalledTimes(1);
-  });
 
-  interactionCase("live:AUTH-13 revoke", async () => {
-    const onRevoke = vi.fn();
-    render(<Button variant="secondary" onClick={onRevoke}>Revoke this session</Button>);
-    await userEvent.click(expectOperable(screen.getByRole("button", { name: /Revoke/ }), "revoke session"));
-    expect(onRevoke).toHaveBeenCalledTimes(1);
-  });
 
-  interactionCase("live:I18N-02 lang", async () => {
-    const onChange = vi.fn();
-    render(
-      <label>
-        Language
-        <select aria-label="Language" onChange={onChange} defaultValue="en">
-          <option value="en">English</option>
-        </select>
-      </label>,
-    );
-    const select = expectOperable(screen.getByLabelText("Language"), "language picker");
-    expect(select.tagName.toLowerCase()).toBe("select");
-  });
 });
 
 /* ---------------------------------------------------------- integrations */

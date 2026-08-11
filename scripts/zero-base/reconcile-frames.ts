@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 
-import { FRAMES } from "@/scripts/zero-base/frame-registry";
+import { FRAMES, SUBSTITUTED_FRAMES } from "@/scripts/zero-base/frame-registry";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -164,6 +164,46 @@ if (isMain) {
     console.log(`\n  mapped but unevidenced (${result.missingEvidence.length}): ${result.missingEvidence.join(", ")}`);
   }
 
+  /* ------------------------------------------------ reference authority ---- */
+
+  /**
+   * G10 is a *visual fidelity* gate. Markers, dimensions, byte counts and unique
+   * hashes prove a capture happened; they prove nothing about whether Ledger
+   * tokens, type, density and control anatomy match the accepted reference.
+   *
+   * There is no accepted rendered H/B/P/M reference set in this worktree. The
+   * design package's own reconciliation.json states that its archived check
+   * images "live under v1/ and export/v2/checks/ and are history, not
+   * evidence", and the only PNGs on disk are the legacy five-name full-UI smoke
+   * set, which §13.1 forbids as G10 proof.
+   *
+   * So the comparison cannot be performed mechanically here, and this gate says
+   * so instead of passing on proxies.
+   */
+  const declared = crosswalk();
+  const substituted = Object.keys(SUBSTITUTED_FRAMES).filter((id) => declared[id]);
+  console.log(`\n  frames rendering a substituted fragment   ${substituted.length}`);
+  for (const id of substituted.slice(0, 12)) {
+    console.log(`    ${id} — ${SUBSTITUTED_FRAMES[id]}`);
+  }
+  if (substituted.length > 12) console.log(`    … and ${substituted.length - 12} more`);
+
+  console.log("\n  reference comparison                     UNAVAILABLE");
+  console.log(
+    "    No accepted rendered H/B/P/M reference set exists locally. The design\n" +
+      "    package states its check images are history, not evidence, and the only\n" +
+      "    PNGs on disk are the legacy smoke set the plan forbids for G10.",
+  );
+
+  if (substituted.length > 0) {
+    console.log(
+      `\nFAIL: G10 is not satisfied. ${result.mapped.length}/${result.totals.all} frames are captured, but\n` +
+        `${substituted.length} render a substituted fragment rather than the canonical leaf\n` +
+        "composition, and no reference comparison is possible. Captures are not fidelity.",
+    );
+    process.exit(1);
+  }
+
   // Fail closed. G10 needs the full denominator, and a reconciler that reports
   // 14% while exiting zero would let the release aggregate go green over it.
   if (result.mapped.length < result.totals.all) {
@@ -173,5 +213,6 @@ if (isMain) {
     );
     process.exit(1);
   }
-  console.log(`\nPASS: all ${result.totals.all} reference frames resolve to captured evidence.`);
+  console.log(`\nCAPTURED: all ${result.totals.all} frames. Reference fidelity remains unproven.`);
+  process.exit(1);
 }

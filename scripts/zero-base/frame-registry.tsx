@@ -6,6 +6,16 @@
  * and the width and theme the plan requires — then renders that state from real
  * components.
  *
+ * KNOWN LIMITATION — read before trusting any number derived from this file.
+ *
+ * Many entries below render a *fragment* of the owning leaf rather than the
+ * canonical leaf composition inside the real shell. H03 (Home) and H09
+ * (Decisions) render CreativePerformanceView; H60/H61 (drawers) and H63/H64
+ * (scope sheets) render placeholder states. Those are substitutions, not the
+ * canonical compositions, and a capture of them is NOT reference-fidelity
+ * evidence. They are recorded as such in FRAME_FIDELITY below and the G10 gate
+ * refuses to treat them as satisfied.
+ *
  * Two rules this file exists to keep:
  *
  * - **A frame is a state, not a surface.** H03 and H04 are both Home; they are
@@ -59,23 +69,22 @@ const creativeRow = (overrides: Record<string, unknown> = {}) => ({
 });
 
 /**
- * A performance model, tagged with the frame it belongs to.
+ * A performance model.
  *
- * The tag reaches the rendered creative names, so two frames that happen to use
- * the same posture and row count still produce different pixels. Without it the
- * duplicate-digest guard fires — correctly — because the images really are
- * identical, and an identical image is not evidence of a distinct state.
+ * Deliberately NOT tagged with a frame id. An earlier version injected the
+ * frame id into rendered creative names so that two frames sharing a posture
+ * would still produce different pixels — which defeated the duplicate-digest
+ * guard with metadata instead of satisfying it with a real state difference.
+ * If two frames render identically, that is a crosswalk defect to fix, not a
+ * digest to perturb.
  */
 const perf = (
-  tag: string,
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
   rows = 1,
 ) =>
   buildPerformanceViewModel({
-    rows: Array.from({ length: rows }, (_, i) =>
-      creativeRow({ id: `${tag}-r${i}`, creative_id: `${tag}-c${i}`, name: `${tag} creative ${i + 1}` }),
-    ) as never,
+    rows: Array.from({ length: rows }, (_, i) => creativeRow({ id: `r${i}`, creative_id: `c${i}` })) as never,
     posture,
     totalAvailable: total,
   });
@@ -162,16 +171,16 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H01–H08: agency, home, auth ---- */
   { id: "H01", leaf: "L-AG-TODAY", state: "agency-today", width: 1440, theme: "light", render: () => <WithheldExplainer /> },
   { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => <WithheldState reason="Two clients are withheld: no active membership on either." /> },
-  { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H03", "serving", 3, 3)} businessId="biz" /> },
-  { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H04", "serving", 90, 2)} businessId="biz" /> },
+  { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
+  { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 90, 2)} businessId="biz" /> },
   { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <InviteStatePanel state="login_required" token="t" invitedEmail="ada@x.test" /> },
   { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => <EmptyState reason="No results were served for that query." /> },
   { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <LoadingState label="Switching workspace" /> },
-  { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => <CreativePerformanceView model={perf("H08", "serving", 3, 3)} businessId="biz" /> },
+  { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
 
   /* ---- H09–H16: decisions, workflow, mutation ceremony ---- */
-  { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H09", "serving", 5, 5)} businessId="biz" /> },
-  { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H10", "serving", 1, 1)} businessId="biz" /> },
+  { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 5, 5)} businessId="biz" /> },
+  { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
   { id: "H11", leaf: "L-C-META-DEC", state: "workflow-in-flight", width: 1440, theme: "light", render: () => <LoadingState label="Applying the workflow transition" /> },
   { id: "H12", leaf: "L-C-META-DEC", state: "conflict", width: 1440, theme: "light", render: () => <ErrorState reason="This decision changed while you were reading it." code="conflict" /> },
   { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => repair({ blockedReason: "The preflight is older than 15 minutes. Run it again before acting." }) },
@@ -186,9 +195,9 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <WithheldState reason="Meta stop is engaged for this account." /> },
 
   /* ---- H21–H28: creative ---- */
-  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H21", "serving", 4, 4)} businessId="biz" /> },
-  { id: "H22", leaf: "L-C-CR-DETAIL", state: "detail", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H22", "serving", 1, 1)} businessId="biz" /> },
-  { id: "H23", leaf: "L-C-CR-PERF", state: "shadow", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("H23", "shadow_only", 2, 2)} businessId="biz" /> },
+  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
+  { id: "H22", leaf: "L-C-CR-DETAIL", state: "detail", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
+  { id: "H23", leaf: "L-C-CR-PERF", state: "shadow", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
   { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief", width: 1440, theme: "light", render: () => <EmptyState reason="No brief has been created for this creative." /> },
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad", width: 1440, theme: "light", render: () => <EmptyState reason="No drafts have been saved for this account." /> },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => <ErrorState reason="Validation reported two problems in this draft." /> },
@@ -228,12 +237,12 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <WithheldState reason="This share link is not available." /> },
 
   /* ---- H50–H59: mobile / narrow core flows ---- */
-  { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("H50", "serving", 3, 3)} businessId="biz" /> },
+  { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => <WithheldExplainer /> },
-  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("H52", "serving", 4, 4)} businessId="biz" /> },
-  { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("H53", "serving", 2, 2)} businessId="biz" /> },
+  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
+  { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <WithheldState reason="This share link is not available." /> },
-  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("H55", "serving", 2, 2)} businessId="biz" /> },
+  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
   { id: "H56", leaf: "L-C-REP", state: "narrow-reports", width: 390, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
   { id: "H57", leaf: "L-C-M-INT", state: "narrow-integrations", width: 390, theme: "light", render: () => integrations() },
   { id: "H58", leaf: "L-C-M-TEAM", state: "narrow-team", width: 390, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
@@ -249,12 +258,12 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => <LoadingState label="Returning to the agency desk" /> },
 
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
-  { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("B01", "serving", 3, 3)} businessId="biz" /> },
-  { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("B02", "serving", 5, 5)} businessId="biz" /> },
-  { id: "B03", leaf: "L-C-CR-PERF", state: "geometry-1280-creative", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("B03", "serving", 4, 4)} businessId="biz" /> },
+  { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
+  { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 5, 5)} businessId="biz" /> },
+  { id: "B03", leaf: "L-C-CR-PERF", state: "geometry-1280-creative", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "B04", leaf: "L-C-M-INT", state: "geometry-1280-integrations", width: 1280, theme: "light", render: () => integrations() },
-  { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => <CreativePerformanceView model={perf("B05", "serving", 3, 3)} businessId="biz" /> },
-  { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => <CreativePerformanceView model={perf("B06", "serving", 4, 4)} businessId="biz" /> },
+  { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
+  { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "B07", leaf: "L-C-REP", state: "geometry-768-reports", width: 768, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
   { id: "B08", leaf: "L-C-M-TEAM", state: "geometry-768-team", width: 768, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
   { id: "B09", leaf: "L-OPS-INTEGRATIONS", state: "geometry-768-ops", width: 768, theme: "light", render: () => <CriticalIncidentPath /> },
@@ -264,16 +273,16 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P02", leaf: "L-C-REP-VIEW", state: "chart-series", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "trend", title: "Channel revenue", series: [{ key: "meta", label: "Meta", color: "#3b5bdb", points: [{ label: "d1", value: 12 }] }] })} sourceId="overview_trend" /> },
   { id: "P03", leaf: "L-C-REP-VIEW", state: "table-dense", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ rows: [{ name: "Brand", spend: 12 }, { name: "Prospecting", spend: 44 }], columns: ["name", "spend"] })} sourceId="meta_campaigns" /> },
   { id: "P04", leaf: "L-C-REP-VIEW", state: "table-empty", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ emptyMessage: "No rows were served for this period." })} sourceId="meta_campaigns" /> },
-  { id: "P05", leaf: "L-C-CR-PERF", state: "media-missing", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("P05", "serving", 1, 1)} businessId="biz" /> },
+  { id: "P05", leaf: "L-C-CR-PERF", state: "media-missing", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
   { id: "P06", leaf: "L-C-M-TEAM", state: "turkish", width: 1440, theme: "light", render: () => tr(team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED })) },
   { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 1440, theme: "light", render: () => tr(integrations()) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
 
   /* ---- M01–M09: mobile proof states ---- */
-  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("M01", "serving", 2, 2)} businessId="biz" /> },
-  { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => <CreativePerformanceView model={perf("M02", "serving", 2, 2)} businessId="biz" /> },
-  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("M03", "serving", 3, 3)} businessId="biz" /> },
-  { id: "M04", leaf: "L-C-CR-PERF", state: "mobile-creative", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("M04", "shadow_only", 2, 2)} businessId="biz" /> },
+  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
+  { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
+  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
+  { id: "M04", leaf: "L-C-CR-PERF", state: "mobile-creative", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
   { id: "M05", leaf: "L-C-REP", state: "mobile-reports", width: 320, theme: "light", render: () => <ReportLibraryView reports={[]} /> },
   { id: "M06", leaf: "L-C-M-INT", state: "mobile-integrations", width: 320, theme: "light", render: () => integrations() },
   { id: "M07", leaf: "L-C-M-TEAM", state: "mobile-team", width: 320, theme: "dark", render: () => team({ membersWrite: DENIED, invitesWrite: DENIED, accessRequests: DENIED }) },
@@ -285,3 +294,59 @@ export const FRAMES: readonly FrameSpec[] = [
 export function frameFileName(spec: FrameSpec): string {
   return `${spec.id}__${spec.leaf}__${spec.state}__${spec.width}__${spec.theme}`;
 }
+
+
+/**
+ * Which frames render their canonical leaf composition, and which are still a
+ * substituted fragment.
+ *
+ * This exists because the capture pipeline cannot tell the difference: a
+ * fragment inside a static wrapper produces a perfectly valid PNG with unique
+ * bytes and the right dimensions. Only this declaration distinguishes "captured
+ * the state" from "captured something standing in for the state".
+ */
+export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
+  [
+    ["H03", "renders CreativePerformanceView, not the Home composition"],
+    ["H04", "renders CreativePerformanceView, not the partial Home composition"],
+    ["H06", "renders EmptyState, not the global search overlay"],
+    ["H07", "renders LoadingState, not the switch-reset composition"],
+    ["H08", "renders CreativePerformanceView, not the dark Home composition"],
+    ["H09", "renders CreativePerformanceView, not the Decisions lane composition"],
+    ["H10", "renders CreativePerformanceView, not the Decisions inspector"],
+    ["H11", "renders LoadingState, not the workflow overlay"],
+    ["H17", "renders UnavailableState, not the Intelligence composition"],
+    ["H18", "renders EmptyState, not the History composition"],
+    ["H19", "renders OpsRepairPanel, not the Automation composition"],
+    ["H20", "renders WithheldState, not the Meta Stop composition"],
+    ["H24", "renders EmptyState, not the brief composition"],
+    ["H25", "renders EmptyState, not the Launchpad composition"],
+    ["H26", "renders ErrorState, not the Launchpad validation composition"],
+    ["H28", "renders EmptyState, not the landing-pages composition"],
+    ["H29", "renders UnavailableState, not the Google overview composition"],
+    ["H30", "renders EmptyState, not the Advisor composition"],
+    ["H31", "renders OpsRepairPanel, not the Google default-off composition"],
+    ["H32", "renders EmptyState, not the Google plan composition"],
+    ["H33", "renders WithheldState, not the batch reference composition"],
+    ["H34", "renders UnavailableState, not the analytics composition"],
+    ["H35", "renders EmptyState, not the SEO composition"],
+    ["H36", "renders LoadingState, not the GEO composition"],
+    ["H50", "renders CreativePerformanceView, not the narrow Home composition"],
+    ["H52", "renders CreativePerformanceView, not the narrow Decisions composition"],
+    ["H55", "renders CreativePerformanceView, not the 320 Home composition"],
+    ["H60", "renders LoadingState, not the mobile navigation drawer"],
+    ["H61", "renders LoadingState, not the 320 navigation drawer"],
+    ["H62", "renders LoadingState, not the agency-to-client transition"],
+    ["H63", "renders EmptyState, not the 390 scope sheet"],
+    ["H64", "renders EmptyState, not the 320 scope sheet"],
+    ["H65", "renders ErrorState, not the switch-state composition"],
+    ["H66", "renders LoadingState, not the agency return composition"],
+    ["B01", "renders CreativePerformanceView, not the 1280 Home composition"],
+    ["B02", "renders CreativePerformanceView, not the 1280 Decisions composition"],
+    ["B05", "renders CreativePerformanceView, not the 768 Home composition"],
+    ["B06", "renders CreativePerformanceView, not the 768 Decisions composition"],
+    ["M01", "renders CreativePerformanceView, not the mobile Home composition"],
+    ["M02", "renders CreativePerformanceView, not the dark mobile Home composition"],
+    ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],
+  ] as const,
+);

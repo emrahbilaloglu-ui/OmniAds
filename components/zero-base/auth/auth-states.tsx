@@ -144,10 +144,15 @@ export function OAuthCallbackErrorPanel({ error }: { error: OAuthCallbackError }
   );
 }
 
-export function PostureNotice({ text }: { text: string }) {
+export function PostureNotice({ text, kind }: { text: string; kind?: "reviewer" | "demo" }) {
   return (
     <p
       data-posture-notice=""
+      data-posture-kind={kind}
+      // Reviewer and demo are different refusals: one is about the actor, the
+      // other about the workspace, and an operator needs to know which applies
+      // before they go looking for a permission that would not help.
+      data-el={kind === "reviewer" ? "reviewer-banner" : kind === "demo" ? "demo-refusal" : undefined}
       style={{
         ...panel,
         border: "1px dashed var(--ledger-border-control)",

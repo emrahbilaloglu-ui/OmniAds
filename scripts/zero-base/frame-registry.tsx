@@ -63,7 +63,7 @@ import {
 } from "@/components/zero-base/analytics/analytics-views";
 import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
-import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
+import { InviteStatePanel, PostureNotice } from "@/components/zero-base/auth/auth-states";
 import { LoginView } from "@/components/zero-base/auth/login-view";
 import { ThemeAcceptanceBoard } from "@/components/zero-base/states/theme-acceptance-board";
 import { ContextResetNotice, ScopeSwitchPanel } from "@/components/zero-base/shell/switch-states";
@@ -81,6 +81,8 @@ import {
   WithheldState,
 } from "@/components/zero-base/states/surface-state";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
+import { DEMO_BUSINESS_COPY, REVIEWER_READ_ONLY_COPY } from "@/lib/zero-base/auth-states";
+import { Button } from "@/components/zero-base/primitives/button";
 import { GENERATED_LEAVES } from "@/lib/zero-base/generated-contracts";
 import { navHref } from "@/lib/zero-base/navigation";
 import type { FrameShell, FrameShellOptions } from "@/scripts/zero-base/frame-shell";
@@ -1101,7 +1103,20 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H41", leaf: "L-C-M-INT", state: "integrations", width: 1440, theme: "light", render: () => integrations() },
   { id: "H42", leaf: "L-C-M-INT", state: "assignment", width: 1440, theme: "light", render: () => integrations({ assignment: { provider: "meta", accounts: [{ id: "act_1", name: "Main", assigned: true, isManager: false }], notice: null, unavailable: null, state: SETTINGS_STATE, permission: ALLOWED, onSave: () => {}, onCancel: () => {} } }) },
   { id: "H43", leaf: "L-C-M-TEAM", state: "team", width: 1440, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
-  { id: "H44", leaf: "L-C-M-TEAM", state: "reviewer-demo", width: 1440, theme: "light", render: () => team({ membersWrite: DENIED, invitesWrite: DENIED, accessRequests: DENIED }) },
+  { id: "H44", leaf: "L-C-M-TEAM", state: "reviewer-demo", width: 1440, theme: "light", render: () => (
+    <div style={{ display: "grid", gap: 16 }}>
+      <PostureNotice text={REVIEWER_READ_ONLY_COPY} kind="reviewer" />
+      <PostureNotice text={DEMO_BUSINESS_COPY} kind="demo" />
+      <Button
+        variant="secondary"
+        data-ctl="disabled:INV-24 reviewer-block"
+        state={{ kind: "disabled", reason: REVIEWER_READ_ONLY_COPY }}
+      >
+        Pause this ad set
+      </Button>
+      {team({ membersWrite: DENIED, invitesWrite: DENIED, accessRequests: DENIED })}
+    </div>
+  ) },
   { id: "H45", leaf: "L-C-M-BIZ", state: "economics", width: 1440, theme: "light", render: () => business(ALLOWED, [
     { key: "targetRoas", label: "Target ROAS", source: "Cost model", consumers: ["Decision engine"], value: "2.0" },
     { key: "targetRoas", label: "Target ROAS", source: "Commercial targets", consumers: ["Reports"], value: "2.6" },

@@ -104,8 +104,10 @@ export function ClientShell({
         {/* Posture is stated on the surface, not only in the rail footer: a
             reviewer who cannot write, or a demo business whose numbers are
             illustrative, must know before they read a chart. */}
-        {envelope.actor.reviewerReadOnly ? <PostureNotice text={REVIEWER_READ_ONLY_COPY} /> : null}
-        {envelope.actor.demo ? <PostureNotice text={DEMO_BUSINESS_COPY} /> : null}
+        {envelope.actor.reviewerReadOnly ? (
+          <PostureNotice text={REVIEWER_READ_ONLY_COPY} kind="reviewer" />
+        ) : null}
+        {envelope.actor.demo ? <PostureNotice text={DEMO_BUSINESS_COPY} kind="demo" /> : null}
         {children}
       </AppShell>
     </WorkspaceContextProvider>

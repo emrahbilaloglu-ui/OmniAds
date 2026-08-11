@@ -382,6 +382,22 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false, con
               }
             : { ok: true },
         newMutationId: () => "wf_01J9F2K3",
+        initialConflict: conflict
+          ? {
+              current: {
+                businessId: "biz",
+                decisionKey: "d1",
+                state: "acknowledged",
+                assigneeUserId: null,
+                dueAt: null,
+                snoozeUntil: null,
+                reasonCode: null,
+                stateVersion: 4,
+              },
+              attempted: { action: "resolve", fromVersion: 3 },
+              message: "This decision changed while you were reading it.",
+            }
+          : null,
       } as never}
       stickyBar={
         sticky ? { metaStopHref: "/c/biz/meta/automation", onOpenManual: () => {} } : undefined

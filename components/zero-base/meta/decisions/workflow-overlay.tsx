@@ -127,6 +127,7 @@ export function WorkflowPanel({
   onSubmit,
   onRefresh,
   newMutationId,
+  initialConflict,
 }: {
   decisionKey: string;
   servedIds: readonly string[];
@@ -138,6 +139,8 @@ export function WorkflowPanel({
   onRefresh?: () => void;
   /** Injected so a test can assert one id per attempt across retries. */
   newMutationId: () => string;
+  /** A conflict the caller already knows about, e.g. a resumed attempt. */
+  initialConflict?: WorkflowConflict | null;
 }) {
   const copy = useCopy();
   const [openAction, setOpenAction] = useState<CanonicalWorkflowAction | null>(null);
@@ -147,7 +150,7 @@ export function WorkflowPanel({
   const [reasonCode, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<WorkflowConflict | null>(null);
+  const [conflict, setConflict] = useState<WorkflowConflict | null>(initialConflict ?? null);
   const [announcement, setAnnouncement] = useState("");
   const menuRef = useRef<Record<string, HTMLButtonElement | null>>({});
   // One id per attempt: a retry of the same attempt must be a replay, so it is

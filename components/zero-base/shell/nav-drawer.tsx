@@ -34,6 +34,7 @@ export function NavDrawer({
 }) {
   const copy = useCopy();
   const [open, setOpen] = useState(initialOpen);
+  const [filter, setFilter] = useState("");
 
   return (
     <>
@@ -55,6 +56,23 @@ export function NavDrawer({
         side="bottom"
         closeCtl="live:nav-drawer close"
       >
+        <label style={{ display: "grid", gap: 4, fontSize: 12, marginBottom: 8 }}>
+          {copy.findAnything}
+          <input
+            type="search"
+            data-ctl="live:SCOPE-11 search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            style={{
+              minHeight: 44,
+              padding: "8px 10px",
+              borderRadius: "var(--ledger-radius-input)",
+              border: "1px solid var(--ledger-border-control)",
+              background: "var(--ledger-bg-surface)",
+              color: "var(--ledger-ink-primary)",
+            }}
+          />
+        </label>
         <nav aria-label={copy.primary} data-nav-drawer="">
           {groups.map((group) => (
             <div key={group.id} style={{ marginTop: 12 }}>
@@ -72,7 +90,13 @@ export function NavDrawer({
                 {group.label}
               </p>
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {group.items.map((item) => {
+                {group.items
+                  .filter((item) =>
+                    filter.trim()
+                      ? railLabel(item.label).toLowerCase().includes(filter.trim().toLowerCase())
+                      : true,
+                  )
+                  .map((item) => {
                   const href = navHref(item.url, businessId);
                   const current = href === pathname;
                   return (

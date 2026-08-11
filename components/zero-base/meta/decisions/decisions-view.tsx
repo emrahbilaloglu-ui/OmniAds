@@ -21,6 +21,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/zero-base/primitives/button";
+import type { WorkflowConflict } from "@/lib/zero-base/meta/workflow-view-model";
 import { Collection } from "@/components/zero-base/collections/collection";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
@@ -76,6 +77,8 @@ export interface DecisionsWorkflow {
   onSubmit: (decisionKey: string, submit: WorkflowSubmit) => Promise<WorkflowSubmitResult>;
   onRefresh?: () => void;
   newMutationId: () => string;
+  /** A conflict already known to the caller. */
+  initialConflict?: WorkflowConflict | null;
 }
 
 export function DecisionsView({
@@ -583,6 +586,7 @@ function DecisionInspector({
           events={workflow.events}
           loadState={workflow.loadState}
           posture={workflowPosture({ viewer: model.viewer, demo })}
+          initialConflict={workflow.initialConflict ?? null}
           onSubmit={(submit) => workflow.onSubmit(row.id, submit)}
           onRefresh={workflow.onRefresh}
           newMutationId={workflow.newMutationId}

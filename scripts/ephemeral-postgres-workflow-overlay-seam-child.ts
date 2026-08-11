@@ -8,7 +8,12 @@
 //
 // DATABASE_URL is pre-set by the parent to the ephemeral server.
 import { getDb } from "@/lib/db";
-import { persistWorkflowTransition, readWorkflowRecord } from "@/lib/decision-workflow-store";
+import {
+  persistWorkflowTransition,
+  readWorkflowEvents,
+  readWorkflowRecord,
+  readWorkflowRecords,
+} from "@/lib/decision-workflow-store";
 import { applyWorkflowTransition, newWorkflowRecord } from "@/lib/decision-workflow";
 
 const LABEL = "workflow-overlay-seam";
@@ -220,11 +225,106 @@ async function main() {
   expectEqual(!conflict.ok && conflict.reason, "version_conflict", "refusal names the conflict");
   expectEqual(await eventCount("dec_basic"), 1, "the refused conflict appended no event");
 
+  // ------------------------------------------------- batched read (no N+1)
+  //
+  // The canonical Decisions page reads the overlay for a whole served page in
+  // one statement. This proves the batch actually returns every persisted row
+  // and omits nothing, against real storage rather than a mock that echoes its
+  // own input.
+  const batch = await readWorkflowRecords({
+    businessId: BUSINESS_ID,
+    decisionKeys: ["dec_basic", "dec_retry", "dec_atomic", "dec_never_touched"],
+  });
+  expectEqual(batch.size, 3, "the batch returns exactly the rows that exist");
+  expectTrue(batch.has("dec_basic"), "batch contains dec_basic");
+  expectTrue(batch.has("dec_retry"), "batch contains dec_retry");
+  expectTrue(
+    !batch.has("dec_never_touched"),
+    "a decision nobody touched has no row, and the batch does not invent one",
+  );
+  expectEqual(batch.get("dec_basic")?.state, "acknowledged", "batched state matches the single read");
+
+  const single = await readWorkflowRecord({ businessId: BUSINESS_ID, decisionKey: "dec_basic" });
+  expectEqual(
+    JSON.stringify(batch.get("dec_basic")),
+    JSON.stringify(single),
+    "batched and single reads agree byte-for-byte",
+  );
+
+  // Another tenant's identical decision key must not leak into this batch.
+  await getDb().query(
+    `INSERT INTO decision_workflow_state
+       (business_id, entity_type, entity_id, decision_key, state, state_version)
+     VALUES ($1, 'creative', 'dec_basic', 'dec_basic', 'resolved', 4)`,
+    ["c0000000-0000-4000-8000-0000000000b2"],
+  );
+  const scoped = await readWorkflowRecords({
+    businessId: BUSINESS_ID,
+    decisionKeys: ["dec_basic"],
+  });
+  expectEqual(
+    scoped.get("dec_basic")?.state,
+    "acknowledged",
+    "the batch is business-scoped: another tenant's row for the same key is not returned",
+  );
+
+  // ------------------------------------------------------ event projection
+  //
+  // The canonical surface has no comment control and no comment read. The
+  // journal column still exists for the legacy contract, so this proves the
+  // projection genuinely cannot carry it out of the database.
+  await getDb().query(
+    `UPDATE decision_workflow_events
+        SET comment = 'operator free text that must never reach the canonical surface'
+      WHERE business_id = $1 AND decision_key = 'dec_basic'`,
+    [BUSINESS_ID],
+  );
+  const events = await readWorkflowEvents({ businessId: BUSINESS_ID, decisionKey: "dec_basic" });
+  expectTrue(events.length > 0, "the journal read returns the recorded event");
+  expectTrue(
+    !JSON.stringify(events).includes("free text"),
+    "no comment text is projected, even though the column holds some",
+  );
+  expectTrue(
+    Object.keys(events[0]!).every((key) => key !== "comment"),
+    "the projected shape has no comment field at all",
+  );
+  expectEqual(events[0]!.actorName, "Seed", "the actor name is joined from users");
+
+  // An event whose actor was removed reports no name rather than inventing one.
+  await getDb().query(
+    `INSERT INTO decision_workflow_events
+       (business_id, decision_key, event, from_state, to_state, actor_user_id, state_version)
+     VALUES ($1, 'dec_orphan', 'acknowledge', 'open', 'acknowledged', NULL, 1)`,
+    [BUSINESS_ID],
+  );
+  const orphan = await readWorkflowEvents({ businessId: BUSINESS_ID, decisionKey: "dec_orphan" });
+  expectEqual(orphan[0]?.actorUserId, null, "an unrecorded actor stays null");
+  expectEqual(orphan[0]?.actorName, null, "and no name is fabricated for it");
+
+  // The journal read is bounded, so one noisy decision cannot return everything.
+  for (let index = 0; index < 60; index += 1) {
+    await getDb().query(
+      `INSERT INTO decision_workflow_events
+         (business_id, decision_key, event, from_state, to_state, actor_user_id, state_version)
+       VALUES ($1, 'dec_noisy', 'acknowledge', 'open', 'acknowledged', $2::uuid, $3)`,
+      [BUSINESS_ID, USER_ID, index + 1],
+    );
+  }
+  const bounded = await readWorkflowEvents({
+    businessId: BUSINESS_ID,
+    decisionKey: "dec_noisy",
+    limit: 999,
+  });
+  expectEqual(bounded.length, 50, "the journal read caps at 50 however large a limit is asked for");
+
   console.log(
     `[${LABEL}] PASS: state and journal commit together and roll back together; a replayed ` +
       "mutation id appends no second event and does not bump the version; the same id is " +
-      "allowed in a different business; and a stale expectedVersion is refused by the database " +
-      "without writing an event.",
+      "allowed in a different business; a stale expectedVersion is refused by the database " +
+      "without writing an event; the batched page read is business-scoped, invents no row and " +
+      "agrees with the single read; and the journal projection carries no comment text out of " +
+      "the database, fabricates no actor name, and caps at 50 rows.",
   );
 }
 

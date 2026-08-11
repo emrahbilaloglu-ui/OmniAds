@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const requireBusinessAccess = vi.hoisted(() => vi.fn());
+const readWorkflowRecords = vi.hoisted(() =>
+  vi.fn(async (_input: { businessId: string; decisionKeys: string[] }) => new Map<string, unknown>()),
+);
+const readWorkflowEvents = vi.hoisted(() =>
+  vi.fn(async (_input: { businessId: string; decisionKey: string }) => [] as unknown[]),
+);
 const readWorkflowRecord = vi.hoisted(() => vi.fn());
 const persistWorkflowTransition = vi.hoisted(() => vi.fn());
 
@@ -21,7 +27,8 @@ vi.mock("@/lib/access", () => ({ requireBusinessAccess, findMembership }));
 vi.mock("@/lib/decision-workflow-store", () => ({
   readWorkflowRecord,
   persistWorkflowTransition,
-  readWorkflowRecords: vi.fn(),
+  readWorkflowRecords,
+  readWorkflowEvents,
 }));
 
 import { GET, POST } from "@/app/api/meta/decision-workflow/route";
@@ -156,5 +163,101 @@ describe("POST decision workflow", () => {
     );
     expect(persistWorkflowTransition.mock.calls[0][0].event.actorUserId).toBe("user-1");
     expect(persistWorkflowTransition.mock.calls[0][0].next.assigneeUserId).toBe("user-9");
+  });
+});
+
+/**
+ * The canonical batched mode.
+ *
+ * The single-key read still exists and is unchanged; this adds one request for
+ * a whole served page, because a per-row GET is an N+1 that grows with the
+ * collection.
+ */
+describe("GET zero-base batched contract", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireBusinessAccess.mockResolvedValue({
+      session: { user: { id: "user-1" } },
+      membership: { role: "collaborator" },
+    });
+    readWorkflowRecords.mockResolvedValue(
+      new Map([["ad:1", { ...openRecord, decisionKey: "ad:1", state: "acknowledged" }]]),
+    );
+    readWorkflowEvents.mockResolvedValue([]);
+  });
+
+  it("reads every key in ONE store call rather than one per row", async () => {
+    await GET(
+      getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1,ad:2,ad:3"),
+    );
+    expect(readWorkflowRecords).toHaveBeenCalledTimes(1);
+    expect(readWorkflowRecords.mock.calls[0][0].decisionKeys).toEqual(["ad:1", "ad:2", "ad:3"]);
+    // The single-key reader is not used at all in this mode.
+    expect(readWorkflowRecord).not.toHaveBeenCalled();
+  });
+
+  it("fills a decision with no row as open rather than omitting it", async () => {
+    const body = await (
+      await GET(getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1,ad:2"))
+    ).json();
+    expect(body.workflows).toHaveLength(2);
+    expect(body.workflows[1]).toMatchObject({ decisionKey: "ad:2", state: "open" });
+    // Which ones actually had a row is reported, so "open" is not mistaken for
+    // "somebody set this to open".
+    expect(body.persistedKeys).toEqual(["ad:1"]);
+  });
+
+  it("de-duplicates keys", async () => {
+    await GET(getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1,ad:1,ad:2"));
+    expect(readWorkflowRecords.mock.calls[0][0].decisionKeys).toEqual(["ad:1", "ad:2"]);
+  });
+
+  it("refuses an oversized batch instead of silently truncating it", async () => {
+    const keys = Array.from({ length: 201 }, (_, index) => `ad:${index}`).join(",");
+    const response = await GET(
+      getRequest(`contract=zero-base.v1&businessId=biz-1&decisionKeys=${keys}`),
+    );
+    // A silently dropped key would render "nobody owns this" for a decision
+    // somebody does own.
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("too_many_keys");
+    expect(readWorkflowRecords).not.toHaveBeenCalled();
+  });
+
+  it("reads the journal only for the one decision that is open", async () => {
+    await GET(
+      getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1,ad:2&decisionKey=ad:1"),
+    );
+    expect(readWorkflowEvents).toHaveBeenCalledTimes(1);
+    expect(readWorkflowEvents.mock.calls[0][0].decisionKey).toBe("ad:1");
+  });
+
+  it("reads no journal when no decision is selected", async () => {
+    await GET(getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1"));
+    expect(readWorkflowEvents).not.toHaveBeenCalled();
+  });
+
+  it("refuses to fetch a journal for a decision outside the batch", async () => {
+    const body = await (
+      await GET(
+        getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1&decisionKey=ad:99"),
+      )
+    ).json();
+    expect(readWorkflowEvents).not.toHaveBeenCalled();
+    expect(body.eventsFor).toBeNull();
+  });
+
+  it("authorizes the business before reading anything", async () => {
+    requireBusinessAccess.mockResolvedValue({ error: new Response(null, { status: 403 }) });
+    await GET(getRequest("contract=zero-base.v1&businessId=biz-1&decisionKeys=ad:1"));
+    expect(readWorkflowRecords).not.toHaveBeenCalled();
+  });
+
+  it("leaves the legacy single-key mode untouched", async () => {
+    readWorkflowRecord.mockResolvedValue(openRecord);
+    const body = await (await GET(getRequest("businessId=biz-1&decisionKey=dec-1"))).json();
+    // Same two fields, same shape, no contract marker.
+    expect(Object.keys(body).sort()).toEqual(["available", "workflow"]);
+    expect(readWorkflowRecords).not.toHaveBeenCalled();
   });
 });

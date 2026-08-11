@@ -92,6 +92,83 @@ export async function readWorkflowRecords(input: {
   return result;
 }
 
+export interface WorkflowEvent {
+  event: string;
+  fromState: string | null;
+  toState: string | null;
+  /** Null when the acting user was never recorded or has since been removed. */
+  actorUserId: string | null;
+  actorName: string | null;
+  reasonCode: string | null;
+  stateVersion: number;
+  occurredAt: string;
+}
+
+/**
+ * Read the journal for one decision, newest first and bounded.
+ *
+ * `comment` is deliberately **not** selected. The canonical surface has no
+ * comment control and no comment read; projecting the column here would put
+ * free-form text one render away from a surface that must not carry it, and
+ * INVARIANTS is explicit that a blocked resolution must never be recovered by
+ * parsing free-form reason text.
+ */
+export async function readWorkflowEvents(input: {
+  businessId: string;
+  decisionKey: string;
+  limit?: number;
+}): Promise<WorkflowEvent[]> {
+  if (!(await overlayReady())) return [];
+  // Bounded so one noisy decision cannot return an unbounded journal.
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 50);
+  const rows = (await getDb().query<{
+    event: string;
+    from_state: string | null;
+    to_state: string | null;
+    actor_user_id: string | null;
+    actor_name: string | null;
+    reason_code: string | null;
+    state_version: number;
+    created_at: string;
+  }>(
+    `
+      SELECT e.event,
+             e.from_state,
+             e.to_state,
+             e.actor_user_id::text AS actor_user_id,
+             u.name               AS actor_name,
+             e.reason_code,
+             e.state_version,
+             e.created_at::text   AS created_at
+      FROM decision_workflow_events e
+      LEFT JOIN users u ON u.id = e.actor_user_id
+      WHERE e.business_id = $1 AND e.decision_key = $2
+      ORDER BY e.created_at DESC, e.state_version DESC
+      LIMIT $3
+    `,
+    [input.businessId, input.decisionKey, limit],
+  )) as Array<{
+    event: string;
+    from_state: string | null;
+    to_state: string | null;
+    actor_user_id: string | null;
+    actor_name: string | null;
+    reason_code: string | null;
+    state_version: number;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    event: row.event,
+    fromState: row.from_state,
+    toState: row.to_state,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name,
+    reasonCode: row.reason_code,
+    stateVersion: row.state_version,
+    occurredAt: row.created_at,
+  }));
+}
+
 /**
  * Persist a transition.
  *

@@ -8,7 +8,9 @@ import {
 } from "@/lib/decision-workflow";
 import {
   persistWorkflowTransition,
+  readWorkflowEvents,
   readWorkflowRecord,
+  readWorkflowRecords,
 } from "@/lib/decision-workflow-store";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +26,75 @@ const ACTIONS: WorkflowAction[] = [
   "comment",
 ];
 
+/** Most decision keys one canonical page may ask about in a single read. */
+const ZERO_BASE_MAX_KEYS = 200;
+
 /** Read who owns a decision and what has been done about it. */
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const decisionKey = request.nextUrl.searchParams.get("decisionKey");
+
+  // Canonical callers opt in explicitly. This is a mode on the one workflow
+  // route, not a second route: the overlay must have exactly one authority, and
+  // a per-row GET across a served collection would be an N+1 that grows with
+  // the page.
+  const zeroBase = request.nextUrl.searchParams.get("contract") === "zero-base.v1";
+  if (zeroBase) {
+    const rawKeys = request.nextUrl.searchParams.get("decisionKeys") ?? "";
+    const decisionKeys = [
+      ...new Set(
+        rawKeys
+          .split(",")
+          .map((key) => key.trim())
+          .filter((key) => key.length > 0),
+      ),
+    ];
+    if (!businessId) {
+      return NextResponse.json(
+        { error: "missing_parameters", message: "businessId is required." },
+        { status: 400 },
+      );
+    }
+    // Bounded rather than truncated: a caller that silently lost keys would
+    // render "nobody owns this" for decisions somebody does own.
+    if (decisionKeys.length > ZERO_BASE_MAX_KEYS) {
+      return NextResponse.json(
+        {
+          error: "too_many_keys",
+          message: `Ask for at most ${ZERO_BASE_MAX_KEYS} decision keys per read.`,
+          limit: ZERO_BASE_MAX_KEYS,
+        },
+        { status: 400 },
+      );
+    }
+
+    const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+    if ("error" in access) return access.error;
+
+    const records = await readWorkflowRecords({ businessId, decisionKeys });
+    // A decision with no row is open, not missing — the same rule the single
+    // read already applies, stated once for the whole batch.
+    const workflows = decisionKeys.map(
+      (key) => records.get(key) ?? newWorkflowRecord({ businessId, decisionKey: key }),
+    );
+
+    // Events only for the one decision the operator has open. Fetching the
+    // journal for every row would be the N+1 this mode exists to avoid.
+    const events =
+      decisionKey && decisionKeys.includes(decisionKey)
+        ? await readWorkflowEvents({ businessId, decisionKey })
+        : [];
+
+    return NextResponse.json({
+      contract: "zero-base.v1",
+      workflows,
+      persistedKeys: [...records.keys()],
+      events,
+      eventsFor: decisionKey && decisionKeys.includes(decisionKey) ? decisionKey : null,
+      viewer: { userId: access.session.user.id, role: access.membership.role },
+    });
+  }
+
   if (!businessId || !decisionKey) {
     return NextResponse.json(
       { error: "missing_parameters", message: "businessId and decisionKey are required." },

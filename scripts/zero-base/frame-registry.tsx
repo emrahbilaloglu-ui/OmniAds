@@ -48,6 +48,12 @@ import {
   ReportShareDisabled,
 } from "@/components/zero-base/reports/report-views";
 import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
+import {
+  AnalyticsTableView,
+  GeoView,
+  SeoView,
+  SourceOverviewView,
+} from "@/components/zero-base/analytics/analytics-views";
 import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
@@ -549,6 +555,94 @@ const launchpad = (withFindings: boolean) => (
   />
 );
 
+
+/* ------------------------------------------------------------- analytics */
+
+const av = (display: string, raw: number) => ({
+  available: true as const,
+  display,
+  raw,
+  measuredZero: raw === 0,
+});
+
+const SOURCE_PANELS = [
+  { kind: "ga4" as const, label: "Google Analytics 4", connected: true, error: null, required: true },
+  { kind: "shopify" as const, label: "Shopify", connected: false, error: "Shop token was rejected (401).", required: false },
+];
+
+const analyticsOverview = () => (
+  <SourceOverviewView
+    panels={SOURCE_PANELS}
+    overview={{
+      propertyName: "Halcyon Supply Co. — GA4",
+      kpis: [
+        { key: "sessions", value: av("48,120", 48120) },
+        { key: "purchases", value: av("612", 612) },
+        { key: "revenue", value: av("48,293.75 USD", 48293.75) },
+      ],
+      cohorts: [
+        { key: "new" as const, sessions: av("31,400", 31400), purchases: av("290", 290), purchaseCvr: av("0.92%", 0.92) },
+        { key: "returning" as const, sessions: av("16,720", 16720), purchases: av("322", 322), purchaseCvr: av("1.93%", 1.93) },
+      ],
+      insights: [],
+    }}
+    insight={{
+      text: "Returning sessions convert at twice the rate of new ones this window.",
+      generatedAt: "2026-08-09T06:00:00Z",
+      absentReason: null,
+    }}
+  />
+);
+
+const seoView = () => (
+  <SeoView
+    panels={[SOURCE_PANELS[0]]}
+    role={{ allowed: true }}
+    seo={{
+      siteUrl: "https://halcyonsupply.example",
+      rowCount: 240,
+      summary: [
+        { key: "clicks", current: av("9,410", 9410), deltaPercent: av("+6.2%", 6.2) },
+        { key: "impressions", current: av("184,220", 184220), deltaPercent: av("-1.1%", -1.1) },
+      ],
+      leaderQueries: [{ id: "q1", label: "halcyon supply" }],
+      decliningQueries: [{ id: "q2", label: "storage bins" }],
+      causes: [{ id: "c1", label: "Two product pages returned 404 for six days." }],
+      recommendations: [{ id: "r1", label: "Restore the retired bin collection URLs." }],
+      aiBriefHeadline: "Recovery depends on restoring two removed collection pages.",
+    }}
+  />
+);
+
+const geoView = () => (
+  <GeoView
+    geo={{
+      sources: SOURCE_PANELS,
+      aiPageCount: av("38", 38),
+      priorities: [] as never,
+      atProxyCap: false,
+      kpis: [{ key: "aiReferrals", value: { available: false as const, reason: "GEO needs both GA4 and Search Console; Search Console is not connected." } }],
+    }}
+  />
+);
+
+const landingPages = () => (
+  <AnalyticsTableView
+    title="Landing pages"
+    panels={SOURCE_PANELS}
+    rows={[
+      { id: "lp1", cells: { page: "/collections/storage", sessions: av("4,210", 4210), revenue: av("8,120.00 USD", 8120) } },
+      { id: "lp2", cells: { page: "/products/bin-12l", sessions: av("2,980", 2980), revenue: av("5,440.00 USD", 5440) } },
+    ]}
+    columns={[
+      { id: "page", header: "Landing page" },
+      { id: "sessions", header: "Sessions", numeric: true },
+      { id: "revenue", header: "Revenue", numeric: true },
+    ]}
+    capText="Showing the 2 highest-revenue pages the server served."
+  />
+);
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -673,7 +767,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
   { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <EmptyState reason="No share links have been minted for this creative." /> },
-  { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => <EmptyState reason="No landing pages were served for this window." /> },
+  { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => landingPages() },
 
   /* ---- H29–H33: google ---- */
   { id: "H29", leaf: "L-C-G-OVERVIEW", state: "google-overview", width: 1440, theme: "light", render: () => googleOverview() },
@@ -683,9 +777,9 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H33", leaf: "L-C-G-PLAN", state: "batch-reference", width: 1440, theme: "light", render: () => googlePlan(false, false) },
 
   /* ---- H34–H36: analytics ---- */
-  { id: "H34", leaf: "L-C-AN-GA", state: "analytics", width: 1440, theme: "light", render: () => <UnavailableState reason="GA4 is not connected for this business." /> },
-  { id: "H35", leaf: "L-C-AN-SEO", state: "seo", width: 1440, theme: "light", render: () => <EmptyState reason="Search Console served no rows for this window." /> },
-  { id: "H36", leaf: "L-C-AN-GEO", state: "geo", width: 1440, theme: "light", render: () => <LoadingState label="Loading AI visibility" /> },
+  { id: "H34", leaf: "L-C-AN-GA", state: "analytics-ga4", width: 1440, theme: "light", render: () => analyticsOverview() },
+  { id: "H35", leaf: "L-C-AN-SEO", state: "seo-findings", width: 1440, theme: "light", render: () => seoView() },
+  { id: "H36", leaf: "L-C-AN-GEO", state: "geo-gated", width: 1440, theme: "light", render: () => geoView() },
 
   /* ---- H37–H40: reports ---- */
   { id: "H37", leaf: "L-C-REP", state: "reports-library", width: 1440, theme: "light", render: () => <ReportLibraryView reports={REPORTS} businessId="biz" totalCount={9} onCreate={() => {}} onDuplicate={() => {}} onDelete={() => {}} onLoadMore={() => {}} /> },
@@ -782,10 +876,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
     ["H24", "renders EmptyState, not the brief composition"],
-    ["H28", "renders EmptyState, not the landing-pages composition"],
-    ["H34", "renders UnavailableState, not the analytics composition"],
-    ["H35", "renders EmptyState, not the SEO composition"],
-    ["H36", "renders LoadingState, not the GEO composition"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],

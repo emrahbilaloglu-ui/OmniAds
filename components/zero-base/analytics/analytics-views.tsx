@@ -31,7 +31,14 @@ export function SourcePanels({ panels }: { panels: readonly SourcePanel[] }) {
     <section aria-label={copy.sources} style={{ marginTop: 8 }}>
       <ul data-source-panels={state.kind} style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
         {panels.map((panel) => (
-          <li key={panel.kind} data-source-panel={panel.kind} style={{ fontSize: 12.5 }}>
+          <li
+            key={panel.kind}
+            data-source-panel={panel.kind}
+            // A disconnected source is the surface's missing-source state; it
+            // is named so the gate can tell it apart from a healthy panel.
+            data-el={panel.connected ? undefined : "source-missing-state"}
+            style={{ fontSize: 12.5 }}
+          >
             <strong style={{ fontWeight: 600 }}>{panel.label}:</strong>{" "}
             {panel.connected ? (
               <span data-source-connected={panel.kind}>{copy.connected}</span>
@@ -108,6 +115,7 @@ export function SourceOverviewView({
 
           <div style={{ marginTop: 12 }}>
             <DataTable
+              collection="traffic"
               caption={copy.ga4Kpis}
               rows={[...overview.kpis]}
               rowKey={(row) => row.key}
@@ -150,11 +158,11 @@ export function SourceOverviewView({
       <section aria-label={copy.latestAiInsight} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.latestAiInsight}</h2>
         {insight.absentReason ? (
-          <p data-insight="absent" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-insight="absent" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
             {insight.absentReason}
           </p>
         ) : (
-          <p data-insight="present" style={{ margin: "4px 0 0", fontSize: 13 }}>
+          <p data-insight="present" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 13 }}>
             {insight.text}
             {insight.generatedAt ? (
               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -203,6 +211,7 @@ export function AnalyticsTableView({
           </p>
           <div style={{ marginTop: 12 }}>
             <DataTable
+              collection="landing-pages"
               caption={title}
               rows={[...rows]}
               rowKey={(row) => row.id}
@@ -281,6 +290,7 @@ export function SeoView({
           </p>
 
           <DataTable
+            collection="seo"
             caption={copy.searchPerformance}
             rows={[...seo.summary]}
             rowKey={(row) => row.key}
@@ -304,7 +314,7 @@ export function SeoView({
           <SeoList id="recommendations" title={copy.recommendations} items={seo.recommendations} />
 
           {seo.aiBriefHeadline ? (
-            <p data-seo-ai-brief="" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
+            <p data-seo-ai-brief="" data-el="seo-gen-states" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
               {seo.aiBriefHeadline}
               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 {copy.servedBriefReadOnly}
@@ -334,7 +344,7 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
     <Shell title="GEO">
       <SourcePanels panels={geo.sources} />
 
-      <section aria-label={copy.aiPageReach} style={{ marginTop: 16 }}>
+      <section aria-label={copy.aiPageReach} data-el="geo-gated" style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.aiVisitedPages}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 13 }}>
           <Value value={geo.aiPageCount} name="aiPageCount" />

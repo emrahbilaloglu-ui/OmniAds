@@ -67,6 +67,15 @@ const LEDGER_FACES = new Set(["schibsted grotesk", "fragment mono"]);
 /** Tags that can carry a control contract. A div with onClick cannot. */
 const CONTROL_TAGS = new Set(["button", "a", "input", "select", "textarea", "video", "label"]);
 
+/**
+ * Roles that make a non-control element a control.
+ *
+ * A tab list is a single composite control with its own keyboard model, and
+ * Radix renders it as a div carrying `role="tablist"` — which is correct. The
+ * role is what makes it operable, so the role is what is checked.
+ */
+const CONTROL_ROLES = new Set(["tablist", "radiogroup", "listbox", "menu", "group", "toolbar"]);
+
 export interface FidelityFinding {
   frame: string;
   key: string;
@@ -219,11 +228,12 @@ export function compareFrame(
     }
 
     // A control contract on a non-control element is not a control.
-    if (key.startsWith("ctl:") && !CONTROL_TAGS.has(got.tag)) {
+    const isControl = CONTROL_TAGS.has(got.tag) || CONTROL_ROLES.has(got.role ?? "");
+    if (key.startsWith("ctl:") && !isControl) {
       add(key, "not-a-control", `carried by <${got.tag}>, which has no control semantics`);
     }
 
-    if (key.startsWith("ctl:") && CONTROL_TAGS.has(got.tag)) {
+    if (key.startsWith("ctl:") && isControl) {
       const smallest = Math.min(got.pixels.width, got.pixels.height);
       if (smallest > 0 && smallest < MIN_TARGET_PX) {
         add(key, "target-too-small", `${Math.round(got.pixels.width)}×${Math.round(got.pixels.height)} is below the ${MIN_TARGET_PX}px minimum target`);

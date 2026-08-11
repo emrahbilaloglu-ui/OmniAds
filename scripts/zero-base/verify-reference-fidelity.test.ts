@@ -28,6 +28,7 @@ function fact(overrides: Partial<VisualFact> & { key: string }): VisualFact {
     box: { x: 0, y: 0, width: 0.5, height: 0.2 },
     pixels: { width: 200, height: 40 },
     tag: "div",
+    role: null,
     fontFamily: "Schibsted Grotesk, sans-serif",
     fontSizePx: 13,
     fontWeight: 400,

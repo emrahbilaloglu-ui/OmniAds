@@ -41,6 +41,8 @@ export interface VisualFact {
   /** Pixel box, for control-anatomy checks like minimum target size. */
   pixels: { width: number; height: number };
   tag: string;
+  /** ARIA role, where one is set. A tablist is a control on a div. */
+  role: string | null;
   fontFamily: string;
   fontSizePx: number;
   fontWeight: number;
@@ -152,6 +154,7 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
       },
       pixels: { width: rect.width, height: rect.height },
       tag: node.tagName.toLowerCase(),
+      role: node.getAttribute("role"),
       fontFamily: cs.fontFamily,
       fontSizePx: num(cs.fontSize),
       fontWeight: num(cs.fontWeight) || 400,

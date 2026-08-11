@@ -7838,7 +7838,9 @@
 [data-adc-ui="zero-base"] select[data-ctl] {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 24px;
+  min-width: 24px;
 }
 
 [data-adc-ui="zero-base"] input[type="checkbox"],

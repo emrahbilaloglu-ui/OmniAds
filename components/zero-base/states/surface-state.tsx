@@ -21,6 +21,7 @@
 import type { ReactNode } from "react";
 
 import type { SurfaceState } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const panelBase: React.CSSProperties = {
   borderRadius: "var(--ledger-radius-card)",
@@ -89,8 +90,9 @@ function Panel({
 }
 
 export function UnavailableState({ reason, code }: { reason: string; code?: string }) {
+  const copy = useCopy();
   return (
-    <Panel tone="unavailable" title="Unavailable" code={code} testId="state-unavailable">
+    <Panel tone="unavailable" title={copy.unavailable} code={code} testId="state-unavailable">
       {reason}
     </Panel>
   );
@@ -124,6 +126,7 @@ export function ErrorState({
   code?: string;
   onRetry?: () => void;
 }) {
+  const copy = useCopy();
   return (
     <Panel tone="error" title="Failed" code={code} testId="state-error">
       {reason}
@@ -156,7 +159,7 @@ export function ErrorState({
             cursor: "pointer",
           }}
         >
-          Retry
+          {copy.retry}
         </button>
       ) : null}
     </Panel>
@@ -171,7 +174,9 @@ export function EmptyState({ reason, code }: { reason: string; code?: string }) 
   );
 }
 
-export function LoadingState({ label = "Loading" }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
+  const copy = useCopy();
+  const text = label ?? copy.loading;
   return (
     <div
       data-surface-state="loading"
@@ -180,7 +185,7 @@ export function LoadingState({ label = "Loading" }: { label?: string }) {
       aria-live="polite"
       style={{ ...panelBase, border: "1px solid var(--ledger-border-subtle)", color: "var(--ledger-ink-secondary)" }}
     >
-      {label}…
+      {text}
     </div>
   );
 }

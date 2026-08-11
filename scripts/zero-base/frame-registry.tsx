@@ -258,7 +258,9 @@ const agencyPage = (count: number) => ({
   disclosure: null,
 });
 
-const agencyDesk = () => <AgencyDeskView initialPage={agencyPage(4)} />;
+const agencyDesk = (returnedFrom: { name: string; href: string } | null = null) => (
+  <AgencyDeskView initialPage={agencyPage(4)} returnedFrom={returnedFrom} />
+);
 
 
 /* ------------------------------------------------------- meta decisions */
@@ -1110,7 +1112,7 @@ export const FRAMES: readonly FrameSpec[] = [
       <ScopeSwitchPanel state={{ kind: "error", reason: "The workspace list could not be read (503). Nothing was changed." }} />
     </div>
   ) },
-  { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => agencyDesk() },
+  { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => agencyDesk({ name: "Halcyon Supply Co.", href: "/c/biz-0/home" }) },
 
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },

@@ -95,6 +95,18 @@ function useIsNarrow(initial: boolean): boolean {
  * returning lands on the same page of the same list rather than at the top of
  * a freshly loaded one.
  */
+const drawerScopeButton: React.CSSProperties = {
+  minHeight: 44,
+  textAlign: "left",
+  background: "none",
+  border: "1px solid var(--ledger-border-control)",
+  borderRadius: "var(--ledger-radius-control)",
+  color: "var(--ledger-ink-primary)",
+  cursor: "pointer",
+  fontSize: 13,
+  padding: "0 8px",
+};
+
 function AgencyReturnLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
@@ -187,6 +199,33 @@ export function AppShell({
                   footer={
                     <>
                       {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
+                      {/* The drawer is the mobile rail, so it carries the same
+                          scope affordances rather than sending the operator to
+                          a second surface to change business or scope. */}
+                      {scopePickers?.onSwitchScope || scopePickers?.onSwitchBusiness ? (
+                        <div style={{ display: "grid", gap: 4, marginBottom: 8 }}>
+                          {scopePickers.onSwitchScope ? (
+                            <button
+                              type="button"
+                              data-ctl="live:AUTH-10 scope-switch"
+                              onClick={scopePickers.onSwitchScope}
+                              style={drawerScopeButton}
+                            >
+                              Switch scope
+                            </button>
+                          ) : null}
+                          {scopePickers.onSwitchBusiness ? (
+                            <button
+                              type="button"
+                              data-ctl="live:AUTH-10 business-switcher"
+                              onClick={scopePickers.onSwitchBusiness}
+                              style={drawerScopeButton}
+                            >
+                              Switch business
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {railFooter}
                     </>
                   }

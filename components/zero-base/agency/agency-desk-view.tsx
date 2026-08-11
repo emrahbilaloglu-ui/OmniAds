@@ -17,7 +17,14 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
  * returning from it carries `revoked=<id>`, and the desk says what happened
  * instead of leaving them to notice a row has vanished.
  */
-export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPageData }) {
+export function AgencyDeskView({
+  initialPage,
+  returnedFrom = null,
+}: {
+  initialPage: AgencyDirectoryPageData;
+  /** The client just returned from, when this is a Flow A return. */
+  returnedFrom?: { name: string; href: string } | null;
+}) {
   const copy = useCopy();
   const searchParams = useSearchParams();
   const revoked = searchParams?.get("revoked") ?? null;
@@ -30,6 +37,20 @@ export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPa
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
         {copy.today}
       </h2>
+      {/* A return states where it came back from and offers the way back in.
+          Landing silently on the desk loses the operator's place. */}
+      {returnedFrom ? (
+        <p
+          data-el="agency-return"
+          data-flow-a-direction="return"
+          style={{ margin: "0 0 12px", fontSize: 12.5, lineHeight: "18px" }}
+        >
+          <span data-el="flow-a-direction-return">Returned from {returnedFrom.name}.</span>{" "}
+          <Link href={returnedFrom.href} style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.goBackToClient}
+          </Link>
+        </p>
+      ) : null}
       {revoked && !stillListed ? (
         <p
           role="status"

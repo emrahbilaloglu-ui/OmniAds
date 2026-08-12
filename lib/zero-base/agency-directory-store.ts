@@ -95,6 +95,12 @@ interface DirectoryRow {
   sort_key: string;
 }
 
+interface MetaDirectoryFactRow {
+  business_id: string;
+  connection_status: string | null;
+  selected_account_count: string;
+}
+
 function clampPageSize(requested: number | undefined): number {
   if (!requested || !Number.isFinite(requested)) return AGENCY_SERVER_PAGE_SIZE;
   return Math.min(Math.max(Math.trunc(requested), 1), AGENCY_MAX_PAGE_SIZE);
@@ -223,11 +229,39 @@ export async function readAgencyDirectoryPage(input: {
         }).catch(() => new Map())
       : new Map();
 
+  // Meta readiness is also read in one bounded batch for the served page. It
+  // remains separate from the membership query so a partially migrated
+  // provider catalog cannot hide otherwise-authorized clients.
+  const metaFacts = new Map<string, MetaDirectoryFactRow>();
+  if (served.length > 0) {
+    const facts = (await sql.query<MetaDirectoryFactRow>(
+      `
+        SELECT
+          scoped.business_id::text AS business_id,
+          connection.status AS connection_status,
+          count(binding.id) FILTER (WHERE binding.is_selected)::text AS selected_account_count
+        FROM unnest($1::uuid[]) AS scoped(business_id)
+        LEFT JOIN provider_connections connection
+          ON connection.business_id = scoped.business_id
+         AND connection.provider = 'meta'
+        LEFT JOIN business_provider_accounts binding
+          ON binding.business_id = scoped.business_id
+         AND binding.provider = 'meta'
+        GROUP BY scoped.business_id, connection.status
+      `,
+      [served.map((row) => row.id)],
+    ).catch(() => [])) as MetaDirectoryFactRow[];
+    for (const fact of facts) metaFacts.set(fact.business_id, fact);
+  }
+
   const items: AgencyClientRow[] = served.map((row) => ({
     businessId: row.id,
     name: row.name,
     role: row.role,
     membershipStatus: row.status,
+    metaConnectionStatus:
+      metaFacts.get(row.id)?.connection_status === "connected" ? "connected" : "not_connected",
+    selectedMetaAccountCount: Number(metaFacts.get(row.id)?.selected_account_count ?? 0),
     configuredCurrency: row.currency ?? null,
     sourceUpdatedAt: totals.get(row.id)?.lastSourceUpdatedAt ?? null,
     href: `/c/${row.id}/home`,

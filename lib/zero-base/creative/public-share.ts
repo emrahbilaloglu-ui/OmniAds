@@ -37,6 +37,8 @@ export interface PublicShareCreative {
   media: ShareMediaSource | null;
   /** Stated when no media could be served for this creative. */
   mediaUnavailableReason: string | null;
+  /** Only metrics explicitly selected for the public payload. */
+  metrics: Array<{ key: "purchases" | "spend" | "roas"; label: string; value: string }>;
 }
 
 export interface PublicShare {
@@ -124,12 +126,18 @@ export function toPublicShare(payload: SharePayload): PublicShare {
     financialWarning: audience === "buyer" ? BUYER_FINANCIAL_WARNING : null,
     creatives: (payload.creatives ?? []).map((creative, index) => {
       const { media, reason } = toPublicMedia(creative);
+      const selected = new Set(payload.metrics ?? []);
+      const metrics: PublicShareCreative["metrics"] = [];
+      if (selected.has("purchases") && typeof creative.purchases === "number") metrics.push({ key: "purchases", label: "Purchases", value: String(creative.purchases) });
+      if (selected.has("spend") && typeof creative.spend === "number") metrics.push({ key: "spend", label: "Spend", value: new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(creative.spend) });
+      if (selected.has("roas") && typeof creative.roas === "number") metrics.push({ key: "roas", label: "ROAS", value: creative.roas.toFixed(2) });
       return {
         // Index-based, so an internal creative id is not published either.
         key: `c${index + 1}`,
         name: clean(creative.name) ?? `Creative ${index + 1}`,
         media,
         mediaUnavailableReason: reason,
+        metrics,
       };
     }),
     captionsSupported: false,

@@ -153,7 +153,7 @@ describe("a valid cursor is honoured", () => {
     expect(call.withTotal).toBe(true);
 
     // Rows served from that page carry it as their restore cursor.
-    const href = screen.getByRole("link", { name: "Client 000" }).getAttribute("href")!;
+    const href = screen.getByRole("link", { name: "Open Client 000" }).getAttribute("href")!;
     const returnTo = new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM)!;
     expect(decodeURIComponent(returnTo)).toContain(`cursor=${encodeURIComponent(VALID_CURSOR)}`);
   });

@@ -1,11 +1,9 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
 import { getSessionFromCookies } from "@/lib/auth";
 import { isSuperadmin } from "@/lib/admin-auth";
+import { OpsNavigation } from "@/components/zero-base/ops/ops-navigation";
 import {
-  OPS_GROUPS,
-  OPS_NAV,
   OPS_NON_ADMIN_REDIRECT,
   OPS_SHELL_ATTRIBUTE,
   OPS_SURFACE_TOKEN,
@@ -41,7 +39,7 @@ export default async function OpsLayout({ children }: { children: React.ReactNod
         minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
-        background: "var(--ledger-bg-canvas)",
+        background: "var(--ledger-bg-app)",
         color: "var(--ledger-ink-primary)",
       }}
     >
@@ -56,15 +54,13 @@ export default async function OpsLayout({ children }: { children: React.ReactNod
         }}
       >
         <strong style={{ fontSize: 14, fontWeight: 700 }}>Adsecute Ops</strong>
-        <span style={{ fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Operator console · separate from the buyer product
         </span>
       </header>
 
       <div style={{ display: "flex", flex: "1 1 auto", minHeight: 0, flexWrap: "wrap" }}>
-        <nav
-          aria-label="Ops"
-          data-ops-nav=""
+        <aside
           style={{
             flex: "0 0 auto",
             width: "100%",
@@ -74,52 +70,12 @@ export default async function OpsLayout({ children }: { children: React.ReactNod
             overflowY: "auto",
           }}
         >
-          {OPS_GROUPS.map((group) => {
-            const items = OPS_NAV.filter((leaf) => leaf.group === group);
-            if (items.length === 0) return null;
-            return (
-              <div key={group} style={{ marginBottom: 14 }}>
-                <p
-                  style={{
-                    margin: "0 0 4px",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "var(--ledger-ink-tertiary)",
-                  }}
-                >
-                  {group}
-                </p>
-                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 2 }}>
-                  {items.map((leaf) => (
-                    <li key={leaf.ops}>
-                      <Link
-                        href={leaf.ops}
-                        data-ops-link={leaf.ops}
-                        style={{
-                          display: "block",
-                          minHeight: 44,
-                          lineHeight: "44px",
-                          padding: "0 10px",
-                          borderRadius: "var(--ledger-radius-control)",
-                          fontSize: 13,
-                          color: "var(--ledger-ink-secondary)",
-                          textDecoration: "none",
-                        }}
-                      >
-                        {leaf.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </nav>
+          <OpsNavigation />
+        </aside>
 
         <main
           id="ops-main"
+          data-ops-content=""
           tabIndex={-1}
           style={{ flex: "1 1 420px", minWidth: 0, padding: 16, overflowX: "auto" }}
         >

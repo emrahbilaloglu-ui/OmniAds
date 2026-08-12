@@ -77,7 +77,7 @@ export interface HomeSourceState {
    * A single "Connect this source" link served the first and misdescribed the
    * other two.
    */
-  remedy?: "details" | "connect" | "select";
+  remedy?: "details" | "connect" | "reconnect" | "select";
 }
 
 export interface HomeContract {

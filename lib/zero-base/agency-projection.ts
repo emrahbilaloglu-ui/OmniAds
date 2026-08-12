@@ -23,6 +23,8 @@ export const AGENCY_ROW_KEYS = [
   "name",
   "role",
   "membershipStatus",
+  "metaConnectionStatus",
+  "selectedMetaAccountCount",
   "configuredCurrency",
   "sourceUpdatedAt",
   "href",
@@ -51,6 +53,10 @@ export interface AgencyClientRow {
   name: string;
   role: string;
   membershipStatus: "active" | "invited" | "pending";
+  /** Meta connection state read from the provider connection, never inferred from activity. */
+  metaConnectionStatus?: "connected" | "not_connected";
+  /** Count of currently selected Meta account bindings. */
+  selectedMetaAccountCount?: number;
   /** Configured, never presented as observed. */
   configuredCurrency: string | null;
   /** Last time this client's sources changed — activity, not health. */
@@ -90,6 +96,8 @@ export interface AgencySourceBusiness {
   name: string;
   role: string;
   membershipStatus: "active" | "invited" | "pending";
+  metaConnectionStatus?: "connected" | "not_connected";
+  selectedMetaAccountCount?: number;
   currency?: string | null;
   sourceUpdatedAt?: string | null;
 }
@@ -110,6 +118,8 @@ export function buildAgencyDirectoryPage(
     name: business.name,
     role: business.role,
     membershipStatus: business.membershipStatus,
+    metaConnectionStatus: business.metaConnectionStatus ?? "not_connected",
+    selectedMetaAccountCount: Math.max(0, business.selectedMetaAccountCount ?? 0),
     configuredCurrency: business.currency ?? null,
     sourceUpdatedAt: business.sourceUpdatedAt ?? null,
     href: `/c/${business.id}/home`,

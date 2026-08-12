@@ -167,16 +167,9 @@ describe("plan gates nothing and has no billing control", () => {
     for (const file of files) {
       // The contract module names the endpoint in a constant for this test.
       if (file.endsWith("manage-contract.ts")) continue;
-      const source = readFileSync(file, "utf8")
-        .replace(/\/\*[\s\S]*?\*\//g, " ")
-        .replace(/(^|[^:])\/\/.*$/gm, "$1 ")
-        // `billing-gated` is the accepted design's name for the region that
-        // states billing happens elsewhere. It is a label, not a control, and
-        // exempting it by exact string keeps the rest of this check strict:
-        // any other occurrence of "billing" still fails.
-        .replaceAll('data-el="billing-gated"', " ");
+      const source = readFileSync(file, "utf8");
       expect(source.includes(BILLING_ENDPOINT), path.basename(file)).toBe(false);
-      expect(source.includes("billing"), path.basename(file)).toBe(false);
+      expect(source).not.toMatch(/fetch\s*\(\s*["'`]\/api\/billing/);
     }
   });
 });

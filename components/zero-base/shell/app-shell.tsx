@@ -20,6 +20,8 @@ import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { Rail } from "@/components/zero-base/shell/rail";
 import { NavDrawer } from "@/components/zero-base/shell/nav-drawer";
 import { ContextBar } from "@/components/zero-base/shell/context-bar";
+import { GlobalSearchControl } from "@/components/zero-base/search/global-search-control";
+import { ModuleNavigation } from "@/components/zero-base/shell/module-navigation";
 import { SkipLink, MAIN_CONTENT_ID, MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
 import {
   ScopeSheet,
@@ -47,6 +49,8 @@ export interface AppShellProps {
   groups: readonly NavGroup[];
   businessId: string | null;
   pathname: string;
+  workspaceMode?: "agency" | "client" | "account";
+  workspaceName?: string;
   /** Breadcrumb / surface title. */
   title: string;
   scope: ScopeFacts | null;
@@ -101,7 +105,7 @@ const drawerScopeButton: React.CSSProperties = {
   textAlign: "left",
   background: "none",
   border: "1px solid var(--ledger-border-control)",
-  borderRadius: "var(--ledger-radius-control)",
+  borderRadius: "var(--ledger-radius-button)",
   color: "var(--ledger-ink-primary)",
   cursor: "pointer",
   fontSize: 13,
@@ -132,6 +136,8 @@ export function AppShell({
   groups,
   businessId,
   pathname,
+  workspaceMode,
+  workspaceName,
   title,
   scope,
   railFooter,
@@ -171,6 +177,8 @@ export function AppShell({
               groups={groups}
               businessId={businessId}
               pathname={pathname}
+              workspaceMode={workspaceMode}
+              workspaceName={workspaceName}
               footer={
                 <>
                   {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
@@ -188,7 +196,7 @@ export function AppShell({
                 alignItems: "center",
                 gap: 12,
                 padding: "8px 16px",
-                minHeight: 56,
+                minHeight: 48,
                 borderBottom: "1px solid var(--ledger-border-subtle)",
                 background: "var(--ledger-bg-surface)",
               }}
@@ -198,12 +206,15 @@ export function AppShell({
                   groups={groups}
                   businessId={businessId}
                   pathname={pathname}
+                  workspaceMode={workspaceMode}
+                  workspaceName={workspaceName}
+                  onSwitchScope={scopePickers?.onSwitchScope}
                   scopeControls={
                     <>
                       {/* The drawer is the mobile rail, so it carries the same
                           scope affordances rather than sending the operator to
                           a second surface to change business or scope. */}
-                      {scopePickers?.onSwitchScope || scopePickers?.onSwitchBusiness ? (
+                      {workspaceMode !== "client" && (scopePickers?.onSwitchScope || scopePickers?.onSwitchBusiness) ? (
                         <div style={{ display: "grid", gap: 4, marginBottom: 8 }}>
                           {scopePickers.onSwitchBusiness ? (
                             <button
@@ -237,9 +248,9 @@ export function AppShell({
               <h1
                 style={{
                   margin: 0,
-                  fontSize: 16,
-                  fontWeight: 600,
-                  lineHeight: "22px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  lineHeight: "18px",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -248,6 +259,7 @@ export function AppShell({
                 {title}
               </h1>
               <div style={{ flex: "1 1 auto" }} />
+              <GlobalSearchControl compact={narrow} />
               {topBarActions}
             </header>
 
@@ -257,6 +269,10 @@ export function AppShell({
                 compact={narrow}
                 onOpenScopeSheet={() => setScopeOpen(true)}
               />
+            ) : null}
+
+            {workspaceMode === "client" && !narrow ? (
+              <ModuleNavigation groups={groups} businessId={businessId} pathname={pathname} />
             ) : null}
 
             <main

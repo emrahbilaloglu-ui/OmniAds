@@ -102,8 +102,17 @@ function SourceRemedy({
 
   if (remedy === "connect") {
     return connectHref ? (
-      <a href={connectHref} data-ctl="live:INTEGRATION-03" style={style}>
+      <a href={connectHref} data-ctl="live:INTEGRATION-03 connect" style={style}>
         {copy.connect}
+      </a>
+    ) : (
+      <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+    );
+  }
+  if (remedy === "reconnect") {
+    return connectHref ? (
+      <a href={connectHref} data-ctl="live:INTEGRATION-03" style={style}>
+        {copy.reconnect}
       </a>
     ) : (
       <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
@@ -128,10 +137,12 @@ function SourceRemedy({
 export function SourceHealthPanel({
   sources,
   connectHref,
+  compact = false,
 }: {
   sources: readonly HomeSourceState[];
   /** Where an unconfigured source is connected. Absent when none needs it. */
   connectHref?: string | null;
+  compact?: boolean;
 }) {
   const copy = useCopy();
   return (
@@ -146,8 +157,36 @@ export function SourceHealthPanel({
       }}
     >
       <h2 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
-        {copy.whereNumbersFrom}
+        {compact ? "Source readiness" : copy.whereNumbersFrom}
       </h2>
+      {compact ? (
+        <ul data-collection="sources" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid" }}>
+          {sources.map((source) => (
+            <li
+              key={source.key}
+              data-source={source.key}
+              data-source-state={source.state}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                gap: 8,
+                alignItems: "center",
+                padding: "9px 0",
+                borderTop: "1px solid var(--ledger-border-subtle)",
+              }}
+            >
+              <span style={{ minWidth: 0 }}>
+                <strong style={{ display: "block", fontSize: 13, fontWeight: 600 }}>{source.label}</strong>
+                <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                  {source.state === "ok" ? "Serving" : source.state === "partial" ? "Incomplete" : "Unavailable"}
+                  {source.reason ? ` · ${source.reason}` : ""}
+                </span>
+              </span>
+              <SourceRemedy source={source} connectHref={connectHref ?? null} />
+            </li>
+          ))}
+        </ul>
+      ) : (
       <table
         data-collection="sources"
         style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
@@ -199,6 +238,7 @@ export function SourceHealthPanel({
           ))}
         </tbody>
       </table>
+      )}
     </section>
   );
 }

@@ -256,8 +256,19 @@ function LoginPageClient() {
     }
   }
 
+  const canonicalTitle = canonical ? "Log in" : t.signIn;
+
   return (
-    <AuthSurface titleOnBrandLine title={t.signIn} description="Sign in to your workspace.">
+    <AuthSurface
+      titleOnBrandLine
+      title={canonicalTitle}
+      description={canonical ? "The media-buying operating system." : "Sign in to your workspace."}
+      supplement={canonical ? (
+        <Link href="/demo" style={{ display: "block", padding: "10px 14px", border: "1px solid var(--ledger-accent-action)", borderRadius: 9, background: "var(--ledger-accent-tint)", color: "var(--ledger-ink-secondary)", textDecoration: "none", fontSize: 12, lineHeight: "17px" }}>
+          <strong style={{ color: "var(--ledger-accent-action)" }}>Try the demo</strong> — a synthetic workspace, clearly labelled. No signup.
+        </Link>
+      ) : null}
+    >
       {/* A real <form>. These inputs used to sit in a bare <div> with a
           type="button" submit, so pressing Enter after typing a password did
           nothing on every auth screen in the product. */}
@@ -294,6 +305,7 @@ function LoginPageClient() {
             className="ad-auth-input"
           />
         </label>
+        {canonical ? <Link href="/forgot-password" style={{ marginTop: -6, fontSize: 12.5, fontWeight: 600 }}>Forgot password?</Link> : null}
         {error ? (
           canonical && failureState ? (
             <LoginFailurePanel state={failureState} retryAfterSeconds={retryAfterSeconds} />
@@ -304,8 +316,11 @@ function LoginPageClient() {
           )
         ) : null}
         <button type="submit" className="ad-auth-primary" disabled={loading}>
-          {loading ? t.signingIn : t.signIn}
+          {loading ? t.signingIn : canonicalTitle}
         </button>
+        <div aria-hidden="true" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 10, color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+          <span style={{ borderTop: "1px solid var(--ledger-border-subtle)" }} />or<span style={{ borderTop: "1px solid var(--ledger-border-subtle)" }} />
+        </div>
         <button
           type="button"
           className="ad-auth-secondary"
@@ -319,10 +334,23 @@ function LoginPageClient() {
         >
           Continue with Google
         </button>
-        <div className="ad-auth-row">
-          <Link href="/forgot-password">Forgot password?</Link>
+        <button
+          type="button"
+          className="ad-auth-secondary"
+          onClick={() => {
+            const url = nextParam
+              ? `/api/oauth/sign-with-facebook/start?next=${encodeURIComponent(nextParam)}`
+              : "/api/oauth/sign-with-facebook/start";
+            window.location.href = url;
+          }}
+          disabled={loading}
+        >
+          Continue with Facebook
+        </button>
+        <div className="ad-auth-row" style={canonical ? { justifyContent: "center" } : undefined}>
+          {!canonical ? <Link href="/forgot-password">Forgot password?</Link> : <span>New here?</span>}
           <Link href={nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : "/signup"}>
-            Create account
+            {canonical ? "Create an account" : "Create account"}
           </Link>
         </div>
       </form>

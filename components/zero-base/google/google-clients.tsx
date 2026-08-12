@@ -169,6 +169,7 @@ export function GoogleOverviewClient({ businessId }: Props) {
       <GoogleOverviewView
         scope={scope}
         source={source}
+        kpis={value?.kpis ?? []}
         rows={(value?.campaigns ?? []).map((row) => ({
           id: row.id,
           account: row.name,

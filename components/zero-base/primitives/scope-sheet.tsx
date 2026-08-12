@@ -231,7 +231,7 @@ export function ScopeSheet({
                       minHeight: 44,
                       background: "none",
                       border: "1px solid var(--ledger-border-control)",
-                      borderRadius: "var(--ledger-radius-control)",
+                      borderRadius: "var(--ledger-radius-button)",
                       color: "var(--ledger-ink-secondary)",
                       cursor: "pointer",
                       fontSize: 13,

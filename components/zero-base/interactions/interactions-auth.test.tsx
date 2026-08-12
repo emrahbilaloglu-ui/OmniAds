@@ -184,19 +184,13 @@ describe("G7 — account and security", () => {
   });
 
   interactionCase("live:AUTH-11 email", async () => {
-    const user = userEvent.setup();
     const onSaveProfile = vi.fn();
     renderAccount({ onSaveProfile });
     const email = expectOperable(ctl("live:AUTH-11 email"), "email") as HTMLInputElement;
-    // The consequence is stated before it happens.
-    expect(document.body.textContent).toContain("verification email");
-    await user.clear(email);
-    await user.type(email, "dana2@halcyon.example");
-    await user.tab();
-    expect(onSaveProfile).toHaveBeenCalledWith({
-      name: "Dana Whitfield",
-      email: "dana2@halcyon.example",
-    });
+    expect(email.readOnly).toBe(true);
+    expect(email.value).toBe("dana@halcyon.example");
+    expect(document.body.textContent).toContain("cannot be changed from this screen");
+    expect(onSaveProfile).not.toHaveBeenCalled();
   });
 
   it("keeps the value when the server refuses", () => {
@@ -254,6 +248,12 @@ describe("G7 — account and security", () => {
 
   interactionCase("live:I18N-02 lang", async () => {
     const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ user: { language: "tr" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     render(
       <Host>
         <LanguageView current="en" />
@@ -267,6 +267,11 @@ describe("G7 — account and security", () => {
     expect(turkish, "Turkish is offered").toBeTruthy();
     await user.click(turkish!);
     await waitFor(() => expect(turkish!.checked).toBe(true));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/settings/account",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    fetchSpy.mockRestore();
   });
 });
 

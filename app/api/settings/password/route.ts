@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
   if (!currentPassword || !nextPassword) {
     return NextResponse.json({ error: "invalid_payload", message: "Current and new password are required." }, { status: 400 });
   }
-  if (nextPassword.length < 8) {
-    return NextResponse.json({ error: "weak_password", message: "New password must be at least 8 characters." }, { status: 400 });
+  if (nextPassword.length < 12) {
+    return NextResponse.json({ error: "weak_password", message: "New password must be at least 12 characters." }, { status: 400 });
   }
 
   const user = await getUserById(session.user.id);

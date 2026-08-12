@@ -19,6 +19,7 @@
  *   for missing identity are excluded here too, and counted in the disclosure
  *   so their absence is visible rather than silent.
  */
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import type { EnginePosture } from "@/lib/zero-base/creative/engine-posture";
 
 /** The subset of the served creative row this surface reads. */
@@ -66,6 +67,17 @@ export interface PerformanceRow {
   cpa: MetricValue;
   purchases: MetricValue;
   media: MediaState;
+  /**
+   * Server-owned decision presentation. The adapter only joins the exact Ad
+   * identity already served by the canonical engine; it never derives a
+   * verdict from the metrics beside it.
+   */
+  decision: {
+    buyerAction: string | null;
+    buyerLabel: string;
+    decisionState: string;
+    effectiveTargetRoas: number | null;
+  } | null;
 }
 
 export type MediaState =
@@ -151,6 +163,7 @@ export function hasUsableIdentity(row: ServedCreativeRow): boolean {
 
 export function buildPerformanceViewModel(input: {
   rows: readonly ServedCreativeRow[];
+  canonicalDecisions?: readonly MetaCanonicalDecision[];
   /** The server's own total when it supplies one. */
   totalAvailable?: number | null;
   posture: EnginePosture;
@@ -161,9 +174,21 @@ export function buildPerformanceViewModel(input: {
   const total = input.totalAvailable ?? null;
   const capped = total !== null && total > usable.length;
 
+  const decisionsByExactAd = new Map(
+    (input.canonicalDecisions ?? []).flatMap((decision) => {
+      const adId = decision.parentChain.ad?.id?.trim();
+      return adId && decision.providerAccountId
+        ? [[`${decision.providerAccountId}\u0000${adId}`, decision] as const]
+        : [];
+    }),
+  );
+
   const rows = usable.map((row) => {
     const currency = row.currency?.trim() || input.defaultCurrency?.trim() || null;
     const fmt = money(currency);
+    const canonicalDecision = row.real_ad_id
+      ? decisionsByExactAd.get(`${row.account_id}\u0000${row.real_ad_id}`) ?? null
+      : null;
     return {
       id: row.id || row.creative_id,
       creativeId: row.creative_id,
@@ -179,6 +204,16 @@ export function buildPerformanceViewModel(input: {
       cpa: toMetric(row.cpa, fmt),
       purchases: toMetric(row.purchases, whole),
       media: mediaStateFor(row),
+      decision: canonicalDecision
+        ? {
+            buyerAction: canonicalDecision.classification.buyerAction,
+            buyerLabel: canonicalDecision.classification.buyerLabel,
+            decisionState: canonicalDecision.classification.decisionState,
+            effectiveTargetRoas: Number.isFinite(canonicalDecision.metrics.effectiveTargetRoas)
+              ? canonicalDecision.metrics.effectiveTargetRoas
+              : null,
+          }
+        : null,
     } satisfies PerformanceRow;
   });
 

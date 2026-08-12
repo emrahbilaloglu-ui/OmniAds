@@ -56,28 +56,28 @@ export function LaunchpadView({
   const blockingField = firstBlockingField(findings);
 
   return (
-    <div data-launchpad-surface="" style={{ display: "grid", gap: 24 }}>
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
+    <div data-launchpad-surface="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 2fr)", gap: 12, alignItems: "start" }}>
+      <h1 style={{ gridColumn: "1 / -1", margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         {copy.metaLaunchpad}
       </h1>
 
       {error ? (
-        <p role="status" data-launchpad-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+        <p role="status" data-launchpad-error="" style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {error}
         </p>
       ) : null}
 
       {/* -------------------------------------------------- what works today */}
-      <section aria-label={copy.whatWorksToday}>
+      <section aria-label={copy.whatWorksToday} style={{ order: findings.length > 0 ? 5 : 3, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.whatWorksToday}</h2>
-        <ul data-what-works="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+        <ul data-what-works="" style={{ margin: "8px 0 0", paddingLeft: 18, maxHeight: findings.length > 0 ? 54 : "none", overflow: "hidden" }}>
           {WHAT_WORKS_TODAY.map((line) => (
             <li key={line} style={{ fontSize: 12, lineHeight: "18px" }}>
               {line}
             </li>
           ))}
         </ul>
-        <ul data-what-does-not-exist="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+        <ul data-what-does-not-exist="" style={{ margin: "8px 0 0", paddingLeft: 18, maxHeight: findings.length > 0 ? 36 : "none", overflow: "hidden" }}>
           {WHAT_DOES_NOT_EXIST.map((line) => (
             <li key={line} style={{ fontSize: 12, lineHeight: "18px", color: "var(--ledger-semantic-warn)" }}>
               {line}
@@ -87,10 +87,12 @@ export function LaunchpadView({
       </section>
 
       {/* ------------------------------------------------ disabled execution */}
-      <section aria-label={copy.execution}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.launch}</h2>
+      <section aria-label={copy.execution} style={{ order: findings.length > 0 ? 4 : 1, gridColumn: findings.length > 0 ? "auto" : "1 / -1", padding: 12, border: `1px solid ${findings.length > 0 ? "var(--ledger-border-subtle)" : "var(--ledger-semantic-warn)"}`, borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{findings.length > 0 ? `${copy.launch} · ${findings.length} blockers` : copy.launch}</h2>
+        {!findings.length ? <p role="status" style={{ margin: "6px 0 0", padding: 8, borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-inset)", color: "var(--ledger-semantic-ok)", fontSize: 12 }}>✓ Validation passed · structure is ready. Execution remains disabled until backend remediation is complete.</p> : null}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {actions.map((action) => (
-          <div key={action.id} data-launch-action={action.id} style={{ marginTop: 8 }}>
+          <div key={action.id} data-launch-action={action.id} style={{ marginTop: 8, flex: "1 1 260px" }}>
             <Button
               variant="secondary"
               data-launch-disabled={action.id}
@@ -101,7 +103,7 @@ export function LaunchpadView({
             >
               {action.label}
             </Button>
-            <ul data-launch-prerequisites={action.id} style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            <ul data-launch-prerequisites={action.id} style={{ margin: "6px 0 0", paddingLeft: 18, maxHeight: 54, overflow: "hidden" }}>
               {action.prerequisites.map((item) => (
                 <li key={item.id} data-prerequisite={item.id} style={{ fontSize: 12, lineHeight: "17px" }}>
                   <strong style={{ fontWeight: 600 }}>{item.label}</strong> — {item.detail}
@@ -110,10 +112,11 @@ export function LaunchpadView({
             </ul>
           </div>
         ))}
+        </div>
       </section>
 
       {/* ---------------------------------------------------------- drafts */}
-      <section aria-label={copy.drafts}>
+      <section aria-label={copy.drafts} style={{ order: findings.length > 0 ? 1 : 4, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.drafts}</h2>
         {drafts.length === 0 ? (
           <p data-drafts="empty" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -139,7 +142,6 @@ export function LaunchpadView({
         <Button
           variant="secondary"
           data-draft-create=""
-          data-ctl="live:LAUNCH-05 validate"
           style={{ marginTop: 8 }}
           state={draftName.trim() ? { kind: "enabled" } : { kind: "disabled", reason: "A draft needs a name." }}
           onClick={() => onCreateDraft?.(draftName.trim(), { name: draftName.trim() })}
@@ -149,8 +151,18 @@ export function LaunchpadView({
       </section>
 
       {/* ----------------------------------------------------- validation */}
-      <section aria-label={copy.validation}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.validation}</h2>
+      <section aria-label={copy.validation} style={{ order: findings.length > 0 ? 2 : 5, padding: 12, border: `1px solid ${findings.length > 0 ? "var(--ledger-semantic-warn)" : "var(--ledger-border-subtle)"}`, borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.validation}</h2>
+          <Button
+            variant="primary"
+            data-validate-run=""
+            data-ctl="live:LAUNCH-05 validate"
+            onClick={() => onValidate?.({ name: fieldRefs.current.name?.value ?? "" })}
+          >
+            {copy.runValidation}
+          </Button>
+        </div>
         {findings.length === 0 ? (
           <p data-validation="clean" style={{ margin: "4px 0 0", fontSize: 12 }}>
             {copy.validationSilent}
@@ -216,18 +228,10 @@ export function LaunchpadView({
             }}
           />
         </div>
-        <Button
-          variant="secondary"
-          data-validate-run=""
-          style={{ marginTop: 8 }}
-          onClick={() => onValidate?.({ name: fieldRefs.current.name?.value ?? "" })}
-        >
-          {copy.runValidation}
-        </Button>
       </section>
 
       {/* ------------------------------------------------------- templates */}
-      <section aria-label={copy.templates}>
+      <section aria-label={copy.templates} style={{ order: findings.length > 0 ? 3 : 6, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.templates}</h2>
         <p data-template-note="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {TEMPLATE_IMMUTABILITY_NOTE}
@@ -271,7 +275,7 @@ export function LaunchpadView({
       </section>
 
       {/* ------------------------------------------------------------ bulk */}
-      <section aria-label={copy.bulkAdStatus}>
+      <section aria-label={copy.bulkAdStatus} style={{ order: 7, padding: 12, border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.bulkAdStatus}</h2>
         {/* Withheld even when the mutation flag is on: this page cannot build
             the handler's exact per-item contract, and a button that can only
@@ -280,6 +284,8 @@ export function LaunchpadView({
           {BULK_WITHHELD_REASON}
         </p>
       </section>
+
+      <style>{`@media(max-width:860px){[data-launchpad-surface]{grid-template-columns:1fr!important}[data-launchpad-surface]>h1,[data-launchpad-surface]>[role=status]{grid-column:1!important}}`}</style>
 
     </div>
   );

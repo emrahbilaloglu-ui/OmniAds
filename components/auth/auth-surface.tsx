@@ -25,6 +25,7 @@ export function AuthSurface({
   description,
   children,
   footer,
+  supplement,
   width = "sm",
   embedded = false,
   titleOnBrandLine = false,
@@ -34,6 +35,8 @@ export function AuthSurface({
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  /** Optional sibling below the card, used for clearly separated entry paths. */
+  supplement?: ReactNode;
   width?: "sm" | "md" | "lg";
   embedded?: boolean;
   titleOnBrandLine?: boolean;
@@ -82,11 +85,8 @@ export function AuthSurface({
       data-auth-surface="zero-base"
       style={{
         minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        // 16px gutter at 320; the card takes the rest.
-        padding: 16,
+        display: "grid",
+        gridTemplateRows: "64px 1fr auto",
         background: "var(--ledger-bg-app)",
         color: "var(--ledger-ink-primary)",
         // No auth screen may scroll sideways at 320.
@@ -94,30 +94,31 @@ export function AuthSurface({
       }}
     >
       <ZeroBasePortalHost>
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, padding: "0 clamp(20px, 3vw, 40px)", borderBottom: "1px solid var(--ledger-border-subtle)", background: "var(--ledger-bg-surface)" }}>
+          <Link href="/" aria-label="Adsecute home" style={{ display: "inline-flex", alignItems: "center", gap: 9, color: "var(--ledger-ink-primary)", textDecoration: "none", fontSize: 14, fontWeight: 800, letterSpacing: ".08em" }}>
+            <span aria-hidden="true" style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: 5, background: "var(--ledger-accent-action)", color: "var(--ledger-bg-surface)", fontSize: 12, letterSpacing: 0 }}>A</span>
+            ADSECUTE
+          </Link>
+          <nav aria-label="Public" style={{ display: "flex", alignItems: "center", gap: 22, fontSize: 13 }}>
+            <Link href="/product" style={{ color: "var(--ledger-ink-primary)", textDecoration: "none" }}>Product</Link>
+            <Link href="/pricing" style={{ color: "var(--ledger-ink-primary)", textDecoration: "none" }}>Pricing</Link>
+            <Link href="/contact" style={{ color: "var(--ledger-ink-primary)", textDecoration: "none" }}>Contact</Link>
+          </nav>
+        </header>
+        <div style={{ display: "grid", placeItems: "center", width: "100%", padding: "36px 16px 18px" }}>
+        <div style={{ display: "grid", gap: 12, width: "100%", maxWidth }}>
         <main
           style={{
             width: "100%",
             maxWidth,
             background: "var(--ledger-bg-surface)",
             border: "1px solid var(--ledger-border-subtle)",
-            borderRadius: "var(--ledger-radius-panel)",
-            padding: 24,
+            borderRadius: 14,
+            padding: 28,
+            boxShadow: "0 14px 38px color-mix(in srgb, var(--ledger-ink-primary) 9%, transparent)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <Link
-              href="/"
-              aria-label="Adsecute home"
-              style={{ fontSize: 13, fontWeight: 600, color: "var(--ledger-accent-action)", textDecoration: "none" }}
-            >
-              Adsecute
-            </Link>
-            {eyebrow ? (
-              <span style={{ fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
-                {eyebrow}
-              </span>
-            ) : null}
-          </div>
+          {eyebrow ? <div style={{ marginBottom: 10, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>{eyebrow}</div> : null}
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{title}</h1>
           {description ? (
             <p style={{ margin: "8px 0 0", fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)" }}>
@@ -140,6 +141,14 @@ export function AuthSurface({
             </div>
           ) : null}
         </main>
+        {supplement ? <div>{supplement}</div> : null}
+        </div>
+        </div>
+        <footer style={{ padding: "0 16px 16px", textAlign: "center", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+          <Link href="/privacy" style={{ color: "inherit", textDecoration: "none" }}>Privacy</Link> ·{" "}
+          <Link href="/terms" style={{ color: "inherit", textDecoration: "none" }}>Terms</Link> ·{" "}
+          <Link href="/security" style={{ color: "inherit", textDecoration: "none" }}>Security</Link> · AI transparency
+        </footer>
       </ZeroBasePortalHost>
     </div>
   );

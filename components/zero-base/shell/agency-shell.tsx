@@ -29,16 +29,14 @@ export function AgencyShell({
         groups={navGroupsFor("Agency")}
         businessId={null}
         pathname={pathname}
-        title={copy.agency}
+        workspaceMode="agency"
+        workspaceName={copy.agency}
+        title={`Agency · ${copy.agency}`}
         scope={null}
         railFooter={
-          <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
-            {envelope.actor.name}
-          </p>
-        }
-        topBarActions={
           <UserMenu
             name={envelope.actor.name}
+            rail
             onLogout={() => {
               window.location.href = "/logout";
             }}

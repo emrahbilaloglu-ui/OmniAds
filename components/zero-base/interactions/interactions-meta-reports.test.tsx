@@ -237,7 +237,8 @@ describe("G7 — Meta decisions", () => {
   interactionCase("live:META-DEC-02 level", async () => {
     const user = userEvent.setup();
     const onStateChange = renderDecisions();
-    await user.click(expectOperable(ctl("live:META-DEC-02 level"), "level filter"));
+    const level = expectOperable(ctl("live:META-DEC-02 level"), "level filter") as HTMLSelectElement;
+    await user.selectOptions(level, "campaign");
     expect(onStateChange).toHaveBeenCalled();
     expect(onStateChange.mock.calls[0][0].levels.length).toBe(1);
   });

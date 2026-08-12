@@ -3,11 +3,9 @@
 /**
  * Account & security.
  *
- * Revoking sessions is the interesting control: revoking *all other* sessions
- * is safe, but revoking the current one signs the user out of the page they
- * are standing on. That consequence is stated before the confirm rather than
- * discovered afterwards, and it is the reason the two actions are separate
- * controls instead of one list with a checkbox.
+ * The server exposes one session action: revoke every session, including this
+ * one. The surface mirrors that contract exactly so it never advertises a
+ * safer "other devices only" action that the backend cannot perform.
  */
 import { useState } from "react";
 
@@ -18,7 +16,7 @@ import { ThemeControl } from "@/components/theme/theme-control";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const CURRENT_SESSION_CONSEQUENCE =
-  "This signs you out on this device immediately. You will need to log in again.";
+  "Every device is signed out, including this one. You will need to log in again.";
 
 export function AccountSecurityView({
   name,
@@ -26,18 +24,28 @@ export function AccountSecurityView({
   currentSessionId,
   onSaveProfile,
   onChangePassword,
+  onRevokeSessions,
   profileError,
   passwordError,
+  profileStatus,
+  passwordStatus,
+  sessionError,
+  busy,
   preferences,
 }: {
   name: string;
   email: string;
   currentSessionId: string;
-  onSaveProfile?: (input: { name: string; email: string }) => void;
-  onChangePassword?: (input: { current: string; next: string }) => void;
+  onSaveProfile?: (input: { name: string; email: string }) => void | Promise<void>;
+  onChangePassword?: (input: { current: string; next: string }) => void | boolean | Promise<void | boolean>;
+  onRevokeSessions?: () => void | Promise<void>;
   /** The server's own words, kept beside the field, value preserved. */
   profileError?: string | null;
   passwordError?: string | null;
+  profileStatus?: string | null;
+  passwordStatus?: string | null;
+  sessionError?: string | null;
+  busy?: "profile" | "password" | "sessions" | null;
   /**
    * Account-wide preferences, between the profile and the session controls.
    *
@@ -49,19 +57,17 @@ export function AccountSecurityView({
 }) {
   const copy = useCopy();
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
-  const [confirmRevokeCurrent, setConfirmRevokeCurrent] = useState(false);
   const [draftName, setDraftName] = useState(name);
   const [draftEmail, setDraftEmail] = useState(email);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
 
   return (
-    <section style={{ maxWidth: 560, display: "grid", gap: 24 }}>
-      <div>
-        <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>
-          Account &amp; security
-        </h2>
-        <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+    <>
+    <section style={{ maxWidth: 1000, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14 }}>
+      <div style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, lineHeight: "20px", margin: 0 }}>{copy.profile}</h2>
+        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
           <TextInput
             label={copy.name}
             data-ctl="live:AUTH-11 name"
@@ -71,22 +77,28 @@ export function AccountSecurityView({
             // Saved on blur, and the value stays put if the server refuses —
             // clearing a field on error makes the operator retype what they
             // already got right.
-            onBlur={() => onSaveProfile?.({ name: draftName, email: draftEmail })}
+            disabled={busy === "profile"}
+            onBlur={() => void onSaveProfile?.({ name: draftName, email: draftEmail })}
           />
           <TextInput
             label={copy.email}
             type="email"
             data-ctl="live:AUTH-11 email"
             value={draftEmail}
+            readOnly
+            aria-readonly="true"
             onChange={(event) => setDraftEmail(event.target.value)}
-            onBlur={() => onSaveProfile?.({ name: draftName, email: draftEmail })}
-            hint={copy.emailChangeReverifies}
+            hint={copy.signInEmailReadOnly}
+            style={{ background: "var(--ledger-bg-inset)", color: "var(--ledger-ink-secondary)" }}
           />
+          {profileStatus ? <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-ok)" }}>{profileStatus}</p> : null}
         </div>
+          {preferences ? <div style={{ marginTop: 4, paddingTop: 12, borderTop: "1px solid var(--ledger-border-subtle)" }}>{preferences}</div> : null}
       </div>
 
-      <div>
-        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.password}</h3>
+      <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        <div style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, lineHeight: "20px", margin: 0 }}>{copy.password}</h3>
         <div style={{ marginTop: 8, display: "grid", gap: 12 }}>
           <TextInput
             label={copy.currentPassword}
@@ -110,63 +122,63 @@ export function AccountSecurityView({
             <Button
               variant="secondary"
               data-ctl="live:AUTH-12 save"
-              onClick={() => {
-                onChangePassword?.({ current, next });
-                // Only the passwords are cleared on submit; everything else the
-                // operator typed survives a failure.
-                setCurrent("");
-                setNext("");
+              state={busy === "password"
+                ? { kind: "busy", label: "Saving…" }
+                : !current
+                  ? { kind: "disabled", reason: "Enter your current password." }
+                  : next.length < 12
+                    ? { kind: "disabled", reason: "The new password must be at least 12 characters." }
+                    : { kind: "enabled" }}
+              onClick={async () => {
+                const result = await onChangePassword?.({ current, next });
+                if (result !== false) {
+                  setCurrent("");
+                  setNext("");
+                }
               }}
             >
               {copy.save}
             </Button>
           </div>
+          {passwordStatus ? <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-ok)" }}>{passwordStatus}</p> : null}
         </div>
-      </div>
+        </div>
 
-      {preferences}
-
-      <div data-el="destructive-ceremony">
-        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.sessions}</h3>
+      <div data-el="destructive-ceremony" style={{ border: "1px solid var(--ledger-semantic-danger)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, lineHeight: "20px", margin: 0, color: "var(--ledger-semantic-danger)" }}>{copy.sessions}</h3>
         <p style={{ fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)", marginTop: 4 }}>
-          {copy.signedInAsSession} <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{currentSessionId.slice(0, 8)}</code>.
+          {copy.signedInAsSession} <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{currentSessionId.slice(0, 8)}</code>. Revoking sessions signs every device out.
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          <Button variant="secondary" data-ctl="live:AUTH-13 revoke" onClick={() => setConfirmRevokeAll(true)}>
-            {copy.revokeOtherSessions}
-          </Button>
-          <Button variant="danger" onClick={() => setConfirmRevokeCurrent(true)}>
-            {copy.revokeThisSession}
+          <Button variant="danger" data-ctl="live:AUTH-13 revoke" state={busy === "sessions" ? { kind: "busy", label: "Revoking…" } : { kind: "enabled" }} onClick={() => setConfirmRevokeAll(true)}>
+            {copy.revokeAllSessions}
           </Button>
         </div>
+        {sessionError ? <p role="alert" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-semantic-danger)" }}>{sessionError}</p> : null}
       </div>
 
-      <div>
+      <div style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.theme}</h3>
         <div style={{ marginTop: 8 }}>
           <ThemeControl />
         </div>
       </div>
+      </div>
 
+    </section>
       <ZeroBaseDialog
         open={confirmRevokeAll}
         onOpenChange={setConfirmRevokeAll}
-        title={copy.revokeOtherSessionsQ}
-        description="Every other device is signed out. This device stays signed in."
-        confirmLabel="Revoke others"
-        onConfirm={() => setConfirmRevokeAll(false)}
-      />
-      <ZeroBaseDialog
-        open={confirmRevokeCurrent}
-        onOpenChange={setConfirmRevokeCurrent}
-        title={copy.revokeThisSessionQ}
-        // The consequence is stated before the confirm, not discovered after.
+        title={copy.revokeAllSessionsQ}
         description={CURRENT_SESSION_CONSEQUENCE}
-        confirmLabel="Sign out here"
+        confirmLabel="Revoke and sign out"
         destructive
-        confirmPhrase="SIGN OUT"
-        onConfirm={() => setConfirmRevokeCurrent(false)}
+        confirmPhrase="REVOKE"
+        onConfirm={() => {
+          setConfirmRevokeAll(false);
+          void onRevokeSessions?.();
+        }}
       />
-    </section>
+    </>
   );
 }

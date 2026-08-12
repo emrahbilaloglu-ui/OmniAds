@@ -59,7 +59,7 @@ export function EconomicsContext({
           href={economicsPanelHref(businessId)}
           data-ctl="live:ECON-04 divergence-link"
           data-econ-diverges={model.diverges ? "true" : "false"}
-          style={{ color: "var(--ledger-accent-primary)" }}
+          style={{ color: "var(--ledger-accent-action)" }}
         >
           See consumers →
         </Link>

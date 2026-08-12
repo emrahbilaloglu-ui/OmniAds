@@ -92,6 +92,8 @@ export function withFrameShell(
         groups={navGroupsFor(context)}
         businessId={businessId}
         pathname={options.pathname}
+        workspaceMode={context === "Client" ? "client" : context === "Agency" ? "agency" : "account"}
+        workspaceName={context === "Client" ? FRAME_SCOPE.businessName ?? "Halcyon Supply Co." : context === "Agency" ? "Agency" : "Operations"}
         title={options.title}
         scope={options.scope === undefined ? FRAME_SCOPE : options.scope}
         initialNarrow={isNarrowWidth(options.width)}

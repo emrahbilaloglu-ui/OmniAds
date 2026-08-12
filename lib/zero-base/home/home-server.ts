@@ -12,9 +12,10 @@
  * value is *described* — available, partial or unavailable, and with what
  * comparison.
  */
-import { getOverviewData } from "@/lib/overview-service";
+import { getOverviewData, type OverviewResponse } from "@/lib/overview-service";
 import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
 import { getBusinessCurrency } from "@/lib/account-store";
+import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import { resolveEvidenceFreshness } from "@/lib/workspace/workspace-context";
 import type { CurrencyProof } from "@/lib/workspace/workspace-context";
 import {
@@ -23,31 +24,45 @@ import {
   type HomeSourceState,
 } from "@/lib/zero-base/home/metric-contract";
 import type { OverviewMetricCardData, OverviewMetricUnit } from "@/src/types/models";
+import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
+import type { TrendPoint as HomeTrendPoint } from "@/components/zero-base/home/trend-panel";
 
 /** KPI → the card the contract expects, keyed to the direction registry. */
 const HOME_KPIS: ReadonlyArray<{
   key: string;
   title: string;
   unit: OverviewMetricUnit;
-  read: (kpis: Record<string, number>) => number;
+  read: (overview: OverviewResponse) => number;
+  sourceField?: keyof OverviewResponse["kpis"];
+  source?: { source: string; label: string };
 }> = [
-  { key: "revenue", title: "Revenue", unit: "currency", read: (k) => k.revenue },
-  { key: "spend", title: "Spend", unit: "currency", read: (k) => k.spend },
-  { key: "blended_roas", title: "Blended ROAS", unit: "ratio", read: (k) => k.roas },
-  { key: "cpa", title: "Blended CPA", unit: "currency", read: (k) => k.cpa },
-  { key: "orders", title: "Orders", unit: "count", read: (k) => k.purchases },
-  { key: "aov", title: "AOV", unit: "currency", read: (k) => k.aov },
+  { key: "spend", title: "Spend", unit: "currency", read: (o) => o.kpis.spend, sourceField: "spend" },
+  { key: "orders", title: "Purchases", unit: "count", read: (o) => o.kpis.purchases, sourceField: "purchases" },
+  {
+    key: "blended_roas",
+    title: "ROAS vs target",
+    unit: "ratio",
+    read: (o) => o.totals.roas,
+    source: { source: "ad_platforms", label: "Connected ad platforms" },
+  },
+  { key: "mer", title: "MER", unit: "ratio", read: (o) => o.kpis.roas, sourceField: "roas" },
 ];
 
 /** KPI key → the `kpiSources` field that carries its provenance. */
 const KPI_SOURCE_FIELD: Record<string, string> = {
-  revenue: "revenue",
   spend: "spend",
   blended_roas: "roas",
-  cpa: "cpa",
   orders: "purchases",
-  aov: "aov",
+  mer: "roas",
 };
+
+const HOME_PROVIDER_KEYS = new Set(["meta", "google", "shopify", "ga4"]);
+
+export interface HomePageModel {
+  contract: HomeContract;
+  trend: { points: readonly HomeTrendPoint[]; currency: string | null } | null;
+  economics: EconomicsContextModel | null;
+}
 
 const PROVIDER_LABEL: Record<string, string> = {
   meta: "Meta",
@@ -66,15 +81,15 @@ function isServed(sourceKey: string | undefined): boolean {
   return Boolean(sourceKey) && sourceKey !== "unavailable";
 }
 
-export async function readHomeContract(input: {
+export async function readHomePageModel(input: {
   businessId: string;
   startDate?: string | null;
   endDate?: string | null;
   now?: Date;
-}): Promise<HomeContract> {
+}): Promise<HomePageModel> {
   const now = input.now ?? new Date();
 
-  const [overview, integrations, currency] = await Promise.all([
+  const [overview, integrations, currency, commercial] = await Promise.all([
     getOverviewData({
       businessId: input.businessId,
       startDate: input.startDate ?? null,
@@ -83,13 +98,16 @@ export async function readHomeContract(input: {
     }).catch(() => null),
     getIntegrationStatusByBusiness(input.businessId).catch(() => null),
     getBusinessCurrency(input.businessId).catch(() => null),
+    getBusinessCommercialTruthSnapshot(input.businessId).catch(() => null),
   ]);
 
   // A configured currency is a preference. Home has no observed-currency proof
   // to consult yet, so it says configured-only rather than claiming otherwise.
   const currencyProof: CurrencyProof = currency ? "configured-only" : "unknown";
 
-  const sources: HomeSourceState[] = Object.entries(integrations ?? {}).map(
+  const sources: HomeSourceState[] = Object.entries(integrations ?? {})
+    .filter(([provider]) => HOME_PROVIDER_KEYS.has(provider))
+    .map(
     ([provider, connected]) => ({
       key: provider,
       label: PROVIDER_LABEL[provider] ?? provider,
@@ -100,13 +118,34 @@ export async function readHomeContract(input: {
       freshness: "unknown",
       lastUpdatedAt: null,
     }),
-  );
+    );
+
+  const economics: EconomicsContextModel | null = commercial
+    ? {
+        breakEvenRoas: commercial.targetPack?.breakEvenRoas ?? null,
+        targetRoas: commercial.targetPack?.targetRoas ?? null,
+        sources: [
+          {
+            key: "target-pack",
+            label: "Commercial Truth target pack",
+            consumers: ["Meta decisions"],
+          },
+          {
+            key: "cost-model",
+            label: "Overview cost model",
+            consumers: ["Overview", "Google Ads"],
+          },
+        ],
+        diverges: false,
+      }
+    : null;
 
   if (!overview) {
     // The whole aggregate failed. Every metric is unavailable with a stated
     // reason; none of them becomes 0.
     return {
-      metrics: HOME_KPIS.map((kpi) =>
+      contract: {
+        metrics: HOME_KPIS.map((kpi) =>
         toHomeMetric({
           metricKey: kpi.key,
           card: undefined,
@@ -116,7 +155,7 @@ export async function readHomeContract(input: {
           unavailableReason: "The overview read is unavailable for this window.",
         }),
       ),
-      sources: [
+        sources: [
         {
           key: "overview",
           label: "Overview aggregate",
@@ -127,8 +166,11 @@ export async function readHomeContract(input: {
         },
         ...sources,
       ],
-      window: { startDate: "", endDate: "" },
-      comparisonMode: "none",
+        window: { startDate: "", endDate: "" },
+        comparisonMode: "none",
+      },
+      trend: null,
+      economics,
     };
   }
 
@@ -136,12 +178,12 @@ export async function readHomeContract(input: {
   const trend = overview.trends["30d"] ?? [];
 
   const metrics = HOME_KPIS.map((kpi) => {
-    const sourceField = KPI_SOURCE_FIELD[kpi.key];
-    const provenance = (
+    const sourceField = kpi.sourceField ?? KPI_SOURCE_FIELD[kpi.key];
+    const provenance = kpi.source ?? (
       overview.kpiSources as unknown as Record<string, { source: string; label: string } | undefined>
     )[sourceField];
     const served = isServed(provenance?.source);
-    const raw = kpi.read(kpis);
+    const raw = kpi.read(overview);
 
     const card: OverviewMetricCardData | undefined = served
       ? {
@@ -154,7 +196,14 @@ export async function readHomeContract(input: {
               const row = point as unknown as Record<string, unknown>;
               return {
                 date: String(row.date ?? ""),
-                value: Number(row[kpi.key] ?? Number.NaN),
+                value:
+                  kpi.key === "spend"
+                    ? Number(row.spend ?? Number.NaN)
+                    : kpi.key === "orders"
+                      ? Number(row.purchases ?? Number.NaN)
+                      : Number(row.spend) > 0
+                        ? Number(row.revenue) / Number(row.spend)
+                        : Number.NaN,
               };
             })
             .filter((point) => Boolean(point.date) && Number.isFinite(point.value)),
@@ -186,7 +235,7 @@ export async function readHomeContract(input: {
     (overview.shopifyServing as { lastUpdatedAt?: string | null } | null | undefined)
       ?.lastUpdatedAt ?? null;
 
-  return {
+  const contract: HomeContract = {
     metrics,
     sources: [
       {
@@ -204,4 +253,26 @@ export async function readHomeContract(input: {
     window: overview.dateRange,
     comparisonMode: "none",
   };
+
+  const trendPoints: HomeTrendPoint[] = trend.map((point) => {
+    const row = point as unknown as { date?: string; label?: string; spend?: number; revenue?: number };
+    const spend = Number(row.spend);
+    const revenue = Number(row.revenue);
+    return {
+      date: String(row.date ?? row.label ?? ""),
+      spend: Number.isFinite(spend) ? spend : null,
+      roas: Number.isFinite(spend) && spend > 0 && Number.isFinite(revenue) ? revenue / spend : null,
+    };
+  }).filter((point) => Boolean(point.date));
+
+  return {
+    contract,
+    trend: trendPoints.length > 0 ? { points: trendPoints, currency } : null,
+    economics,
+  };
+}
+
+/** Compatibility read for callers that only need the metric contract. */
+export async function readHomeContract(input: Parameters<typeof readHomePageModel>[0]): Promise<HomeContract> {
+  return (await readHomePageModel(input)).contract;
 }

@@ -40,9 +40,10 @@ export function AgencyDeskView({
       data-el={returnedFrom ? "flow-a-direction-return" : undefined}
       style={{ display: "flex", flexDirection: "column" }}
     >
-      <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
-        {copy.today}
-      </h2>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginBottom: 4 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>{copy.today}</h2>
+        <span style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Client readiness · sorted alphabetically</span>
+      </div>
       {/* A return states where it came back from and offers the way back in.
           Landing silently on the desk loses the operator's place. */}
       {returnedFrom ? (
@@ -74,27 +75,21 @@ export function AgencyDeskView({
           {AGENCY_MEMBERSHIP_REVOKED}
         </p>
       ) : null}
-      <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
-      <p
-        data-el="withheld-tile"
-        data-desk-order="tile"
-        style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}
-      >
-        {copy.clientsAlphabeticalWithheld}
-      </p>
-      {/* The way to the reason, not the reason itself. At desk width the design
-          places this above the rows, where an operator reads it before drawing
-          conclusions from the numbers; on a phone the rows come first and this
-          follows them. Ordering only — there is one link either way. */}
       <p data-desk-order="explainer" style={{ margin: "0 0 12px", fontSize: 13, lineHeight: "19px" }}>
-        <Link
-          href="/a/desk/withheld"
-          data-ctl="live:AGENCY-02 withheld-explainer"
-          style={{ color: "var(--ledger-accent-action)" }}
-        >
-          {copy.whatsWithheldAndWhy}
+        Connection and freshness facts are Meta-specific. Currency is shown as configured — it is not proof of any row&apos;s money.{" "}
+        <Link href="/a/desk/withheld" data-ctl="live:AGENCY-02 withheld-explainer" style={{ color: "var(--ledger-accent-action)", fontWeight: 650 }}>
+          {copy.whatsWithheldAndWhy} →
         </Link>
       </p>
+      <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
+      <div
+        data-el="withheld-tile"
+        data-desk-order="tile"
+        style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 14, border: "1px solid var(--ledger-semantic-warn)", background: "var(--ledger-bg-surface)", borderRadius: "var(--ledger-radius-card)", padding: "13px 16px", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}
+      >
+        <strong style={{ color: "var(--ledger-semantic-warn)", whiteSpace: "nowrap" }}>{copy.withheldSafety}</strong>
+        <span>{copy.clientsAlphabeticalWithheld} Cross-client spend, revenue, ROAS, severity, anomalies, policy incidents and pending-work counts are never shown or used to rank this list.</span>
+      </div>
     </div>
   );
 }

@@ -14,9 +14,11 @@ export const dynamic = "force-dynamic";
 export default function Page() {
   return (
     <>
-      <AdminIntegrations />
       {/* Flow J, mounted in production rather than only in a test. */}
       <OpsIncidentSurface />
+      <section data-ops-supporting-diagnostics="" aria-label="Provider diagnostics">
+        <AdminIntegrations />
+      </section>
     </>
   );
 }

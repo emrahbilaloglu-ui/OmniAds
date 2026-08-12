@@ -29,7 +29,7 @@ const frameStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  borderRadius: "var(--ledger-radius-control)",
+  borderRadius: "var(--ledger-radius-button)",
   fontSize: 12,
   lineHeight: "16px",
   textAlign: "center",
@@ -120,7 +120,7 @@ export function CreativeMedia({
                 minHeight: 24,
                 background: "none",
                 border: "1px solid var(--ledger-border-control)",
-                borderRadius: "var(--ledger-radius-control)",
+                borderRadius: "var(--ledger-radius-button)",
                 color: "var(--ledger-ink-secondary)",
                 cursor: "pointer",
                 fontSize: 12,
@@ -168,7 +168,7 @@ export function CreativeMedia({
             minHeight: 24,
             background: "none",
             border: "1px solid var(--ledger-border-control)",
-            borderRadius: "var(--ledger-radius-control)",
+            borderRadius: "var(--ledger-radius-button)",
             color: "var(--ledger-ink-secondary)",
             cursor: "pointer",
             fontSize: 12,
@@ -198,7 +198,7 @@ export function CreativeMedia({
         height: BOX,
         flex: `0 0 ${BOX}px`,
         objectFit: "cover",
-        borderRadius: "var(--ledger-radius-control)",
+        borderRadius: "var(--ledger-radius-button)",
         border: "1px solid var(--ledger-border-control)",
       }}
     />
@@ -251,7 +251,7 @@ export function CreativeCarousel({
               borderRadius: "50%",
               border: "1px solid var(--ledger-border-control)",
               background:
-                cardIndex === index ? "var(--ledger-accent-primary)" : "var(--ledger-bg-surface)",
+                cardIndex === index ? "var(--ledger-accent-action)" : "var(--ledger-bg-surface)",
               cursor: "pointer",
             }}
           />

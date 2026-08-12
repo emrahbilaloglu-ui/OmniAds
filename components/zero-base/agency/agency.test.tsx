@@ -53,6 +53,8 @@ function row(index: number, overrides: Partial<AgencyClientRow> = {}): AgencyCli
     name: `Client ${padded}`,
     role: "admin",
     membershipStatus: "active",
+    metaConnectionStatus: "connected",
+    selectedMetaAccountCount: 1,
     configuredCurrency: "USD",
     sourceUpdatedAt: "2026-08-10T12:00:00Z",
     href: `/c/biz_${padded}/home`,
@@ -94,7 +96,7 @@ function renderDirectory(pageSize = 25, overrides: Partial<React.ComponentProps<
 function servedNames(): string[] {
   return within(screen.getByRole("table"))
     .getAllByRole("rowheader")
-    .map((cell) => cell.textContent ?? "");
+    .map((cell) => cell.querySelector("strong")?.textContent ?? "");
 }
 
 describe("the browser receives one bounded page, not the whole list", () => {
@@ -234,7 +236,7 @@ describe("safe projection survives rendering", () => {
     const headers = within(screen.getByRole("table"))
       .getAllByRole("columnheader")
       .map((header) => header.textContent ?? "");
-    expect(headers).toEqual(["Client", "Your role", "Currency", "Last source activity"]);
+    expect(headers).toEqual(["Client · your membership", "Meta connection", "Meta accts", "Source activity (warehouse)", "Configured currency", ""]);
 
     const text = screen.getByRole("table").textContent ?? "";
     for (const forbidden of ["Spend", "Revenue", "ROAS", "Severity", "Priority", "Risk", "Rank"]) {
@@ -248,7 +250,7 @@ describe("safe projection survives rendering", () => {
 
   it("labels currency as configuration and activity as activity", () => {
     renderDirectory(25);
-    expect(screen.getAllByText("(configured)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/USD · configured/).length).toBeGreaterThan(0);
     expect(screen.getByText(/configured setting, not an observed provider value/i)).toBeVisible();
     expect(screen.getByText(/activity, not a health signal/i)).toBeVisible();
   });
@@ -261,7 +263,7 @@ describe("safe projection survives rendering", () => {
         fetchPage={vi.fn()}
       />,
     );
-    expect(screen.getByText("Not recorded")).toBeVisible();
+    expect(screen.getByText("No source activity")).toBeVisible();
   });
 
   it("offers no sort control that would imply another order", () => {
@@ -275,7 +277,7 @@ describe("safe projection survives rendering", () => {
 describe("Open Client carries an allowlisted return state", () => {
   it("parses back to the allowlist, with the row anchor", () => {
     renderDirectory(25);
-    const href = screen.getByRole("link", { name: "Client 000" }).getAttribute("href")!;
+    const href = screen.getByRole("link", { name: "Open Client 000" }).getAttribute("href")!;
     expect(href.startsWith("/c/biz_000/home?")).toBe(true);
 
     const returnTo = new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM);
@@ -286,7 +288,7 @@ describe("Open Client carries an allowlisted return state", () => {
 
   /** The parsed return state a given row currently advertises. */
   function returnStateFor(name: string) {
-    const href = screen.getByRole("link", { name }).getAttribute("href")!;
+    const href = screen.getByRole("link", { name: `Open ${name}` }).getAttribute("href")!;
     return parseAgencyReturn(
       new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM),
     )!;
@@ -404,7 +406,7 @@ describe("Open Client carries an allowlisted return state", () => {
     const user = userEvent.setup();
     renderDirectory(25);
     await user.type(screen.getByLabelText("Find a client"), "Client 003");
-    const href = screen.getByRole("link", { name: "Client 003" }).getAttribute("href")!;
+    const href = screen.getByRole("link", { name: "Open Client 003" }).getAttribute("href")!;
     const parsed = parseAgencyReturn(
       new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM),
     )!;
@@ -416,7 +418,7 @@ describe("Open Client carries an allowlisted return state", () => {
       cleanup();
       renderDirectory(25, { returnPath });
       const returnTo = new URL(
-        screen.getByRole("link", { name: "Client 000" }).getAttribute("href")!,
+        screen.getByRole("link", { name: "Open Client 000" }).getAttribute("href")!,
         "https://app.invalid",
       ).searchParams.get(AGENCY_RETURN_PARAM);
       expect(parseAgencyReturn(returnTo)?.path).toBe(returnPath);

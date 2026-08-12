@@ -331,7 +331,11 @@ async function main() {
   );
   expectEqual(findForbiddenAgencyKeys(first), [], "no forbidden key anywhere in the page");
   expectTrue(
-    first.items.every((row) => row.href === `/c/${row.businessId}/home`),
+    first.items.every(
+      (row) =>
+        row.href ===
+        `/switch-business/${encodeURIComponent(row.businessId)}?next=${encodeURIComponent("/app/home")}`,
+    ),
     "every row links to its own client",
   );
 

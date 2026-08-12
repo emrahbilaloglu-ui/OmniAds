@@ -166,8 +166,9 @@ jobs:
           owner_email_q="$(printf '%q' "${OWNER_EMAIL}")"
           business_id_q="$(printf '%q' "${BUSINESS_ID}")"
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seuo pipefail" <<'REMOTE'
+          remote_script="$(mktemp)"
+          trap 'rm -f "${remote_script}"' EXIT
+          cat > "${remote_script}" <<'REMOTE'
             cd /var/www/adsecute
 
             current_build_id() {
@@ -485,3 +486,14 @@ jobs:
             echo "web_image=${current_image}"
             echo "rollback_env_backup=${backup}"
           REMOTE
+
+          remote_script_bytes="$(wc -c < "${remote_script}" | tr -d ' ')"
+          if [ "${remote_script_bytes}" -lt 1000 ]; then
+            echo "Refusing rollout: remote script payload is unexpectedly small (${remote_script_bytes} bytes)."
+            exit 1
+          fi
+          echo "remote_script_bytes=${remote_script_bytes}"
+
+          remote_payload="$(base64 < "${remote_script}" | tr -d '\n')"
+          ssh -T "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "printf '%s' '${remote_payload}' | EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seuo pipefail"

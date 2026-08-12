@@ -46,6 +46,15 @@ function todayIsoDateUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function internalBriefingOrigin() {
+  const configuredPort = process.env.PORT?.trim() ?? "";
+  const port = /^\d{1,5}$/.test(configuredPort) ? configuredPort : "3000";
+  // This is a server-to-server composition call inside the same Next runtime.
+  // Going back through the public hostname makes the inbox depend on external
+  // ingress, DNS and bot filtering even though the dependency is local.
+  return `http://127.0.0.1:${port}`;
+}
+
 function resolvedAsOfParam(request: NextRequest) {
   return request.nextUrl.searchParams.get("asOf")?.trim() || todayIsoDateUtc();
 }
@@ -97,7 +106,7 @@ async function readBusinessBriefing(input: {
   }
   if (cached) briefingCache.delete(cacheKey);
 
-  const url = new URL("/api/creatives/briefing", input.request.nextUrl.origin);
+  const url = new URL("/api/creatives/briefing", internalBriefingOrigin());
   url.searchParams.set("businessId", input.businessId);
   url.searchParams.set("decisionCenter", "1");
   const asOf = resolvedAsOfParam(input.request);
@@ -114,7 +123,17 @@ async function readBusinessBriefing(input: {
   const response = await fetch(url, {
     headers,
     cache: "no-store",
-  });
+  }).catch(() => null);
+  if (!response) {
+    return {
+      businessId: input.businessId,
+      ok: false as const,
+      status: 503,
+      error: "briefing_unavailable",
+      cards: [] as InboxCard[],
+      cacheHit: false,
+    };
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const result = {

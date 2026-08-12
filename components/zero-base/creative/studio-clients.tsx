@@ -184,6 +184,7 @@ export function CreativeInboxClient(props: ScopeProps) {
   const copy = useCopy();
   const inboxParams = new URLSearchParams({ businessIds: props.businessId });
   const { data, surface } = useJson<{
+    errors?: Array<{ businessId: string; status: number; error: string }>;
     inbox?: Array<{
       id: string;
       creativeName?: string | null;
@@ -211,6 +212,11 @@ export function CreativeInboxClient(props: ScopeProps) {
         title={copy.creativeInbox}
         rows={rows}
         emptyReason="Nothing is waiting in the inbox for this window."
+        unavailableReason={
+          data?.errors?.length
+            ? `Creative briefing is unavailable (${data.errors[0]?.error ?? "read failed"}).`
+            : null
+        }
       />
     </SurfaceStateBoundary>
   );

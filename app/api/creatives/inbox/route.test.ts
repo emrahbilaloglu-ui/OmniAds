@@ -70,6 +70,7 @@ describe("GET /api/creatives/inbox", () => {
     expect(fetchSpy.mock.calls[0][0].toString()).toContain(
       "/api/creatives/briefing",
     );
+    expect(fetchSpy.mock.calls[0][0].origin).toBe("http://127.0.0.1:3000");
     expect(fetchSpy.mock.calls[0][1]).toMatchObject({
       headers: expect.any(Headers),
       cache: "no-store",
@@ -202,6 +203,24 @@ describe("GET /api/creatives/inbox", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy.mock.calls[1][0].searchParams.get("asOf")).toBe("2026-05-26");
+  });
+
+  it("reports an unavailable briefing dependency without turning the inbox into HTTP 500", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("network unavailable");
+    }));
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/inbox?businessIds=biz_1"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.inbox).toEqual([]);
+    expect(payload.businessesSucceeded).toBe(0);
+    expect(payload.errors).toEqual([
+      { businessId: "biz_1", status: 503, error: "briefing_unavailable" },
+    ]);
   });
 
   it("requires explicit business ids", async () => {

@@ -1,4 +1,4 @@
-import AdminAuthHealth from "@/app/admin/auth-health/page";
+import AdminAuthHealth from "@/app/admin/auth-health/legacy-page";
 
 export const dynamic = "force-dynamic";
 

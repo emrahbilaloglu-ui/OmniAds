@@ -52,7 +52,7 @@ describe("CommercialTruthPage", () => {
 
   it("renders the dedicated page header and section for the active business", async () => {
     const { default: CommercialTruthPage } = await import(
-      "@/app/(dashboard)/commercial-truth/page"
+      "@/app/(dashboard)/commercial-truth/legacy-page"
     );
 
     const html = renderToStaticMarkup(React.createElement(CommercialTruthPage));
@@ -67,7 +67,7 @@ describe("CommercialTruthPage", () => {
     mockAppState.selectedBusinessId = null as never;
 
     const { default: CommercialTruthPage } = await import(
-      "@/app/(dashboard)/commercial-truth/page"
+      "@/app/(dashboard)/commercial-truth/legacy-page"
     );
 
     const html = renderToStaticMarkup(React.createElement(CommercialTruthPage));

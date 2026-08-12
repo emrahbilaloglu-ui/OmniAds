@@ -1,4 +1,4 @@
-import AdminSystemCapacity from "@/app/admin/system-capacity/page";
+import AdminSystemCapacity from "@/app/admin/system-capacity/legacy-page";
 
 export const dynamic = "force-dynamic";
 

@@ -1,4 +1,4 @@
-import AdminRevenueRisk from "@/app/admin/revenue-risk/page";
+import AdminRevenueRisk from "@/app/admin/revenue-risk/legacy-page";
 
 export const dynamic = "force-dynamic";
 

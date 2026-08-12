@@ -1,4 +1,4 @@
-import AdminActivity from "@/app/admin/activity/page";
+import AdminActivity from "@/app/admin/activity/legacy-page";
 
 export const dynamic = "force-dynamic";
 

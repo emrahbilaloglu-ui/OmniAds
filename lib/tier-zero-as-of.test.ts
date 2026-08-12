@@ -17,13 +17,13 @@ import {
  * freshness contract exists to remove — so it needs a test, not just a fix.
  */
 const SURFACES: Array<{ label: string; file: string }> = [
-  { label: "Overview", file: "app/(dashboard)/overview/page.tsx" },
-  { label: "Integrations", file: "app/(dashboard)/integrations/page.tsx" },
-  { label: "Settings", file: "app/(dashboard)/settings/page.tsx" },
-  { label: "Reports", file: "app/(dashboard)/reports/page.tsx" },
+  { label: "Overview", file: "app/(dashboard)/overview/legacy-page.tsx" },
+  { label: "Integrations", file: "app/(dashboard)/integrations/legacy-page.tsx" },
+  { label: "Settings", file: "app/(dashboard)/settings/legacy-page.tsx" },
+  { label: "Reports", file: "app/(dashboard)/reports/legacy-page.tsx" },
   {
     label: "Creative Studio",
-    file: "app/(dashboard)/platforms/meta/creatives/page.tsx",
+    file: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
   },
   {
     label: "Google Ads",
@@ -72,7 +72,7 @@ describe("no surface dates itself from something that is not a measurement", () 
 
   it("Creative Studio does not echo back the as-of it asked for", () => {
     const asOf = asOfExpression(
-      readFileSync("app/(dashboard)/platforms/meta/creatives/page.tsx", "utf8"),
+      readFileSync("app/(dashboard)/platforms/meta/creatives/legacy-page.tsx", "utf8"),
     )!;
     // source.asOf is the client's own request parameter returned by the route.
     expect(asOf).not.toContain("source?.asOf");
@@ -81,7 +81,7 @@ describe("no surface dates itself from something that is not a measurement", () 
 
   it("Settings does not use the account creation date", () => {
     const asOf = asOfExpression(
-      readFileSync("app/(dashboard)/settings/page.tsx", "utf8"),
+      readFileSync("app/(dashboard)/settings/legacy-page.tsx", "utf8"),
     )!;
     expect(asOf).not.toContain("accountCreatedAt");
     expect(asOf).toContain("settingsReadAt");
@@ -89,7 +89,7 @@ describe("no surface dates itself from something that is not a measurement", () 
 
   it("Reports does not use the newest report's edit time", () => {
     const asOf = asOfExpression(
-      readFileSync("app/(dashboard)/reports/page.tsx", "utf8"),
+      readFileSync("app/(dashboard)/reports/legacy-page.tsx", "utf8"),
     )!;
     expect(asOf).not.toContain("[0]?.updatedAt");
     expect(asOf).toContain("generatedAt");
@@ -196,14 +196,14 @@ describe("no Tier-0 surface settles for \"age unknown\" by default", () => {
   const HARDCODED_NULL_ALLOWED = new Set<string>([
     // Launchpad composes from live reads that publish no observation time. It
     // is a wizard, not a data view, and shows no historical figures.
-    "app/(dashboard)/platforms/meta/launchpad/page.tsx",
+    "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
   ]);
 
   const DATA_SURFACES = [
-    "app/(dashboard)/platforms/meta/creatives/page.tsx",
-    "app/(dashboard)/platforms/meta/copies/page.tsx",
-    "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
-    "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+    "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
+    "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
+    "app/(dashboard)/platforms/meta/creative-inbox/legacy-page.tsx",
+    "app/(dashboard)/platforms/meta/landing-pages/legacy-page.tsx",
   ];
 
   for (const file of DATA_SURFACES) {

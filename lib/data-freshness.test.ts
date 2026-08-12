@@ -53,7 +53,7 @@ describe("age is stated, never implied", () => {
 });
 
 describe("the Overview surface discloses its own age", () => {
-  const page = readFileSync("app/(dashboard)/overview/page.tsx", "utf8");
+  const page = readFileSync("app/(dashboard)/overview/legacy-page.tsx", "utf8");
 
   it("renders the chip", () => {
     expect(page).toContain("<FreshnessChip");

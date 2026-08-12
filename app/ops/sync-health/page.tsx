@@ -1,4 +1,4 @@
-import AdminSyncHealth from "@/app/admin/sync-health/page";
+import AdminSyncHealth from "@/app/admin/sync-health/legacy-page";
 
 export const dynamic = "force-dynamic";
 

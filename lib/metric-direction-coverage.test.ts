@@ -109,7 +109,7 @@ describe("a cost increase never receives positive treatment", () => {
 describe("surfaces defer to the shared direction instead of re-deriving it", () => {
   it("Copies colours its deltas through the helper", () => {
     const copies = readFileSync(
-      "app/(dashboard)/platforms/meta/copies/page.tsx",
+      "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
       "utf8",
     );
     expect(copies).toContain("function toneForDelta(");

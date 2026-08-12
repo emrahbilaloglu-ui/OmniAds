@@ -1,5 +1,5 @@
 import { OpsIncidentSurface } from "@/components/zero-base/ops/ops-incident-surface";
-import AdminOverview from "@/app/admin/page";
+import AdminOverview from "@/app/admin/legacy-page";
 
 export const dynamic = "force-dynamic";
 

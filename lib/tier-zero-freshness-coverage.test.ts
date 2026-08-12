@@ -18,75 +18,75 @@ const TIER_ZERO_SURFACES: Array<{
 }> = [
   {
     label: "Overview / Agency Today",
-    route: "app/(dashboard)/overview/page.tsx",
-    file: "app/(dashboard)/overview/page.tsx",
+    route: "app/(dashboard)/overview/legacy-page.tsx",
+    file: "app/(dashboard)/overview/legacy-page.tsx",
   },
   {
     label: "Decisions and inspector",
-    route: "app/(dashboard)/platforms/meta/page.tsx",
+    route: "app/(dashboard)/platforms/meta/legacy-page.tsx",
     file: "components/meta/os/DecisionsOsView.tsx",
   },
   {
     label: "History",
-    route: "app/(dashboard)/platforms/meta/history/page.tsx",
+    route: "app/(dashboard)/platforms/meta/history/legacy-page.tsx",
     file: "app/(dashboard)/platforms/meta/history/history-view.tsx",
   },
   {
     label: "Creative Studio",
-    route: "app/(dashboard)/platforms/meta/creatives/page.tsx",
-    file: "app/(dashboard)/platforms/meta/creatives/page.tsx",
+    route: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
+    file: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
   },
   {
     label: "Google Ads",
-    route: "app/(dashboard)/platforms/google/page.tsx",
+    route: "app/(dashboard)/platforms/google/legacy-page.tsx",
     file: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   },
   {
     label: "Reports",
-    route: "app/(dashboard)/reports/page.tsx",
-    file: "app/(dashboard)/reports/page.tsx",
+    route: "app/(dashboard)/reports/legacy-page.tsx",
+    file: "app/(dashboard)/reports/legacy-page.tsx",
   },
   {
     // The list reported its age while the page that renders the figures an
     // agency sends to a client said nothing. Nobody acts on the list.
     label: "Rendered report",
-    route: "app/(dashboard)/reports/[reportId]/page.tsx",
+    route: "app/(dashboard)/reports/[reportId]/legacy-page.tsx",
     file: "components/reports/report-builder-page.tsx",
   },
   {
     label: "Studio — Copies",
-    route: "app/(dashboard)/platforms/meta/copies/page.tsx",
-    file: "app/(dashboard)/platforms/meta/copies/page.tsx",
+    route: "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
+    file: "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
   },
   {
     label: "Studio — Creative inbox",
-    route: "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
-    file: "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
+    route: "app/(dashboard)/platforms/meta/creative-inbox/legacy-page.tsx",
+    file: "app/(dashboard)/platforms/meta/creative-inbox/legacy-page.tsx",
   },
   {
     label: "Studio — Landing pages",
-    route: "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
-    file: "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+    route: "app/(dashboard)/platforms/meta/landing-pages/legacy-page.tsx",
+    file: "app/(dashboard)/platforms/meta/landing-pages/legacy-page.tsx",
   },
   {
     label: "Launchpad",
-    route: "app/(dashboard)/platforms/meta/launchpad/page.tsx",
-    file: "app/(dashboard)/platforms/meta/launchpad/page.tsx",
+    route: "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
+    file: "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
   },
   {
     label: "Automation",
-    route: "app/(dashboard)/platforms/meta/automation/page.tsx",
+    route: "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
     file: "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
   },
   {
     label: "Settings",
-    route: "app/(dashboard)/settings/page.tsx",
-    file: "app/(dashboard)/settings/page.tsx",
+    route: "app/(dashboard)/settings/legacy-page.tsx",
+    file: "app/(dashboard)/settings/legacy-page.tsx",
   },
   {
     label: "Integrations",
-    route: "app/(dashboard)/integrations/page.tsx",
-    file: "app/(dashboard)/integrations/page.tsx",
+    route: "app/(dashboard)/integrations/legacy-page.tsx",
+    file: "app/(dashboard)/integrations/legacy-page.tsx",
   },
 ];
 

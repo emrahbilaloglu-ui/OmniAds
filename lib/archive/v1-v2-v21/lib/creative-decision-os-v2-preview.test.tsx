@@ -55,7 +55,7 @@ const contractV011Expectations = {
 };
 
 const readablePreviewFiles = [
-  "app/(dashboard)/platforms/meta/creatives/page.tsx",
+  "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
   "app/(dashboard)/platforms/meta/creatives/page.test.tsx",
   "app/api/creatives/decision-os-v2/preview/route.ts",
   "app/api/creatives/decision-os-v2/preview/route.test.ts",

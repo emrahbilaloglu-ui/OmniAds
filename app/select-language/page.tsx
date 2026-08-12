@@ -1,53 +1,17 @@
-"use client";
+/**
+ * Compatibility shim for `/select-language` (WP-27A).
+ *
+ * The legacy body is preserved verbatim at `./legacy-page` and mounted
+ * unchanged whenever the canonical UI is not being presented — which is what
+ * makes `ZERO_BASE_UI_MODE=off` a rollback rather than a redeploy. Every other
+ * decision, and the ordering that keeps it safe, lives in one module.
+ *
+ * @see lib/zero-base/compatibility-page.tsx
+ */
+import { compatibilityPage } from "@/lib/zero-base/compatibility-page";
+import LegacyBody from "./legacy-page";
 
-import { useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { AuthSurface } from "@/components/auth/auth-surface";
-import { DEFAULT_LANGUAGE, syncLanguageCookie } from "@/lib/i18n";
-import { sanitizeNextPath } from "@/lib/auth-routing";
-import { PUBLIC_LANGUAGE_SELECTOR_LIMITATION } from "@/lib/zero-base/auth-states";
+// The shim reads the session before deciding, so this segment is never static.
+export const dynamic = "force-dynamic";
 
-function resolveDestination(nextPath: string | null) {
-  const sanitized = sanitizeNextPath(nextPath);
-  if (
-    !sanitized ||
-    sanitized === "/" ||
-    sanitized.startsWith("/login") ||
-    sanitized.startsWith("/signup") ||
-    sanitized.startsWith("/select-language") ||
-    sanitized.startsWith("/select-business")
-  ) {
-    return "/overview";
-  }
-  return sanitized;
-}
-
-export default function SelectLanguagePage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const destination = useMemo(
-    () => resolveDestination(searchParams.get("next")),
-    [searchParams],
-  );
-
-  useEffect(() => {
-    syncLanguageCookie(DEFAULT_LANGUAGE);
-    router.replace(destination);
-    router.refresh();
-  }, [destination, router]);
-
-  return (
-    <AuthSurface
-      eyebrow="Workspace preference"
-      title="Taking you to your workspace"
-      /* This route is not a selector and never was: it writes the default
-         language and redirects. Calling it "Applying language preference"
-         implied the user had chosen something and it had been honoured. */
-      description="Language selection is not available here."
-    >
-      <p className="ad-auth-alert ad-auth-alert-caution" data-language-limitation="">
-        {PUBLIC_LANGUAGE_SELECTOR_LIMITATION}
-      </p>
-    </AuthSurface>
-  );
-}
+export default compatibilityPage("/select-language", LegacyBody);

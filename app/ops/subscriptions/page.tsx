@@ -1,4 +1,4 @@
-import AdminSubscriptions from "@/app/admin/subscriptions/page";
+import AdminSubscriptions from "@/app/admin/subscriptions/legacy-page";
 
 export const dynamic = "force-dynamic";
 

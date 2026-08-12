@@ -1,4 +1,4 @@
-import AdminBusinesses from "@/app/admin/businesses/page";
+import AdminBusinesses from "@/app/admin/businesses/legacy-page";
 
 export const dynamic = "force-dynamic";
 

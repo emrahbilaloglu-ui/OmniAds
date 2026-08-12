@@ -68,7 +68,7 @@ describe("every legacy admin route has exactly one canonical Ops tuple", () => {
 
   it("leaves every legacy admin route intact", () => {
     for (const leaf of OPS_LEAVES) {
-      const rel = leaf.admin === "/admin" ? "app/admin/page.tsx" : `app${leaf.admin}/page.tsx`;
+      const rel = leaf.admin === "/admin" ? "app/admin/legacy-page.tsx" : `app${leaf.admin}/page.tsx`;
       expect(existsSync(path.join(ROOT, rel)), leaf.admin).toBe(true);
     }
   });

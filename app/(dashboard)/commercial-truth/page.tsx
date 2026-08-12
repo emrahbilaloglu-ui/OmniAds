@@ -1,46 +1,17 @@
-"use client";
+/**
+ * Compatibility shim for `/commercial-truth` (WP-27A).
+ *
+ * The legacy body is preserved verbatim at `./legacy-page` and mounted
+ * unchanged whenever the canonical UI is not being presented — which is what
+ * makes `ZERO_BASE_UI_MODE=off` a rollback rather than a redeploy. Every other
+ * decision, and the ordering that keeps it safe, lives in one module.
+ *
+ * @see lib/zero-base/compatibility-page.tsx
+ */
+import { compatibilityPage } from "@/lib/zero-base/compatibility-page";
+import LegacyBody from "./legacy-page";
 
-import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { CommercialTruthSettingsSection } from "@/components/settings/commercial-truth-settings";
-import { SettingsStat } from "@/components/settings/settings-section";
-import { WorkspaceSurface, WorkspacePill } from "@/components/workspace/workspace-surface";
-import { getTranslations } from "@/lib/i18n";
-import { useAppStore } from "@/store/app-store";
-import { usePreferencesStore } from "@/store/preferences-store";
+// The shim reads the session before deciding, so this segment is never static.
+export const dynamic = "force-dynamic";
 
-export default function CommercialTruthPage() {
-  const businesses = useAppStore((state) => state.businesses);
-  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const language = usePreferencesStore((state) => state.language);
-  const navigationTranslations = getTranslations(language).navigation;
-
-  const activeBusiness =
-    businesses.find((business) => business.id === selectedBusinessId) ?? null;
-
-  if (!selectedBusinessId || !activeBusiness) {
-    return <BusinessEmptyState />;
-  }
-
-  return (
-    <WorkspaceSurface
-      eyebrow="Targets & Economics"
-      title={navigationTranslations.commercialTruth}
-      description="Manage the shared business context that Meta and Creative decision surfaces use as deterministic commercial truth for the active workspace."
-      width="narrow"
-      meta={<WorkspacePill tone="info">single economic ground truth</WorkspacePill>}
-      actions={
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SettingsStat label="Workspace" value={activeBusiness.name} />
-          <SettingsStat label="Currency" value={activeBusiness.currency} />
-          <SettingsStat
-            label="Timezone"
-            value={activeBusiness.timezone ?? "Derived from connected sources"}
-            tone={activeBusiness.timezone ? "default" : "warning"}
-          />
-        </div>
-      }
-    >
-      <CommercialTruthSettingsSection businessId={selectedBusinessId} />
-    </WorkspaceSurface>
-  );
-}
+export default compatibilityPage("/commercial-truth", LegacyBody);

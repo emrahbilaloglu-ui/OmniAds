@@ -1,7 +1,17 @@
-import { redirect } from "next/navigation";
+/**
+ * Compatibility shim for `/platforms/google/audiences` (WP-27A).
+ *
+ * The legacy body is preserved verbatim at `./legacy-page` and mounted
+ * unchanged whenever the canonical UI is not being presented — which is what
+ * makes `ZERO_BASE_UI_MODE=off` a rollback rather than a redeploy. Every other
+ * decision, and the ordering that keeps it safe, lives in one module.
+ *
+ * @see lib/zero-base/compatibility-page.tsx
+ */
+import { compatibilityPage } from "@/lib/zero-base/compatibility-page";
+import LegacyBody from "./legacy-page";
 
-// The Google Ads intelligence dashboard is a single self-contained workspace; its
-// audience intelligence lives inside it, so this legacy sub-route folds back in.
-export default function GoogleAudiencesRedirect() {
-  redirect("/platforms/google");
-}
+// The shim reads the session before deciding, so this segment is never static.
+export const dynamic = "force-dynamic";
+
+export default compatibilityPage("/platforms/google/audiences", LegacyBody);

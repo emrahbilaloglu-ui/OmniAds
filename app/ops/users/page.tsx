@@ -1,4 +1,4 @@
-import AdminUsers from "@/app/admin/users/page";
+import AdminUsers from "@/app/admin/users/legacy-page";
 
 export const dynamic = "force-dynamic";
 

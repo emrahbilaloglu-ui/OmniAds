@@ -1,4 +1,4 @@
-import AdminDiscountNew from "@/app/admin/discounts/new/page";
+import AdminDiscountNew from "@/app/admin/discounts/new/legacy-page";
 
 export const dynamic = "force-dynamic";
 

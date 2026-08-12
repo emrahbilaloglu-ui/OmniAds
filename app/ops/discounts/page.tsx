@@ -1,4 +1,4 @@
-import AdminDiscounts from "@/app/admin/discounts/page";
+import AdminDiscounts from "@/app/admin/discounts/legacy-page";
 
 export const dynamic = "force-dynamic";
 

@@ -114,7 +114,7 @@ describe("WP-23 the OAuth return path is real end to end", () => {
   });
 
   it("the shared callback page honours returnTo", () => {
-    const page = source("app/(dashboard)/integrations/callback/[provider]/page.tsx");
+    const page = source("app/(dashboard)/integrations/callback/[provider]/legacy-page.tsx");
     expect(page).toContain("sanitizeNextPath(searchParams.get(\"returnTo\"))");
     expect(page).toContain("router.replace(returnTo)");
   });

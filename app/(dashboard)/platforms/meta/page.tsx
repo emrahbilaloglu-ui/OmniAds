@@ -1,24 +1,17 @@
-"use client";
+/**
+ * Compatibility shim for `/platforms/meta` (WP-27A).
+ *
+ * The legacy body is preserved verbatim at `./legacy-page` and mounted
+ * unchanged whenever the canonical UI is not being presented — which is what
+ * makes `ZERO_BASE_UI_MODE=off` a rollback rather than a redeploy. Every other
+ * decision, and the ordering that keeps it safe, lives in one module.
+ *
+ * @see lib/zero-base/compatibility-page.tsx
+ */
+import { compatibilityPage } from "@/lib/zero-base/compatibility-page";
+import LegacyBody from "./legacy-page";
 
-import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-// MetaPlatformPage is intentionally kept on disk (other surfaces may still
-// reference it) but is no longer rendered from this route — the owner chose to
-// supersede the old Decisions surface with the Meta OS DecisionsOsView.
-import { DecisionsOsView } from "@/components/meta/os/DecisionsOsView";
-import { useAppStore } from "@/store/app-store";
+// The shim reads the session before deciding, so this segment is never static.
+export const dynamic = "force-dynamic";
 
-export default function MetaPage() {
-  const businesses = useAppStore((state) => state.businesses);
-  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
-
-  return (
-    <DecisionsOsView
-      businessId={selectedBusinessId}
-      businessName={business?.name}
-      currency={business?.currency}
-    />
-  );
-}
+export default compatibilityPage("/platforms/meta", LegacyBody);

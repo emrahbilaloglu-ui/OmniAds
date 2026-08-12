@@ -1788,8 +1788,19 @@ case "${phase}" in
     # and it is reachable independently of run_migrations. It gets the gate too.
     assert_not_cutover_required
     assert_no_cutover_in_progress
-    log "Recreating web and worker"
-    docker compose up -d --force-recreate web worker
+    # Recreate one service at a time. With both services in a single `up`, the
+    # worker's health-check/autoheal restart can race Docker's removal after the
+    # web container has already been replaced. That leaves production with no
+    # web container and an old worker. Stopping the worker first closes that
+    # race; the two explicit `up` calls also make a partial failure recoverable.
+    log "Stopping worker before service recreation"
+    docker compose stop worker || true
+
+    log "Recreating web"
+    docker compose up -d --force-recreate web
+
+    log "Recreating worker"
+    docker compose up -d --force-recreate worker
 
     log "Checking running services"
     docker compose ps

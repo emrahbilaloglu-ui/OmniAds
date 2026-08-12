@@ -15,6 +15,7 @@ on:
         options:
           - inspect
           - allowlist
+          - "on"
           - off
       owner_email:
         description: Account email used to prove active access to the allowlisted business
@@ -60,9 +61,9 @@ jobs:
           fi
 
           case "${INPUT_ACTION}" in
-            inspect|allowlist|off) ;;
+            inspect|allowlist|on|off) ;;
             *)
-              echo "action must be inspect, allowlist, or off."
+              echo "action must be inspect, allowlist, on, or off."
               exit 1
               ;;
           esac
@@ -257,6 +258,9 @@ jobs:
           PY
               target_mode="allowlist"
               target_ids="${BUSINESS_ID}"
+            elif [ "${ROLLOUT_ACTION}" = "on" ]; then
+              target_mode="on"
+              target_ids=""
             else
               target_mode="off"
               target_ids=""

@@ -9,6 +9,28 @@ verified from what was not — and, where something failed, whether it was a
 product defect, an evidence defect, an environment limitation, or an accepted
 pre-existing baseline.
 
+## 0a. How to read this document
+
+**This report is a dated record of successive passes, appended to and never
+rewritten.** Several passes were rejected by independent review and corrected;
+their findings are kept in place rather than edited away, because a report that
+quietly deletes what it once claimed cannot be audited.
+
+That has one consequence a reader must know about: **every "Gate status" table
+before the final one is a snapshot of the tree it describes, not of this tree.**
+Sections stating G7 45/142, G10 13/92 or "G10 is RED" were true when written and
+are superseded.
+
+The authoritative current state is the last three sections only:
+
+- **`### Gates run on the final tree`** — every command, its exit code, read
+  directly and not through a pipe
+- **`### Final evidence fingerprint`** — the commit, the archive digest, the
+  evidence set and its render fingerprint
+- **`### G1–G11 status`** — the gate table that holds now
+
+If an earlier passage disagrees with those three, those three are correct.
+
 ## 0. Authority
 
 Plan: `/Users/harmelek/Adsecute-native-integration/docs/claude-design-handoff/reviews/ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
@@ -1504,8 +1526,10 @@ status read directly, not through a pipe.
 | `bash scripts/verify-database-seams.sh` | **0** | **34 of 34 stages** |
 | `npx vitest run lib/zero-base/render-provenance.test.ts scripts/zero-base/verify-reference-fidelity.test.ts` | 0 | **40 provenance/fidelity mutation controls** |
 
-Full Vitest was additionally run twice back to back before this: 9323 passed
-both times.
+`npx vitest run` was additionally run twice back to back on this tree, outside
+the aggregate: exit 0 both times, **9324 passed / 61 skipped / 63 todo** both
+times. (An earlier pass recorded 9323 twice; the extra test is the assignment
+regression added below.)
 
 ### Final evidence fingerprint
 

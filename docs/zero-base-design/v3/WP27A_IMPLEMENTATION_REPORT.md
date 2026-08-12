@@ -10,8 +10,8 @@ does not perform.
 | | |
 |---|---|
 | Base accepted at | `a9f598dae534` |
-| Last implementation commit | `6b8f6cbcb` — the last commit that changes shipped code, tests or evidence |
-| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline 6b8f6cbcb..HEAD` shows they touch `docs/` only |
+| Last implementation commit | `80a096363` — the last commit that changes shipped code, tests or evidence |
+| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline 80a096363..HEAD` shows they touch `docs/` only |
 | Master plan | `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`, SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613` (re-verified) |
 | Design archive | `0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d` |
 | Evidence set | `playwright/artifacts/zero-base/32b5b1686e/wp27a-deterministic` (92 frames) |
@@ -45,7 +45,7 @@ Nothing after `fb60061a7` changes shipped code.
 | `fb60061a7` | Routes the chooser's copy through the EN/TR catalogue, as the locale gate demanded |
 | `32b5b1686` | Makes the production-owner coverage deterministic under the full aggregate (below) |
 | `9493feb2a` | Recaptures the 92-frame evidence after that correction touched a render-affecting file |
-| `6b8f6cbcb` | Removes a module-identity race the determinism fix had introduced |
+| `80a096363` | Removes a module-identity race the determinism fix had introduced |
 
 ## Correction after the first phase-boundary review
 

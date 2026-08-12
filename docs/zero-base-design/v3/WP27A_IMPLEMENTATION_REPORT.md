@@ -10,8 +10,8 @@ does not perform.
 | | |
 |---|---|
 | Base accepted at | `a9f598dae534` |
-| Last implementation commit | `9493feb2a` — the last commit that changes shipped code or evidence |
-| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline 9493feb2a..HEAD` shows they touch `docs/` only |
+| Last implementation commit | `6b8f6cbcb` — the last commit that changes shipped code, tests or evidence |
+| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline 6b8f6cbcb..HEAD` shows they touch `docs/` only |
 | Master plan | `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`, SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613` (re-verified) |
 | Design archive | `0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d` |
 | Evidence set | `playwright/artifacts/zero-base/32b5b1686e/wp27a-deterministic` (92 frames) |
@@ -45,6 +45,7 @@ Nothing after `fb60061a7` changes shipped code.
 | `fb60061a7` | Routes the chooser's copy through the EN/TR catalogue, as the locale gate demanded |
 | `32b5b1686` | Makes the production-owner coverage deterministic under the full aggregate (below) |
 | `9493feb2a` | Recaptures the 92-frame evidence after that correction touched a render-affecting file |
+| `6b8f6cbcb` | Removes a module-identity race the determinism fix had introduced |
 
 ## Correction after the first phase-boundary review
 
@@ -75,6 +76,21 @@ Fixed by removing the redundancy rather than by raising a number:
   into three: files exist; every shim delegates to `compatibilityPage` naming
   its own route; and every warmed module is a callable server page over its
   body. 46 tests became **48**.
+
+**And the first attempt at that fix introduced a second, subtler defect**, which
+only running it repeatedly found. Warming loaded each shim and its body with
+`Promise.all`, so the shim's own `import LegacyBody from "./legacy-page"` and
+this file's `@/<dir>/legacy-page` were in flight together — two specifiers for
+one file. The module runner can then hold two instances of it, after which the
+element the shim returns is built from a different function object than the one
+compared against, and a *correct* rollback reads as a failure. It reproduced
+roughly **one run in six**, always on `/insights/analytics`. The two imports are
+now sequenced; twenty consecutive two-file runs pass where the old rate would
+have failed about three times.
+
+That is worth stating because it is the same mistake in a new place: the first
+version was fast and occasionally wrong, and a suite that is occasionally wrong
+teaches people to re-run it.
 
 The one raised budget in the file is `beforeAll`'s 60s, and it is justified by
 measurement: warming now costs ~1.3s idle, so 60s leaves roughly 45× headroom

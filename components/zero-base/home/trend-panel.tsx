@@ -127,7 +127,7 @@ export function TrendPanel({
           style={{
             background: "none",
             border: "1px solid var(--ledger-border-control)",
-            borderRadius: "var(--ledger-radius-control)",
+            borderRadius: "var(--ledger-radius-button)",
             color: "var(--ledger-ink-secondary)",
             cursor: "pointer",
             fontSize: 12,
@@ -239,7 +239,7 @@ export function TrendPanel({
                       flex: 1,
                       height: Math.max(height, point.spend === null ? 0 : 1),
                       background: atTarget
-                        ? "var(--ledger-accent-primary)"
+                        ? "var(--ledger-accent-action)"
                         : "var(--ledger-border-control)",
                       borderRadius: 1,
                     }}

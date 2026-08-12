@@ -16,7 +16,11 @@
  * - a metric that is not served at this grain renders as unavailable with its
  *   reason, never as zero.
  */
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type {
+  MetaRecommendation,
+  MetaRecommendationEvidence,
+  MetaRecommendationRowPresentation,
+} from "@/lib/meta/recommendations";
 import type {
   MetaDecisionsWorkspaceBanner,
   MetaDecisionsWorkspaceViewer,
@@ -46,6 +50,9 @@ export interface DecisionRow {
   /** True when the server offers no action for this row. */
   held: boolean;
   heldReason: string | null;
+  /** Server-served evidence strings; presentation may select them, never recompute them. */
+  evidence?: readonly MetaRecommendationEvidence[];
+  rowPresentation?: MetaRecommendationRowPresentation | null;
 }
 
 export interface DecisionsViewModel {
@@ -96,6 +103,8 @@ export function toDecisionRow(recommendation: MetaRecommendation): DecisionRow {
     adsetName: recommendation.adsetName ?? null,
     held,
     heldReason: held ? (recommendation.stateReason ?? "No action is offered for this decision.") : null,
+    evidence: recommendation.evidence ?? [],
+    rowPresentation: recommendation.rowPresentation ?? null,
   };
 }
 

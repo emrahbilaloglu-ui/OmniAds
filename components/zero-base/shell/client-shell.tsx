@@ -83,18 +83,14 @@ export function ClientShell({
         groups={groups}
         businessId={businessId}
         pathname={pathname}
-        title={envelope.business?.name ?? "Client"}
+        workspaceMode="client"
+        workspaceName={envelope.business?.name ?? "Client"}
+        title={`Client · ${envelope.business?.name ?? "Client"}`}
         scope={scope}
         railFooter={
-          <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
-            {envelope.actor.name}
-            {envelope.actor.reviewerReadOnly ? " · read-only review" : ""}
-            {envelope.actor.demo ? " · demo" : ""}
-          </p>
-        }
-        topBarActions={
           <UserMenu
             name={envelope.actor.name}
+            rail
             onLogout={() => {
               window.location.href = "/logout";
             }}

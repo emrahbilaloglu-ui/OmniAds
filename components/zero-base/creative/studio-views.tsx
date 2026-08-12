@@ -63,6 +63,7 @@ export function BriefsView({
       </Surface>
     );
   }
+  const activeBrief = rows[0] ?? null;
   return (
     <Surface title={copy.creativeBriefs}>
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
@@ -78,7 +79,62 @@ export function BriefsView({
           removing it would break that trail silently.
         </p>
 
-        <DataTable
+        {activeBrief ? (
+          <section data-brief-detail={activeBrief.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(260px, 2fr)", gap: 12 }}>
+            <article style={{ padding: 14, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start", flexWrap: "wrap" }}>
+                <div>
+                  <span style={{ display: "block", font: "12px/1.3 var(--font-mono, monospace)", color: "var(--ledger-ink-tertiary)" }}>BRIEF {activeBrief.id}</span>
+                  <h2 style={{ margin: "4px 0 0", fontSize: 17, fontWeight: 700 }}>{activeBrief.title}</h2>
+                </div>
+                <span style={{ padding: "4px 8px", borderRadius: 999, background: "var(--ledger-accent-tint)", color: "var(--ledger-accent-action)", fontSize: 12, fontWeight: 700 }}>{activeBrief.status}</span>
+              </div>
+              <dl style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10, margin: "16px 0 0" }}>
+                <div><dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.created}</dt><dd style={{ margin: "3px 0 0", fontSize: 12 }}>{activeBrief.createdAt}</dd></div>
+                <div><dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.deletion}</dt><dd style={{ margin: "3px 0 0", fontSize: 12 }}>{copy.lineageImmutable}</dd></div>
+              </dl>
+              <div aria-label={copy.briefLifecycle} style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 6, marginTop: 14 }}>
+                {["Draft", "Briefed", "In production", "Delivered"].map((step, index) => (
+                  <div key={step} style={{ padding: "7px 8px", borderTop: `3px solid ${index <= 1 ? "var(--ledger-semantic-ok)" : "var(--ledger-border-subtle)"}`, fontSize: 12, color: index <= 1 ? "var(--ledger-ink-primary)" : "var(--ledger-ink-tertiary)" }}>{step}</div>
+                ))}
+              </div>
+              <section style={{ marginTop: 12, padding: 10, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-app)" }}>
+                <h3 style={{ margin: 0, fontSize: 12, textTransform: "uppercase", color: "var(--ledger-ink-tertiary)" }}>{copy.objective}</h3>
+                <p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: "18px" }}>{copy.briefObjectiveDetail}</p>
+              </section>
+            </article>
+            <aside style={{ padding: 14, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{copy.derivedContext}</h3>
+              {activeBrief.lineage.known ? (
+                <dl data-el="brief-lineage" data-brief-lineage={activeBrief.id} style={{ margin: "10px 0 0", display: "grid", gap: 8, fontSize: 12 }}>
+                  <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.creative}</dt><dd style={{ margin: 0 }}>{activeBrief.lineage.creativeId}</dd></div>
+                  <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.account}</dt><dd style={{ margin: 0 }}>{activeBrief.lineage.accountId}</dd></div>
+                </dl>
+              ) : <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>{activeBrief.lineage.reason}</p>}
+              <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ display: "inline-flex", marginTop: 12, color: "var(--ledger-accent-action)", fontSize: 12 }}>{copy.backToCreatives}</Link>
+            </aside>
+          </section>
+        ) : null}
+
+        {activeBrief && rows.length > 1 ? (
+          <section aria-label={copy.otherBriefs} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+            <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{copy.otherBriefs}</h2>
+            <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 7 }}>
+              {rows.slice(1).map((row) => (
+                <li key={row.id} style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) minmax(0,2fr)", gap: 12, paddingTop: 7, borderTop: "1px solid var(--ledger-border-subtle)", fontSize: 12 }}>
+                  <strong>{row.title}</strong>
+                  {row.lineage.known ? (
+                    <span data-brief-lineage={row.id}>{row.lineage.creativeId} · {row.lineage.accountId}</span>
+                  ) : (
+                    <span data-brief-lineage-missing={row.id} style={{ color: "var(--ledger-semantic-warn)" }}>{row.lineage.reason}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {!activeBrief ? <DataTable
           caption={copy.creativeBriefs}
           rows={[...rows]}
           rowKey={(row) => row.id}
@@ -91,7 +147,7 @@ export function BriefsView({
               header: "Derived from",
               render: (row) =>
                 row.lineage.known ? (
-                  <span data-brief-lineage={row.id} data-el="brief-lineage">
+                  <span data-brief-lineage={row.id}>
                     {row.lineage.creativeId} · {row.lineage.accountId}
                   </span>
                 ) : (
@@ -101,12 +157,8 @@ export function BriefsView({
                 ),
             },
           ]}
-        />
-        <p style={{ margin: 0, fontSize: 12 }}>
-          <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>
-            {copy.backToCreatives}
-          </Link>
-        </p>
+        /> : null}
+        {!activeBrief ? <p style={{ margin: 0, fontSize: 12 }}><Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>{copy.backToCreatives}</Link></p> : null}
         <div>
           {canCreate ? (
             <Button
@@ -123,6 +175,7 @@ export function BriefsView({
             </p>
           )}
         </div>
+        <style>{`@media(max-width:760px){[data-brief-detail]{grid-template-columns:1fr!important}}`}</style>
       </div>
     </Surface>
   );
@@ -249,6 +302,8 @@ export function SharesView({
   initialAudience = "creator",
   initialExpiresAt = "",
   initialAcknowledged = false,
+  initialOpen = true,
+  showAlternateGateProof = false,
   onCancel,
 }: {
   rows: readonly ShareRow[];
@@ -263,6 +318,9 @@ export function SharesView({
   initialAudience?: "buyer" | "creator";
   initialExpiresAt?: string;
   initialAcknowledged?: boolean;
+  initialOpen?: boolean;
+  /** Reference artboard only: shows the alternate unacknowledged gate beside the live state. */
+  showAlternateGateProof?: boolean;
   /** Discards the draft. A form with no way out is a trap. */
   onCancel?: () => void;
 }) {
@@ -272,6 +330,7 @@ export function SharesView({
   const [audience, setAudience] = useState<"buyer" | "creator">(initialAudience);
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
   const [acknowledged, setAcknowledged] = useState(initialAcknowledged);
+  const [createOpen, setCreateOpen] = useState(initialOpen);
   const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
   if (unavailableReason) {
     return (
@@ -336,7 +395,12 @@ export function SharesView({
         ]}
       />
 
-      <section aria-label={copy.createAShare} style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
+      <div style={{ marginTop: 12 }}>
+        <Button variant="secondary" data-ctl="live:CREATIVE-10 open-create" onClick={() => setCreateOpen(true)}>{copy.createAShare}</Button>
+      </div>
+      {createOpen ? (
+      <div data-share-dialog-backdrop="" style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--ledger-scrim)" }}>
+      <section role="dialog" aria-modal="true" aria-label={copy.createAShare} style={{ width: "calc(100% - 32px)", maxWidth: 500, padding: 18, display: "grid", gap: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 14, background: "var(--ledger-bg-surface)", boxShadow: "var(--ledger-elevation-2)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
         <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div data-el="share-tiers">
@@ -396,6 +460,16 @@ export function SharesView({
           >
             {copy.createShare}
           </Button>
+          {showAlternateGateProof && canSubmit ? (
+            <Button
+              variant="secondary"
+              data-ctl="disabled:CREATIVE-10 mint"
+              state={{ kind: "disabled", reason: "A buyer share requires the financial acknowledgement." }}
+              style={{ marginLeft: 6 }}
+            >
+              {copy.acknowledgementRequired}
+            </Button>
+          ) : null}
           {onCancel ? (
             <Button
               variant="quiet"
@@ -405,6 +479,7 @@ export function SharesView({
                 setTitle("");
                 setExpiresAt("");
                 setAcknowledged(false);
+                setCreateOpen(false);
                 onCancel();
               }}
               style={{ marginLeft: 6 }}
@@ -414,6 +489,8 @@ export function SharesView({
           ) : null}
         </div>
       </section>
+      </div>
+      ) : null}
 
     </Surface>
   );

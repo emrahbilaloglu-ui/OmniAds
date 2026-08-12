@@ -22,12 +22,51 @@ export interface RailProps {
   groups: readonly NavGroup[];
   businessId: string | null;
   pathname: string;
+  /** Workspace chrome drawn above navigation. */
+  workspaceMode?: "agency" | "client" | "account";
+  workspaceName?: string;
   /** Footer identity row — must remain visible at any viewport height. */
   footer: React.ReactNode;
 }
 
-export function Rail({ groups, businessId, pathname, footer }: RailProps) {
+const GROUP_META: Record<string, { label: string; section: string; badge?: string }> = {
+  home: { label: "Home", section: "" },
+  meta: { label: "Meta", section: "Channels" },
+  creative: { label: "Creative Intelligence", section: "Channels", badge: "META" },
+  google: { label: "Google Ads", section: "Channels" },
+  analytics: { label: "Analytics", section: "Channels" },
+  reports: { label: "Reports", section: "Delivery" },
+  manage: { label: "Manage", section: "Manage" },
+};
+
+const GROUP_ICON: Record<string, string> = {
+  home: "⌂",
+  meta: "◎",
+  creative: "✦",
+  google: "G",
+  analytics: "⌁",
+  reports: "▤",
+};
+
+function groupActive(group: NavGroup, pathname: string, businessId: string | null): boolean {
+  return group.items.some((item) => {
+    const href = navHref(item.url, businessId);
+    return pathname === href || pathname.startsWith(`${href}/`);
+  });
+}
+
+export function Rail({
+  groups,
+  businessId,
+  pathname,
+  workspaceMode = businessId ? "client" : "agency",
+  workspaceName = "Workspace",
+  footer,
+}: RailProps) {
   const copy = useCopy();
+  const isClient = workspaceMode === "client";
+  let lastSection = "__start__";
+
   return (
     <nav
       aria-label={copy.primary}
@@ -47,35 +86,228 @@ export function Rail({ groups, businessId, pathname, footer }: RailProps) {
       }}
     >
       <div
+        data-rail-brand=""
+        style={{
+          flex: "0 0 auto",
+          padding: "14px 12px 10px",
+          borderBottom: "1px solid var(--ledger-border-subtle)",
+        }}
+      >
+        <a
+          href={isClient && businessId ? `/c/${businessId}/home` : "/a/desk"}
+          data-ctl="live:nav"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "var(--ledger-ink-primary)",
+            textDecoration: "none",
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: 20,
+              height: 20,
+              borderRadius: 5,
+              color: "var(--ledger-bg-surface)",
+              background: "var(--ledger-accent-action)",
+              fontSize: 12,
+              letterSpacing: 0,
+            }}
+          >
+            A
+          </span>
+          {copy.brandName}
+        </a>
+
+        {workspaceMode !== "account" ? (
+          <div
+            aria-label={copy.workspaceScope}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              marginTop: 12,
+              border: "1px solid var(--ledger-border-control)",
+              borderRadius: "var(--ledger-radius-button)",
+              overflow: "hidden",
+            }}
+          >
+            <a
+              href="/a/desk"
+              data-ctl="live:AUTH-10 scope-switch"
+              data-current-scope={workspaceMode === "agency" ? "true" : undefined}
+              style={{
+                padding: "5px 8px",
+                color: workspaceMode === "agency" ? "var(--ledger-accent-action)" : "var(--ledger-ink-secondary)",
+                background: workspaceMode === "agency" ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)",
+                textAlign: "center",
+                textDecoration: "none",
+                fontSize: 12,
+                fontWeight: workspaceMode === "agency" ? 600 : 500,
+              }}
+            >
+              {copy.agency}
+            </a>
+            <a
+              href={businessId ? `/c/${businessId}/home` : "/select-business"}
+              data-ctl="live:AUTH-10 scope-switch"
+              data-current-scope={workspaceMode === "client" ? "true" : undefined}
+              style={{
+                padding: "5px 8px",
+                borderLeft: "1px solid var(--ledger-border-control)",
+                color: workspaceMode === "client" ? "var(--ledger-accent-action)" : "var(--ledger-ink-secondary)",
+                background: workspaceMode === "client" ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)",
+                textAlign: "center",
+                textDecoration: "none",
+                fontSize: 12,
+                fontWeight: workspaceMode === "client" ? 600 : 500,
+              }}
+            >
+              {copy.client}
+            </a>
+          </div>
+        ) : null}
+
+        {isClient ? (
+          <a
+            href="/select-business"
+            data-ctl="live:AUTH-10 business-switcher"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "28px minmax(0,1fr) auto",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 44,
+              marginTop: 8,
+              padding: "5px 8px",
+              border: "1px solid var(--ledger-border-control)",
+              borderRadius: "var(--ledger-radius-button)",
+              color: "var(--ledger-ink-primary)",
+              textDecoration: "none",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{ width: 22, height: 22, borderRadius: 6, background: "var(--ledger-accent-action)" }}
+            />
+            <span style={{ minWidth: 0 }}>
+              <strong
+                style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}
+              >
+                {workspaceName}
+              </strong>
+              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                {copy.switchBusiness}
+              </span>
+            </span>
+            <span aria-hidden="true" style={{ fontSize: 12 }}>▾</span>
+          </a>
+        ) : null}
+      </div>
+
+      <div
         data-rail-nav=""
         style={{
           // Only this area scrolls. The footer below is a sibling.
           flex: "1 1 auto",
           minHeight: 0,
           overflowY: "auto",
-          padding: "12px 8px",
+          padding: "10px 8px 16px",
         }}
       >
-        {groups.map((group) => (
-          <div key={group.id} style={{ marginBottom: 12 }}>
-            <p
-              // Group headings are presentation: they label the set without
-              // adding a landmark a screen reader has to step through.
-              aria-hidden="true"
-              style={{
-                margin: "0 0 4px",
-                padding: "0 8px",
-                fontSize: 12,
-                fontWeight: 600,
-                lineHeight: "16px",
-                letterSpacing: "0.04em",
-                color: "var(--ledger-ink-tertiary)",
-              }}
-            >
-              {group.label}
-            </p>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {group.items.map((item) => {
+        {groups.map((group) => {
+          const meta = GROUP_META[group.id] ?? { label: group.label, section: group.label };
+          const active = groupActive(group, pathname, businessId);
+          const firstSection = lastSection === "__start__";
+          const sectionChanged = meta.section !== lastSection;
+          lastSection = meta.section;
+          const firstHref = navHref(group.items[0]?.url ?? "#", businessId);
+          const flatClientItems = isClient && group.id === "manage";
+
+          return (
+            <div key={group.id} style={{ marginBottom: active ? 12 : 3 }}>
+              {sectionChanged && meta.section ? (
+                <p
+                  aria-hidden="true"
+                  style={{
+                    margin: firstSection ? "0 0 5px" : "14px 0 5px",
+                    padding: "0 8px",
+                    fontFamily: "var(--font-adc-mono), ui-monospace, monospace",
+                    fontSize: 12,
+                    lineHeight: "14px",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: "var(--ledger-ink-tertiary)",
+                  }}
+                >
+                  {meta.section}
+                </p>
+              ) : null}
+
+              {isClient && !flatClientItems ? (
+                <a
+                  href={firstHref}
+                  data-rail-group={group.id}
+                  data-ctl="live:nav"
+                  aria-current={active ? "page" : undefined}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    minHeight: 34,
+                    gap: 6,
+                    padding: "6px 8px",
+                    borderLeft: active ? "3px solid var(--ledger-accent-action)" : "3px solid transparent",
+                    borderRadius: "var(--ledger-radius-input)",
+                    color: active ? "var(--ledger-accent-action)" : "var(--ledger-ink-primary)",
+                    background: active ? "var(--ledger-accent-tint)" : "transparent",
+                    textDecoration: "none",
+                    fontSize: 13,
+                    fontWeight: active ? 600 : 500,
+                  }}
+                >
+                  <span aria-hidden="true" style={{ width: 18, textAlign: "center", color: "var(--ledger-ink-secondary)" }}>
+                    {GROUP_ICON[group.id] ?? "·"}
+                  </span>
+                  <span style={{ flex: 1 }}>{meta.label}</span>
+                  {meta.badge ? (
+                    <span
+                      style={{
+                        padding: "1px 5px",
+                        borderRadius: 999,
+                        background: "var(--ledger-accent-tint)",
+                        color: "var(--ledger-accent-action)",
+                        fontSize: 12,
+                        fontFamily: "var(--font-adc-mono), monospace",
+                      }}
+                    >
+                      {meta.badge}
+                    </span>
+                  ) : null}
+                </a>
+              ) : !isClient ? (
+                <p
+                  aria-hidden="true"
+                  style={{ margin: "0 0 4px", padding: "0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+                >
+                  {group.label}
+                </p>
+              ) : null}
+
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: !isClient || flatClientItems ? "block" : "none",
+                }}
+              >
+                {group.items.map((item) => {
                 const href = navHref(item.url, businessId);
                 const current = href === pathname;
                 return (
@@ -86,10 +318,10 @@ export function Rail({ groups, businessId, pathname, footer }: RailProps) {
                       aria-current={current ? "page" : undefined}
                       style={{
                         display: "block",
-                        padding: "8px 8px",
-                        minHeight: 24,
+                        padding: isClient ? "7px 8px" : "7px 8px",
+                        minHeight: 34,
                         fontSize: 13,
-                        lineHeight: "19px",
+                        lineHeight: "18px",
                         borderRadius: "var(--ledger-radius-input)",
                         textDecoration: "none",
                         color: current ? "var(--ledger-accent-action)" : "var(--ledger-ink-primary)",
@@ -103,10 +335,11 @@ export function Rail({ groups, businessId, pathname, footer }: RailProps) {
                     </Link>
                   </li>
                 );
-              })}
-            </ul>
-          </div>
-        ))}
+                })}
+              </ul>
+            </div>
+          );
+        })}
       </div>
       <div
         data-rail-footer=""

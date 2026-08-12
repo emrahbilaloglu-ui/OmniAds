@@ -17,6 +17,9 @@ import { LANGUAGE_OPTIONS, isAppLanguage } from "@/lib/i18n";
 
 const EN = ZERO_BASE_COPY.en;
 const TR = ZERO_BASE_COPY.tr;
+// Product identifiers are not natural-language copy. The visual wordmark must
+// remain byte-identical wherever the surrounding language changes.
+const IDENTICAL_COPY_EXEMPTIONS = new Set(["brandName"]);
 
 describe("EN/TR parity", () => {
   it("every English key has a Turkish counterpart and vice versa", () => {
@@ -41,7 +44,9 @@ describe("EN/TR parity", () => {
     // compile time, which is a stronger guarantee, but the runtime check is
     // what keeps the property true if the catalogue is ever widened.
     const identical = Object.keys(EN).filter(
-      (key) => String(EN[key as keyof typeof EN]) === String(TR[key as keyof typeof TR]),
+      (key) =>
+        !IDENTICAL_COPY_EXEMPTIONS.has(key) &&
+        String(EN[key as keyof typeof EN]) === String(TR[key as keyof typeof TR]),
     );
     expect(identical, `these TR strings are byte-identical to EN: ${identical.join(", ")}`).toEqual([]);
   });

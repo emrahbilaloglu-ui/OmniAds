@@ -65,8 +65,22 @@ export function AutomationView({
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         Automation &amp; Meta Stop
       </h1>
+      <p style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
+        {copy.automationReadOnlyNote}
+      </p>
 
-      <section aria-label={copy.guardrails} style={{ marginTop: 24 }}>
+      {ceremony.currentlyEngaged ? (
+        <section data-meta-stop-engaged="" style={{ marginTop: 14, padding: 14, display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center", flexWrap: "wrap", border: "1px solid var(--ledger-semantic-danger)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-inset)" }}>
+          <div>
+            <strong style={{ display: "block", color: "var(--ledger-semantic-danger)", fontSize: 13 }}>{copy.metaStopEngagedBusiness}</strong>
+            <span style={{ display: "block", marginTop: 3, font: "12px/1.5 var(--font-mono, monospace)", color: "var(--ledger-ink-secondary)" }}>{copy.metaWriteBlockedGoogleUnaffected}</span>
+          </div>
+          <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Persisted state · fresh read-back required after release</span>
+        </section>
+      ) : null}
+
+      <div data-automation-core="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 2fr)", gap: 12, marginTop: 16, alignItems: "start" }}>
+      <section aria-label={copy.guardrails} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {copy.guardrails}
         </h2>
@@ -95,7 +109,7 @@ export function AutomationView({
         </div>
       </section>
 
-      <section aria-label={copy.metaStop} style={{ marginTop: 24 }}>
+      <section aria-label={copy.metaStop} style={{ padding: 12, border: "1px solid var(--ledger-semantic-danger)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {META_STOP_LABEL}
         </h2>
@@ -165,8 +179,11 @@ export function AutomationView({
           </p>
         ) : null}
       </section>
+      </div>
 
-      <section aria-label={copy.providerPosture} style={{ marginTop: 16 }}>
+      <div data-automation-secondary="" style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(260px,2fr)", gap: 12, marginTop: 12, alignItems: "start" }}>
+      <section aria-label={copy.providerPosture} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700 }}>{copy.providerPosture}</h2>
         <DataTable
           caption={copy.providerPosture}
           rows={[...postures]}
@@ -220,7 +237,8 @@ export function AutomationView({
 
       {/* Last, deliberately: the mode is chosen after reading what the
           engine is allowed to do and what is currently engaged, not before. */}
-      <section aria-label={copy.automationMode} style={{ marginTop: 24 }}>
+      <section aria-label={copy.automationMode} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700 }}>{copy.automationMode}</h2>
         {onModeChange ? (
           <label style={{ fontSize: 12, display: "grid", gap: 4, marginBottom: 8 }}>
             {copy.automationMode}
@@ -238,7 +256,14 @@ export function AutomationView({
             </select>
           </label>
         ) : null}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6 }}>
+          {["observe", "suggest", "act"].map((value) => (
+            <div key={value} style={{ padding: 8, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-button)", background: value === mode ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)", fontSize: 12, textTransform: "capitalize" }}>{value}</div>
+          ))}
+        </div>
+        <p style={{ margin: "10px 0 0", padding: 10, borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-accent-tint)", fontSize: 12, lineHeight: "18px" }}>{GOOGLE_UNAFFECTED_ROW}</p>
       </section>
+      </div>
 
       <ZeroBaseDialog
         open={confirmOpen}
@@ -253,6 +278,7 @@ export function AutomationView({
           onEngage?.();
         }}
       />
+      <style>{`@media(max-width:860px){[data-automation-core],[data-automation-secondary]{grid-template-columns:1fr!important}}`}</style>
     </div>
   );
 }

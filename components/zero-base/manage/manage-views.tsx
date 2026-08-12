@@ -722,10 +722,11 @@ export function TeamView({
         </p>
       )}
 
-      <section aria-label={copy.invitations} style={{ marginTop: 20 }}>
+      <div data-team-layout="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(260px, 1fr)", gap: 14, alignItems: "start" }}>
+      <section data-team-invite="" aria-label={copy.invitations} style={{ marginTop: 20, gridColumn: 2, gridRow: 1 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
         {permissions.invitesWrite.ok ? (
-          <div style={{ marginTop: 8, display: "grid", gap: 6, maxWidth: 420 }}>
+          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
             <TextInput
               label={copy.emailAddresses}
               data-invite-emails=""
@@ -764,11 +765,12 @@ export function TeamView({
         )}
       </section>
 
-      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16 }}>
+      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16, gridColumn: 1, gridRow: "1 / span 2" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
         <div style={{ marginTop: 8 }}>
           <DataTable
             collection="members"
+            density="dense"
             caption={copy.teamMembers}
             rows={[...members]}
             rowKey={(row) => row.membershipId}
@@ -849,9 +851,10 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label={copy.invitations} style={{ marginTop: 20 }}>
+      <section aria-label={copy.invitations} style={{ marginTop: 20, gridColumn: 2, gridRow: 2 }}>
         <div style={{ marginTop: 12 }}>
           <DataTable
+            density="dense"
             caption={copy.pendingInvitations}
             rows={[...invites]}
             rowKey={(row) => row.id}
@@ -903,11 +906,12 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label={copy.accessRequests} style={{ marginTop: 20 }}>
+      <section aria-label={copy.accessRequests} style={{ marginTop: 20, gridColumn: 2, gridRow: 3 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.accessRequests}</h2>
         {permissions.accessRequests.ok ? (
           <div style={{ marginTop: 8 }}>
             <DataTable
+              density="dense"
               caption={copy.accessRequests}
               rows={[...accessRequests]}
               rowKey={(row) => row.membershipId}
@@ -947,6 +951,8 @@ export function TeamView({
           </p>
         )}
       </section>
+      </div>
+      <style>{`@media(max-width:980px){[data-team-layout]{grid-template-columns:1fr!important}[data-team-layout]>section{grid-column:1!important;grid-row:auto!important}}`}</style>
     </Shell>
   );
 }
@@ -1061,25 +1067,29 @@ export function BusinessView({
             {copy.economicsAgree}
           </p>
         )}
-        <DataTable
-          collection="economics"
-          caption={copy.economicsSources}
-          rows={[...economics]}
-          rowKey={(row) => `${row.key}:${row.source}`}
-          columns={[
-            { id: "label", header: "Value", render: (row) => row.label },
-            { id: "source", header: "Source", render: (row) => row.source },
-            {
-              id: "consumers",
-              header: "Read by",
-              render: (row) => (
-                <span data-economics-consumers={row.key}>{row.consumers.join(", ") || "Nothing"}</span>
-              ),
-            },
-            { id: "value", header: "Value", render: (row) => row.value ?? "Not set" },
-          ]}
-        />
+        <div data-collection="economics" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, marginTop: 10 }}>
+          {[...new Set(economics.map((row) => row.source))].map((source) => {
+            const rows = economics.filter((row) => row.source === source);
+            return (
+              <section key={source} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+                <h3 style={{ margin: 0, fontSize: 13 }}>{source}</h3>
+                <p style={{ margin: "3px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                  consumed by {rows.flatMap((row) => row.consumers).filter((value, index, all) => all.indexOf(value) === index).join(" + ") || "no surface"}
+                </p>
+                <dl style={{ margin: 0, display: "grid" }}>
+                  {rows.map((row) => (
+                    <div key={`${row.key}:${row.source}`} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "7px 0", borderTop: "1px solid var(--ledger-border-subtle)" }}>
+                      <dt style={{ fontSize: 12 }}>{row.label}</dt>
+                      <dd data-economics-consumers={row.key} title={`Read by ${row.consumers.join(", ") || "nothing"}`} style={{ margin: 0, minWidth: 56, padding: "1px 6px", border: "1px solid var(--ledger-border-control)", borderRadius: 4, textAlign: "right", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}>{row.value ?? "Not set"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            );
+          })}
+        </div>
       </section>
+      <style>{`@media(max-width:760px){[data-collection="economics"]{grid-template-columns:1fr!important}}`}</style>
 
       <section aria-label={copy.operatingMode} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.recommendedMode}</h2>
@@ -1122,34 +1132,30 @@ export function BusinessView({
 export function PlanView({ planName, features }: { planName: string | null; features: readonly string[] }) {
   const copy = useCopy();
   return (
-    <Shell title={copy.plan}>
-      <p data-plan-name="" style={{ margin: "12px 0 0", fontSize: 13 }}>
-        {planName ?? "Not served"}
-      </p>
-      <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-        {features.map((feature) => (
-          <li key={feature} style={{ fontSize: 12 }}>
-            {feature}
-          </li>
-        ))}
-      </ul>
+    <Shell title={copy.planAndBilling}>
+      <section style={{ maxWidth: 900, marginTop: 12, display: "grid", gap: 12 }}>
+      <div style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: "14px 18px" }}>
+        <p data-plan-name="" style={{ margin: 0, fontSize: 13 }}><strong>Current plan: {planName ?? "Not served"}</strong>{" "}<span style={{ marginLeft: 8, padding: "3px 8px", borderRadius: 999, background: "var(--ledger-bg-inset)", color: "var(--ledger-ink-secondary)", font: "12px/1.2 var(--font-mono, monospace)" }}>static intended-plan copy</span></p>
+        <p style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>Includes: {features.join(" · ")}. Plan availability is commercial presentation; real access gates remain role and provider checks.</p>
+      </div>
       {/* Static presentation. No billing control, and no gating. */}
       <p
         data-plan-gates-nothing=""
         data-el="plan-presentation-chip"
-        style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+        style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
       >
-        {PLAN_GATES_NOTHING}
+        <strong>{copy.featureAccessNotBillingGated}</strong> {PLAN_GATES_NOTHING}
       </p>
       <p
         data-el="billing-gated"
-        style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+        style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
       >
         {/* Stated rather than implied by the absence of a button: an operator
             looking for an invoice needs to know where it is, not that it is
             missing here. */}
-        {PLAN_BILLING_ELSEWHERE}
+        <strong>Billing details & controls — not available.</strong> {PLAN_BILLING_ELSEWHERE}
       </p>
+      </section>
     </Shell>
   );
 }

@@ -22,13 +22,18 @@ export function NavDrawer({
   groups,
   businessId,
   pathname,
+  workspaceMode = businessId ? "client" : "agency",
+  workspaceName = "Workspace",
   footer,
   scopeControls,
+  onSwitchScope,
   initialOpen = false,
 }: {
   groups: readonly NavGroup[];
   businessId: string | null;
   pathname: string;
+  workspaceMode?: "agency" | "client" | "account";
+  workspaceName?: string;
   footer: React.ReactNode;
   /**
    * Scope affordances, above the navigation.
@@ -38,12 +43,14 @@ export function NavDrawer({
    * first rather than at the end of a list that has to be scrolled past.
    */
   scopeControls?: React.ReactNode;
+  /** Opens the scoped context picker from the account card's disclosure affordance. */
+  onSwitchScope?: () => void;
   /** Drawer-open is a real, addressable state, not only a click outcome. */
   initialOpen?: boolean;
 }) {
   const copy = useCopy();
   const [open, setOpen] = useState(initialOpen);
-  const [filter, setFilter] = useState("");
+  const isClient = workspaceMode === "client";
 
   return (
     <>
@@ -61,52 +68,37 @@ export function NavDrawer({
       <ZeroBaseSheet
         open={open}
         onOpenChange={setOpen}
-        title={copy.navigation}
-        side="bottom"
+        title={copy.brandName}
+        side="left"
         closeCtl="live:nav-drawer close"
       >
-        <label style={{ display: "grid", gap: 4, fontSize: 12, marginBottom: 8 }}>
-          {copy.findAnything}
-          <input
-            type="search"
-            data-ctl="live:SCOPE-11 search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            style={{
-              minHeight: 44,
-              padding: "8px 10px",
-              borderRadius: "var(--ledger-radius-input)",
-              border: "1px solid var(--ledger-border-control)",
-              background: "var(--ledger-bg-surface)",
-              color: "var(--ledger-ink-primary)",
-            }}
-          />
-        </label>
+        {isClient ? (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 34px", alignItems: "stretch", minHeight: 54, margin: "10px 0 8px", border: "1px solid var(--ledger-border-control)", borderRadius: "var(--ledger-radius-button)", background: "var(--ledger-bg-surface)", overflow: "hidden" }}>
+          <a href="/select-business" data-ctl="live:AUTH-10 business-switcher" style={{ display: "grid", gridTemplateColumns: "28px minmax(0,1fr)", alignItems: "center", gap: 8, minHeight: 44, padding: "3px 8px", color: "var(--ledger-ink-primary)", textDecoration: "none" }}>
+            <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 26, height: 26, borderRadius: 6, background: "var(--ledger-accent-action)", color: "var(--ledger-bg-surface)", fontSize: 12, fontWeight: 700 }}>{workspaceName.slice(0,2).toUpperCase()}</span>
+            <span style={{ minWidth: 0 }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>{workspaceName}</strong><small style={{ display: "block", color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>{copy.switchBusiness}</small></span>
+          </a>
+          <button type="button" aria-label={copy.switchScope} data-ctl="live:AUTH-10 scope-switch" onClick={onSwitchScope} style={{ border: 0, borderLeft: "1px solid var(--ledger-border-subtle)", background: "transparent", color: "var(--ledger-ink-primary)", cursor: "pointer" }}>▾</button>
+          </div>
+        ) : null}
         {scopeControls}
         <nav aria-label={copy.primary} data-nav-drawer="">
-          {groups.map((group) => (
-            <div key={group.id} style={{ marginTop: 12 }}>
-              <p
-                aria-hidden="true"
-                style={{
-                  margin: "0 0 4px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  lineHeight: "16px",
-                  letterSpacing: "0.04em",
-                  color: "var(--ledger-ink-tertiary)",
-                }}
-              >
-                {group.label}
-              </p>
+          {groups.map((group) => {
+            const active = group.items.some((item) => { const href = navHref(item.url, businessId); return pathname === href || pathname.startsWith(`${href}/`); });
+            const firstHref = navHref(group.items[0]?.url ?? "#", businessId);
+            const flat = isClient && group.id === "manage";
+            const home = isClient && group.id === "home";
+            return (
+            <div key={group.id} style={{ marginTop: group.id === "home" ? 8 : 10 }}>
+              {isClient && !flat && !home ? (
+                <button type="button" onClick={() => { window.location.href = firstHref; setOpen(false); }} data-ctl="live:nav" style={{ display: "flex", alignItems: "center", width: "100%", minHeight: 44, padding: "0 10px", border: 0, borderLeft: active ? "3px solid var(--ledger-accent-action)" : "3px solid transparent", borderRadius: "var(--ledger-radius-input)", background: active ? "var(--ledger-accent-tint)" : "transparent", color: active ? "var(--ledger-accent-action)" : "var(--ledger-ink-primary)", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  {group.id === "creative" ? "Creative Intelligence" : group.label}
+                </button>
+              ) : (
+                <p aria-hidden="true" style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 600, lineHeight: "16px", letterSpacing: "0.04em", color: "var(--ledger-ink-tertiary)" }}>{group.label}</p>
+              )}
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {group.items
-                  .filter((item) =>
-                    filter.trim()
-                      ? railLabel(item.label).toLowerCase().includes(filter.trim().toLowerCase())
-                      : true,
-                  )
-                  .map((item) => {
+                {group.items.map((item) => {
                   const href = navHref(item.url, businessId);
                   const current = href === pathname;
                   return (
@@ -121,7 +113,7 @@ export function NavDrawer({
                           alignItems: "center",
                           // 44px targets in the drawer, per the design.
                           minHeight: 44,
-                          padding: "0 8px",
+                          padding: isClient && !flat ? "0 12px 0 26px" : "0 8px",
                           fontSize: 13,
                           lineHeight: "19px",
                           borderRadius: "var(--ledger-radius-input)",
@@ -130,14 +122,14 @@ export function NavDrawer({
                           background: current ? "var(--ledger-accent-tint)" : "transparent",
                         }}
                       >
-                        {railLabel(item.label)}
+                        {home ? "Home" : railLabel(item.label)}
                       </Link>
                     </li>
                   );
                 })}
               </ul>
             </div>
-          ))}
+          );})}
           {/* Sticky, for the same reason the rail's footer is a non-scrolling
               sibling: the identity row and the scope affordances must stay
               reachable however long the nav list is. They were scrolling out

@@ -101,12 +101,14 @@ export function GooglePlanView({
   }, [steps]);
 
   return (
-    <div data-google-surface="plan" style={{ display: "grid", gap: 20 }}>
-      <GoogleScopeHeader title={t.googlePlan} scope={scope} />
-      <GoogleSourceBadge state={source} />
+    <div data-google-surface="plan" style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(280px,2fr)", gap: 12, alignItems: "start" }}>
+      <div data-google-plan-head="" style={{ gridColumn: "1 / -1" }}>
+        <GoogleScopeHeader title={t.googlePlan} scope={scope} />
+        <GoogleSourceBadge state={source} />
+      </div>
 
       {/* ------------------------------------------- manual path, first */}
-      <section aria-label={t.manualPlan}>
+      <section aria-label={t.manualPlan} style={{ gridColumn: 1, gridRow: "2 / span 2", padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.yourPlan}</h2>
         <p data-manual-primary="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {t.carryOutInGoogle}
@@ -130,17 +132,18 @@ export function GooglePlanView({
           </Button>
         </div>
 
+        <div data-plan-cards="">
         <DataTable
           collection="plan"
           caption={t.googleManualPlan}
           rows={[...steps]}
           rowKey={(row) => row.id}
           columns={[
-            { id: "position", header: "#", numeric: true, render: (row) => String(row.position) },
+            { id: "position", header: "#", numeric: true, render: (row: PlanStep) => String(row.position) },
             {
               id: "title",
               header: "Step",
-              render: (row) => (
+              render: (row: PlanStep) => (
                 <span data-plan-step={row.id}>
                   {row.title}
                   {row.rationale ? (
@@ -148,7 +151,7 @@ export function GooglePlanView({
                       {row.rationale}
                     </span>
                   ) : null}
-                  {row.weaknesses.map((weakness) => (
+                  {row.weaknesses.map((weakness: string) => (
                     <span
                       key={weakness}
                       data-plan-weakness={row.id}
@@ -161,42 +164,9 @@ export function GooglePlanView({
               ),
             },
             {
-              id: "link",
-              header: "Open in Google",
-              render: (row) => {
-                const href = googleDeepLink(row);
-                // Withheld rather than guessed: a link assembled from an
-                // account we were never given points at the wrong account.
-                return href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-plan-link={row.id}
-                    data-ctl="live:GOOGLE-30 deeplink"
-                    // A bare inline link is a 16px-tall target. Padding brings
-                    // it to the minimum without changing what it is.
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      minHeight: 24,
-                      padding: "4px 6px",
-                      color: "var(--ledger-accent-action)",
-                    }}
-                  >
-                    {t.open}
-                  </a>
-                ) : (
-                  <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                    {LINK_WITHHELD}
-                  </span>
-                );
-              },
-            },
-            {
               id: "applied",
               header: "Applied",
-              render: (row) => {
+              render: (row: PlanStep) => {
                 const isApplied = applied.has(row.id);
                 const reversible = journal ? markIsReversible(journal, row.id) : true;
                 return (
@@ -227,7 +197,7 @@ export function GooglePlanView({
             {
               id: "export",
               header: "Copy",
-              render: (row) => (
+              render: (row: PlanStep) => (
                 <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
                   {/* Per-step, not only whole-plan: an operator applying one
                       change at a time should not have to copy the whole plan
@@ -261,9 +231,42 @@ export function GooglePlanView({
               ),
             },
             {
+              id: "link",
+              header: "Open in Google",
+              render: (row: PlanStep) => {
+                const href = googleDeepLink(row);
+                // Withheld rather than guessed: a link assembled from an
+                // account we were never given points at the wrong account.
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-plan-link={row.id}
+                    data-ctl="live:GOOGLE-30 deeplink"
+                    // A bare inline link is a 16px-tall target. Padding brings
+                    // it to the minimum without changing what it is.
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      minHeight: 24,
+                      padding: "4px 6px",
+                      color: "var(--ledger-accent-action)",
+                    }}
+                  >
+                    {t.open}
+                  </a>
+                ) : (
+                  <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                    {LINK_WITHHELD}
+                  </span>
+                );
+              },
+            },
+            {
               id: "select",
               header: "Batch",
-              render: (row) => (
+              render: (row: PlanStep) => (
                 <input
                   type="checkbox"
                   aria-label={`Include ${row.title} in the reference batch`}
@@ -277,12 +280,13 @@ export function GooglePlanView({
                 />
               ),
             },
-          ]}
+          ].sort((a, b) => ["position", "title", "link", "applied", "export", "select"].indexOf(a.id) - ["position", "title", "link", "applied", "export", "select"].indexOf(b.id))}
         />
+        </div>
       </section>
 
       {/* ---------------------------------------------- activity / pending */}
-      <section aria-label={t.activity}>
+      <section aria-label={t.activity} style={{ gridColumn: 2, gridRow: 2, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.activity}</h2>
         <p data-google-pending="" style={{ margin: "4px 0 0", fontSize: 12 }}>
           {GOOGLE_PENDING_COPY}
@@ -299,7 +303,7 @@ export function GooglePlanView({
       </section>
 
       {/* ------------------------------------------------- reference states */}
-      <section aria-label={t.referenceWriteStates}>
+      <section aria-label={t.referenceWriteStates} style={{ gridColumn: 1, gridRow: 4, padding: 12, border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.referenceNotEnabled}</h2>
         {REFERENCE_WRITE_STATES.map((state) => (
           <p
@@ -328,13 +332,6 @@ export function GooglePlanView({
         ) : (
           <BatchSteps steps={steps} />
         )}
-        <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-          {steps.map((step) => (
-            <li key={step.id} style={{ fontSize: 12 }}>
-              {step.title}
-            </li>
-          ))}
-        </ul>
         {batchPartial ? (
           <ZeroBaseDialog
             open
@@ -364,7 +361,7 @@ export function GooglePlanView({
       </section>
 
       {journal ? (
-        <section aria-label={t.activity} style={{ marginTop: 20 }}>
+        <section aria-label={t.activity} style={{ gridColumn: 2, gridRow: "3 / span 2", padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.activity}</h2>
           <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             What was recorded here, by whom and when. These are our records of
@@ -410,9 +407,24 @@ export function GooglePlanView({
           recommendation the operator has to carry out by hand in Google Ads;
           this says what was read to produce them and what was not verified, so
           "apply" is a decision rather than an act of faith. */}
-      <p data-el="google-trust" style={{ margin: "12px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>
+      <p data-el="google-trust" style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>
         {t.planTrustNote}
       </p>
+      <style>{`
+        [data-plan-cards] table{display:block;width:100%}
+        [data-plan-cards] thead{display:none}
+        [data-plan-cards] tbody{display:grid;gap:8px}
+        [data-plan-cards] tr{display:grid;grid-template-columns:28px minmax(180px,1fr) auto;gap:8px;align-items:start;padding:10px;border:1px solid var(--ledger-border-subtle);border-radius:var(--ledger-radius-card);background:var(--ledger-bg-app)}
+        [data-plan-cards] td{display:block;padding:0!important;border:0!important;text-align:left!important;min-width:0}
+        [data-plan-cards] td:nth-child(1){grid-row:1 / span 2;font-family:var(--font-adc-mono),monospace;color:var(--ledger-ink-tertiary)}
+        [data-plan-cards] td:nth-child(2){grid-column:2}
+        [data-plan-cards] td:nth-child(3){grid-column:3;grid-row:1}
+        [data-plan-cards] td:nth-child(4){grid-column:2;grid-row:2}
+        [data-plan-cards] td:nth-child(5){grid-column:2 / span 2;grid-row:3}
+        [data-plan-cards] td:nth-child(6){grid-column:3;grid-row:3;justify-self:end}
+        @media(max-width:900px){[data-google-surface="plan"]{grid-template-columns:1fr!important}[data-google-surface="plan"]>*{grid-column:1!important;grid-row:auto!important}}
+        @media(max-width:640px){[data-plan-cards] tr{grid-template-columns:1fr!important}[data-plan-cards] td{grid-column:1!important;grid-row:auto!important;justify-self:stretch!important;position:static!important;opacity:1!important;pointer-events:auto!important}[data-plan-cards] td:nth-child(1){order:1}[data-plan-cards] td:nth-child(2){order:2}[data-plan-cards] td:nth-child(4){order:3}[data-plan-cards] td:nth-child(5){order:4}[data-plan-cards] td:nth-child(3){order:5}[data-plan-cards] td:nth-child(6){order:6}}
+      `}</style>
     </div>
   );
 }

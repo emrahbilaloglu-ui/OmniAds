@@ -18,6 +18,7 @@ import {
   type ServedCreativeRow,
 } from "@/lib/zero-base/creative/performance-adapter";
 import { resolveEnginePosture, type EnginePosture } from "@/lib/zero-base/creative/engine-posture";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 export function CreativePerformanceClient({
@@ -35,6 +36,7 @@ export function CreativePerformanceClient({
   const [totalAvailable, setTotal] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string | null>(null);
   const [posture, setPosture] = useState<EnginePosture>("unavailable");
+  const [canonicalDecisions, setCanonicalDecisions] = useState<MetaCanonicalDecision[]>([]);
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading creatives" });
 
   useEffect(() => {
@@ -51,9 +53,10 @@ export function CreativePerformanceClient({
       )
         .then(async (response) =>
           response.ok
-            ? ((await response.json()) as {
+              ? ((await response.json()) as {
                 status?: string;
                 flags?: { enabled: boolean; surfaceVisible: boolean; shadowOnly: boolean };
+                inventory?: { items?: MetaCanonicalDecision[] };
               })
             : null,
         )
@@ -71,6 +74,7 @@ export function CreativePerformanceClient({
             flags: postureResult?.flags ?? null,
           }),
         );
+        setCanonicalDecisions(postureResult?.inventory?.items ?? []);
       }
 
       try {
@@ -117,9 +121,15 @@ export function CreativePerformanceClient({
   const model = useMemo(
     () =>
       rows
-        ? buildPerformanceViewModel({ rows, totalAvailable, posture, defaultCurrency: currency })
+        ? buildPerformanceViewModel({
+            rows,
+            totalAvailable,
+            posture,
+            defaultCurrency: currency,
+            canonicalDecisions,
+          })
         : null,
-    [rows, totalAvailable, posture, currency],
+    [rows, totalAvailable, posture, currency, canonicalDecisions],
   );
 
   return (

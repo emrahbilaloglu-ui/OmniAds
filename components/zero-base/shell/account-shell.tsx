@@ -54,17 +54,18 @@ export function AccountShell({
         title={copy.account}
         scope={null}
         railFooter={
-          <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
-            {envelope.actor.name} · {businessCount} business{businessCount === 1 ? "" : "es"}
-          </p>
-        }
-        topBarActions={
-          <UserMenu
-            name={envelope.actor.name}
-            onLogout={() => {
-              window.location.href = "/logout";
-            }}
-          />
+          <div style={{ display: "grid", gap: 6 }}>
+            <UserMenu
+              name={envelope.actor.name}
+              rail
+              onLogout={() => {
+                window.location.href = "/logout";
+              }}
+            />
+            <p style={{ margin: 0, paddingInline: 8, fontSize: 12, lineHeight: "17px", color: "var(--ledger-ink-tertiary)" }}>
+              {businessCount} business{businessCount === 1 ? "" : "es"}
+            </p>
+          </div>
         }
       >
         {children}

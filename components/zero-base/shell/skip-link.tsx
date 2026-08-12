@@ -32,7 +32,7 @@ export function SkipLink() {
       style={{
         position: "absolute",
         left: 8,
-        top: -48,
+        top: -100,
         zIndex: 60,
         padding: "10px 14px",
         minHeight: 44,
@@ -48,7 +48,7 @@ export function SkipLink() {
         event.currentTarget.style.top = "8px";
       }}
       onBlur={(event) => {
-        event.currentTarget.style.top = "-48px";
+        event.currentTarget.style.top = "-100px";
       }}
     >
       {copy.skipToMain}

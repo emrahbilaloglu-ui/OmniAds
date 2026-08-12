@@ -54,12 +54,20 @@ export function HomeView({
   narrowest?: boolean;
 }) {
   const copy = useCopy();
-  const [banners] = useState(() => buildBannerStack(contract.sources));
+  const [banners] = useState(() =>
+    // Keep hard and partial problems visible together. Suppressing connector
+    // banners makes a metric card look authoritative while one of its sources
+    // is disconnected or incomplete.
+    buildBannerStack(contract.sources),
+  );
 
   return (
     <div data-home-surface="" data-refresh-state={refreshState}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.home}</h1>
+        <p style={{ margin: "5px 0 0", fontSize: 13, color: "var(--ledger-ink-secondary)" }}>
+          {copy.homeDecisionOrientation}
+        </p>
         <p
           data-scope-line=""
           data-el="mobile-scope"
@@ -129,7 +137,7 @@ export function HomeView({
         data-el="home-kpis"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gridTemplateColumns: "repeat(4, minmax(170px, 1fr))",
           gap: 12,
           marginBottom: 24,
         }}
@@ -139,27 +147,56 @@ export function HomeView({
         ))}
       </section>
 
-      {trend ? (
-        <div style={{ marginBottom: 16 }}>
-          <TrendPanel
-            title={copy.spendRoasTrend}
-            points={trend.points}
-            currency={trend.currency}
-            targetRoas={economics?.targetRoas ?? null}
-            surface="home"
-          />
+      <div
+        data-home-detail-grid=""
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 2fr) minmax(300px, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <div>
+          {trend ? (
+            <TrendPanel
+              title={copy.spendRoasTrend}
+              points={trend.points}
+              currency={trend.currency}
+              targetRoas={economics?.targetRoas ?? null}
+              surface="home"
+            />
+          ) : (
+            <section
+              style={{
+                minHeight: 220,
+                padding: 16,
+                border: "1px solid var(--ledger-border-subtle)",
+                borderRadius: "var(--ledger-radius-card)",
+                background: "var(--ledger-bg-surface)",
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 16 }}>{copy.spendRoasTrend}</h2>
+              <p style={{ color: "var(--ledger-ink-tertiary)", fontSize: 13 }}>{copy.noDailyTrendServed}</p>
+            </section>
+          )}
         </div>
-      ) : null}
-
-      <div data-el="source-readiness">
-        <SourceHealthPanel sources={contract.sources} connectHref={connectHref} />
+        <div style={{ display: "grid", gap: 12 }}>
+          <div data-el="source-readiness">
+            <SourceHealthPanel sources={contract.sources} connectHref={connectHref} compact />
+          </div>
+          {economics ? <EconomicsContext model={economics} businessId={businessId} /> : null}
+        </div>
       </div>
 
-      {economics ? (
-        <div style={{ marginTop: 16 }}>
-          <EconomicsContext model={economics} businessId={businessId} />
-        </div>
-      ) : null}
+      <style>{`
+        @media (max-width: 1040px) {
+          [data-home-surface] [data-metric-grid] { grid-template-columns: repeat(2, minmax(170px, 1fr)) !important; }
+          [data-home-detail-grid] { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 540px) {
+          [data-home-surface] [data-metric-grid] { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
 
       {onRefresh ? (
         <Button

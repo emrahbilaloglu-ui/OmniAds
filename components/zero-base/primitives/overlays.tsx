@@ -315,7 +315,7 @@ export function ZeroBasePopover({
 
 /* ------------------------------------------------------------------- sheet */
 
-export type SheetSide = "right" | "bottom";
+export type SheetSide = "right" | "left" | "bottom";
 
 /**
  * Drawer/sheet. Uses the dialog primitive because it *is* a modal dialog —
@@ -367,6 +367,8 @@ export function ZeroBaseSheet({
   const container = useZeroBasePortalContainer();
   const onCloseAutoFocus = useFocusReturn(open);
   const fromRight = side === "right";
+  const fromLeft = side === "left";
+  const fromSide = fromRight || fromLeft;
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -383,16 +385,18 @@ export function ZeroBaseSheet({
           style={{
             ...overlaySurface,
             position: "fixed",
-            top: fromRight ? 0 : "auto",
-            right: 0,
+            top: fromSide ? 0 : "auto",
+            right: fromRight ? 0 : "auto",
             bottom: 0,
-            left: fromRight ? "auto" : 0,
-            width: fromRight ? "min(480px, 100vw)" : "100vw",
-            maxHeight: fromRight ? "100vh" : "85vh",
+            left: fromLeft || !fromSide ? 0 : "auto",
+            width: fromRight ? "min(480px, 100vw)" : fromLeft ? "min(302px, 100vw)" : "100vw",
+            maxHeight: fromSide ? "100vh" : "85vh",
             overflowY: "auto",
             borderRadius: fromRight
               ? "var(--ledger-radius-dialog) 0 0 var(--ledger-radius-dialog)"
-              : "var(--ledger-radius-dialog) var(--ledger-radius-dialog) 0 0",
+              : fromLeft
+                ? "0 var(--ledger-radius-dialog) var(--ledger-radius-dialog) 0"
+                : "var(--ledger-radius-dialog) var(--ledger-radius-dialog) 0 0",
             padding: 16,
           }}
         >

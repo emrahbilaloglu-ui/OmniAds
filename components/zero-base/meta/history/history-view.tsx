@@ -13,6 +13,7 @@
  *   claim about who acted, and the truth is that nobody knows.
  */
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { useState } from "react";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
@@ -35,6 +36,7 @@ export function HistoryView({
   onLoadMore,
   onReplay,
   onClose,
+  initialReplayId = null,
 }: {
   rows: readonly HistoryRow[];
   /** Search is server-side against the history projection, not a local filter
@@ -47,6 +49,8 @@ export function HistoryView({
   /** Absent at the end of the projection. */
   onLoadMore?: () => void;
   onReplay?: (id: string) => void;
+  /** Opens the replay inspector for addressable evidence frames and deep links. */
+  initialReplayId?: string | null;
   /** Closes the history overlay; the selection stays in the URL. */
   onClose?: () => void;
   /** Names the page cap. Absence of a disclosure is never "this is everything". */
@@ -58,6 +62,8 @@ export function HistoryView({
   const t = useCopy();
   const copy = useCopy();
   const anyReplayed = rows.some((row) => row.replayed);
+  const [replayId, setReplayId] = useState<string | null>(initialReplayId);
+  const replayRow = rows.find((row) => row.id === replayId) ?? null;
 
   if (unavailableReason) {
     return (
@@ -71,7 +77,12 @@ export function HistoryView({
   }
 
   return (
-    <div data-history-surface="">
+    <div
+      data-history-surface=""
+      data-history-layout=""
+      style={{ display: "grid", gridTemplateColumns: replayRow ? "minmax(0, 1fr) 360px" : "1fr", gap: 16, alignItems: "start" }}
+    >
+      <div style={{ minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
         {onClose ? (
@@ -189,7 +200,10 @@ export function HistoryView({
                   <Button
                     variant="secondary"
                     data-ctl="live:META-HIST-06 replay"
-                    onClick={() => onReplay(row.id)}
+                    onClick={() => {
+                      setReplayId(row.id);
+                      onReplay(row.id);
+                    }}
                   >
                     {t.replay}
                   </Button>
@@ -217,6 +231,32 @@ export function HistoryView({
           {disclosure}
         </p>
       ) : null}
+      </div>
+      {replayRow ? (
+        <aside
+          data-replay-drawer={replayRow.id}
+          aria-label={`Replay — ${replayRow.action}`}
+          style={{ minHeight: 420, padding: 18, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", boxShadow: "-12px 0 30px color-mix(in srgb, var(--ledger-ink-primary) 8%, transparent)" }}
+        >
+          <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <p style={{ margin: 0, font: "12px/1.3 var(--font-mono, monospace)", color: "var(--ledger-ink-tertiary)" }}>REPLAY · DECISION SNAPSHOT</p>
+              <h2 style={{ margin: "5px 0 0", fontSize: 16 }}>{replayRow.action}</h2>
+            </div>
+            <Button variant="quiet" data-ctl="live:close-replay" onClick={() => setReplayId(null)}>{copy.close}</Button>
+          </div>
+          <p style={{ margin: "14px 0 0", padding: 10, border: "1px solid var(--ledger-semantic-warn)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-semantic-warn)" }}>
+            Replay of a stored snapshot — not live state. It shows what the engine served then; it cannot reconstruct today&apos;s account.
+          </p>
+          <dl style={{ margin: "16px 0 0", display: "grid", gap: 10, fontSize: 12 }}>
+            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.observed}</dt><dd style={{ margin: 0 }}>{replayRow.occurredAt}</dd></div>
+            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.outcome}</dt><dd style={{ margin: 0 }}>{replayRow.outcome}</dd></div>
+            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.actor}</dt><dd style={{ margin: 0 }}>{actorLabel(replayRow.actor)}</dd></div>
+            <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.evidenceBasis}</dt><dd style={{ margin: 0 }}>{replayRow.replayed ? "Replayed projection; historical caveat applies." : "Recorded at the time."}</dd></div>
+          </dl>
+        </aside>
+      ) : null}
+      <style>{`@media(max-width:900px){[data-history-layout]{grid-template-columns:1fr!important}[data-replay-drawer]{min-height:0!important}}`}</style>
     </div>
   );
 }

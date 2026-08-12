@@ -141,15 +141,6 @@ export function DecisionsView({
 
   return (
     <div data-decisions-surface="">
-      {shareViewHref ? (
-        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
-          {/* The exact view, not "Decisions": a shared link that lands on a
-              different filter is a different set of decisions. */}
-          <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)" }}>
-            {copy.shareThisView}
-          </Link>
-        </p>
-      ) : null}
       <header style={{ marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.metaDecisions}
@@ -196,8 +187,25 @@ export function DecisionsView({
         </div>
       ) : null}
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
-        <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <span>{copy.level}</span>
+          <select
+            value={state.levels.length === 1 ? state.levels[0] : "all"}
+            data-level-filter="select"
+            data-ctl="live:META-DEC-02 level"
+            onChange={(event) => onStateChange({
+              ...state,
+              selected: null,
+              levels: event.target.value === "all" ? [] : [event.target.value as DecisionLevel],
+            })}
+            style={{ minHeight: 34, padding: "4px 28px 4px 8px", border: "1px solid var(--ledger-border-control)", borderRadius: "var(--ledger-radius-button)", background: "var(--ledger-bg-surface)", color: "var(--ledger-ink-primary)" }}
+          >
+            <option value="all">all</option>
+            {DECISION_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
+          </select>
+        </label>
+        <div data-decision-search="" style={{ width: 220 }}>
           <TextInput
             label={copy.findADecision}
             data-ctl="live:META-DEC-17 search"
@@ -207,42 +215,30 @@ export function DecisionsView({
               setSearch(event.target.value);
               onStateChange({ ...state, search: event.target.value, selected: null });
             }}
-            hint={copy.filtersLaneDecisions}
           />
         </div>
-        <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
-          <legend style={{ fontSize: 12, fontWeight: 500, color: "var(--ledger-ink-secondary)", padding: 0 }}>
-            {copy.level}
-          </legend>
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            {DECISION_LEVELS.map((level) => {
-              const checked = state.levels.includes(level);
-              return (
-                <label
-                  key={level}
-                  style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 24, fontSize: 13 }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    data-level-filter={level}
-                    data-ctl="live:META-DEC-02 level"
-                    onChange={() =>
-                      onStateChange({
-                        ...state,
-                        selected: null,
-                        levels: checked
-                          ? state.levels.filter((entry) => entry !== level)
-                          : ([...state.levels, level] as DecisionLevel[]),
-                      })
-                    }
-                  />
-                  {level}
-                </label>
-              );
-            })}
-          </div>
+        <fieldset style={{ position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0, margin: 0, padding: 0 }}>
+          <legend>{copy.level}</legend>
+          {DECISION_LEVELS.map((level) => {
+            const checked = state.levels.includes(level);
+            return (
+              <label key={level}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  data-level-filter={level}
+                  onChange={() => onStateChange({ ...state, selected: null, levels: checked ? state.levels.filter((entry) => entry !== level) : ([...state.levels, level] as DecisionLevel[]) })}
+                />
+                {level}
+              </label>
+            );
+          })}
         </fieldset>
+        {shareViewHref ? (
+          <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)", fontSize: 12, fontWeight: 600 }}>
+            {copy.shareThisView}
+          </Link>
+        ) : null}
       </div>
 
       {adsManagerHref ? (
@@ -312,53 +308,59 @@ export function DecisionsView({
                     columns={[
                       {
                         id: "title",
-                        header: "Decision",
+                        header: "Entity",
                         render: (row) => (
-                          <button
-                            type="button"
-                            ref={(node) => {
-                              triggerRefs.current[row.id] = node;
-                            }}
-                            data-decision-row={row.id}
-                            data-ctl="live:META-DEC-05 open-inspector"
-                            onClick={() => onStateChange({ ...state, selected: row.id })}
-                            style={{
-                              minHeight: 24,
-                              padding: 0,
-                              background: "transparent",
-                              border: 0,
-                              textAlign: "left",
-                              color: "var(--ledger-accent-action)",
-                              cursor: "pointer",
-                              fontSize: 13,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {row.title}
-                          </button>
-                        ),
-                      },
-                      { id: "level", header: "Level", render: (row) => row.level },
-                      {
-                        id: "verdict",
-                        header: "Verdict",
-                        // Printed exactly as served. No formatting, no mapping.
-                        render: (row) => (
-                          <span
-                            data-verdict={row.id}
-                            data-el="verdict-chip"
-                            data-stale={row.confidence === "low" ? "" : undefined}
-                          >
-                            {row.decision}
+                          <span style={{ display: "grid", gridTemplateColumns: "42px minmax(0,1fr)", gap: 10, alignItems: "center", minWidth: 0 }}>
+                            <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 42, height: 42, borderRadius: 8, background: "var(--ledger-bg-inset)", border: "1px solid var(--ledger-border-subtle)", color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                              {row.rowPresentation?.thumbLabel ?? "▦"}
+                            </span>
+                            <span style={{ minWidth: 0 }}>
+                              <button
+                                type="button"
+                                ref={(node) => { triggerRefs.current[row.id] = node; }}
+                                data-decision-row={row.id}
+                                data-ctl="live:META-DEC-05 open-inspector"
+                                onClick={() => onStateChange({ ...state, selected: row.id })}
+                                style={{ minHeight: 24, width: "100%", maxWidth: "100%", padding: 0, background: "transparent", border: 0, textAlign: "left", color: "var(--ledger-ink-primary)", cursor: "pointer", fontSize: 13, fontWeight: 700, whiteSpace: "normal", overflowWrap: "anywhere" }}
+                              >
+                                {row.title}
+                              </button>
+                              <span style={{ display: "block", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                                {row.level} · {row.id}
+                              </span>
+                            </span>
                           </span>
                         ),
                       },
                       {
-                        id: "confidence",
-                        header: "Confidence",
+                        id: "verdict",
+                        header: "Verdict (served)",
+                        // Printed exactly as served. No formatting, no mapping.
+                        render: (row) => {
+                          const count = actionCountFor({ row, viewer: model.viewer, demo });
+                          return (
+                          <span>
+                            <span
+                            data-verdict={row.id}
+                            data-el="verdict-chip"
+                            data-stale={row.confidence === "low" ? "" : undefined}
+                            style={{ display: "inline-flex", padding: "3px 8px", borderRadius: 6, border: "1px solid var(--ledger-border-control)", background: row.held ? "var(--ledger-accent-tint)" : "var(--ledger-semantic-warn-bg, var(--ledger-bg-inset))", fontWeight: 600 }}
+                          >
+                            {row.decision}
+                          </span>
+                            <span data-action-count={count} style={{ display: "block", marginTop: 4, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                              {count === 0 ? (row.heldReason ?? "Read-only") : row.recommendedAction}
+                            </span>
+                          </span>
+                          );
+                        },
+                      },
+                      {
+                        id: "why",
+                        header: "Why now",
                         render: (row) => (
                           <span data-confidence={row.id}>
-                            {row.confidence}
+                            {row.why}
                             {/* A low-confidence row is demoted, not dropped:
                                 it is still a served fact, just a weaker one. */}
                             {row.confidence === "low" ? (
@@ -377,6 +379,14 @@ export function DecisionsView({
                           </span>
                         ),
                       },
+                      {
+                        id: "evidence",
+                        header: "Evidence",
+                        numeric: true,
+                        render: (row) => (row.evidence?.length ?? 0) > 0 ? (
+                          <span>{row.evidence!.slice(0, 2).map((item) => <span key={`${item.label}:${item.value}`} style={{ display: "block", color: item.tone === "warning" ? "var(--ledger-semantic-warn)" : item.tone === "positive" ? "var(--ledger-semantic-ok)" : undefined }}>{item.value}<small style={{ display: "block", color: "var(--ledger-ink-tertiary)", fontFamily: "inherit" }}>{item.label}</small></span>)}</span>
+                        ) : <span style={{ color: "var(--ledger-ink-tertiary)" }}>not served</span>,
+                      },
                       ...(workflow
                         ? [
                             {
@@ -391,26 +401,7 @@ export function DecisionsView({
                             },
                           ]
                         : []),
-                      {
-                        id: "action",
-                        header: "Action",
-                        render: (row) => {
-                          const count = actionCountFor({ row, viewer: model.viewer, demo });
-                          if (count === 0) {
-                            return (
-                              <span data-action-count="0" style={{ color: "var(--ledger-ink-tertiary)" }}>
-                                {row.held ? "Held" : "Read-only"}
-                                {row.heldReason ? (
-                                  <span style={{ display: "block", fontSize: 12 }}>{row.heldReason}</span>
-                                ) : null}
-                              </span>
-                            );
-                          }
-                          return (
-                            <span data-action-count="1">{row.recommendedAction}</span>
-                          );
-                        },
-                      },
+                      { id: "fresh", header: "Fresh", numeric: true, render: () => model.snapshotAt ? "snapshot" : "unknown" },
                     ]}
                   />
                 </Collection>
@@ -419,6 +410,23 @@ export function DecisionsView({
         }))}
       />
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginTop: 12 }}>
+        <p style={{ margin: 0, padding: "11px 14px", border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", fontSize: 12 }}>
+          <strong style={{ fontFamily: "var(--font-adc-mono), monospace", textTransform: "uppercase", marginRight: 12 }}>{copy.source}</strong>
+          Canonical decision snapshot · unsupported row-grain metrics remain unavailable.
+        </p>
+        <p style={{ margin: 0, padding: "11px 14px", border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", fontSize: 12 }}>
+          <strong style={{ fontFamily: "var(--font-adc-mono), monospace", textTransform: "uppercase", marginRight: 12 }}>{copy.inactiveAssets}</strong>
+          {copy.inactiveAssetsOutsideLanes}
+        </p>
+      </div>
+      {model.rows.some((row) => row.confidence === "low") ? (
+        <p style={{ margin: "10px 0 0", padding: "11px 14px", border: "1px solid var(--ledger-semantic-warn)", borderRadius: "var(--ledger-radius-card)", color: "var(--ledger-semantic-warn)", fontSize: 12 }}>
+          <strong>Stale-evidence variant:</strong> low-confidence verdicts are demoted and never retain high-confidence action styling.
+        </p>
+      ) : null}
+      <style>{`[data-decision-search] label { position:absolute!important; width:1px!important; height:1px!important; overflow:hidden!important; clip:rect(0 0 0 0)!important; white-space:nowrap!important; } [data-decision-search] input { min-height:34px!important; padding:6px 10px!important; }`}</style>
 
 
 

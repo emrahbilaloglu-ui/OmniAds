@@ -21,6 +21,7 @@ import {
   type ServedAdvisorItem,
 } from "@/lib/zero-base/google/google-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import { useState } from "react";
 
 export function GoogleScopeHeader({ title, scope }: { title: string; scope: GoogleScope }) {
   return (
@@ -89,6 +90,7 @@ export function GoogleMetric({ value, name }: { value: GoogleValue; name: string
 export function GoogleOverviewView({
   scope,
   source,
+  kpis = [],
   rows,
   portfolioMode = false,
   onPortfolioChange,
@@ -96,6 +98,7 @@ export function GoogleOverviewView({
 }: {
   scope: GoogleScope;
   source: GoogleSourceState;
+  kpis?: readonly { key: string; value: number | null; delta: number | null }[];
   /** One row per account. Merged Overview/Pulse without collapsing scope. */
   rows: readonly { id: string; account: string; spend: GoogleValue; conversions: GoogleValue; pulse: string }[];
   /** Portfolio mode is labelled; a mixed-currency portfolio withholds totals. */
@@ -104,9 +107,13 @@ export function GoogleOverviewView({
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
+  const [campaignView, setCampaignView] = useState<"chart" | "table">("table");
   return (
     <div data-google-surface="overview">
-      <GoogleScopeHeader title={copy.googleOverview} scope={scope} />
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
+        <GoogleScopeHeader title={copy.googleAdsOverviewTitle} scope={scope} />
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>AI commentary: not live for Google</p>
+      </div>
       <GoogleSourceBadge state={source} />
       {unavailableReason ? (
         <div style={{ marginTop: 12 }}>
@@ -114,42 +121,95 @@ export function GoogleOverviewView({
         </div>
       ) : (
         <div style={{ marginTop: 16 }}>
-          {onPortfolioChange ? (
-            <label
-              data-el="google-vocab"
-              style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, margin: "0 0 8px" }}
-            >
-              <input
-                type="checkbox"
-                data-ctl="live:GOOGLE-32 portfolio"
-                checked={portfolioMode}
-                onChange={(event) => onPortfolioChange(event.target.checked)}
-              />
-              {/* Google's own vocabulary, not Meta's: these are campaigns and
-                  accounts, and a portfolio of mixed currencies withholds
-                  totals rather than summing across them. */}
-              <span>{copy.portfolioMode}</span>
-            </label>
-          ) : null}
-          <DataTable
-            collection="gcamps"
-            caption={copy.googleOverviewByAccount}
-            rows={[...rows]}
-            rowKey={(row) => row.id}
-            columns={[
-              { id: "account", header: "Account", render: (row) => row.account },
-              { id: "spend", header: "Spend", numeric: true, render: (row) => <GoogleMetric value={row.spend} name="spend" /> },
-              {
-                id: "conversions",
-                header: "Conversions",
-                numeric: true,
-                render: (row) => <GoogleMetric value={row.conversions} name="conversions" />,
-              },
-              { id: "pulse", header: "Pulse", render: (row) => row.pulse },
-            ]}
-          />
+          <section data-google-kpis="" aria-label={copy.googleKeyMetrics} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 10, marginBottom: 12 }}>
+            {kpis.slice(0, 4).map((kpi) => (
+              <article key={kpi.key} style={{ minHeight: 86, padding: 12, border: `1px ${kpi.value === null ? "dashed" : "solid"} var(--ledger-border-subtle)`, borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)", textTransform: "capitalize" }}>{kpi.key.replaceAll("_", " ")}</p>
+                <strong style={{ display: "block", marginTop: 4, fontFamily: "var(--font-adc-mono), monospace", fontSize: 18 }}>{kpi.value === null ? "Unavailable" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(kpi.value)}</strong>
+                <span style={{ display: "block", marginTop: 3, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{kpi.delta === null ? "No comparison served" : `${kpi.delta > 0 ? "+" : ""}${kpi.delta.toFixed(1)}% vs previous`}</span>
+              </article>
+            ))}
+          </section>
+          <div data-google-overview-grid="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(230px, 1fr)", gap: 12, alignItems: "start" }}>
+            <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{copy.campaigns}</h2>
+                <button
+                  type="button"
+                  data-ctl="live:chart-table-toggle"
+                  onClick={() => setCampaignView((current) => current === "chart" ? "table" : "chart")}
+                  style={{ minHeight: 30, padding: "3px 8px", border: 0, background: "transparent", color: "var(--ledger-accent-action)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  {campaignView === "chart" ? copy.viewAsTable : copy.viewAsChart}
+                </button>
+              </div>
+              {campaignView === "table" ? (
+                <DataTable
+                  collection="gcamps"
+                  caption={copy.campaigns}
+                  rows={[...rows]}
+                  rowKey={(row) => row.id}
+                  columns={[
+                    { id: "account", header: "Campaign", render: (row) => row.account },
+                    { id: "spend", header: "Spend", numeric: true, render: (row) => <GoogleMetric value={row.spend} name="spend" /> },
+                    { id: "conversions", header: "Conversions", numeric: true, render: (row) => <GoogleMetric value={row.conversions} name="conversions" /> },
+                    { id: "pulse", header: "Pulse", render: (row) => row.pulse },
+                  ]}
+                />
+              ) : (
+                <div data-collection="gcamps" role="list" aria-label={copy.campaigns}>
+                  {rows.map((row) => (
+                    <div key={row.id} role="listitem" style={{ display: "grid", gridTemplateColumns: "minmax(180px,1.6fr) minmax(100px,.7fr) minmax(100px,.9fr) minmax(150px,1.1fr)", gap: 12, padding: "10px 0", alignItems: "center", borderBottom: "1px solid var(--ledger-bg-inset)" }}>
+                      <strong style={{ fontSize: 13, fontWeight: 600 }}>{row.account}</strong>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}><GoogleMetric value={row.spend} name="spend" /></span>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}><GoogleMetric value={row.conversions} name="conversions" /></span>
+                      <span style={{ textAlign: "right", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{row.pulse}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p
+                data-collection="h29-gcamps"
+                data-cst="complete"
+                style={{ margin: "7px 0 0", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-secondary)" }}
+              >
+                Showing {rows.length} of {rows.length} campaigns in this account · complete
+              </p>
+              <p data-el="google-vocab" style={{ margin: "6px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>
+                {copy.googleReadOnlyPlanNote}
+              </p>
+            </section>
+            <aside style={{ display: "grid", gap: 10 }}>
+              <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+                <h2 style={{ margin: 0, fontSize: 13 }}>{copy.diagnostics}</h2>
+                <p style={{ margin: "8px 0 0", fontSize: 12 }}>{source.kind === "serving" ? "Google reporting is serving." : source.kind === "partial" ? source.reason : "Provider read is unavailable."}</p>
+              </section>
+              <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+                <h2 style={{ margin: 0, fontSize: 13 }}>{copy.accountScope}</h2>
+                <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{scope.kind === "none" ? scope.reason : scope.label}</p>
+                {onPortfolioChange ? (
+                  <label
+                    data-el="google-vocab"
+                    style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, margin: "8px 0 0", color: "var(--ledger-accent-action)", fontWeight: 600 }}
+                  >
+                    <input
+                      type="checkbox"
+                      data-ctl="live:GOOGLE-32 portfolio"
+                      checked={portfolioMode}
+                      onChange={(event) => onPortfolioChange(event.target.checked)}
+                    />
+                    {/* Google's own vocabulary, not Meta's: these are campaigns and
+                        accounts, and a portfolio of mixed currencies withholds
+                        totals rather than summing across them. */}
+                    <span>{copy.portfolioMode}</span>
+                  </label>
+                ) : null}
+              </section>
+            </aside>
+          </div>
         </div>
       )}
+      <style>{`@media(max-width:900px){[data-google-kpis]{grid-template-columns:repeat(2,minmax(140px,1fr))!important}[data-google-overview-grid]{grid-template-columns:1fr!important}} @media(max-width:520px){[data-google-kpis]{grid-template-columns:1fr!important}}`}</style>
     </div>
   );
 }
@@ -182,6 +242,12 @@ export function GoogleAdvisorView({
       <GoogleScopeHeader title={copy.googleAdvisor} scope={scope} />
       <GoogleSourceBadge state={source} />
 
+      <div data-advisor-trust="" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10, padding: 8, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+        {["data trust ✓", "integrity ✓", "actionability ✓", "dependency ready", "execution trust: unverified"].map((label) => (
+          <span key={label} style={{ padding: "3px 8px", borderRadius: 999, background: label.includes("unverified") ? "var(--ledger-bg-inset)" : "var(--ledger-accent-tint)", fontSize: 12, color: label.includes("unverified") ? "var(--ledger-semantic-warn)" : "var(--ledger-semantic-ok)" }}>{label}</span>
+        ))}
+      </div>
+
       {/*
         Bucket filters. The horizons come from the server's own urgency, so the
         filter narrows what is shown and never re-ranks: deciding priority is
@@ -204,7 +270,7 @@ export function GoogleAdvisorView({
               minHeight: 32,
               padding: "4px 10px",
               fontSize: 12,
-              borderRadius: "var(--ledger-radius-control)",
+              borderRadius: "var(--ledger-radius-button)",
               border: "1px solid var(--ledger-border-control)",
               background:
                 bucket === group.horizon ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)",
@@ -220,8 +286,8 @@ export function GoogleAdvisorView({
       {groups
         .filter((group) => bucket === null || group.horizon === bucket)
         .map((group) => (
-        <section key={group.horizon} aria-label={group.label} style={{ marginTop: 16 }}>
-          <h2 data-advisor-horizon={group.horizon} style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+        <section key={group.horizon} aria-label={group.label} style={{ marginTop: 10 }}>
+          <h2 data-advisor-horizon={group.horizon} className="sr-only" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}>
             {ADVISOR_HORIZON_LABEL[group.horizon as AdvisorHorizon]}
           </h2>
           {group.items.length === 0 ? (
@@ -229,9 +295,14 @@ export function GoogleAdvisorView({
               {copy.nothingInHorizon}
             </p>
           ) : (
-            <ul data-collection="advisor" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            <ul data-collection="advisor" style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 8 }}>
               {group.items.map((item) => (
-                <li key={item.id} data-advisor-item={group.horizon} style={{ fontSize: 12 }}>
+                <li key={item.id} data-advisor-item={group.horizon} style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(160px,1fr) auto", gap: 12, alignItems: "center", padding: "10px 12px", border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", fontSize: 12 }}>
+                  <span>
+                  <strong style={{ display: "block", fontWeight: 650 }}>{item.title}</strong>
+                  {item.rationale ? <span style={{ display: "block", marginTop: 2, color: "var(--ledger-ink-tertiary)" }}>{item.rationale}</span> : null}
+                  </span>
+                  <span style={{ color: "var(--ledger-ink-secondary)" }}>{ADVISOR_HORIZON_LABEL[group.horizon as AdvisorHorizon]} · reversible manual step</span>
                   {onOpenCard ? (
                     <button
                       type="button"
@@ -247,13 +318,8 @@ export function GoogleAdvisorView({
                         textAlign: "left",
                       }}
                     >
-                      {item.title}
+                      Open change card →
                     </button>
-                  ) : (
-                    item.title
-                  )}
-                  {item.rationale ? (
-                    <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>{item.rationale}</span>
                   ) : null}
                 </li>
               ))}
@@ -262,8 +328,8 @@ export function GoogleAdvisorView({
         </section>
       ))}
 
-      <section aria-label={copy.reference} style={{ marginTop: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.referenceNotEnabled}</h2>
+      <section aria-label={copy.reference} style={{ marginTop: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{t.referenceNotEnabled}</h2>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           These are proposals this product will not perform. They are shown so the reasoning is
           inspectable, not because a switch is pending.

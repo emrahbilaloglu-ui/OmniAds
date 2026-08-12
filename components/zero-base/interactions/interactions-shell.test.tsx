@@ -192,7 +192,10 @@ describe("G7 — shell navigation", () => {
     expect(within(drawer).getByRole("navigation")).toBeTruthy();
     // The complete rail, not a reduced one: a drawer that omits modules
     // teaches the user those modules do not exist on their phone.
-    const drawerItems = drawer.querySelectorAll('[data-ctl="live:nav"]');
+    // Module buttons add a fast parent-level entry, while every leaf remains
+    // present as a real link. Count the leaves rather than treating the parent
+    // entries as duplicate or missing navigation.
+    const drawerItems = drawer.querySelectorAll('a[data-ctl="live:nav"]');
     expect(drawerItems.length).toBe(navGroupsFor("Client").flatMap((g) => g.items).length);
   });
 

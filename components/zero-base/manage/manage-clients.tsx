@@ -883,10 +883,14 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
 export function PlanClient() {
   return (
     <PlanView
-      planName="Adsecute"
+      planName="Growth"
       features={[
-        "Meta and Google read surfaces",
-        "Creative decision surfaces",
+        "Home",
+        "Meta (all five)",
+        "Creative Intelligence",
+        "Google Ads",
+        "Analytics",
+        "Landing Pages",
         "Reports",
       ]}
     />

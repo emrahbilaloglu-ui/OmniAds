@@ -10,7 +10,6 @@
  */
 import { Button } from "@/components/zero-base/primitives/button";
 import { DataTable } from "@/components/zero-base/collections/data-table";
-import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   GEO_PROXY_DISCLOSURE,
@@ -25,21 +24,22 @@ import {
   type SourcePanel,
 } from "@/lib/zero-base/analytics/analytics-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import { useState } from "react";
 
-export function SourcePanels({ panels }: { panels: readonly SourcePanel[] }) {
+export function SourcePanels({ panels, compact = false }: { panels: readonly SourcePanel[]; compact?: boolean }) {
   const copy = useCopy();
   const state = dualSourceState(panels);
   return (
-    <section aria-label={copy.sources} style={{ marginTop: 8 }}>
-      <ul data-source-panels={state.kind} style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+    <section aria-label={copy.sources} style={{ marginTop: compact ? 0 : 8 }}>
+      <ul data-source-panels={state.kind} style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexWrap: "wrap", gap: compact ? 8 : 4 }}>
         {panels.map((panel) => (
           <li
             key={panel.kind}
             data-source-panel={panel.kind}
             // A disconnected source is the surface's missing-source state; it
             // is named so the gate can tell it apart from a healthy panel.
-            data-el={panel.connected ? undefined : "source-missing-state"}
-            style={{ fontSize: 12 }}
+            data-el={panel.connected ? undefined : compact ? "source-status-missing" : "source-missing-state"}
+            style={{ fontSize: 12, padding: compact ? "2px 8px" : 0, border: compact ? "1px solid var(--ledger-border-subtle)" : 0, borderRadius: compact ? 999 : 0, background: compact ? "var(--ledger-bg-surface)" : "transparent" }}
           >
             <strong style={{ fontWeight: 600 }}>{panel.label}:</strong>{" "}
             {panel.connected ? (
@@ -105,96 +105,135 @@ export function SourceOverviewView({
   trend?: React.ReactNode;
 }) {
   const copy = useCopy();
+  const [cohortView, setCohortView] = useState<"chart" | "table">("chart");
+  const preferredKpis = overview
+    ? ["sessions", "purchases", "averageOrderValue", "revenue"]
+        .map((key) => overview.kpis.find((row) => row.key === key))
+        .filter((row): row is AdaptedAnalyticsOverview["kpis"][number] => Boolean(row))
+        .concat(overview.kpis.filter((row) => !["sessions", "purchases", "averageOrderValue", "revenue"].includes(row.key)))
+        .slice(0, 4)
+    : [];
+  const trafficSources = overview?.trafficSources ?? [];
   return (
-    <Shell title="GA4 and Shopify">
-      {/* Two sources, kept apart: a blended figure would hide which one is
-          degraded when only one is. The choice comes first — which source is
-          being read decides what every panel below is reporting on. */}
-      <ZeroBaseTabs
-        label={copy.ga4Kpis}
-        value="ga4"
-        onValueChange={() => {}}
-        tabs={[
-          { id: "ga4", label: "GA4", content: null },
-          { id: "shopify", label: "Shopify", content: null },
-        ]}
-      />
-      {trend}
-      <SourcePanels panels={panels} />
+    <div data-analytics-surface="ga4-and-shopify">
+      <h1 style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>GA4 and Shopify</h1>
+      {trend ? <div style={{ marginTop: 12 }}>{trend}</div> : null}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <p data-ga4-property="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {overview?.propertyName ? `GA4 property: ${overview.propertyName}` : "GA4 property name not served."}
+        </p>
+        <SourcePanels panels={panels} compact />
+      </div>
       {unavailableReason || !overview ? (
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason ?? "The analytics overview could not be read."} />
         </div>
       ) : (
         <>
-          <p data-ga4-property="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            {overview.propertyName ? `GA4 property: ${overview.propertyName}` : "GA4 property name not served."}
-          </p>
-
-          <div style={{ marginTop: 12 }}>
-            <DataTable
-              collection="traffic"
-              caption={copy.ga4Kpis}
-              rows={[...overview.kpis]}
-              rowKey={(row) => row.key}
-              columns={[
-                { id: "key", header: "Metric", render: (row) => row.key },
-                { id: "value", header: "Value", numeric: true, render: (row) => <Value value={row.value} name={row.key} /> },
-              ]}
-            />
-          </div>
-
-          <section aria-label={copy.newVsReturning} style={{ marginTop: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.newVsReturning}</h2>
-            {/* Two cohorts, never added: GA4 serves no combined figure and
-                summing them would invent one. */}
-            <DataTable
-              caption={copy.newVsReturning}
-              rows={[...overview.cohorts]}
-              rowKey={(row) => row.key}
-              columns={[
-                { id: "key", header: "Cohort", render: (row) => row.key },
-                { id: "sessions", header: "Sessions", numeric: true, render: (row) => <Value value={row.sessions} name={`${row.key}-sessions`} /> },
-                { id: "purchases", header: "Purchases", numeric: true, render: (row) => <Value value={row.purchases} name={`${row.key}-purchases`} /> },
-                { id: "purchaseCvr", header: "Purchase CVR", numeric: true, render: (row) => <Value value={row.purchaseCvr} name={`${row.key}-cvr`} /> },
-              ]}
-            />
+          <section data-analytics-kpis="" aria-label={copy.ga4Kpis} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
+            {preferredKpis.map((row) => (
+              <article key={row.key} style={{ minHeight: 86, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)", textTransform: "capitalize" }}>{row.key.replaceAll(/([A-Z])/g, " $1")}</p>
+                <strong style={{ display: "block", marginTop: 5, fontFamily: "var(--font-adc-mono), monospace", fontSize: 18 }}><Value value={row.value} name={row.key} /></strong>
+                <span style={{ display: "block", marginTop: 3, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>GA4 · served for this window</span>
+              </article>
+            ))}
           </section>
 
-          {overview.insights.length > 0 ? (
-            <ul data-ga4-insights="" style={{ margin: "12px 0 0", paddingLeft: 18 }}>
-              {overview.insights.map((text) => (
-                <li key={text} style={{ fontSize: 12 }}>
-                  {text}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <div data-analytics-overview-grid="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(260px, 1fr)", gap: 12, marginTop: 12, alignItems: "start" }}>
+            <section aria-label={trafficSources.length > 0 ? copy.trafficSources : copy.newVsReturning} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{trafficSources.length > 0 ? copy.trafficSources : copy.newVsReturning}</h2>
+                {!trend ? (
+                  <Button
+                    variant="quiet"
+                    data-ctl="live:chart-table-toggle"
+                    aria-label={cohortView === "chart" ? "View audience cohorts as table" : "View audience cohorts as chart"}
+                    onClick={() => setCohortView((current) => current === "chart" ? "table" : "chart")}
+                  >
+                    {cohortView === "chart" ? "Table" : "Chart"}
+                  </Button>
+                ) : null}
+              </div>
+              {trafficSources.length > 0 && cohortView === "chart" ? (
+                <div role="img" aria-label={copy.trafficSources} style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                  {trafficSources.slice(0, 8).map((row) => {
+                    const max = Math.max(...trafficSources.map((item) => item.sessions.available ? item.sessions.raw : 0), 1);
+                    return (
+                      <div key={row.name} style={{ display: "grid", gridTemplateColumns: "120px minmax(0,1fr) 72px", alignItems: "center", gap: 10, fontSize: 12 }}>
+                        <span>{row.name}</span>
+                        <span aria-hidden="true" style={{ display: "block", height: 14, borderRadius: 4, background: "var(--ledger-bg-inset)", overflow: "hidden" }}>
+                          <span style={{ display: "block", height: "100%", width: `${row.sessions.available ? Math.max(4, row.sessions.raw / max * 100) : 0}%`, background: "var(--ledger-accent-action)" }} />
+                        </span>
+                        <span style={{ textAlign: "right", fontFamily: "var(--font-adc-mono), monospace" }}><Value value={row.sessions} name={`${row.name}-sessions`} /></span>
+                      </div>
+                    );
+                  })}
+                  <span data-collection="traffic" data-cst="complete" style={{ paddingTop: 4, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+                    Showing {trafficSources.length} of {trafficSources.length} served sources · complete
+                  </span>
+                </div>
+              ) : !trend && cohortView === "chart" ? (
+                <div role="img" aria-label={copy.audienceSessionComparison} style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                  {overview.cohorts.map((row) => {
+                    const max = Math.max(...overview.cohorts.map((item) => item.sessions.available ? item.sessions.raw : 0), 1);
+                    return (
+                      <div key={row.key} style={{ display: "grid", gridTemplateColumns: "88px minmax(0,1fr) 72px", alignItems: "center", gap: 10, fontSize: 12 }}>
+                        <span style={{ textTransform: "capitalize" }}>{row.key}</span>
+                        <span aria-hidden="true" style={{ display: "block", height: 14, borderRadius: 4, background: "var(--ledger-bg-inset)", overflow: "hidden" }}>
+                          <span style={{ display: "block", height: "100%", width: `${row.sessions.available ? Math.max(4, row.sessions.raw / max * 100) : 0}%`, background: "var(--ledger-accent-action)" }} />
+                        </span>
+                        <span style={{ textAlign: "right", fontFamily: "var(--font-adc-mono), monospace" }}><Value value={row.sessions} name={`${row.key}-sessions`} /></span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                trafficSources.length > 0 ? (
+                  <DataTable
+                    collection="traffic"
+                    caption={copy.trafficSources}
+                    rows={[...trafficSources]}
+                    rowKey={(row) => row.name}
+                    columns={[
+                      { id: "name", header: "Source", render: (row) => row.name },
+                      { id: "sessions", header: "Sessions", numeric: true, render: (row) => <Value value={row.sessions} name={`${row.name}-sessions-table`} /> },
+                    ]}
+                  />
+                ) : (
+                  <DataTable
+                    collection="traffic"
+                    caption={copy.audienceCohorts}
+                    rows={[...overview.cohorts]}
+                    rowKey={(row) => row.key}
+                    columns={[
+                      { id: "key", header: "Cohort", render: (row) => row.key },
+                      { id: "sessions", header: "Sessions", numeric: true, render: (row) => <Value value={row.sessions} name={`${row.key}-sessions`} /> },
+                      { id: "purchases", header: "Purchases", numeric: true, render: (row) => <Value value={row.purchases} name={`${row.key}-purchases`} /> },
+                      { id: "purchaseCvr", header: "Purchase CVR", numeric: true, render: (row) => <Value value={row.purchaseCvr} name={`${row.key}-cvr`} /> },
+                    ]}
+                  />
+                )
+              )}
+            </section>
+            <section aria-label={copy.latestAiInsight} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{copy.aiInsights} <span style={{ display: "inline-flex", marginLeft: 5, padding: "2px 7px", border: "1px solid var(--ledger-accent-action)", borderRadius: 999, background: "var(--ledger-accent-tint)", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-accent-action)" }}>{copy.readLatestOnly}</span></h2>
+              {insight.absentReason ? (
+                <p data-insight="absent" data-el="lp-ai-commentary" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{insight.absentReason}</p>
+              ) : (
+                <p data-insight="present" data-el="lp-ai-commentary" style={{ margin: "8px 0 0", fontSize: 13 }}>{insight.text}</p>
+              )}
+              {overview.insights.length > 0 ? <ul data-ga4-insights="" style={{ margin: "10px 0 0", paddingLeft: 18 }}>{overview.insights.map((text) => <li key={text} style={{ fontSize: 12 }}>{text}</li>)}</ul> : null}
+              <p data-insight-read-only="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.readsLatestInsight}</p>
+              <div data-el="source-missing-state" style={{ marginTop: 8, padding: "8px 10px", border: "1px dashed var(--ledger-border-control)", borderRadius: 8, fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>
+                {copy.aiGenerationUnavailable}
+              </div>
+            </section>
+          </div>
         </>
       )}
-
-      <section aria-label={copy.latestAiInsight} style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.latestAiInsight}</h2>
-        {insight.absentReason ? (
-          <p data-insight="absent" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            {insight.absentReason}
-          </p>
-        ) : (
-          <p data-insight="present" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 13 }}>
-            {insight.text}
-            {insight.generatedAt ? (
-              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                Generated {insight.generatedAt}
-              </span>
-            ) : null}
-          </p>
-        )}
-        {/* Read only. There is no generate control here, and no code path to one. */}
-        <p data-insight-read-only="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          {copy.readsLatestInsight}
-        </p>
-      </section>
-    </Shell>
+      <style>{`@media(max-width:900px){[data-analytics-kpis]{grid-template-columns:repeat(2,minmax(140px,1fr))!important}[data-analytics-overview-grid]{grid-template-columns:1fr!important}} @media(max-width:520px){[data-analytics-kpis]{grid-template-columns:1fr!important}}`}</style>
+    </div>
   );
 }
 
@@ -324,26 +363,27 @@ export function SeoView({
             {seo.rowCount === null ? "" : ` · ${seo.rowCount} rows in window`}
           </p>
 
-          <div data-el="seo-gen-states" style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
-            <Button
-              variant="secondary"
-              data-ctl="gated:SEO-04 run"
-              state={
-                role.allowed
-                  ? { kind: "enabled" }
-                  : { kind: "disabled", reason: role.reason }
-              }
-              onClick={onRunAnalysis}
-            >
-              {copy.runAnalysis}
-            </Button>
-          </div>
-          <div data-collection="seo">
+          <div data-seo-layout="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 2fr)", gap: 12, marginTop: 12, alignItems: "start" }}>
+          <div style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>{copy.seoFindings}</h2>
+          <div data-collection="seo" style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            {[
+              ...seo.recommendations.map((item) => ({ ...item, severity: "HIGH" })),
+              ...seo.causes.map((item) => ({ ...item, severity: "MED" })),
+              ...seo.decliningQueries.map((item) => ({ ...item, severity: "LOW" })),
+            ].slice(0, 3).map((item) => (
+              <article key={`${item.severity}-${item.id}`} style={{ display: "grid", gridTemplateColumns: "48px minmax(0,1fr)", gap: 10, alignItems: "start", padding: 10, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-app)", fontSize: 12 }}>
+                <strong style={{ color: item.severity === "HIGH" ? "var(--ledger-semantic-danger)" : item.severity === "MED" ? "var(--ledger-semantic-warn)" : "var(--ledger-accent-action)" }}>{item.severity}</strong>
+                <span>{item.label}</span>
+              </article>
+            ))}
           {onLoadMore ? (
-            <Button variant="secondary" data-ctl="live:SEO-01 load-more" onClick={onLoadMore}>
+            <Button variant="quiet" data-ctl="live:SEO-01 load-more" onClick={onLoadMore}>
               {copy.loadMore}
             </Button>
           ) : null}
+          <details style={{ marginTop: 4 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--ledger-accent-action)" }}>{copy.searchPerformance}</summary>
           <DataTable
             caption={copy.searchPerformance}
             rows={[...seo.summary]}
@@ -361,21 +401,38 @@ export function SeoView({
               },
             ]}
           />
+          </details>
+          </div>
           </div>
 
+          <aside style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <div data-el="seo-gen-states" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
+            <strong style={{ fontSize: 13 }}>AI analysis · server-gated</strong>
+            <Button
+              variant="secondary"
+              data-ctl="gated:SEO-04 run"
+              state={role.allowed ? { kind: "enabled" } : { kind: "disabled", reason: role.reason }}
+              onClick={onRunAnalysis}
+            >
+              {copy.runAnalysis}
+            </Button>
+          </div>
           <SeoList id="leaders" title={copy.leadingQueries} items={seo.leaderQueries} />
           <SeoList id="declining" title={copy.decliningQueries} items={seo.decliningQueries} />
           <SeoList id="causes" title={copy.likelyCauses} items={seo.causes} />
           <SeoList id="recommendations" title={copy.recommendations} items={seo.recommendations} />
 
           {seo.aiBriefHeadline ? (
-            <p data-seo-ai-brief="" data-el="seo-gen-states" style={{ margin: "12px 0 0", fontSize: 12 }}>
+            <p data-seo-ai-brief="" data-el="seo-gen-states" style={{ margin: "12px 0 0", padding: 10, borderRadius: 7, background: "var(--ledger-accent-tint)", fontSize: 12 }}>
               {seo.aiBriefHeadline}
               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 {copy.servedBriefReadOnly}
               </span>
             </p>
           ) : null}
+          </aside>
+          </div>
+          <style>{`@media(max-width:860px){[data-seo-layout]{grid-template-columns:1fr!important}}`}</style>
         </>
       )}
     </Shell>
@@ -399,7 +456,23 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
     <Shell title="GEO">
       <SourcePanels panels={geo.sources} />
 
-      <section aria-label={copy.aiPageReach} data-el="geo-gated" style={{ marginTop: 16 }}>
+      <section data-geo-kpis="" aria-label={copy.geoSummary} style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
+        <article style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.aiCitedPages}</span>
+          <strong style={{ display: "block", marginTop: 4, font: "700 18px/1.25 var(--font-mono, monospace)" }}><Value value={geo.aiPageCount} name="aiPageCountSummary" /></strong>
+        </article>
+        <article style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.sourcesServing}</span>
+          <strong style={{ display: "block", marginTop: 4, font: "700 18px/1.25 var(--font-mono, monospace)" }}>{geo.sources.filter((source) => source.connected).length} / {geo.sources.length}</strong>
+        </article>
+        <article style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.prioritiesServed}</span>
+          <strong style={{ display: "block", marginTop: 4, font: "700 18px/1.25 var(--font-mono, monospace)" }}>{geo.priorities.length}</strong>
+        </article>
+      </section>
+
+      <div data-geo-layout="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 2fr)", gap: 12, marginTop: 12, alignItems: "start" }}>
+      <section aria-label={copy.aiPageReach} data-el="geo-gated" style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.aiVisitedPages}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 13 }}>
           <Value value={geo.aiPageCount} name="aiPageCount" />
@@ -416,7 +489,7 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
         ) : null}
       </section>
 
-      <section aria-label={copy.priorities} style={{ marginTop: 20 }}>
+      <section aria-label={copy.priorities} style={{ padding: 12, border: "1px solid var(--ledger-semantic-warn)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.topPriorities}</h2>
         <ol data-geo-priorities="" data-collection="geo" style={{ margin: "8px 0 0", paddingLeft: 18, minHeight: 24 }}>
           {geo.priorities.length === 0 ? (
@@ -437,6 +510,8 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
           {GEO_TOP_THREE_DISCLOSURE}
         </p>
       </section>
+      </div>
+      <style>{`@media(max-width:860px){[data-geo-kpis]{grid-template-columns:1fr!important}[data-geo-layout]{grid-template-columns:1fr!important}}`}</style>
     </Shell>
   );
 }

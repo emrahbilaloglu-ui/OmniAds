@@ -352,6 +352,7 @@ export interface AdaptedAnalyticsOverview {
   kpis: Array<{ key: string; value: AnalyticsValue }>;
   /** New vs returning, kept as two labelled cohorts rather than summed. */
   cohorts: Array<{ key: "new" | "returning"; sessions: AnalyticsValue; purchases: AnalyticsValue; purchaseCvr: AnalyticsValue }>;
+  trafficSources?: Array<{ name: string; sessions: AnalyticsValue }>;
   insights: string[];
 }
 
@@ -412,6 +413,15 @@ export function adaptAnalyticsOverview(raw: unknown): Adapted<AdaptedAnalyticsOv
       // Two cohorts, never added together: "new + returning" is not a metric
       // GA4 serves and summing them invents one.
       cohorts: [cohortOf("new"), cohortOf("returning")],
+      trafficSources: Array.isArray(raw.trafficSources)
+        ? raw.trafficSources.flatMap((item) => {
+            if (!isRecord(item)) return [];
+            const name = str(item.name);
+            return name
+              ? [{ name, sessions: analyticsValue(item.sessions, (value) => String(Math.trunc(value))) }]
+              : [];
+          })
+        : [],
       insights: Array.isArray(raw.insights)
         ? raw.insights
             .map((item) => (isRecord(item) ? str(item.text) : str(item)))

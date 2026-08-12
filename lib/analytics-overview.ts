@@ -35,6 +35,10 @@ export interface AnalyticsOverviewResponse {
       purchaseCvr: number;
     };
   };
+  trafficSources?: Array<{
+    name: string;
+    sessions: number;
+  }>;
   insights?: Array<{ type: string; text: string }>;
 }
 
@@ -146,6 +150,34 @@ async function runNewVsReturningReport(params: {
   }
 }
 
+async function runTrafficSourcesReport(params: {
+  propertyId: string;
+  accessToken: string;
+  dateRanges: Array<{ startDate: string; endDate: string }>;
+}) {
+  try {
+    return await runGA4Report({
+      propertyId: params.propertyId,
+      accessToken: params.accessToken,
+      dateRanges: params.dateRanges,
+      dimensions: [{ name: "sessionDefaultChannelGroup" }],
+      metrics: [{ name: "sessions" }],
+      limit: 8,
+    });
+  } catch (error) {
+    if (isGa4InvalidArgumentError(error)) {
+      return {
+        dimensionHeaders: ["sessionDefaultChannelGroup"],
+        metricHeaders: ["sessions"],
+        rows: [],
+        rowCount: 0,
+        totals: undefined,
+      };
+    }
+    throw error;
+  }
+}
+
 function readMetric(
   report: { metricHeaders: string[]; totals?: Array<{ metrics: string[] }>; rows: Array<{ metrics: string[] }> },
   metricName: string
@@ -177,13 +209,18 @@ export async function getAnalyticsOverviewData(params: {
 
   const dateRanges = [{ startDate, endDate }];
 
-  const [overviewReport, newVsReturningReport] = await Promise.all([
+  const [overviewReport, newVsReturningReport, trafficSourcesReport] = await Promise.all([
     runOverviewSummaryReport({
       propertyId,
       accessToken,
       dateRanges,
     }),
     runNewVsReturningReport({
+      propertyId,
+      accessToken,
+      dateRanges,
+    }),
+    runTrafficSourcesReport({
       propertyId,
       accessToken,
       dateRanges,
@@ -233,6 +270,13 @@ export async function getAnalyticsOverviewData(params: {
     overview: { sessions, engagedSessions, purchases, revenue },
     audience: { newSessions, newPurchases, returningSessions, returningPurchases },
   });
+  const trafficSources = trafficSourcesReport.rows
+    .map((row) => ({
+      name: row.dimensions[0]?.trim() || "Unassigned",
+      sessions: parseFloat(row.metrics[0] ?? "0"),
+    }))
+    .filter((row) => Number.isFinite(row.sessions))
+    .sort((a, b) => b.sessions - a.sessions);
 
   return {
     propertyName,
@@ -263,6 +307,7 @@ export async function getAnalyticsOverviewData(params: {
           returningSessions > 0 ? returningPurchases / returningSessions : 0,
       },
     },
+    trafficSources,
     insights,
   };
 }

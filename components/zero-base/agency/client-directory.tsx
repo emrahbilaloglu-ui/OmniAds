@@ -44,6 +44,21 @@ import {
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
+function membershipLabel(role: string): string {
+  return role.replaceAll("_", " ");
+}
+
+function sourceActivityLabel(value: string | null): string {
+  if (!value) return "No source activity";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value;
+  const elapsedMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes}m ago`;
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  if (elapsedHours < 48) return `${elapsedHours >= 20 ? "Stale — " : "Updated "}${elapsedHours}h ago`;
+  return `No update since ${new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(timestamp)}`;
+}
+
 export interface AgencyDirectoryPageData {
   items: AgencyClientRow[];
   servedCount: number;
@@ -171,8 +186,9 @@ export function ClientDirectory({
   };
 
   return (
-    <section>
-      <div style={{ maxWidth: 320, marginBottom: 16 }}>
+    <section data-agency-directory="" style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
+        <div style={{ maxWidth: 320, flex: "1 1 240px" }}>
         <TextInput
           label={copy.findAClient}
           data-ctl="live:SCOPE-11 client-search"
@@ -181,6 +197,10 @@ export function ClientDirectory({
           onChange={(event) => setQuery(event.target.value)}
           hint={copy.filtersLoadedClients}
         />
+        </div>
+        <span style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: 999, padding: "5px 10px", font: "12px/1.2 var(--font-mono, monospace)", color: "var(--ledger-ink-secondary)" }}>
+          Showing {rows.length}{initialPage.totalCount == null ? " loaded" : ` of ${initialPage.totalCount} clients`}{cursor === null ? " — complete list" : ""}
+        </span>
       </div>
 
       <Collection
@@ -216,43 +236,66 @@ export function ClientDirectory({
           columns={[
             {
               id: "name",
-              header: "Client",
+              header: "Client · your membership",
+              render: (row) => (
+                <span style={{ display: "grid", gap: 1 }}>
+                  <strong style={{ color: "var(--ledger-ink-primary)", fontSize: 13 }}>{row.name}</strong>
+                  <span style={{ color: "var(--ledger-ink-secondary)", font: "12px/1.3 var(--font-mono, monospace)", textTransform: "lowercase" }}>
+                    {membershipLabel(row.role)}
+                  </span>
+                </span>
+              ),
+            },
+            {
+              id: "meta-connection",
+              header: "Meta connection",
+              render: (row) => (
+                <span style={{ color: row.metaConnectionStatus === "connected" ? "var(--ledger-semantic-ok)" : "var(--ledger-ink-secondary)", fontWeight: 650, whiteSpace: "nowrap" }}>
+                  <span aria-hidden="true">● </span>{row.metaConnectionStatus === "connected" ? "Connected" : "Not connected"}
+                </span>
+              ),
+            },
+            {
+              id: "meta-accounts",
+              header: "Meta accts",
+              render: (row) => (row.selectedMetaAccountCount ?? 0) > 0 ? `${row.selectedMetaAccountCount} selected` : "—",
+            },
+            {
+              id: "activity",
+              header: "Source activity (warehouse)",
+              render: (row) => (
+                <span
+                  data-source-activity={row.sourceUpdatedAt ? "" : "none"}
+                  style={{ color: row.sourceUpdatedAt ? "var(--ledger-ink-primary)" : "var(--ledger-ink-secondary)", whiteSpace: "nowrap" }}
+                >
+                  {sourceActivityLabel(row.sourceUpdatedAt)}
+                </span>
+              ),
+            },
+            {
+              id: "currency",
+              header: "Configured currency",
+              render: (row) => (
+                <span data-currency-configured="">
+                  {row.configuredCurrency ? `${row.configuredCurrency} · configured` : "Not set"}
+                </span>
+              ),
+            },
+            {
+              id: "open",
+              header: "",
               render: (row) => (
                 <Link
                   href={hrefFor(row.businessId)}
                   data-open-client={row.businessId}
                   data-ctl="live:AGENCY-04 open-client"
                   data-el="flow-a-direction-enter"
-                  style={{ color: "var(--ledger-accent-action)", textDecoration: "none" }}
+                  aria-label={`Open ${row.name}`}
+                  style={{ color: "var(--ledger-accent-action)", textDecoration: "none", fontWeight: 700, whiteSpace: "nowrap" }}
                 >
-                  {row.name}
+                  Open →
                 </Link>
               ),
-            },
-            { id: "role", header: "Your role", render: (row) => row.role },
-            {
-              id: "currency",
-              header: "Currency",
-              render: (row) => (
-                <span data-currency-configured="">
-                  {row.configuredCurrency ?? "Not set"}
-                  <span style={{ color: "var(--ledger-ink-tertiary)" }}> (configured)</span>
-                </span>
-              ),
-            },
-            {
-              id: "activity",
-              header: "Last source activity",
-              render: (row) =>
-                row.sourceUpdatedAt ? (
-                  <span data-source-activity="">{row.sourceUpdatedAt}</span>
-                ) : (
-                  // Not a dash: a dash reads like zero, and "we have never
-                  // recorded one" is a different fact.
-                  <span data-source-activity="none" style={{ color: "var(--ledger-ink-tertiary)" }}>
-                    {copy.notRecorded}
-                  </span>
-                ),
             },
           ]}
         />
@@ -265,7 +308,7 @@ export function ClientDirectory({
       ) : null}
 
       <p style={{ fontSize: 12, lineHeight: "16px", marginTop: 8, color: "var(--ledger-ink-tertiary)" }}>
-        {AGENCY_CURRENCY_NOTE} {AGENCY_ACTIVITY_NOTE}
+        Connection and freshness facts are Meta-specific. {AGENCY_CURRENCY_NOTE} {AGENCY_ACTIVITY_NOTE}
       </p>
     </section>
   );

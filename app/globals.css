@@ -7826,6 +7826,68 @@
   letter-spacing: inherit;
 }
 
+/* Auth/onboarding forms share legacy structural classes, but their canonical
+ * branch must use the same Ledger controls as the rest of the product. Without
+ * this scoped bridge the new frame still painted black legacy buttons and pale
+ * legacy inputs, which made the rollout look only partially redesigned. */
+[data-adc-ui="zero-base"] .ad-auth-form {
+  gap: 11px;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-label {
+  color: var(--ledger-ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-input,
+[data-adc-ui="zero-base"] .ad-auth-select {
+  min-height: 36px;
+  border-color: var(--ledger-border-control);
+  background: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary,
+[data-adc-ui="zero-base"] .ad-auth-secondary,
+[data-adc-ui="zero-base"] .ad-auth-link-button {
+  min-height: 36px;
+  border-radius: var(--ledger-radius-input);
+  font-size: 12.5px;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary {
+  border-color: var(--ledger-accent-action);
+  background: var(--ledger-accent-action);
+  color: var(--ledger-bg-surface);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-secondary,
+[data-adc-ui="zero-base"] .ad-auth-link-button {
+  border-color: var(--ledger-border-control);
+  background: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-row {
+  color: var(--ledger-ink-secondary);
+  align-items: center;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-row a,
+[data-adc-ui="zero-base"] .ad-auth-footer a {
+  color: var(--ledger-accent-action);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-secondary:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-link-button:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-input:focus,
+[data-adc-ui="zero-base"] .ad-auth-select:focus {
+  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
+  outline-offset: var(--ledger-focus-offset);
+}
+
 /* Anything carrying a control contract is a target.
  *
  * A bare inline link is 16px tall and a native checkbox is 13×13 — below the
@@ -8022,4 +8084,80 @@
    inline, which still wins. */
 [data-adc-ui="zero-base"] * {
   min-width: 0;
+}
+
+/* Ops preserves the proven admin read/write handlers, but its presentation is
+   the Ledger operator product. This adapter is deliberately scoped to Ops so
+   the compatibility routes can retain their old CSS during rollback. */
+[data-ops-content] {
+  color: var(--ledger-ink-primary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+[data-ops-content] > * + *,
+[data-ops-supporting-diagnostics] {
+  margin-top: 16px;
+}
+
+[data-ops-supporting-diagnostics] {
+  padding-top: 16px;
+  border-top: 1px solid var(--ledger-border-subtle);
+}
+
+[data-ops-content] :is(.bg-white, .bg-neutral-50, .bg-gray-50, .bg-slate-50) {
+  background-color: var(--ledger-bg-surface) !important;
+}
+
+[data-ops-content] :is(.border-neutral-100, .border-neutral-200, .border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
+  border-color: var(--ledger-border-subtle) !important;
+}
+
+[data-ops-content] :is(.text-neutral-400, .text-neutral-500, .text-gray-400, .text-gray-500, .text-slate-400, .text-slate-500) {
+  color: var(--ledger-ink-tertiary) !important;
+}
+
+[data-ops-content] :is(.text-neutral-600, .text-neutral-700, .text-gray-600, .text-gray-700, .text-slate-600, .text-slate-700) {
+  color: var(--ledger-ink-secondary) !important;
+}
+
+[data-ops-content] :is(.text-neutral-800, .text-neutral-900, .text-gray-800, .text-gray-900, .text-slate-800, .text-slate-900) {
+  color: var(--ledger-ink-primary) !important;
+}
+
+[data-ops-content] :is(.rounded-lg, .rounded-xl, .rounded-2xl) {
+  border-radius: var(--ledger-radius-card) !important;
+}
+
+[data-ops-content] :is(input, select, textarea) {
+  min-height: 36px;
+  padding: 7px 10px;
+  border-color: var(--ledger-border-control) !important;
+  border-radius: var(--ledger-radius-input) !important;
+  background: var(--ledger-bg-surface) !important;
+  color: var(--ledger-ink-primary) !important;
+  font: inherit;
+}
+
+[data-ops-content] button,
+[data-ops-content] a[class*="border"] {
+  min-height: 36px;
+  border-radius: var(--ledger-radius-button) !important;
+  font-size: 12px;
+}
+
+[data-ops-content] table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+[data-ops-content] th {
+  color: var(--ledger-ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+[data-ops-content] :is(th, td) {
+  border-color: var(--ledger-border-subtle) !important;
 }

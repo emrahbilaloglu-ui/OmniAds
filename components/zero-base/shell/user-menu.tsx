@@ -16,18 +16,45 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const USER_MENU_ITEMS = ["profile", "language", "theme", "logout"] as const;
 
-export function UserMenu({ name, onLogout }: { name: string; onLogout: () => void }) {
+export function UserMenu({ name, onLogout, rail = false }: { name: string; onLogout: () => void; rail?: boolean }) {
   const t = useCopy();
   const copy = useCopy();
   return (
     <ZeroBasePopover
       label={copy.account}
-      trigger={
+      trigger={rail ? (
+        <button
+          type="button"
+          aria-label={`Account — ${name}`}
+          data-user-menu-trigger=""
+          data-ctl="live:AUTH-07 user-menu"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "28px minmax(0, 1fr) auto",
+            alignItems: "center",
+            gap: 8,
+            width: "100%",
+            minHeight: 38,
+            padding: 0,
+            border: 0,
+            background: "transparent",
+            color: "var(--ledger-ink-primary)",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 999, background: "var(--ledger-bg-inset)", fontSize: 12, fontWeight: 700 }}>
+            {name.trim().slice(0, 1).toUpperCase() || "U"}
+          </span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: 600 }}>{name}</span>
+          <span aria-hidden="true" style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>•••</span>
+        </button>
+      ) : (
         <Button variant="secondary" aria-label={`Account — ${name}`} data-user-menu-trigger=""
           data-ctl="live:AUTH-07 user-menu">
           {name}
         </Button>
-      }
+      )}
     >
       <div style={{ display: "grid", gap: 10, minWidth: 220 }}>
         <Link

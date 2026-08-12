@@ -131,12 +131,14 @@ const creativeRow = (overrides: Record<string, unknown> = {}) => ({
  */
 const home = (ready: boolean) => {
   const sources: HomeSourceState[] = [
-    { key: "meta", label: "Meta Ads", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
-    { key: "google", label: "Google Ads", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
-    { key: "shopify", label: "Shopify", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
     ready
       ? { key: "ga4", label: "GA4", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" }
       : { key: "ga4", label: "GA4", state: "unavailable", reason: "Not connected.", freshness: "unknown", lastUpdatedAt: null, remedy: "connect" },
+    { key: "meta", label: "Meta Ads", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
+    { key: "google", label: "Google Ads", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
+    ready
+      ? { key: "shopify", label: "Shopify", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" }
+      : { key: "shopify", label: "Shopify", state: "unavailable", reason: "Connection expired.", freshness: "stale", lastUpdatedAt: "2026-08-02T06:00:00Z", remedy: "reconnect" },
     ready
       ? { key: "search_console", label: "Search Console", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" }
       : { key: "search_console", label: "Search Console", state: "unavailable", reason: "No site selected.", freshness: "unknown", lastUpdatedAt: null, remedy: "select" },
@@ -255,6 +257,10 @@ const publicShare = (kind: "image" | "video") => ({
         alt: "Summer hero creative",
       },
       mediaUnavailableReason: null,
+      metrics: [
+        { key: "purchases" as const, label: "Purchases", value: "96" },
+        { key: "roas" as const, label: "Result trend", value: "Improving" },
+      ],
     },
   ],
 });
@@ -279,7 +285,7 @@ const agencyPage = (count: number) => ({
 });
 
 const agencyDesk = (returnedFrom: { name: string; href: string } | null = null) => (
-  <AgencyDeskView initialPage={agencyPage(4)} returnedFrom={returnedFrom} />
+  <AgencyDeskView initialPage={agencyPage(10)} returnedFrom={returnedFrom} />
 );
 
 
@@ -436,6 +442,8 @@ const intelSources = [
     facts: [
       { label: "Active campaigns", value: "12" },
       { label: "Learning ad sets", value: "3" },
+      { label: "Spend (window)", value: "$48,213" },
+      { label: "Anomalies served", value: "1 spend spike" },
     ],
   },
   {
@@ -556,23 +564,40 @@ const googlePlan = (withLink = true, gap = true, batch = false) => (
 );
 
 const googleOverview = () => (
-  <div style={{ display: "grid", gap: 16 }}>
-    {trendBoard("Google spend & ROAS trend", "google-overview")}
   <GoogleOverviewView
     scope={GOOGLE_SCOPE}
     source={GOOGLE_SERVING}
+    kpis={[
+      { key: "spend", value: 22406, delta: null },
+      { key: "conversions", value: 512, delta: 6.2 },
+      { key: "cpa", value: 43.76, delta: 4.1 },
+      { key: "impression_share", value: null, delta: null },
+    ]}
     rows={[
       {
         id: "a1",
-        account: "Halcyon US",
-        spend: googleValue("4,210.40 USD", 4210.4),
-        conversions: googleValue("184", 184),
-        pulse: "Steady",
+        account: "Search — Brand",
+        spend: googleValue("6,112 USD", 6112),
+        conversions: googleValue("201", 201),
+        pulse: "Budget ok",
+      },
+      {
+        id: "a2",
+        account: "PMax — Catalog",
+        spend: googleValue("9,804 USD", 9804),
+        conversions: googleValue("188", 188),
+        pulse: "Shared-budget governance",
+      },
+      {
+        id: "a3",
+        account: "Search — NB Trail Gear",
+        spend: googleValue("6,490 USD", 6490),
+        conversions: googleValue("123", 123),
+        pulse: "Limited by budget",
       },
     ]}
     onPortfolioChange={() => {}}
   />
-  </div>
 );
 
 const googleAdvisor = () => (
@@ -580,8 +605,9 @@ const googleAdvisor = () => (
     scope={GOOGLE_SCOPE}
     source={GOOGLE_SERVING}
     items={[
-      { id: "a1", title: "Raise Shopping tROAS to 2.6", rationale: "ROAS above target for 7 days.", urgency: "do now" },
+      { id: "a1", title: "Raise Shopping tROAS to 2.6", rationale: "ROAS above target for 7 days.", urgency: "do_now" },
       { id: "a2", title: "Add negative keyword: free", rationale: "Spend with no conversions.", urgency: "next" },
+      { id: "a3", title: "Pause underperforming image asset", rationale: "Asset-group signals remained weak for 12 days.", urgency: "later" },
     ]}
     referenceCards={[
       {
@@ -603,15 +629,18 @@ const googleAdvisor = () => (
 /* ------------------------------------------- reports / creative / launchpad */
 
 const REPORTS = [
-  { id: "r1", name: "Weekly review", updatedAt: "2026-08-11" },
-  { id: "r2", name: "Creative performance", updatedAt: "2026-08-09" },
+  { id: "r1", name: "Monthly performance — Halcyon", updatedAt: "2026-08-11" },
+  { id: "r2", name: "Creative deep-dive — July", updatedAt: "2026-08-09" },
+  { id: "r3", name: "Weekly pulse — Meta + Google", updatedAt: "2026-08-08" },
 ];
 
 const BUILDER_GRID = {
   widgets: [
-    { id: "w1", sourceId: "overview_summary", label: "Blended spend", x: 0, y: 0, w: 6, h: 4 },
-    { id: "w2", sourceId: "meta_campaigns", label: "Campaigns", x: 6, y: 0, w: 6, h: 4 },
-    { id: "w3", sourceId: "", label: "Notes", x: 0, y: 4, w: 12, h: 2 },
+    { id: "w1", sourceId: "overview_summary", label: "Spend (Meta)", x: 0, y: 0, w: 4, h: 3 },
+    { id: "w2", sourceId: "overview_trend", label: "ROAS trend", x: 4, y: 0, w: 4, h: 3 },
+    { id: "w3", sourceId: "unknown_source", label: "Widget failed · source timeout", x: 8, y: 0, w: 4, h: 3 },
+    { id: "w4", sourceId: "meta_campaigns", label: "Campaign table", x: 0, y: 3, w: 8, h: 3 },
+    { id: "w5", sourceId: "", label: "Notes for the client…", x: 8, y: 3, w: 4, h: 3 },
   ],
 };
 
@@ -689,20 +718,25 @@ const SOURCE_PANELS = [
 ];
 
 const analyticsOverview = () => (
-  <div style={{ display: "grid", gap: 16 }}>
   <SourceOverviewView
-    trend={trendBoard("Sessions & revenue trend", "analytics")}
     panels={SOURCE_PANELS}
     overview={{
       propertyName: "Halcyon Supply Co. — GA4",
       kpis: [
-        { key: "sessions", value: av("48,120", 48120) },
-        { key: "purchases", value: av("612", 612) },
+        { key: "sessions", value: av("84,206", 84206) },
+        { key: "purchases", value: av("1,204", 1204) },
+        { key: "averageOrderValue", value: av("62.40 USD", 62.4) },
         { key: "revenue", value: av("48,293.75 USD", 48293.75) },
       ],
       cohorts: [
         { key: "new" as const, sessions: av("31,400", 31400), purchases: av("290", 290), purchaseCvr: av("0.92%", 0.92) },
         { key: "returning" as const, sessions: av("16,720", 16720), purchases: av("322", 322), purchaseCvr: av("1.93%", 1.93) },
+      ],
+      trafficSources: [
+        { name: "Paid social", sessions: av("31,204", 31204) },
+        { name: "Organic search", sessions: av("22,410", 22410) },
+        { name: "Direct", sessions: av("15,208", 15208) },
+        { name: "Paid search", sessions: av("13,388", 13388) },
       ],
       insights: [],
     }}
@@ -712,7 +746,6 @@ const analyticsOverview = () => (
       absentReason: null,
     }}
   />
-  </div>
 );
 
 const seoView = () => (
@@ -1006,16 +1039,58 @@ const searchOverlay = () => (
   />
 );
 
+const PERFORMANCE_FIXTURES = [
+  { name: "UGC Testimonial 03", spend: 4102, roas: 3.8, cpa: 42.73, purchases: 96, action: "refresh", label: "Refresh creative", state: "actionable", target: 2.6 },
+  { name: "Static Offer — 20% Off", spend: 2204, roas: 1.9, cpa: 51.26, purchases: 43, action: "cut", label: "Retire", state: "blocked: policy review", target: 2.6 },
+  { name: "Founder Story 60s", spend: 903, roas: 2.4, cpa: 47.53, purchases: 19, action: null, label: "Held — review only", state: "shadow-only", target: 2.6 },
+  { name: "Trail Mug Carousel", spend: 1671, roas: 2.9, cpa: 35.55, purchases: 47, action: "keep", label: "Keep · monitor", state: "monitor", target: 2.6 },
+  { name: "Spring Promo 15s (2024)", spend: 310, roas: null, cpa: null, purchases: 4, action: null, label: null, state: null, target: null },
+] as const;
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
   rows = 1,
-) =>
-  buildPerformanceViewModel({
-    rows: Array.from({ length: rows }, (_, i) => creativeRow({ id: `r${i}`, creative_id: `c${i}` })) as never,
+) => {
+  const selected = PERFORMANCE_FIXTURES.slice(0, rows);
+  return buildPerformanceViewModel({
+    rows: selected.map((fixture, i) =>
+      creativeRow({
+        id: `r${i}`,
+        creative_id: `c${i}`,
+        real_ad_id: `ad${i}`,
+        account_id: "act_1",
+        name: fixture.name,
+        campaign_name: i === 4 ? null : "Spring Refresh — Conversions",
+        adset_name: i === 4 ? null : `Ad set ${i + 1}`,
+        spend: fixture.spend,
+        roas: fixture.roas,
+        cpa: fixture.cpa,
+        purchases: fixture.purchases,
+        currency: "USD",
+      }),
+    ) as never,
+    canonicalDecisions: selected.flatMap((fixture, i) =>
+      fixture.label
+        ? [
+            {
+              providerAccountId: "act_1",
+              parentChain: { ad: { id: `ad${i}` }, creative: { id: `c${i}` } },
+              classification: {
+                buyerAction: fixture.action,
+                buyerLabel: fixture.label,
+                decisionState: fixture.state,
+              },
+              metrics: { effectiveTargetRoas: fixture.target },
+            },
+          ]
+        : [],
+    ) as never,
     posture,
     totalAvailable: total,
+    defaultCurrency: "USD",
   });
+};
 
 const NO_WRITE = { pending: null, error: null, confirmed: null };
 const ALLOWED = { ok: true } as const;
@@ -1038,6 +1113,8 @@ const widget = (overrides: Record<string, unknown>) => ({
 const members = [
   { membershipId: "m1", userId: "u1", name: "Ada Lovelace", email: "ada@x.test", role: "admin", status: "active" },
   { membershipId: "m2", userId: "u2", name: "Bo Reeves", email: "bo@x.test", role: "guest", status: "active" },
+  { membershipId: "m3", userId: "u3", name: "Deni Kaya", email: "deniz@agency.co", role: "collaborator", status: "active" },
+  { membershipId: "m4", userId: "u4", name: "Emre Yalçın", email: "emre@agency.co", role: "reviewer", status: "invited" },
 ];
 
 const ACCESS_REQUESTS = [
@@ -1120,7 +1197,7 @@ export const FRAMES: readonly FrameSpec[] = [
   ) },
   { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => homeFrame(true) },
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
-  { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" failure={{ message: "That email and password do not match an account.", retryAfterSeconds: null, offline: false }} /> },
+  { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" /> },
   { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => searchOverlay() },
   { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <ContextResetNotice droppedLabel="act_298410771 · Halcyon Main" onAssign={() => {}} /> },
   { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => homeFrame(true) },
@@ -1137,32 +1214,21 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- H17–H20: intelligence, history, automation ---- */
   { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} snapshot={{ canRun: true, reason: null, queued: false }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
-  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" onClose={() => {}} query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} /> },
+  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" onClose={() => {}} query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} initialReplayId="h2" /> },
   { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("engage")} onEngage={() => {}} onModeChange={() => {}} /> },
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },
 
   /* ---- H21–H28: creative ---- */
-  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" onPresetChange={() => {}} onSortChange={() => {}} onActionStateChange={() => {}} onLoadMore={() => {}} /> },
+  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 128, 5)} businessId="biz" onPresetChange={() => {}} onSortChange={() => {}} onActionStateChange={() => {}} onLoadMore={() => {}} /> },
   { id: "H22", leaf: "L-C-CR-DETAIL", state: "creative-detail-actionable", width: 1440, theme: "light", render: () => creativeDetail(true) },
   { id: "H23", leaf: "L-C-CR-DETAIL", state: "creative-detail-shadow", width: 1440, theme: "light", render: () => creativeDetail(false) },
   { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} backHref="/c/biz/creative" canCreate createBlockedReason={null} onCreate={() => {}} /> },
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
   { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => (
-    <div style={{ display: "grid", gap: 24 }}>
-      {/* Both mint postures: the tier warning is the whole subject, so the
-          acknowledged and unacknowledged forms are drawn together. */}
+    <div>
       <SharesView
         rows={SHARE_ROWS}
-        onRevoke={() => {}}
-        onRotate={() => {}}
-        onCreate={() => {}}
-        initialAudience="buyer"
-        initialTitle="September review"
-        initialExpiresAt="2026-10-01"
-      />
-      <SharesView
-        rows={[]}
         onRevoke={() => {}}
         onRotate={() => {}}
         onCreate={() => {}}
@@ -1171,6 +1237,7 @@ export const FRAMES: readonly FrameSpec[] = [
         initialTitle="September review"
         initialExpiresAt="2026-10-01"
         initialAcknowledged
+        showAlternateGateProof
       />
     </div>
   ) },
@@ -1230,7 +1297,13 @@ export const FRAMES: readonly FrameSpec[] = [
     </div>
   ) },
   { id: "H45", leaf: "L-C-M-BIZ", state: "economics", width: 1440, theme: "light", render: () => business(ALLOWED, [
+    { key: "cogsPct", label: "COGS %", source: "Commercial Truth", consumers: ["Meta Decisions"], value: "34" },
+    { key: "fulfilment", label: "Fulfilment %", source: "Commercial Truth", consumers: ["Meta Decisions"], value: "8" },
+    { key: "payment", label: "Payment processing %", source: "Commercial Truth", consumers: ["Meta Decisions"], value: "2.9" },
+    { key: "margin", label: "Contribution-margin assumption %", source: "Commercial Truth", consumers: ["Meta Decisions"], value: "61" },
     { key: "targetRoas", label: "Target ROAS", source: "Cost model", consumers: ["Decision engine"], value: "2.0" },
+    { key: "feePct", label: "Fee %", source: "Cost model", consumers: ["Google"], value: "2.4" },
+    { key: "fixedCost", label: "Fixed costs / mo", source: "Cost model", consumers: ["Google"], value: "$1,900" },
     { key: "targetRoas", label: "Target ROAS", source: "Commercial targets", consumers: ["Reports"], value: "2.6" },
   ]) },
   { id: "H46", leaf: "L-ME-ACCOUNT", state: "account-security", width: 1440, theme: "light", render: () => (
@@ -1245,9 +1318,22 @@ export const FRAMES: readonly FrameSpec[] = [
   ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
   { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "admin-incident", width: 1440, theme: "light", render: () => (
-    <div style={{ display: "grid", gap: 16 }}>
-      {repair({ confirmation: { workspace: "Halcyon Supply Co.", provider: "Shopify", action: "verify_webhooks" } })}
-      <CriticalIncidentPath />
+    <div data-el="admin-incident" style={{ display: "grid", gap: 12 }}>
+      <p style={{ margin: 0, padding: "10px 12px", border: "1px solid var(--ledger-semantic-danger)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-inset)", color: "var(--ledger-semantic-danger)", fontSize: 12 }}><strong>Meta sync backlog — 4 businesses stale &gt; 24h</strong> · detected 08:41 UTC · queue depth 1,204 · worker restarts 3</p>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,3fr) minmax(280px,2fr)", gap: 12, alignItems: "start" }}>
+        <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr .7fr .8fr auto", gap: 10, padding: "0 0 7px", fontSize: 11, color: "var(--ledger-ink-tertiary)", textTransform: "uppercase" }}><span>Business</span><span>Provider</span><span>Last success</span><span>Action</span></div>
+          {["Peak & Pine Outfitters", "Brightloom Kids", "Verdana Botanics", "Nordlys Skincare"].map((name, index) => (
+            <div key={name} style={{ display: "grid", gridTemplateColumns: "1.5fr .7fr .8fr auto", gap: 10, alignItems: "center", padding: "9px 0", borderTop: "1px solid var(--ledger-bg-inset)", fontSize: 12 }}><strong>{name}</strong><span>Meta</span><span style={{ color: index === 0 ? "var(--ledger-semantic-danger)" : "var(--ledger-semantic-warn)" }}>{index === 0 ? "Jul 30 · 11d" : `${24 + index}h`}</span><Button variant="secondary">Repair sync…</Button></div>
+          ))}
+          <p style={{ margin: "8px 0 0", font: "12px/1.4 var(--font-mono, monospace)", color: "var(--ledger-ink-tertiary)" }}>Showing 4 of 4 stale businesses in this incident · complete</p>
+        </section>
+        <aside style={{ display: "grid", gap: 10 }}>
+          <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}><h2 style={{ margin: 0, fontSize: 14 }}>Repair — Peak &amp; Pine</h2><p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: "18px" }}>No receipt is recorded for this action yet. Confirm the provider and workspace before running.</p>{repair({ confirmation: { workspace: "Peak & Pine Outfitters", provider: "Meta" } })}</section>
+          <section style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}><h2 style={{ margin: 0, fontSize: 14 }}>Buyer-side effect</h2><p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: "18px" }}>Affected clients see stale freshness chips and demoted action styling until a new or repaired sync is independently read back.</p></section>
+          <CriticalIncidentPath />
+        </aside>
+      </div>
     </div>
   ) },
   { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <PublicSharePage share={publicShare("image")} /> },

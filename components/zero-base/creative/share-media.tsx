@@ -55,7 +55,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
           style={{
             minHeight: 44,
             padding: "10px 14px",
-            borderRadius: "var(--ledger-radius-control)",
+            borderRadius: "var(--ledger-radius-button)",
             border: "1px solid var(--ledger-border-control)",
             background: "var(--ledger-bg-surface)",
             color: "var(--ledger-ink-primary)",

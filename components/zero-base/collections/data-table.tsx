@@ -69,7 +69,7 @@ export function DataTable<Row>({
     // surface scroll instead drags the heading and the navigation sideways with
     // it, and the columns that go off the edge — where the row actions are —
     // give no sign they exist.
-    <div data-scroll-x="" style={{ overflowX: "auto", maxWidth: "100%" }}>
+    <div data-scroll-x="" data-responsive-table="" style={{ overflowX: "auto", maxWidth: "100%" }}>
     <table
       data-collection={collection}
       style={{
@@ -122,6 +122,7 @@ export function DataTable<Row>({
               return (
                 <Cell
                   key={column.id}
+                  data-label={column.header}
                   {...(isRowHeader ? { scope: "row" as const } : {})}
                   style={{
                     textAlign: column.numeric ? "right" : "left",
@@ -143,6 +144,23 @@ export function DataTable<Row>({
         ))}
       </tbody>
     </table>
+    <style>{`
+      @media (max-width: 640px) {
+        [data-responsive-table] { overflow-x: visible !important; }
+        [data-responsive-table] table { display: block; width: 100% !important; }
+        [data-responsive-table] caption { display: block; width: 100%; }
+        [data-responsive-table] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        [data-responsive-table] tbody { display: grid; gap: 10px; }
+        [data-responsive-table] tbody tr { display: grid; min-width: 0; border: 1px solid var(--ledger-border-subtle); border-radius: var(--ledger-radius-card); background: var(--ledger-bg-surface); overflow: hidden; }
+        [data-responsive-table] tbody td,
+        [data-responsive-table] tbody th[scope="row"] { display: grid; grid-template-columns: minmax(82px, .65fr) minmax(0, 1.35fr); gap: 10px; align-items: start; box-sizing: border-box; width: 100%; min-width: 0; height: auto !important; padding: 9px 10px !important; border-bottom: 1px solid var(--ledger-border-subtle); text-align: left !important; font-family: inherit !important; overflow-wrap: anywhere; }
+        [data-responsive-table] tbody tr > :last-child { border-bottom: 0; }
+        [data-responsive-table] tbody td::before,
+        [data-responsive-table] tbody th[scope="row"]::before { content: attr(data-label); color: var(--ledger-ink-tertiary); font: 600 10px/15px var(--font-adc-mono), ui-monospace, monospace; letter-spacing: .03em; text-transform: uppercase; }
+        [data-responsive-table] button,
+        [data-responsive-table] a { max-width: 100%; white-space: normal !important; overflow-wrap: anywhere; }
+      }
+    `}</style>
     </div>
   );
 }

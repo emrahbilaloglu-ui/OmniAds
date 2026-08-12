@@ -66,11 +66,10 @@ export function LoginView({
   };
 
   return (
-    <main
-      data-login-surface=""
-      style={{ maxWidth: 420, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}
-    >
-      <nav aria-label={copy.public} style={{ display: "flex", gap: 12, fontSize: 12 }}>
+    <div data-login-surface="" style={{ minHeight: "100vh", display: "grid", gridTemplateRows: "64px 1fr auto", background: "var(--ledger-bg-app)" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, padding: "0 clamp(20px,3vw,40px)", borderBottom: "1px solid var(--ledger-border-subtle)", background: "var(--ledger-bg-surface)" }}>
+        <Link href="/" aria-label={copy.adsecuteHome} style={{ display: "inline-flex", alignItems: "center", gap: 9, color: "var(--ledger-ink-primary)", textDecoration: "none", fontSize: 14, fontWeight: 800, letterSpacing: ".08em" }}><span aria-hidden="true" style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: 5, background: "var(--ledger-accent-action)", color: "var(--ledger-bg-surface)", fontSize: 12, letterSpacing: 0 }}>A</span>{copy.brandName}</Link>
+      <nav aria-label={copy.public} style={{ display: "flex", gap: 20, fontSize: 12 }}>
         <Link href="/product" data-ctl="live:PUBLIC-03" style={{ color: "var(--ledger-accent-action)" }}>
           {copy.product}
         </Link>
@@ -82,8 +81,12 @@ export function LoginView({
           {copy.contact}
         </Link>
       </nav>
+      </header>
 
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.signIn}</h1>
+      <div style={{ display: "grid", placeItems: "center", padding: "36px 16px 18px" }}>
+      <main style={{ width: "100%", maxWidth: 420, padding: 28, display: "grid", gap: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 14, background: "var(--ledger-bg-surface)", boxShadow: "0 14px 38px color-mix(in srgb, var(--ledger-ink-primary) 9%, transparent)" }}>
+
+      <div><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.signIn}</h1><p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.mediaBuyingOperatingSystem}</p></div>
 
       {failure ? (
         <div
@@ -152,6 +155,7 @@ export function LoginView({
       </form>
 
       <div style={{ display: "grid", gap: 8 }}>
+        <div aria-hidden="true" style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8, color: "var(--ledger-ink-tertiary)", fontSize: 12 }}><span style={{ borderTop: "1px solid var(--ledger-border-subtle)" }} />or<span style={{ borderTop: "1px solid var(--ledger-border-subtle)" }} /></div>
         <Button variant="secondary" data-ctl="live:AUTH-03 google" onClick={() => {}}>
           {copy.continueWithGoogle}
         </Button>
@@ -171,6 +175,9 @@ export function LoginView({
           </Link>
         ) : null}
       </div>
-    </main>
+      </main>
+      </div>
+      <footer style={{ padding: "0 16px 16px", textAlign: "center", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Privacy · Terms · Security · AI transparency</footer>
+    </div>
   );
 }

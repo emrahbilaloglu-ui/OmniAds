@@ -76,8 +76,9 @@ export function ReportLibraryView({
   }
   return (
     <div data-reports-surface="library" data-el="reports-lib">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
-      <div style={{ marginTop: 12 }}>
+      <div>
         <Button
           variant="secondary"
           data-report-create=""
@@ -86,6 +87,7 @@ export function ReportLibraryView({
         >
           {copy.newReport}
         </Button>
+      </div>
       </div>
       {reports.length === 0 ? (
         <p data-reports="empty" style={{ marginTop: 12, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -180,6 +182,41 @@ export function ReportLibraryView({
 
 /* --------------------------------------------------------------- builder */
 
+function BuilderWidgetPreview({ widget, selected, selectedLabel }: { widget: Widget; selected: boolean; selectedLabel: string }) {
+  const source = sourceById(widget.sourceId);
+  const label = source?.label ?? widget.label ?? widget.sourceId;
+  const isTrend = source?.id === "overview_trend";
+  const isTable = source?.widget.includes("table") ?? false;
+  return (
+    <span style={{ display: "grid", height: "100%", minHeight: 0 }}>
+      {selected ? (
+        <span style={{ display: "flex", justifyContent: "space-between", gap: 8, margin: "-8px -8px 8px", padding: "4px 8px", background: "var(--ledger-accent-tint)", borderBottom: "1px solid var(--ledger-accent-action)", color: "var(--ledger-accent-action)", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, fontWeight: 700 }}>
+          <span>{selectedLabel}</span>
+          <span>row {widget.y + 1} · col {widget.x + 1} · {widget.w}×{widget.h}</span>
+        </span>
+      ) : null}
+      <strong style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", fontWeight: 500 }}>{label}</strong>
+      {isTrend ? (
+        <span aria-hidden="true" style={{ display: "flex", alignItems: "end", gap: 4, height: 44, marginTop: 8 }}>
+          {[38, 54, 46, 68, 60, 82].map((height, index) => (
+            <span key={height + index} style={{ flex: 1, height: `${height}%`, borderRadius: 3, background: index > 2 ? "var(--ledger-accent-action)" : "var(--ledger-accent-tint)" }} />
+          ))}
+        </span>
+      ) : isTable ? (
+        <span aria-hidden="true" style={{ display: "grid", gap: 5, marginTop: 8 }}>
+          {[72, 54, 84].map((width) => (
+            <span key={width} style={{ display: "block", width: `${width}%`, height: 6, borderRadius: 3, background: "var(--ledger-bg-inset)" }} />
+          ))}
+        </span>
+      ) : source?.id === "overview_summary" ? (
+        <span style={{ display: "block", marginTop: 8, fontFamily: "var(--font-adc-mono), monospace", fontSize: 17, color: "var(--ledger-ink-primary)" }}>{source.widget}</span>
+      ) : (
+        <span style={{ display: "block", marginTop: 8, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{source?.widget ?? label}</span>
+      )}
+    </span>
+  );
+}
+
 export function ReportBuilderView({
   initial,
   name,
@@ -245,24 +282,16 @@ export function ReportBuilderView({
 
   return (
     <div data-reports-surface="builder">
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportBuilder}</h1>
+      <h1 style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>{copy.reportBuilder}</h1>
 
-      <p role="status" aria-live="polite" data-builder-live="" style={{ margin: "6px 0 0", fontSize: 12, minHeight: 16 }}>
+      <p role="status" aria-live="polite" data-builder-live="" style={{ margin: message ? "0 0 8px" : 0, fontSize: 12, minHeight: message ? 16 : 0 }}>
         {message}
       </p>
 
-      <section aria-label={copy.name} style={{ marginTop: 12, maxWidth: 360 }}>
-        <TextInput
-          label={copy.reportName}
-          data-report-name=""
-          value={name ?? ""}
-          onChange={(event) => onNameChange?.(event.target.value)}
-          hint={copy.reportNameHint}
-        />
-      </section>
-
-      <section aria-label={copy.sources} style={{ marginTop: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
+      <div data-report-builder-grid="" style={{ display: "grid", gridTemplateColumns: "250px minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+      <aside style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", position: "sticky", top: 112 }}>
+      <section aria-label={copy.sources}>
+        <h2 style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, fontWeight: 500, letterSpacing: ".07em", color: "var(--ledger-ink-secondary)" }}>{copy.sources}</h2>
         <ul
           data-source-picker=""
           data-el="builder-sources"
@@ -271,9 +300,10 @@ export function ReportBuilderView({
         >
           {addable.map((source) => (
             <li key={source.id}>
-              <Button
-                variant="secondary"
+              <button
+                type="button"
                 data-source-add={source.id}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 34, padding: "4px 8px", border: `1px solid ${history.present.widgets.some((widget) => widget.sourceId === source.id) ? "var(--ledger-accent-action)" : "var(--ledger-border-subtle)"}`, borderRadius: 7, background: history.present.widgets.some((widget) => widget.sourceId === source.id) ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)", color: "var(--ledger-ink-primary)", fontSize: 12, fontWeight: 600, textAlign: "left", cursor: "pointer" }}
                 onClick={() =>
                   dispatch({
                     kind: "add",
@@ -288,8 +318,9 @@ export function ReportBuilderView({
                   })
                 }
               >
-                {source.label}
-              </Button>
+                <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 16, height: 16, flex: "0 0 16px", border: "1px solid var(--ledger-accent-action)", borderRadius: 4, background: history.present.widgets.some((widget) => widget.sourceId === source.id) ? "var(--ledger-accent-action)" : "transparent", color: "var(--ledger-bg-surface)", fontSize: 12 }}>{history.present.widgets.some((widget) => widget.sourceId === source.id) ? "✓" : ""}</span>
+                <span>{source.label}</span>
+              </button>
             </li>
           ))}
           {COMING_SOON_SOURCES.map((source) => {
@@ -298,21 +329,65 @@ export function ReportBuilderView({
               <li key={source.id}>
                 {/* Disabled, never hidden: hidden reads as "this data does not
                     exist" rather than "not wired yet". */}
-                <Button
-                  variant="secondary"
+                <button
+                  type="button"
                   data-source-unavailable={source.id}
-                  state={{ kind: "disabled", reason: gate.ok ? "" : gate.reason, code: "source_unavailable" }}
+                  aria-disabled="true"
+                  title={gate.ok ? "" : gate.reason}
+                  onClick={(event) => event.preventDefault()}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 34, padding: "4px 8px", border: "1px dashed var(--ledger-border-control)", borderRadius: 7, background: "var(--ledger-bg-surface)", color: "var(--ledger-ink-secondary)", fontSize: 12, textAlign: "left", cursor: "not-allowed" }}
                 >
-                  {source.label}
-                </Button>
+                  <span aria-hidden="true" style={{ width: 15, height: 15, flex: "0 0 15px", border: "1px solid var(--ledger-border-control)", borderRadius: 4 }} />
+                  <span style={{ flex: 1 }}>{source.label}</span><span style={{ fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}>{source.reason}</span>
+                </button>
               </li>
             );
           })}
         </ul>
+        <p style={{ margin: "7px 0 0", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+          {RENDERABLE_SOURCES.length + COMING_SOON_SOURCES.length} of {RENDERABLE_SOURCES.length + COMING_SOON_SOURCES.length} catalog sources · {RENDERABLE_SOURCES.length} renderable
+        </p>
       </section>
+      <section aria-label={copy.breakdown} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--ledger-border-subtle)" }}>
+        <h2 style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, fontWeight: 500, letterSpacing: ".07em", color: "var(--ledger-ink-secondary)" }}>{copy.breakdown}</h2>
+        <label style={{ position: "absolute", left: 0, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none", whiteSpace: "nowrap" }}>
+          {copy.breakdown}
+          <select data-ctl="live:REPORT-07 breakdown" value={breakdown} onChange={(event) => setBreakdown(event.target.value)}>
+            {["day", "week", "campaign", "ad set", "ad", "placement", "age"].map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
+          {["day", "week", "campaign", "ad set", "ad", "placement", "age"].map((value) => (
+            <button
+              key={value}
+              type="button"
+              data-breakdown-choice={value}
+              aria-pressed={breakdown === value}
+              onClick={() => setBreakdown(value)}
+              style={{ minHeight: 30, padding: "3px 9px", border: `1px solid ${breakdown === value ? "var(--ledger-accent-action)" : "var(--ledger-border-subtle)"}`, borderRadius: 999, background: breakdown === value ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)", color: "var(--ledger-accent-action)", fontSize: 12, cursor: "pointer" }}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <div data-el="source-contracts" style={{ marginTop: 8, padding: "8px 10px", border: "1px dashed var(--ledger-border-control)", borderRadius: 7, fontSize: 12, lineHeight: "17px", color: "var(--ledger-ink-secondary)" }}>
+          {copy.sourceContractsNote}
+        </div>
+      </section>
+      </aside>
 
-      <section aria-label={copy.canvas} style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.canvas}</h2>
+      <section aria-label={copy.canvas} style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 220, flex: "1 1 320px" }}>
+            <TextInput
+              label={copy.reportName}
+              data-report-name=""
+              value={name ?? ""}
+              onChange={(event) => onNameChange?.(event.target.value)}
+            />
+          </div>
+          <span style={{ font: "12px/1.3 var(--font-mono, monospace)", color: "var(--ledger-ink-tertiary)" }}>{history.present.widgets.length} widgets · 12-column grid</span>
+        </div>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Arrow keys move the selected widget; Shift with an arrow resizes it; Z undoes.
         </p>
@@ -330,7 +405,7 @@ export function ReportBuilderView({
             aria-label={`Move or resize ${sourceById(
               history.present.widgets.find((w) => w.id === selected)?.sourceId ?? "",
             )?.label ?? "the selected widget"}`}
-            style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}
+            style={{ margin: "8px 0", display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}
           >
             {(
               [
@@ -349,8 +424,9 @@ export function ReportBuilderView({
                   dispatch({ kind: "move", id: selected, dx: step.dx, dy: step.dy });
                   setMessage(`${step.label}.`);
                 }}
+                style={{ minWidth: 32, minHeight: 32, padding: "2px 8px" }}
               >
-                {step.label}
+                {step.label === "Move left" ? "←" : step.label === "Move right" ? "→" : step.label === "Move up" ? "↑" : "↓"}
               </Button>
             ))}
             {(
@@ -372,8 +448,9 @@ export function ReportBuilderView({
                   dispatch({ kind: "resize", id: selected, dw: step.dw, dh: step.dh });
                   setMessage(`${step.label}.`);
                 }}
+                style={{ minWidth: 34, minHeight: 32, padding: "2px 7px" }}
               >
-                {step.label}
+                {step.label === "Narrower" ? "W−" : step.label === "Wider" ? "W+" : step.label === "Shorter" ? "H−" : "H+"}
               </Button>
             ))}
             <Button
@@ -386,6 +463,7 @@ export function ReportBuilderView({
                   keyboardMode ? "Keyboard mode off." : "Keyboard mode on. Arrows move, Shift resizes.",
                 );
               }}
+              style={{ minHeight: 32, padding: "2px 8px" }}
             >
               {copy.keyboardMode}
             </Button>
@@ -397,6 +475,7 @@ export function ReportBuilderView({
                 setSelected(null);
                 setMessage("Layout committed.");
               }}
+              style={{ minHeight: 32, padding: "2px 8px" }}
             >
               {copy.done}
             </Button>
@@ -410,7 +489,7 @@ export function ReportBuilderView({
           aria-label={copy.reportCanvas}
           tabIndex={0}
           onKeyDown={onKeyDown}
-          style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 8 }}
+          style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoRows: 40, gap: 8, minHeight: 310, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: 12, background: "var(--ledger-bg-surface)" }}
         >
           {history.present.widgets.map((widget) => (
             <button
@@ -430,9 +509,12 @@ export function ReportBuilderView({
                 borderRadius: 6,
                 background: "var(--ledger-bg-surface)",
                 color: "var(--ledger-ink-primary)",
+                gridColumn: `${widget.x + 1} / span ${Math.max(1, widget.w)}`,
+                gridRow: `span ${Math.max(1, widget.h)}`,
+                boxShadow: selected === widget.id ? "0 0 0 1px var(--ledger-accent-action)" : "none",
               }}
             >
-              {sourceById(widget.sourceId)?.label ?? widget.label ?? widget.sourceId}
+              <BuilderWidgetPreview widget={widget} selected={selected === widget.id} selectedLabel={copy.selected} />
             </button>
           ))}
         </div>
@@ -463,21 +545,6 @@ export function ReportBuilderView({
           </Button>
         </div>
         <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-end" }}>
-          <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-            {copy.breakdown}
-            <select
-              data-ctl="live:REPORT-07 breakdown"
-              value={breakdown}
-              onChange={(event) => setBreakdown(event.target.value)}
-              style={{ minHeight: 44, padding: "6px 8px" }}
-            >
-              {["none", "day", "campaign", "device"].map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
           <Button variant="secondary" data-ctl="live:REPORT-04 csv" onClick={onExportCsv}>
             {copy.downloadCsv}
           </Button>
@@ -494,6 +561,8 @@ export function ReportBuilderView({
           </p>
         </div>
       </section>
+      </div>
+      <style>{`@media(max-width:820px){[data-report-builder-grid]{grid-template-columns:1fr!important}[data-report-builder-grid]>aside{position:static!important}[data-builder-canvas]{grid-template-columns:1fr!important}[data-builder-canvas]>button{grid-column:1/-1!important;grid-row:auto!important}}`}</style>
     </div>
   );
 }

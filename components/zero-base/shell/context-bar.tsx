@@ -66,6 +66,8 @@ export function ContextBar({
     );
   }
 
+  const visible = rows.filter((row) => ["account", "window", "currency", "timezone", "freshness"].includes(row.id));
+
   return (
     <div
       data-context-bar="full"
@@ -73,8 +75,9 @@ export function ContextBar({
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: 14,
-        padding: "7px 16px",
+        gap: 8,
+        minHeight: 36,
+        padding: "4px 16px",
         fontSize: 12,
         lineHeight: "16px",
         color: tone,
@@ -82,11 +85,32 @@ export function ContextBar({
         borderBottom: "1px solid var(--ledger-border-subtle)",
       }}
     >
-      {rows.map((row) => (
-        <span key={row.id} data-context-fact={row.id} style={{ whiteSpace: "nowrap" }}>
-          <span style={{ color: "var(--ledger-ink-tertiary)" }}>{row.label}: </span>
-          {row.value}
-        </span>
+      {visible.map((row) => (
+        <button
+          key={row.id}
+          type="button"
+          data-context-fact={row.id}
+          onClick={onOpenScopeSheet}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            minHeight: 26,
+            marginLeft: row.id === "freshness" ? "auto" : 0,
+            padding: "2px 8px",
+            border: "1px solid var(--ledger-border-control)",
+            borderRadius: "var(--ledger-radius-button)",
+            background: "var(--ledger-bg-surface)",
+            color: row.id === "freshness" ? tone : "var(--ledger-ink-secondary)",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: "var(--ledger-ink-tertiary)" }}>{row.label}</span>
+          <strong style={{ fontWeight: 500, color: "var(--ledger-ink-primary)" }}>{row.value}</strong>
+          {row.id === "account" || row.id === "window" ? <span aria-hidden="true">▾</span> : null}
+        </button>
       ))}
     </div>
   );

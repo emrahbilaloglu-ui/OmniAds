@@ -34,6 +34,7 @@ export const REVIEWED_EXEMPTIONS: Record<string, string> = {
   Meta: "Provider identifier in NON_TRANSLATABLE_TERMS; Meta's own UI says Meta.",
   "Google Ads": "Provider identifier in NON_TRANSLATABLE_TERMS.",
   "GA4 and Shopify": "Two provider identifiers joined by a conjunction; both are reserved terms.",
+  CPA: "Metric identifier in NON_TRANSLATABLE_TERMS.",
 };
 
 /** Files that legitimately hold no operator-facing copy. */

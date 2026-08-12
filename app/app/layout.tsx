@@ -34,7 +34,12 @@ export const metadata: Metadata = {
  */
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const session = await getSessionFromCookies();
-  if (!session) redirect(`/login?next=${encodeURIComponent("/app/home")}`);
+  // The catch-all page owns the unauthenticated redirect. Keeping the layout
+  // renderable without a session matters because Next can stream a parent
+  // layout while producing a redirect/recovery document for another route.
+  // Throwing here leaked the workspace redirect into public documents such as
+  // /login in the production standalone runtime and created a self-redirect.
+  if (!session) return children;
   if (!session.activeBusinessId) {
     redirect(`/select-business?next=${encodeURIComponent("/app/home")}`);
   }

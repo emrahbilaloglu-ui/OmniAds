@@ -9,6 +9,8 @@ describe("session app stylesheet contract", () => {
     const stylesheet = readFileSync("app/app/workspace.css", "utf8");
 
     expect(source).toContain('import "./workspace.css";');
+    expect(source).toContain("if (!session) return children;");
+    expect(source).not.toContain("if (!session) redirect");
     expect(stylesheet).toContain('@import "../globals.css";');
     expect(stylesheet).toContain("--font-adc-sans");
     expect(stylesheet).toContain("schibsted-grotesk-variable.woff2");

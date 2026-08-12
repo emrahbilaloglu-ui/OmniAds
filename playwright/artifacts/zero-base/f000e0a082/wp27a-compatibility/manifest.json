@@ -1,10 +1,10 @@
 {
-  "commit": "743380cc3c",
-  "package": "wp26-lifecycle",
-  "createdAt": "2026-08-12T03:28:28.964Z",
-  "artifactSet": "zero-base/743380cc3c/wp26-lifecycle",
+  "commit": "f000e0a082",
+  "package": "wp27a-compatibility",
+  "createdAt": "2026-08-12T09:50:15.171Z",
+  "artifactSet": "zero-base/f000e0a082/wp27a-compatibility",
   "provenance": {
-    "digest": "5cb0e84bb4323956b4e6b97b013b36d5131a5310f792b9b86c5071f3b245468f",
+    "digest": "0687f4e7db4d89f8b3dd759476604fd092a5ed80cf24aed0a9e6a6820542f42b",
     "files": {
       "components/zero-base/account/account-security-view.tsx": "9460e7083ec3e53a7cd0848941ddbb4b0f36d3fd643b0341b5c0caba151c4993",
       "components/zero-base/account/language-view.tsx": "16f3ab4b55ac86b52d226eb3cc8952c89edef7a7d5fbb6b0dcd94744d8f15a36",
@@ -20,6 +20,7 @@
       "components/zero-base/collections/collection.tsx": "39289b5308699f186187c15bb2ff1bfe083cf5103ed27f8c098f60c464d02d4b",
       "components/zero-base/collections/data-table.tsx": "5b3a1d9df33b2c48e949aeda46c0a2468a25373f07c7a41045f06d1cf3239396",
       "components/zero-base/collections/widget-grid.tsx": "ce6d6585cfd28e43c0a54f2fa21b918217d439643f3c0ccf56b3d78cec7a046f",
+      "components/zero-base/compatibility/settings-chooser.tsx": "e1f7b1c57497d21a24a4c01a86104deef9f30454698f589f6f07799e9283d04c",
       "components/zero-base/component-map.ts": "15506f1b036209d3933f312576fdcfa8312b09b31e4d5addabc9095137176706",
       "components/zero-base/creative/creative-media.tsx": "235a23edc95a478b19aa703a699548c58fabd27e25bc5d0161f78b21373c46d7",
       "components/zero-base/creative/detail-client.tsx": "4a3fb9b43eb644dd32c37e4492ad5cc4cb2c3f31822057fd5fb4a5200ba9bb3b",
@@ -87,6 +88,9 @@
       "lib/zero-base/analytics/analytics-contract.ts": "56a8fd8eac6736d3300269e6773b359bac97597a326bd4b9d513094d30aa60cb",
       "lib/zero-base/auth-routing.ts": "b5f165ad17644ef311bf267af17cda807fda9a8ca43bb3991d10b275a09edf10",
       "lib/zero-base/auth-states.ts": "c079f5a514b6b19c3e229cc2eec92758c573792359d9a07097ac2626d5fceb7a",
+      "lib/zero-base/compatibility-observability.ts": "f0992fbe6f6b44e977122e7947f3c975c7ab6a52e277bf9d8bbd6d71c9ef4cf5",
+      "lib/zero-base/compatibility-page.tsx": "ec645d17960471e8ae72e22745008ac81d736547d423ba43806a7caf3c26f1d0",
+      "lib/zero-base/compatibility.ts": "434f0be869aa38ac3253422fa86d37f6bdc7d52158082e6d6ebc5d0c53410696",
       "lib/zero-base/control-registry.ts": "36dad0fd166cde98f8ce101d452e06148c06ea2905abb3901fb61144f891724b",
       "lib/zero-base/copy.ts": "e4a57c4edd7be63210863fc7e893bf80a123812713d9b3ce9527987dc988c6e2",
       "lib/zero-base/creative/detail-adapter.ts": "2f76ddb59d26ff4fc221f85562246ac9a476feee9f57b3446f8cf23dc7cd99fe",
@@ -718,8 +722,8 @@
       "width": 390,
       "theme": "light",
       "file": "H54__L-SH-CREATIVE__narrow-share__390__light.png",
-      "sha256": "7351264f7ab653a5c9dc4c41714c29ced036e6462b90def6fb5986b78b88a997",
-      "bytes": 25935
+      "sha256": "b5b66d2fcf1ff2e6464da8aadf3ae8b495f65003d1d1b9cfdc39703a9db2a179",
+      "bytes": 25937
     },
     {
       "leaf": "H55:L-C-HOME",
@@ -763,8 +767,8 @@
       "width": 320,
       "theme": "dark",
       "file": "H59__L-SH-CREATIVE__narrow-share-gone__320__dark.png",
-      "sha256": "3429b2d9e59bbc053e9f5fac228850384102b9d4a86d20f84d0cbfb646e2e8c0",
-      "bytes": 25239
+      "sha256": "cf414e505b1eb6b8e2f4232996f44ec1f8b75367723f4ee42ce2301885e401d3",
+      "bytes": 25262
     },
     {
       "leaf": "H60:L-C-HOME",
@@ -853,8 +857,8 @@
       "width": 320,
       "theme": "light",
       "file": "M03__L-C-META-DEC__mobile-decisions__320__light.png",
-      "sha256": "07646bf4d79520180e2d5e88d85ad84875d1c1c498117ffa61d779ad7b83cc93",
-      "bytes": 98918
+      "sha256": "c49ff787f1ad3e71a9922e26696a6d0ab48e933b4d4151de70bbb59390cd4e48",
+      "bytes": 98914
     },
     {
       "leaf": "M04:L-C-CR-PERF",

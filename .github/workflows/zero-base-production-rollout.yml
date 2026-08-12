@@ -506,4 +506,4 @@ jobs:
 
           remote_path_q="$(printf '%q' "${remote_path}")"
           ssh -T "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "set -euo pipefail; trap 'rm -f ${remote_path_q}' EXIT; test \"\$(wc -c < ${remote_path_q} | tr -d ' ')\" = ${remote_script_bytes}; EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seu -o pipefail ${remote_path_q}"
+            "set -euo pipefail; trap 'rm -f ${remote_path_q}' EXIT; test \"\$(wc -c < ${remote_path_q} | tr -d ' ')\" = ${remote_script_bytes}; EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -eu -o pipefail ${remote_path_q}"

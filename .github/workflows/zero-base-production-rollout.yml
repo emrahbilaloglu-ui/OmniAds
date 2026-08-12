@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - inspect
+          - recover-worker
           - allowlist
           - "on"
           - off
@@ -61,9 +62,9 @@ jobs:
           fi
 
           case "${INPUT_ACTION}" in
-            inspect|allowlist|on|off) ;;
+            inspect|recover-worker|allowlist|on|off) ;;
             *)
-              echo "action must be inspect, allowlist, on, or off."
+              echo "action must be inspect, recover-worker, allowlist, on, or off."
               exit 1
               ;;
           esac
@@ -240,6 +241,142 @@ jobs:
 
             if [ "${ROLLOUT_ACTION}" = "inspect" ]; then
               echo "Inspection only; production configuration is unchanged."
+              exit 0
+            fi
+
+            if [ "${ROLLOUT_ACTION}" = "recover-worker" ]; then
+              decision_json="$({
+                docker compose exec -T web node --import tsx -e '
+                  (async () => {
+                    const fence = await import("@/lib/sync/db-growth-fence");
+                    fence.resetDbGrowthFenceCache();
+                    const decision = await fence.evaluateDbGrowthFence();
+                    process.stdout.write(JSON.stringify(decision));
+                  })().catch((error) => {
+                    console.error(error.message);
+                    process.exit(1);
+                  });
+                '
+              } 2>/dev/null)"
+
+              DECISION_JSON="${decision_json}" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          decision = json.loads(os.environ["DECISION_JSON"])
+          offender = decision.get("offender") or {}
+          physical = decision.get("physical") or {}
+          safe = (
+              decision.get("allowed") is False
+              and decision.get("reason") == "table_budget_exceeded"
+              and offender.get("table") == "meta_entity_state_history"
+              and physical.get("admitted") is True
+              and isinstance(decision.get("databaseBytes"), int)
+              and decision["databaseBytes"] < decision.get("databaseBudgetBytes", 0)
+          )
+          print(
+              "growth_fence_reason={reason} offender={table} bytes={bytes} budget={budget} "
+              "physical_admitted={physical}".format(
+                  reason=decision.get("reason"),
+                  table=offender.get("table"),
+                  bytes=offender.get("bytes"),
+                  budget=offender.get("budget"),
+                  physical=str(physical.get("admitted") is True).lower(),
+              )
+          )
+          if not safe:
+              print("Refusing recovery: this is not the bounded logical-table breach the workflow handles.")
+              sys.exit(1)
+          PY
+
+              env_file=.env.production
+              if [ ! -f "${env_file}" ]; then
+                echo "Refusing recovery: ${env_file} is missing."
+                exit 1
+              fi
+
+              original_worker_image="$(docker inspect "$(docker compose ps -q worker)" --format '{{.Config.Image}}' 2>/dev/null || true)"
+              expected_worker_image="ghcr.io/emrahbilaloglu-ui/omniads-worker:${EXPECTED_SHA}"
+              if [ "${original_worker_image}" != "${expected_worker_image}" ]; then
+                echo "Refusing recovery: worker image ${original_worker_image:-unknown} is not ${expected_worker_image}."
+                exit 1
+              fi
+
+              backup="${env_file}.growth-fence-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+              cp -p "${env_file}" "${backup}"
+              tmp="$(mktemp "${env_file}.growth-fence.XXXXXX")"
+              cp -p "${env_file}" "${tmp}"
+              override_expires_at="$(date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+
+              ENV_PATH="${tmp}" OVERRIDE_EXPIRES_AT="${override_expires_at}" python3 - <<'PY'
+          import os
+
+          path = os.environ["ENV_PATH"]
+          managed = {
+              "SYNC_GROWTH_FENCE_OVERRIDE": "enabled",
+              "SYNC_GROWTH_FENCE_OVERRIDE_REASON": "Restore worker after bounded logical table fence breach",
+              "SYNC_GROWTH_FENCE_OVERRIDE_EXPIRES_AT": os.environ["OVERRIDE_EXPIRES_AT"],
+          }
+          with open(path, encoding="utf-8") as handle:
+              lines = handle.read().splitlines()
+          kept = [line for line in lines if line.split("=", 1)[0] not in managed]
+          if kept and kept[-1] != "":
+              kept.append("")
+          kept.extend(f"{key}={value}" for key, value in managed.items())
+          with open(path, "w", encoding="utf-8") as handle:
+              handle.write("\n".join(kept) + "\n")
+          PY
+              mv "${tmp}" "${env_file}"
+
+              if ! docker compose up -d --force-recreate worker; then
+                cp -p "${backup}" "${env_file}"
+                exit 1
+              fi
+
+              worker_healthy=false
+              for attempt in $(seq 1 40); do
+                worker_id="$(docker compose ps -q worker || true)"
+                worker_health="$(docker inspect "${worker_id}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true)"
+                echo "worker_health=${worker_health:-missing} attempt=${attempt}/40"
+                if [ "${worker_health}" = "healthy" ]; then
+                  worker_healthy=true
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "${worker_healthy}" != "true" ]; then
+                echo "Bounded override did not restore worker; restoring previous environment."
+                cp -p "${backup}" "${env_file}"
+                docker compose up -d --force-recreate worker || true
+                exit 1
+              fi
+
+              current_worker_image="$(docker inspect "$(docker compose ps -q worker)" --format '{{.Config.Image}}')"
+              if [ "${current_worker_image}" != "${expected_worker_image}" ]; then
+                echo "Worker image identity changed during recovery."
+                cp -p "${backup}" "${env_file}"
+                docker compose up -d --force-recreate worker || true
+                exit 1
+              fi
+
+              docker compose exec -T worker node -e '
+                const expectedExpiry = process.argv[1];
+                const checks = {
+                  SYNC_GROWTH_FENCE_OVERRIDE: "enabled",
+                  SYNC_GROWTH_FENCE_OVERRIDE_REASON: "Restore worker after bounded logical table fence breach",
+                  SYNC_GROWTH_FENCE_OVERRIDE_EXPIRES_AT: expectedExpiry,
+                };
+                for (const [key, value] of Object.entries(checks)) {
+                  if ((process.env[key] ?? "") !== value) process.exit(1);
+                }
+              ' "${override_expires_at}"
+
+              echo "worker_recovered=true"
+              echo "worker_image=${current_worker_image}"
+              echo "override_expires_at=${override_expires_at}"
+              echo "rollback_env_backup=${backup}"
               exit 0
             fi
 

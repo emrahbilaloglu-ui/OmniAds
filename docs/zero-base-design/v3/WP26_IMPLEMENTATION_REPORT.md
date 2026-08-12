@@ -1362,57 +1362,188 @@ correctly refused as ambiguous during this work, and a set was correctly refused
 as stale after three files changed post-capture — the gate named the three files.
 Both refusals were resolved by recapturing, never by loosening the check.
 
+### The release gate did not gate a release
+
+Independent review found the real remaining defect, and it was not in G10: the
+`test:zero-base:release` aggregate was green while omitting most of what §13.2
+names it must run. It had 13 stages and no full unit/component suite, no
+from-zero migration, no provider-account-selection seam, no visual geometry, no
+performance, no production build and no local production smoke. A green run of
+it could not prove the release gate, which makes it worse than no aggregate at
+all — it produced a verdict nobody should have trusted.
+
+It now runs **20 stages**, `&&`-chained so any non-zero exit stops the chain.
+Nothing wraps a failure, nothing is tolerated, and no stage calls a provider or
+the network.
+
+| # | Stage | §13.2 category |
+|---|---|---|
+| 1 | `test:zero-base:contract` | contract |
+| 2 | `typecheck` | type |
+| 3 | `lint` | lint |
+| 4 | `test` | **full unit/component** (9323 tests) |
+| 5 | `test:migrations-from-zero` | **from-zero migration** |
+| 6 | `test:selection-race-seam` | **provider-account-selection seam** |
+| 7 | `test:zero-base:routes` | route matrix |
+| 8 | `zero-base:legibility` | type floor and contrast |
+| 9 | `test:zero-base:locale` | locale |
+| 10 | `test:zero-base:flows` | flows |
+| 11 | `test:zero-base:states` | states (G6/G7) |
+| 12 | `test:zero-base:reference` | reference anatomy |
+| 13 | `test:zero-base:fidelity` | **G10 rendered fidelity** |
+| 14 | `zero-base:reconcile:frames` | **G10 reconciliation** |
+| 15 | `test:zero-base:design` | design tokens |
+| 16 | `test:zero-base:a11y` | accessibility automation |
+| 17 | `test:zero-base:responsive` | responsive geometry |
+| 18 | `test:zero-base:visual` | **visual geometry** |
+| 19 | `test:zero-base:smoke:local` | **production build + local production smoke** |
+| 20 | `test:zero-base:perf:local` | **performance** (vitals + bundle weight) |
+
+The plan names a `test:provider-account-selection-seam` that does not exist.
+The command that does exist and asks exactly that question is
+`test:selection-race-seam` — S1–S7, "provider account selection races, against a
+real PostgreSQL". It is reused rather than aliased, so there is one name for one
+thing.
+
+### The local production smoke is credential-free on purpose
+
+Stage 19 is the only stage that runs the real standalone server a deploy would
+run. It boots from `playwright/fixtures/zero-base-local-production.env`, which is
+committed and worthless: the database host is `db.invalid`, which RFC 2606
+guarantees never resolves, and no provider id is real. A gate that only runs on a
+machine holding someone's personal `.env.local` is a gate CI can never hold.
+
+It asks the four questions a credential cannot help with: do the public surfaces
+render in a production build; did the Ledger tokens actually ship in the
+production CSS or only in the dev render every other stage measures; are the
+vendored faces served; and does the auth boundary still redirect an
+unauthenticated request to login rather than erroring into a page.
+
+**Verified by breaking it.** Deleting `fragment-mono-400.woff2` and re-running
+left the smoke green — because `start-local-smoke-server.mjs` merged `public/`
+into the standalone tree with `cpSync` and never removed anything, so a stale
+copy from an earlier build was still being served. That is a defect in what a
+deploy ships, not only in the smoke: the standalone bundle accumulated files the
+build no longer produces. The sync now mirrors instead of merging, and with that
+fixed the same deletion fails the smoke by name.
+
+### A locale-dependent digest validator, found by a seam
+
+The previous report said the cutover runner package check (seam stage 26) was
+failing. Review reported it now passes. **It did not** — on this tree
+`npm run test:cutover-runner-package` exited **1** with
+`FAIL R1c an UPPERCASE-hex digest is refused`. The likely reason for the
+disagreement is that the command's output was read through a pipe, so the exit
+status observed was the pipe's and not the command's.
+
+The cause was worth the trouble of finding:
+
+```sh
+is_lower_hex() { case "$1" in "" | *[!0-9a-f]*) return 1 ;; esac; ... }
+```
+
+`[0-9a-f]` is a **collation** range, and every UTF-8 locale orders letters
+`aAbBcC…`, so `A` falls *inside* `a-f`. Under `LC_ALL=C` the digest is refused;
+under `en_US.UTF-8` — every developer machine, and any CI runner that does not
+force `C` — it was **accepted**. The refusal that eventually appeared came from
+somewhere else entirely: the image was not present on the host. A malformed
+digest that happened to be present would have passed.
+
+That validator guards three things: the runner image digest, the expected
+wrapper sha256, and the 40-hex release sha that is interpolated into a
+filesystem path. The sixteen characters are now enumerated
+(`*[!0123456789abcdef]*`), which no collation can reinterpret, and the same
+correction is applied to `DEPLOY_SHA`, the rollback-baseline digest, the backup
+artifact digest and the cutover harness's artifact check. A genuinely lowercase
+digest is still accepted; nothing that was refused before is accepted now.
+
+Changing the wrapper changed its pinned manifest, which is exactly what that
+manifest is for — `scripts/cutover-wrapper.manifest` was re-emitted with
+`cutover-wrapper-package.sh emit` and verifies clean.
+
 ### Gates run on the final tree
 
-| Gate | Result |
-| --- | --- |
-| `test:zero-base:release` (13 stages) | PASS |
-| G6 state cases | 38/38 |
-| G7 interaction keys | 142/142 |
-| Flow cases | 71/71 across 13 flows |
-| G10 fidelity | 83/83 artboards |
-| G10 reconciliation | 92/92, 0 substitutions |
-| a11y / responsive Playwright | 85 + 84 passed |
-| Full Vitest, run 1 | 9323 passed, 61 skipped, 63 todo |
-| Full Vitest, run 2 | 9323 passed, 61 skipped, 63 todo |
-| `typecheck` | clean |
-| `eslint .` | clean |
-| `next build --webpack` | succeeded |
-| `verify-database-seams.sh` | 25 of 34 stages pass; stage 26 fails (pre-existing, below) |
+Every command below was run to completion on the final clean tree and its exit
+status read directly, not through a pipe.
 
-`test:zero-base:fidelity` is now part of `test:zero-base:release`, so a future
-change cannot pass the release gate while the design fidelity gate is red.
+| Command | Exit | Result |
+|---|---|---|
+| `npm run test:zero-base:release` | **0** | all 20 stages, listed above |
+| `npm run test:zero-base:contract` | 0 | 17 tests |
+| `npm run typecheck` | 0 | clean |
+| `npm run lint` | 0 | clean |
+| `npm run test` | 0 | 9323 passed, 61 skipped, 63 todo |
+| `npm run test:migrations-from-zero` | 0 | schema from zero, idempotent |
+| `npm run test:selection-race-seam` | 0 | S1–S7 |
+| `npm run test:zero-base:routes` | 0 | route matrix sound |
+| `npm run test:zero-base:locale` | 0 | 28 tests, zero unexplained inline copy |
+| `npm run test:zero-base:flows` | 0 | 71/71 across 13 flows |
+| `npm run test:zero-base:states` | 0 | 223 tests · **G6 38/38** · **G7 142/142** |
+| `npm run test:zero-base:reference` | 0 | anatomy matches the package |
+| `npm run test:zero-base:fidelity` | 0 | **83/83 artboards** |
+| `npm run zero-base:reconcile:frames` | 0 | **92/92, 0 substitutions** |
+| `npm run test:zero-base:a11y` | 0 | 85 passed |
+| `npm run test:zero-base:responsive` | 0 | 84 passed |
+| `npm run test:zero-base:visual` | 0 | visual geometry |
+| `npm run test:zero-base:smoke:local` | 0 | build + 4 smoke tests |
+| `npm run test:zero-base:perf:local` | 0 | 5 vitals tests + bundle weights |
+| `npm run creative:v2:safety` | 0 | archive safety gate |
+| `npm run creative:decision:native-ad-frozen-acceptance` | 0 | 22 tests |
+| `npm run test:cutover-runner-package` | **0** | every check incl. R1c |
+| `bash scripts/verify-database-seams.sh` | **0** | **34 of 34 stages** |
 
-### Two flaky assertions repaired
+Full Vitest was additionally run twice back to back before this: 9323 passed
+both times.
 
-The full suite failed intermittently — roughly one run in three — on two tests
-neither of which this work touches, both brittle rather than wrong:
+### Final evidence fingerprint
 
-- `lib/sync/worker-retirement.test.ts` asserted the refusal said `after 0ms`. The
-  figure is measured, not configured: a loaded machine reports 1ms. It now
-  matches `after \d+ms`, still requiring the refusal to name the lease and the
-  wait.
-- `components/zero-base/ops/ops.test.tsx` first-compiles two API route module
-  graphs inside the default 5s budget. It now has an explicit 30s budget; the
-  assertions are unchanged.
+```
+final commit            fe0f80e3dd701c62ce4a83a0c82d1301824969a6
+design archive sha256   0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d
+master plan sha256      79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613 (verified)
+evidence set            playwright/artifacts/zero-base/a02d86c601/wp26-g10-release
+evidence commit         a02d86c601
+render fingerprint      0adee4b4a6ad3fc9ae55a96e2a4ae9a9da758a20fd8a0fdc1343920a4dfc1fc7
+frames                  92
+```
 
-With these repaired the full suite ran clean twice in succession.
+No render-affecting file changed after that capture, so the recorded fingerprint
+still describes the tree; stage 14 re-verified this on the final run.
 
-### Pre-existing failures, reported not hidden
+### G1–G11 status
 
-1. **Native ad decision seam (stage 5) — repaired.** The seam asserted the exact
-   sentence `Unsupported Meta Ad daily write mode: creative_enrichment`, but
-   commit `480ff988d` ("Give meta_ad_daily exactly one owner") changed the
-   refusal to `meta_ad_daily_write_mode_unauthorized: …`. The boundary still
-   failed closed — only the literal had gone stale, and it predates this phase's
-   starting commit. The assertion now matches what the refusal must state.
-2. **Cutover runner package (stage 26) — reported, not touched.** `R1c an
-   UPPERCASE-hex digest is refused` fails because the wrapper refuses it for the
-   wrong reason: the presence check runs before the digest-format check, so the
-   refusal says "is not present on this host" instead of "is not
-   sha256:<64 lowercase hex>". `scripts/cutover-runner-package-check.sh` and the
-   wrapper are untouched by this phase. Reordering refusals in a cutover wrapper
-   is a deployment-safety change outside WP-26, so it is left for its owner.
+| Gate | Status | Evidence |
+|---|---|---|
+| G0 baseline | GREEN | clean tree at `fe0f80e3dd` |
+| G1 contract | GREEN | stage 1, 17 tests |
+| G2 compile | GREEN | typecheck, lint, `next build` (stage 19) |
+| G3 data | GREEN | full suite 9323, from-zero migration, selection seam |
+| G4 Decision safety | GREEN | `creative:v2:safety`, frozen acceptance 22 tests |
+| G5 routes | GREEN | stage 7 |
+| G6 state truth | GREEN | 38/38 |
+| G7 interaction | GREEN | 142/142 |
+| G8 responsive | GREEN | stages 17–18; no surface scrolls sideways at any declared width |
+| **G9 accessibility** | **RED** | axe automation green; **manual AT evidence absent** — see below |
+| G10 visual | GREEN | 83/83 artboards, 92/92 frames, 0 substitutions |
+| G11 performance | GREEN | stage 20, within LCP/CLS/TBT budgets |
+| G12 deployment | OUT OF SCOPE | requires separate deploy authority |
 
-G7 remains 142/142 and G6 38/38, independently rerun on the final tree. G9 stays
-red. WP-27A not started. `/Users/harmelek/Adsecute` is untouched at `c46d91c2a`.
+### G9 — the exact external blocker
+
+`docs/zero-base-design/v3/G9_MANUAL_AT_EVIDENCE.md` is committed **empty**, with
+the eleven §13.5 line items and blank tester/date/browser/AT/result fields.
+
+**What is missing:** a human running NVDA + Chrome across all 13 flows,
+VoiceOver + Safari on macOS and iOS, and TalkBack + Chrome on Android, and
+recording what was announced.
+
+**Why it cannot be produced here:** the host is macOS with no Windows machine
+and no VM software installed (NVDA is Windows-only); no `adb` and no Android
+emulator (TalkBack); and VoiceOver, though present, is off — enabling it is a
+system-settings change, and certifying what a screen reader *announced* requires
+hearing it. An axe scan, a screenshot or a DOM inspection presented as manual AT
+evidence would fabricate the one thing WP-26 step 9 forbids fabricating. None is
+offered.
+
+**G9 stays RED. WP-26 is therefore incomplete and WP-27A must not start.**
+`/Users/harmelek/Adsecute` is untouched at `c46d91c2a`.

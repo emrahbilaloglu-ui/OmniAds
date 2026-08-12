@@ -1,0 +1,732 @@
+"use client";
+
+/**
+ * Reports library, builder, viewer and print (H37–H40).
+ *
+ * The canonical report UI has **no mint or share control anywhere**. WP-03A's
+ * fail-closed branch is the server's answer; a button here would be a control
+ * whose only outcome is a refusal, and its absence is asserted by test.
+ */
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+
+import type { RenderedReportWidget } from "@/lib/custom-reports";
+
+import { DataTable } from "@/components/zero-base/collections/data-table";
+import { Button } from "@/components/zero-base/primitives/button";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
+import { UnavailableState } from "@/components/zero-base/states/surface-state";
+import { widgetIsExportable } from "@/lib/zero-base/reports/report-documents";
+import {
+  COMING_SOON_SOURCES,
+  RENDERABLE_SOURCES,
+  canAddSource,
+  canExportCsv,
+  sourceById,
+} from "@/lib/zero-base/reports/report-catalog";
+import {
+  canUndo,
+  commit,
+  keyboardAction,
+  newHistory,
+  undo,
+  type GridState,
+  type Widget,
+} from "@/lib/zero-base/reports/builder-model";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+
+/* --------------------------------------------------------------- library */
+
+export interface ReportSummary {
+  id: string;
+  name: string;
+  updatedAt: string;
+}
+
+export function ReportLibraryView({
+  reports,
+  businessId,
+  onCreate,
+  onDuplicate,
+  onDelete,
+  onLoadMore,
+  totalCount,
+  unavailableReason,
+}: {
+  reports: readonly ReportSummary[];
+  businessId?: string;
+  onCreate?: () => void;
+  onDuplicate?: (id: string) => void;
+  /** Absent when the actor cannot delete; the control states the reason. */
+  onDelete?: (id: string) => void;
+  onLoadMore?: () => void;
+  /** Reports the server said exist. Null means it did not say. */
+  totalCount?: number | null;
+  unavailableReason?: string | null;
+}) {
+  const copy = useCopy();
+  if (unavailableReason) {
+    return (
+      <div data-reports-surface="library">
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{copy.reportsTitle}</h1>
+        <div style={{ marginTop: 12 }}>
+          <UnavailableState reason={unavailableReason} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-reports-surface="library" data-el="reports-lib">
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
+      <div style={{ marginTop: 12 }}>
+        <Button
+          variant="secondary"
+          data-report-create=""
+          data-ctl="live:REPORT-13 new"
+          onClick={onCreate}
+        >
+          {copy.newReport}
+        </Button>
+      </div>
+      {reports.length === 0 ? (
+        <p data-reports="empty" style={{ marginTop: 12, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {copy.noReports}
+        </p>
+      ) : (
+        <div style={{ marginTop: 16 }}>
+          <DataTable
+            collection="reports"
+            caption={copy.reportsTitle}
+            rows={[...reports]}
+            rowKey={(row) => row.id}
+            columns={[
+              {
+                id: "name",
+                header: "Report",
+                render: (row) => (
+                  <a
+                    href={`/c/${businessId ?? "b"}/reports/${row.id}`}
+                    data-ctl="live:REPORT-08 open"
+                    style={{ color: "var(--ledger-accent-action)" }}
+                  >
+                    {row.name}
+                  </a>
+                ),
+              },
+              { id: "updated", header: "Updated", render: (row) => row.updatedAt },
+              {
+                id: "actions",
+                header: "Actions",
+                render: (row) => (
+                  <span style={{ display: "inline-flex", gap: 6 }}>
+                    <a
+                      href={`/c/${businessId ?? "b"}/reports/${row.id}/edit`}
+                      data-ctl="live:REPORT-02 edit"
+                      style={{ color: "var(--ledger-accent-action)", alignSelf: "center" }}
+                    >
+                      {copy.edit}
+                    </a>
+                    <Button
+                      variant="secondary"
+                      data-report-duplicate={row.id}
+                      data-ctl="live:REPORT-01 duplicate"
+                      onClick={() => onDuplicate?.(row.id)}
+                    >
+                      {copy.duplicate}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      data-report-delete={row.id}
+                      data-ctl="gated:REPORT-01 delete"
+                      state={
+                        onDelete
+                          ? { kind: "enabled" }
+                          : {
+                              kind: "disabled",
+                              reason: "Deleting a report needs an admin role on this business.",
+                            }
+                      }
+                      onClick={() => onDelete?.(row.id)}
+                    >
+                      {copy.delete}
+                    </Button>
+                  </span>
+                ),
+              },
+            ]}
+          />
+          {onLoadMore ? (
+            <Button
+              variant="secondary"
+              data-report-load-more=""
+              data-ctl="live:REPORT-01 load-more"
+              onClick={onLoadMore}
+              style={{ marginTop: 8 }}
+            >
+              {copy.loadMore}
+            </Button>
+          ) : null}
+          {/* Restated after paging, so "how much is left" never has to be
+              inferred from the row count. */}
+          <p data-reports-disclosure="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+            {totalCount === null || totalCount === undefined
+              ? `Showing ${reports.length} reports.`
+              : `Showing ${reports.length} of ${totalCount} reports.`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- builder */
+
+export function ReportBuilderView({
+  initial,
+  name,
+  onNameChange,
+  onSave,
+  onExportCsv,
+  onRetryWidgets,
+}: {
+  initial: GridState;
+  /** Both save routes require a name, so the builder collects one. */
+  name?: string;
+  onNameChange?: (name: string) => void;
+  onSave?: (state: GridState) => void;
+  onExportCsv?: () => void;
+  /** Re-requests only the widgets that failed, not the whole report. */
+  onRetryWidgets?: () => void;
+}) {
+  const copy = useCopy();
+  const [history, setHistory] = useState(() => newHistory(initial));
+  const [selected, setSelected] = useState<string | null>(initial.widgets[0]?.id ?? null);
+  const [message, setMessage] = useState("");
+  const [keyboardMode, setKeyboardMode] = useState(false);
+  const [breakdown, setBreakdown] = useState("none");
+
+  /**
+   * Adopt a later `initial`.
+   *
+   * `useState` captures its argument once. The edit route loads its record
+   * asynchronously and hands the grid down afterwards, so the mounted builder
+   * stayed permanently blank on every stored report. The caller is expected to
+   * gate on load as well; this is the second line of defence, and it only fires
+   * when the identity actually changes so it cannot stomp an in-progress edit.
+   */
+  useEffect(() => {
+    setHistory(newHistory(initial));
+    setSelected(initial.widgets[0]?.id ?? null);
+  }, [initial]);
+
+  const dispatch = useCallback(
+    (action: Parameters<typeof commit>[1]) => {
+      setHistory((current) => commit(current, action));
+    },
+    [],
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const action = keyboardAction({ key: event.key, shiftKey: event.shiftKey, selectedId: selected });
+      if (!action) return;
+      event.preventDefault();
+      if (action.kind === "undo") {
+        setHistory((current) => undo(current));
+        setMessage("Undone.");
+        return;
+      }
+      dispatch(action);
+      setMessage(action.kind === "move" ? "Widget moved." : "Widget resized.");
+    },
+    [dispatch, selected],
+  );
+
+  const addable = useMemo(() => RENDERABLE_SOURCES, []);
+
+  return (
+    <div data-reports-surface="builder">
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportBuilder}</h1>
+
+      <p role="status" aria-live="polite" data-builder-live="" style={{ margin: "6px 0 0", fontSize: 12, minHeight: 16 }}>
+        {message}
+      </p>
+
+      <section aria-label={copy.name} style={{ marginTop: 12, maxWidth: 360 }}>
+        <TextInput
+          label={copy.reportName}
+          data-report-name=""
+          value={name ?? ""}
+          onChange={(event) => onNameChange?.(event.target.value)}
+          hint={copy.reportNameHint}
+        />
+      </section>
+
+      <section aria-label={copy.sources} style={{ marginTop: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
+        <ul
+          data-source-picker=""
+          data-el="builder-sources"
+          data-collection="sources"
+          style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}
+        >
+          {addable.map((source) => (
+            <li key={source.id}>
+              <Button
+                variant="secondary"
+                data-source-add={source.id}
+                onClick={() =>
+                  dispatch({
+                    kind: "add",
+                    widget: {
+                      id: `w${Date.now()}-${source.id}`,
+                      sourceId: source.id,
+                      x: 0,
+                      y: 0,
+                      w: 4,
+                      h: 2,
+                    },
+                  })
+                }
+              >
+                {source.label}
+              </Button>
+            </li>
+          ))}
+          {COMING_SOON_SOURCES.map((source) => {
+            const gate = canAddSource(source.id);
+            return (
+              <li key={source.id}>
+                {/* Disabled, never hidden: hidden reads as "this data does not
+                    exist" rather than "not wired yet". */}
+                <Button
+                  variant="secondary"
+                  data-source-unavailable={source.id}
+                  state={{ kind: "disabled", reason: gate.ok ? "" : gate.reason, code: "source_unavailable" }}
+                >
+                  {source.label}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section aria-label={copy.canvas} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.canvas}</h2>
+        <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          Arrow keys move the selected widget; Shift with an arrow resizes it; Z undoes.
+        </p>
+        {/*
+          The nudge toolbar — the single-pointer alternative to dragging
+          (WCAG 2.5.7). It sits above the canvas rather than floating over it,
+          so it can never cover the content being arranged — the reference
+          draws it there — and it only exists once a widget is selected,
+          because there is otherwise nothing for it to act on.
+        */}
+        {selected ? (
+          <div
+            data-builder-nudge-toolbar=""
+            role="group"
+            aria-label={`Move or resize ${sourceById(
+              history.present.widgets.find((w) => w.id === selected)?.sourceId ?? "",
+            )?.label ?? "the selected widget"}`}
+            style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}
+          >
+            {(
+              [
+                { label: "Move left", dx: -1, dy: 0 },
+                { label: "Move right", dx: 1, dy: 0 },
+                { label: "Move up", dx: 0, dy: -1 },
+                { label: "Move down", dx: 0, dy: 1 },
+              ] as const
+            ).map((step) => (
+              <Button
+                key={step.label}
+                variant="secondary"
+                data-ctl="live:REPORT-03 nudge-move"
+                aria-label={step.label}
+                onClick={() => {
+                  dispatch({ kind: "move", id: selected, dx: step.dx, dy: step.dy });
+                  setMessage(`${step.label}.`);
+                }}
+              >
+                {step.label}
+              </Button>
+            ))}
+            {(
+              [
+                { label: "Narrower", dw: -1, dh: 0 },
+                { label: "Wider", dw: 1, dh: 0 },
+                { label: "Shorter", dw: 0, dh: -1 },
+                { label: "Taller", dw: 0, dh: 1 },
+              ] as const
+            ).map((step) => (
+              <Button
+                key={step.label}
+                variant="secondary"
+                data-ctl="live:REPORT-03 nudge-resize"
+                aria-label={step.label}
+                onClick={() => {
+                  // The reducer clamps to min 1x1 and the grid width, so the
+                  // toolbar never needs to know the bounds itself.
+                  dispatch({ kind: "resize", id: selected, dw: step.dw, dh: step.dh });
+                  setMessage(`${step.label}.`);
+                }}
+              >
+                {step.label}
+              </Button>
+            ))}
+            <Button
+              variant="secondary"
+              data-ctl="live:REPORT-03 keyboard-mode"
+              aria-pressed={keyboardMode}
+              onClick={() => {
+                setKeyboardMode((current) => !current);
+                setMessage(
+                  keyboardMode ? "Keyboard mode off." : "Keyboard mode on. Arrows move, Shift resizes.",
+                );
+              }}
+            >
+              {copy.keyboardMode}
+            </Button>
+            <Button
+              variant="secondary"
+              data-ctl="live:REPORT-03 exit"
+              onClick={() => {
+                setKeyboardMode(false);
+                setSelected(null);
+                setMessage("Layout committed.");
+              }}
+            >
+              {copy.done}
+            </Button>
+          </div>
+        ) : null}
+
+        <div
+          data-builder-canvas=""
+          data-collection="table"
+          role="application"
+          aria-label={copy.reportCanvas}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 8 }}
+        >
+          {history.present.widgets.map((widget) => (
+            <button
+              key={widget.id}
+              type="button"
+              data-widget={widget.id}
+              data-ctl="live:REPORT-03 widget-select"
+              data-widget-x={widget.x}
+              data-widget-w={widget.w}
+              aria-pressed={selected === widget.id}
+              onClick={() => setSelected(widget.id)}
+              style={{
+                textAlign: "left",
+                padding: 8,
+                minHeight: 44,
+                border: selected === widget.id ? "2px solid var(--ledger-accent-action)" : "1px solid var(--ledger-border-control)",
+                borderRadius: 6,
+                background: "var(--ledger-bg-surface)",
+                color: "var(--ledger-ink-primary)",
+              }}
+            >
+              {sourceById(widget.sourceId)?.label ?? widget.label ?? widget.sourceId}
+            </button>
+          ))}
+        </div>
+        <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+          <Button
+            variant="secondary"
+            data-builder-undo=""
+            data-ctl="live:REPORT-03 undo"
+            state={canUndo(history) ? { kind: "enabled" } : { kind: "disabled", reason: "Nothing to undo." }}
+            onClick={() => setHistory((current) => undo(current))}
+          >
+            {copy.undo}
+          </Button>
+          <Button variant="secondary" data-ctl="live:REPORT-08 retry" onClick={onRetryWidgets}>
+            {copy.retry}
+          </Button>
+          <Button
+            variant="secondary"
+            data-builder-save=""
+            state={
+              (name ?? "").trim()
+                ? { kind: "enabled" }
+                : { kind: "disabled", reason: "A report needs a name before it can be saved." }
+            }
+            onClick={() => onSave?.(history.present)}
+          >
+            {copy.save}
+          </Button>
+        </div>
+        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-end" }}>
+          <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+            {copy.breakdown}
+            <select
+              data-ctl="live:REPORT-07 breakdown"
+              value={breakdown}
+              onChange={(event) => setBreakdown(event.target.value)}
+              style={{ minHeight: 44, padding: "6px 8px" }}
+            >
+              {["none", "day", "campaign", "device"].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="secondary" data-ctl="live:REPORT-04 csv" onClick={onExportCsv}>
+            {copy.downloadCsv}
+          </Button>
+        </div>
+        {/* What each source will and will not answer. Discovering a breakdown
+            limit after building a report around it is the expensive way to
+            learn it — so the note is read where the breakdown is chosen. */}
+        <div data-el="h38-handoff" style={{ marginTop: 8 }}>
+          <p
+            data-el="source-contracts"
+            style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+          >
+            {copy.sourceContractsNote}
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* --------------------------------------------------- viewer / print widget */
+
+/**
+ * One rendered widget, rendered as the type it actually is.
+ *
+ * The renderer emits a different payload per widget type: a metric carries
+ * `value`/`deltaLabel`, a trend carries `points` or `series`, a table carries
+ * `rows`/`columns`, and text carries `text`. The previous version pushed all of
+ * them through a `DataTable` fed from `rows`, so every metric, trend and text
+ * widget in a healthy report rendered as an empty table.
+ *
+ * Nothing is recomputed here. The renderer has already formatted values against
+ * the report's currency; this component places them.
+ */
+export function RenderedWidgetCard({
+  widget,
+  /**
+   * The stored `dataSource` for this widget id, from the report's definition.
+   * The rendered payload does not carry one, and the CSV guard is a per-source
+   * rule — so an unreadable definition fails the guard closed rather than
+   * offering an export whose safety is unknown.
+   */
+  sourceId,
+  onRetry,
+  onExportCsv,
+  exportState,
+}: {
+  widget: RenderedReportWidget;
+  sourceId: string | null;
+  onRetry?: () => void;
+  onExportCsv?: () => void;
+  exportState?: { pending: boolean; error: string | null };
+}) {
+  const copy = useCopy();
+  const rows = widget.rows ?? [];
+  const columns = widget.columns ?? Object.keys(rows[0] ?? {});
+  // Two independent guards: the catalog's per-source rule, and whether the
+  // export route would actually accept this widget.
+  const routeGuard = widgetIsExportable(widget);
+  const sourceGuard = sourceId
+    ? canExportCsv(sourceId)
+    : { ok: false as const, reason: "This widget's source could not be read, so export is withheld." };
+  const csv = !routeGuard.ok ? routeGuard : sourceGuard;
+
+  return (
+    <section
+      data-report-widget={widget.id}
+      data-widget-type={widget.type}
+      aria-label={widget.title}
+      style={{ display: "grid", gap: 6 }}
+    >
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{widget.title}</h3>
+      {widget.subtitle ? (
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{widget.subtitle}</p>
+      ) : null}
+
+      {/* A warning rides alongside the content rather than replacing it. */}
+      {widget.warning ? (
+        <p data-widget-warning={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+          {widget.warning}
+        </p>
+      ) : null}
+
+      {widget.errorMessage ? (
+        <div data-widget-state="error">
+          {/* Inside the widget frame: a failed source must not blank the page. */}
+          <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>{widget.errorMessage}</p>
+          {widget.retryable ? (
+            <Button variant="secondary" data-widget-retry={widget.id} onClick={onRetry}>
+              {copy.retry}
+            </Button>
+          ) : (
+            <p data-widget-retry-blocked={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+              {copy.retryNotMarked}
+            </p>
+          )}
+        </div>
+      ) : widget.emptyMessage ? (
+        <p data-widget-state="empty" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {widget.emptyMessage}
+        </p>
+      ) : widget.type === "metric" ? (
+        <div data-widget-state="ready">
+          <p data-widget-value={widget.id} style={{ margin: 0, fontSize: 22, fontWeight: 700, lineHeight: "28px" }}>
+            {widget.value ?? "Not served"}
+          </p>
+          {widget.deltaLabel ? (
+            <p data-widget-delta={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+              {widget.deltaLabel}
+            </p>
+          ) : null}
+        </div>
+      ) : widget.type === "trend" || widget.type === "bar" ? (
+        <div data-widget-state="ready" data-widget-axis={widget.axisMode ?? "adaptive"}>
+          {/* Points are listed, not drawn: a value an operator cannot read off
+              the surface is a value they cannot check. */}
+          {(widget.series ?? []).map((series) => (
+            <dl key={series.key ?? series.label} data-widget-series={series.key ?? series.label} style={{ margin: 0 }}>
+              <dt style={{ fontSize: 12, fontWeight: 600 }}>{series.label}</dt>
+              {series.points.map((point) => (
+                <dd key={point.label} data-point={point.label} style={{ margin: 0, fontSize: 12 }}>
+                  {point.label}: {point.value}
+                </dd>
+              ))}
+            </dl>
+          ))}
+          {widget.points ? (
+            <dl data-widget-points={widget.id} style={{ margin: 0 }}>
+              {widget.points.map((point) => (
+                <div key={point.label}>
+                  <dt style={{ fontSize: 12, display: "inline" }}>{point.label}: </dt>
+                  <dd data-point={point.label} style={{ margin: 0, fontSize: 12, display: "inline" }}>
+                    {point.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+      ) : widget.type === "text" || widget.type === "section" ? (
+        <div data-widget-state="ready">
+          <p data-widget-text={widget.id} style={{ margin: 0, fontSize: 12, lineHeight: "18px" }}>
+            {widget.text ?? ""}
+          </p>
+        </div>
+      ) : (
+        <div data-widget-state="ready">
+          <DataTable
+            caption={widget.title}
+            rows={[...rows]}
+            // The widget id plus the row's position in the served order. The
+            // previous Math.random() key remounted every row on every render.
+            rowKey={(row, index) => `${widget.id}:${String(row.id ?? row.name ?? index)}`}
+            columns={columns.map((key) => ({
+              id: key,
+              header: key,
+              render: (row: Record<string, string | number | null>) => {
+                const cell = row[key];
+                return cell === null || cell === undefined ? "" : String(cell);
+              },
+            }))}
+          />
+        </div>
+      )}
+
+      {csv.ok ? (
+        <div>
+          <Button
+            variant="quiet"
+            data-widget-csv={widget.id}
+            state={exportState?.pending ? { kind: "busy", label: "Preparing\u2026" } : { kind: "enabled" }}
+            onClick={onExportCsv}
+          >
+            {copy.exportCsv}
+          </Button>
+          {exportState?.error ? (
+            <p data-widget-csv-error={widget.id} style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+              {exportState.error}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p data-widget-csv-blocked={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {csv.reason}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------- disabled share */
+
+export const SHARE_PREREQUISITES = [
+  "A written operator authorization recorded in Appendix C.",
+  "A decision on what happens to share tokens that were already issued.",
+] as const;
+
+/**
+ * The print / PDF view (H39).
+ *
+ * No chrome and no controls: paper has no rail, no context bar and nothing to
+ * click. What it does carry is the scope and the window the figures were served
+ * for — a printed page outlives the session that produced it, and a number
+ * without its window is unreadable a week later.
+ */
+export function ReportPrintView({
+  name,
+  scopeLine,
+  windowLabel,
+  snapshotAt,
+  children,
+}: {
+  name: string;
+  scopeLine: string;
+  windowLabel: string;
+  snapshotAt: string;
+  children?: ReactNode;
+}) {
+  return (
+    <article data-el="print-view" data-report-print="" style={{ maxWidth: 960, margin: "0 auto" }}>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{name}</h1>
+      <p style={{ margin: "4px 0 16px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+        {scopeLine} · {windowLabel} · as of {snapshotAt}
+      </p>
+      {children}
+    </article>
+  );
+}
+
+export function ReportShareDisabled() {
+  const copy = useCopy();
+  return (
+    <section
+      data-report-share="disabled"
+      data-el="share-disabled-panel"
+      aria-label={copy.sharing}
+      style={{ marginTop: 20 }}
+    >
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sharing}</h2>
+      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+        {copy.sharingUnavailable}
+      </p>
+      <ul data-share-prerequisites="" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+        {SHARE_PREREQUISITES.map((item) => (
+          <li key={item} style={{ fontSize: 12, lineHeight: "17px" }}>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

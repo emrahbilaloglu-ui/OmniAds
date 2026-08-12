@@ -37,6 +37,8 @@ import {
   inspectControlledRegistryCapabilities,
 } from "@/lib/meta/controlled-experiment-registry";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
+import { instrumentationV2UpgradeStatements } from "@/lib/zero-base/instrumentation-schema";
+import { workflowIdempotencyUpgradeStatements } from "@/lib/zero-base/meta/workflow-schema";
 
 let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
@@ -95,9 +97,7 @@ BEGIN
       ALTER TABLE ${table}
         ADD CONSTRAINT ${constraintPrefix}_authority_blocker_check
         CHECK (authority_blocker IS NULL OR authority_blocker IN (
-          'profile_hard_action_ineligible', 'source_freshness',
-          'campaign_context', 'native_metrics_unavailable',
-          'native_profile_unavailable'
+          ${AUTHORITY_BLOCKER_CHECK_VALUES_SQL}
         ));
     END IF;
   END IF;
@@ -1583,68 +1583,12 @@ FOR EACH ROW
 EXECUTE FUNCTION validate_manual_meta_ads_action_terminalization();
 `;
 
-type NativeSchemaCapability = {
-  ready: boolean;
-  missing?: readonly string[];
-  mismatched?: readonly string[];
-  issues?: readonly string[];
-};
-
-function nativeSchemaIssues(capability: NativeSchemaCapability) {
-  return [
-    ...(capability.missing ?? []),
-    ...(capability.mismatched ?? []),
-    ...(capability.issues ?? []),
-  ];
-}
-
-function assertNativeSchemaCapability(
-  name: string,
-  capability: NativeSchemaCapability,
-) {
-  if (capability.ready) return;
-  throw new Error(
-    `Native ad schema contract is not ready after ${name}: ${nativeSchemaIssues(capability).join(", ")}`,
-  );
-}
-
-async function hasPartialNonIdempotentNativeSchema(
-  db: DbClient,
-  input: {
-    tables: readonly string[];
-    columns?: readonly { table: string; column: string }[];
-  },
-) {
-  const [row] = await db.query<{
-    table_count: number | string;
-    column_count: number | string;
-  }>(
-    `
-    SELECT
-      COUNT(DISTINCT table_name)::integer AS table_count,
-      COUNT(*) FILTER (WHERE column_name IS NOT NULL)::integer AS column_count
-    FROM (
-      SELECT table_name, NULL::text AS column_name
-      FROM information_schema.tables
-      WHERE table_schema = current_schema()
-        AND table_name = ANY($1::text[])
-      UNION ALL
-      SELECT table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND (table_name, column_name) IN (
-          SELECT item->>'table', item->>'column'
-          FROM jsonb_array_elements($2::jsonb) item
-        )
-    ) capability
-    `,
-    [input.tables, JSON.stringify(input.columns ?? [])],
-  );
-  return (
-    Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0
-  );
-}
-
+/**
+ * D063 widens an enum-like CHECK without removing the old protection during
+ * table validation. No row is rewritten. The temporary NOT VALID constraint
+ * checks new writes immediately, is validated against existing rows, and is
+ * then swapped to the stable capability-contract name in the same transaction.
+ */
 export const D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL = `
 DO $d063_authority_blocker$
 DECLARE
@@ -1721,6 +1665,69 @@ BEGIN
 END
 $d063_authority_blocker$;
 `;
+
+type NativeSchemaCapability = {
+  ready: boolean;
+  missing?: readonly string[];
+  mismatched?: readonly string[];
+  issues?: readonly string[];
+};
+
+function nativeSchemaIssues(capability: NativeSchemaCapability) {
+  return [
+    ...(capability.missing ?? []),
+    ...(capability.mismatched ?? []),
+    ...(capability.issues ?? []),
+  ];
+}
+
+function assertNativeSchemaCapability(
+  name: string,
+  capability: NativeSchemaCapability,
+) {
+  if (capability.ready) return;
+  throw new Error(
+    `Native ad schema contract is not ready after ${name}: ${nativeSchemaIssues(capability).join(", ")}`,
+  );
+}
+
+async function hasPartialNonIdempotentNativeSchema(
+  db: DbClient,
+  input: {
+    tables: readonly string[];
+    columns?: readonly { table: string; column: string }[];
+  },
+) {
+  const [row] = await db.query<{
+    table_count: number | string;
+    column_count: number | string;
+  }>(
+    `
+    SELECT
+      COUNT(DISTINCT table_name)::integer AS table_count,
+      COUNT(*) FILTER (WHERE column_name IS NOT NULL)::integer AS column_count
+    FROM (
+      SELECT table_name, NULL::text AS column_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])
+      UNION ALL
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND (table_name, column_name) IN (
+          SELECT item->>'table', item->>'column'
+          FROM jsonb_array_elements($2::jsonb) item
+        )
+    ) capability
+    `,
+    [input.tables, JSON.stringify(input.columns ?? [])],
+  );
+  return (
+    Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0
+  );
+}
+
 
 async function runNativeAdSchemaMigrations(
   timeoutMs: number,
@@ -6873,6 +6880,12 @@ export async function runMigrations(options?: {
           state_version      INTEGER NOT NULL,
           created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        // Zero-base WP-13: additive idempotency for the existing overlay.
+        // One nullable column and a partial unique index — no second table and
+        // no parallel store, so the event journal stays single-sourced.
+        ...workflowIdempotencyUpgradeStatements().map((statement) =>
+          sql.query(statement).catch(() => {}),
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_events_decision
           ON decision_workflow_events (business_id, decision_key, created_at DESC)`.catch(() => {}),
         // Notification ledger. Every event that was worth telling someone about
@@ -13810,6 +13823,14 @@ export async function runMigrations(options?: {
         `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_retention
          ON product_instrumentation_events (retain_until)`,
       );
+      // Zero-base v2 (WP-07): additive only. Nullable columns, widened
+      // allowlists that keep every v1 value, and a partial unique index so
+      // existing rows with a NULL event_id do not collide. One table — a
+      // second would split retention, health counting and every operator
+      // query in two.
+      for (const statement of instrumentationV2UpgradeStatements()) {
+        await sql.query(statement);
+      }
       // Operator-visible sink health: a failing sink must be a fact someone can
       // read, not a console line.
       await sql.query(`

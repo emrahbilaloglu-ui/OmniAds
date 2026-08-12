@@ -538,41 +538,50 @@ describe("mapApiRowToUiRow", () => {
 });
 
 describe("fetchCreativeDecisionEngineV3", () => {
-  it("fetches v3 decisions with business, date, and creative id filters", async () => {
+  it("does not fetch when exact provider-account scope is missing", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.example" },
+    });
+
+    await expect(
+      fetchCreativeDecisionEngineV3({
+        businessId: "biz-1",
+        providerAccountId: "   ",
+      }),
+    ).rejects.toThrow(
+      "decision engine v3 requires one exact business and provider account",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches canonical native decisions with exact account, date, and grouping filters", async () => {
     const payload: DecisionEngineV3Response = {
+      status: "available",
+      contractVersion: "decision-engine-v3-native-ad-serving.v1",
       businessId: "biz-1",
-      asOf: "2026-05-04",
-      engineVersion: "v3-2026-05-04-stub",
-      dataSource: "warehouse",
-      scope: { type: "account", id: "*" },
-      accountProfile: makeAccountProfile(),
-      dataHealth: {
-        calibration: {
-          asOfDate: "2026-05-04",
-          computedAt: "2026-05-04T12:00:00.000Z",
-          sourceFreshnessHours: 0,
-          staleTier: "none",
-          fallbackMode: "runtime_sql",
-          note: null,
-        },
-        lifecycle: {
-          asOfDate: "2026-05-04",
-          computedAt: "2026-05-04T12:00:00.000Z",
-          sourceFreshnessHours: 0,
-          staleTier: "none",
-          fallbackMode: "runtime_sql",
-          note: null,
-        },
-        decisions: {
-          asOfDate: "2026-05-04",
-          computedAt: "2026-05-04T12:00:00.000Z",
-          sourceFreshnessHours: 0,
-          staleTier: "none",
-          fallbackMode: "runtime_sql",
-          note: null,
-        },
-        worstTier: "none",
-        degraded: false,
+      providerAccountId: "act_1",
+      asOf: "2026-07-16",
+      engineVersion: "native-current",
+      dataSource: "native_persisted_generation",
+      generation: {
+        jobRunId: "job-run-1",
+        asOfDate: "2026-07-16",
+        providerAccountRefId: "provider-ref-1",
+        manifestHash: "a".repeat(64),
+        expectedAdCount: 0,
+      },
+      inventory: {
+        preFilterCount: 0,
+        selectedCount: 0,
+        identityGrain: "ad",
+        items: [],
+      },
+      decisions: [],
+      compatibility: {
+        authority: "review_only",
+        omittedAmbiguousCreativeCount: 0,
       },
       flags: {
         businessId: "biz-1",
@@ -592,29 +601,6 @@ describe("fetchCreativeDecisionEngineV3", () => {
           shadowOnly: true,
         },
       },
-      decisions: [
-        {
-          creativeId: "creative-1",
-          creativeName: "Creative One",
-          label: "test_more",
-          preAuthorityLabel: "test_more",
-          authorityBlocker: null,
-          reason: "Engine v3 stub - real gate logic not yet implemented.",
-          confidence: 50,
-          truthSource: "commercial_truth",
-          effectiveTargetRoas: 2.2,
-          ratioToTarget: 1.1,
-          badges: [],
-          metrics: {
-            spend: 100,
-            purchases: 2,
-            roas: 2.4,
-            recent7dRoas: 2.1,
-          },
-          engineVersion: "v3-2026-05-04-stub",
-          generatedAt: "2026-05-04T12:00:00.000Z",
-        },
-      ],
     };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(payload), {
@@ -629,7 +615,8 @@ describe("fetchCreativeDecisionEngineV3", () => {
 
     const result = await fetchCreativeDecisionEngineV3({
       businessId: "biz-1",
-      asOf: "2026-05-04",
+      providerAccountId: "act_1",
+      asOf: "2026-07-16",
       creativeIds: ["creative-1", "creative-2"],
       campaignId: "campaign-1",
     });
@@ -640,7 +627,8 @@ describe("fetchCreativeDecisionEngineV3", () => {
     expect(requestUrl.origin).toBe("https://app.example");
     expect(requestUrl.pathname).toBe("/api/creatives/decision-engine-v3");
     expect(requestUrl.searchParams.get("businessId")).toBe("biz-1");
-    expect(requestUrl.searchParams.get("asOf")).toBe("2026-05-04");
+    expect(requestUrl.searchParams.get("providerAccountId")).toBe("act_1");
+    expect(requestUrl.searchParams.get("asOf")).toBe("2026-07-16");
     expect(requestUrl.searchParams.get("creativeIds")).toBe("creative-1,creative-2");
     expect(requestUrl.searchParams.get("campaignId")).toBe("campaign-1");
   });

@@ -1,3 +1,4 @@
+import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import {
   LEGACY_META_CALIBRATION_THRESHOLDS,
@@ -21,20 +22,6 @@ import {
 
 function r2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "TRY ";
-  if (currency === "EUR") return "EUR ";
-  return "$";
-}
-
-function fmtCurrency(value: number | null, currency: string | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "No engagements";
-  return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function fmtPercent(value: number) {
@@ -191,7 +178,7 @@ export function emitEngagementAdsetScenario(input: AdsetScenarioInput): MetaReco
   });
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Engagement score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
-    { label: "Cost / engagement", value: fmtCurrency(Number.isFinite(costPerEngagement) ? costPerEngagement : null, currency), tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
+    { label: "Cost / engagement", value: Number.isFinite(costPerEngagement) ? formatMoney(costPerEngagement, currency, null) : "No engagements", tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
     { label: "Engagement rate", value: fmtPercent(engagementRate), tone: qualityRank == null ? "neutral" : qualityRank >= 0.7 ? "positive" : qualityRank <= 0.3 ? "warning" : "neutral" },
     { label: "Post engagement", value: String(postEngagement), tone: postEngagement > 0 ? "positive" : "warning" },
   ];

@@ -83,7 +83,7 @@ const mixedConcernTargets = new Set(
     "lib/overview-service.ts",
     "lib/shopify/read-adapter.ts",
     "app/api/overview-summary/route.ts",
-    "app/(dashboard)/platforms/meta/page.tsx",
+    "app/(dashboard)/platforms/meta/legacy-page.tsx",
   ].map((value) => path.join(repoRoot, value)),
 );
 

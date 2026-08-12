@@ -300,7 +300,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
     vi.mocked(warehouse.replaceMetaAdDailySlice).mockImplementation(
       async (input) => {
-        await warehouse.upsertMetaAdDailyRows(input.rows as never, { writeMode: "authoritative_fact" });
+        await warehouse.upsertMetaAdDailyRows(input.rows as never, {
+          writeMode: "authoritative_fact",
+        });
       },
     );
     // Forward appendConfigHistory. Dropping it here would make the fixture

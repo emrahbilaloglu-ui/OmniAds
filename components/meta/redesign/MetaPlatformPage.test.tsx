@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -20,6 +21,7 @@ import {
   compareItemForRec,
   trackingConfirmLabelForRec,
   metaRecSearchMatch,
+  resolveMetaDecisionMoneyCurrency,
   sortMetaRecs,
 } from "@/components/meta/redesign/MetaPlatformPage";
 
@@ -66,6 +68,18 @@ function queryState(
     error,
   };
 }
+
+describe("resolveMetaDecisionMoneyCurrency", () => {
+  it("prefers the cutoff-safe decision currency over mutable provider metadata", () => {
+    expect(resolveMetaDecisionMoneyCurrency("TRY", "USD")).toBe("TRY");
+  });
+
+  it("uses provider metadata only when the decision payload has no currency", () => {
+    expect(resolveMetaDecisionMoneyCurrency(null, "EUR")).toBe("EUR");
+    expect(resolveMetaDecisionMoneyCurrency("   ", " GBP ")).toBe("GBP");
+    expect(resolveMetaDecisionMoneyCurrency(undefined, undefined)).toBeNull();
+  });
+});
 
 function workspacePayload() {
   const pulse = state.pulsePayload ?? metaPulse();
@@ -498,7 +512,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v3",
+            overlayVersion: "meta-decisions-classification-overlay.v4",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "test" },
             assessment: { value: "proven_winner" },
@@ -616,7 +630,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v3",
+            overlayVersion: "meta-decisions-classification-overlay.v4",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "main" },
             assessment: { value: "below_target" },
@@ -760,7 +774,7 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain("act —");
   });
 
-  it("renders server-owned action authority, automation tier, and evidence affordance on decision rows", () => {
+  it("fails an injected legacy execute action closed to review on decision rows", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [
         metaRec({
@@ -809,16 +823,27 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    // The board keeps server-owned action authority and a stable spend anchor;
-    // opening the card still routes to the evidence drawer.
+    // Even a stale/injected execute_* value cannot manufacture write authority
+    // in the client; the evidence drawer remains the only primary destination.
     expect(html).toContain('data-testid="meta-decision-board"');
     expect(html).toContain('data-card="meta-action"');
     expect(html).toContain('data-layout="board"');
-    expect(html).toContain('data-action-authority="execute"');
-    expect(html).toContain('data-action-kind="execute_pause"');
+    expect(html).toContain('data-action-authority="review"');
+    expect(html).toContain('data-action-kind="review_drill"');
     expect(html).toContain('data-spend-anchor="true"');
-    expect(html).toContain("Pause adset");
+    expect(html).toContain("Review evidence");
+    expect(html).not.toContain('data-action-authority="execute"');
     expect(html).toContain("Cold Prospecting - Broad");
+  });
+
+  it("contains no recommendation-card POST path for legacy pause, resume, or bid writes", () => {
+    const source = readFileSync(
+      "components/meta/redesign/MetaPlatformPage.tsx",
+      "utf8",
+    );
+    expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause");
+    expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid");
+    expect(source).not.toContain("resumeEndpointForEntity");
   });
 
   it("exposes automatic context exceptions without rendering the correction manager inline", () => {
@@ -901,12 +926,12 @@ describe("MetaPlatformPage", () => {
   it("keeps apply-bid dry-run feedback distinct from a real write", () => {
     expect(metaBidApplyNotice({ dryRun: true, bidAmountMinor: 2200 })).toEqual({
       tone: "info",
-      title: "Dry run: bid cap would apply at $22.",
+      title: "Dry run: bid cap would apply at 22 (Currency unavailable).",
       detail: "No Meta write was performed; Meta verification completed.",
     });
-    expect(metaBidApplyNotice({ bidAmountMinor: 2200 })).toEqual({
+    expect(metaBidApplyNotice({ bidAmountMinor: 2200 }, "USD")).toEqual({
       tone: "success",
-      title: "Bid cap applied at $22.",
+      title: "Bid cap applied at $22.00.",
       detail: "Meta verified the ad set bid.",
     });
   });
@@ -935,7 +960,7 @@ describe("MetaPlatformPage", () => {
     expect(campaignKindMatchesMetaLabelFilter(null, "main")).toBe(false);
   });
 
-  it("renders persisted acted ad set recommendations as resumable decision cards", () => {
+  it("renders persisted acted recommendations without manufacturing resume authority", () => {
     state.lanePayload = metaLanePayload({
       actionNow: [
         metaRec({
@@ -969,7 +994,8 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-card="meta-action"');
     expect(html).toContain("Paused Adset");
     expect(html).toContain('data-operator-response="acted"');
-    expect(html).toContain("Resume adset");
+    expect(html).not.toContain("Resume adset");
+    expect(html).toContain("Paused");
   });
 
   it("pins Decisions to active status even when a legacy URL requests all", () => {
@@ -1975,21 +2001,21 @@ describe("workspace posture banners", () => {
 });
 
 describe("tracking confirm label follows the server actionKind", () => {
-  it("never shows Rebuild anyway for an apply-bid action", () => {
+  it("does not tracking-gate a review-only apply-bid suggestion", () => {
     const bidRec = metaRec({
       type: "bid_value_guidance",
       level: "adset",
       proposedAction: { kind: "apply_bid", bidAmountMinor: 500 },
     });
-    expect(bidRec.actionKind).toBe("execute_bid");
-    expect(trackingConfirmLabelForRec(bidRec)).toBe("Apply bid anyway");
+    expect(bidRec.actionKind).toBe("review_drill");
+    expect(trackingConfirmLabelForRec(bidRec)).toBe("Continue anyway");
     expect(trackingConfirmLabelForRec(bidRec)).not.toBe("Rebuild anyway");
   });
 
   it("maps every gated action to copy naming what confirming does", () => {
     expect(
       trackingConfirmLabelForRec(metaRec({ type: "adset_cut_spend" })),
-    ).toBe("Pause anyway");
+    ).toBe("Continue anyway");
     expect(
       trackingConfirmLabelForRec(metaRec({ type: "rebuild_with_constraints" })),
     ).toBe("Rebuild anyway");

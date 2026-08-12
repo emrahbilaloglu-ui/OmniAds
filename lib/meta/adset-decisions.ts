@@ -1,4 +1,5 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import { formatMoney } from "@/components/creatives/money";
 import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import type {
@@ -50,20 +51,6 @@ function r2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "TRY ";
-  if (currency === "EUR") return "EUR ";
-  return "$";
-}
-
-function fmtCurrency(value: number, currency: string | null | undefined) {
-  const symbol = currencySymbol(currency);
-  return `${symbol}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 function fmtRoas(value: number) {
   return `${value.toFixed(2)}x`;
 }
@@ -97,8 +84,8 @@ function commercialTargetEvidence(
   const evidence: MetaRecommendation["evidence"] = [];
   if (targets?.targetRoas) evidence.push({ label: "Target ROAS", value: fmtRoas(targets.targetRoas), tone: "neutral" });
   if (targets?.breakEvenRoas) evidence.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
-  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency), tone: "neutral" });
-  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency), tone: "neutral" });
+  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: formatMoney(targets.breakEvenCpa, currency, null), tone: "neutral" });
+  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: formatMoney(targets.targetCpa, currency, null), tone: "neutral" });
   return evidence;
 }
 
@@ -494,14 +481,14 @@ export function buildMetaAdsetRecommendations(
           decision: "Cut or cap this ad set",
           title: `${adset.name}: ad set is below the calibrated efficiency line`,
           why: "The ad set is consuming meaningful spend while trailing calibrated ROAS expectations.",
-          summary: `${adset.name} has spent ${fmtCurrency(adset.spend, currency)} at ${fmtRoas(adset.roas)} ROAS.`,
+          summary: `${adset.name} has spent ${formatMoney(adset.spend, currency, null)} at ${fmtRoas(adset.roas)} ROAS.`,
           recommendedAction: "Reduce budget pressure or pause the ad set, then reallocate spend toward stronger ad sets in the same campaign.",
           expectedImpact: "Lower waste and cleaner campaign-level budget allocation.",
           evidence: [
-            { label: "Ad set spend", value: fmtCurrency(adset.spend, currency), tone: "warning" },
+            { label: "Ad set spend", value: formatMoney(adset.spend, currency, null), tone: "warning" },
             { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "warning" },
             { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
-            { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, currency), tone: "neutral" },
+            { label: "Loss maturity spend", value: formatMoney(maturity.spendThreshold, currency, null), tone: "neutral" },
             ...commercialTargetEvidence(input.commercialTargets, currency),
             ...(severeLoser
               ? [{ label: "Severe loser bypass", value: "active", tone: "warning" as const }]

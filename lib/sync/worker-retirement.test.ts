@@ -635,6 +635,10 @@ describe("the bounded wait for a lease to lapse", () => {
     queueSql([incidentRows()]);
     await expect(
       mod.retireStoppedSyncWorker({ census, containerStopped: true, containerFinishedAt: FINISHED_AT, waitForHeldWorkMs: 0, ...INSTANT }),
-    ).rejects.toThrow(/still holds runnerLeases=1 after 0ms/);
+      // The elapsed figure is measured, not the configured budget: a machine
+      // under load reports 1ms where an idle one reports 0. What the refusal
+      // has to name is the lease it is refusing over and how long it waited,
+      // and that is what is asserted.
+    ).rejects.toThrow(/still holds runnerLeases=1 after \d+ms/);
   });
 });

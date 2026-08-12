@@ -1387,7 +1387,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v4");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v5");
     expect(result.ads.items[0]).toMatchObject({
       action: {
         code: "keep_running",
@@ -1402,6 +1402,63 @@ describe("buildMetaOsDecisionsPresentation", () => {
         firstBlocker: {
           code: "source_freshness",
           label: "Source evidence is not fresh enough",
+        },
+      },
+    });
+  });
+
+  it("presents the D063 recent-evidence blocker without a provider mutation", () => {
+    const decision = canonicalDecision({
+      id: "recent-evidence-held",
+      adId: "120000000000000098",
+      buyerAction: "protect",
+    });
+    decision.identityGrain = "ad";
+    decision.sourceDecision.label = "test_more";
+    decision.sourceDecision.rawLabel = "test_more";
+    decision.sourceDecision.preAuthorityLabel = "cut";
+    decision.sourceDecision.authorityBlocker =
+      "recent_recovery_unverifiable";
+    decision.classification.heldAction = "cut";
+    decision.classification.decisionState = "blocked";
+    decision.classification.buyerAction = null;
+    decision.classification.executionAction = null;
+    decision.sourceAuthority = {
+      status: "native_exact",
+      actionEligible: false,
+      reviewOnlyReason: "recent_recovery_unverifiable",
+      snapshotId: decision.sourceSnapshotId,
+      evaluationId: "10000000-0000-4000-8000-000000000098",
+      inputHash: "a".repeat(64),
+      decisionHash: "b".repeat(64),
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      engineVersion: "v3-ad-test",
+      realAdId: "120000000000000098",
+      authorizedAction: null,
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+    };
+    const model = readModel([decision]);
+    model.source.authority = "native_ad";
+    model.source.table = "engine_v3_ad_decision_snapshots_daily";
+    model.source.fallbackReason = null;
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.ads.items[0]).toMatchObject({
+      action: { intent: "review", providerMutation: null },
+      authorityProvenance: {
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "test_more",
+        publishedLabel: "test_more",
+        firstBlocker: {
+          code: "recent_recovery_unverifiable",
+          label: "Recent economic recovery cannot be ruled out",
         },
       },
     });

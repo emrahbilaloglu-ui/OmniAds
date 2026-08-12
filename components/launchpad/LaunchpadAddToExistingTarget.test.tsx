@@ -120,6 +120,12 @@ function jsonResponse(payload: unknown, init?: ResponseInit) {
 }
 
 describe("LaunchpadAddToExistingTarget", () => {
+  it("defaults to the receipt-complete clone path", () => {
+    expect(makeDefaultAddToExistingTargetState().copyMode).toBe(
+      "reuse_creative",
+    );
+  });
+
   it("waits for campaign selection before rendering ad set pickers", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
@@ -209,7 +215,11 @@ describe("LaunchpadAddToExistingTarget", () => {
 
     expect(html).toContain("Creative copy mode");
     expect(html).toContain("Duplicate");
-    expect(html).toContain("Recreate exact ad");
+    expect(html).toContain("Recreate exact ad · review-only");
+    expect(html).toContain(
+      "image, creative, and ad writes each have a durable step receipt",
+    );
+    expect(html).toContain("disabled");
   });
 
   it("retries an empty ad set response when the campaign reports active ad sets", async () => {

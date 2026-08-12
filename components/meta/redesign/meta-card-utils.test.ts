@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
   formatMoney,
+  launchModeForRec,
+  primaryLabelForRec,
   proposedBidDisplayValue,
   proposedBidMinorForExecute,
+  uiActionKindForRec,
 } from "./meta-card-utils";
 
 function recommendation(
@@ -68,4 +71,26 @@ describe("Meta card currency honesty", () => {
 
     expect(proposedBidDisplayValue(rec)).toBe(22);
   });
+});
+
+describe("legacy recommendation write authority", () => {
+  it.each(["execute_pause", "execute_resume", "execute_bid"] as const)(
+    "fails an injected %s action closed to evidence review",
+    (actionKind) => {
+      const rec = recommendation({
+        actionKind,
+        primaryActionLabel: "Injected provider write",
+        proposedAction:
+          actionKind === "execute_bid"
+            ? { kind: "apply_bid", bidAmountMinor: 2200 }
+            : actionKind === "execute_pause"
+              ? { kind: "pause" }
+              : { kind: "resume" },
+      });
+
+      expect(uiActionKindForRec(rec)).toBe("review_drill");
+      expect(launchModeForRec(rec)).toBeNull();
+      expect(primaryLabelForRec(rec)).toBe("Review evidence");
+    },
+  );
 });

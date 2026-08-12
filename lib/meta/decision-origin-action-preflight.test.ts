@@ -313,6 +313,32 @@ describe("server decision-origin action preflight", () => {
     expect(result.blockers).toContain("action_not_authorized");
   });
 
+  it("blocks a Cut whose exact persisted tuple has no explicit pause authorization", async () => {
+    vi.mocked(actionLog.readDecisionOriginSourceDecision).mockResolvedValue({
+      ...(await actionLog.readDecisionOriginSourceDecision({
+        snapshotId: "snapshot_1",
+        evaluationId: "evaluation_1",
+      })),
+      decisionLabel: "cut",
+      blockedActionType: null,
+      explicitAuthorizedAction: null,
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request({ action: "pause" }),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+        connectionGeneration: "1:connected",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain("action_not_authorized");
+  });
+
   it("fails closed when Meta reports a policy block", async () => {
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: true,

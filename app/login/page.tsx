@@ -15,6 +15,10 @@ import {
   LANGUAGE_COOKIE_NAME,
 } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
+import { useZeroBaseUi } from "@/components/zero-base/rollout-provider";
+import { LoginFailurePanel } from "@/components/zero-base/auth/auth-states";
+import { loginFailureCopy, loginFailureFromResponse, type LoginFailureState } from "@/lib/zero-base/auth-states";
+import { resolveCanonicalPostLoginDestination } from "@/lib/zero-base/auth-routing";
 
 function getLanguageCookie() {
   return document.cookie
@@ -34,6 +38,10 @@ interface LoginResponse {
     timezone: string | null;
     timezoneSource?: "shopify" | "ga4" | null;
     currency: string;
+    // The endpoint already returns this (it passes listUserBusinesses through
+    // unfiltered); the client type simply omitted it. Type-only widening —
+    // the auth endpoints are unchanged.
+    membershipStatus?: "active" | "invited" | "pending";
     isDemoBusiness?: boolean;
     industry?: string;
     platform?: string;
@@ -51,6 +59,12 @@ function LoginPageClient() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Distinguishes validation from bad credentials from rate-limiting from
+  // being offline. One "Could not sign in." for all four leaves the user with
+  // no idea whether to fix something, wait, or check their connection.
+  const [failureState, setFailureState] = useState<LoginFailureState | null>(null);
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState<number | null>(null);
+  const { canonical } = useZeroBaseUi();
   const language = usePreferencesStore((state) => state.language);
   const setLanguage = usePreferencesStore((state) => state.setLanguage);
   const t = getTranslations(language).login;
@@ -132,6 +146,16 @@ function LoginPageClient() {
   async function handleLogin() {
     setLoading(true);
     setError(null);
+    setFailureState(null);
+    setRetryAfterSeconds(null);
+
+    if (!email.trim() || !password) {
+      setFailureState("field_validation");
+      setError(loginFailureCopy("field_validation"));
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -142,7 +166,16 @@ function LoginPageClient() {
         .json()
         .catch(() => null)) as LoginResponse | null;
       if (!res.ok) {
-        throw new Error(payload?.message ?? "Could not sign in.");
+        const retryAfter = Number(res.headers.get("retry-after"));
+        const state = loginFailureFromResponse({
+          status: res.status,
+          code: (payload as { error?: string } | null)?.error ?? null,
+        });
+        setFailureState(state);
+        setRetryAfterSeconds(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null);
+        // The server's own message stays available for legacy rendering; the
+        // canonical panel uses the state's copy.
+        throw new Error(payload?.message ?? loginFailureCopy(state));
       }
       const inviteToken = searchParams.get("invite");
       if (inviteToken) {
@@ -181,11 +214,23 @@ function LoginPageClient() {
           activeBusinessId: payload.activeBusinessId ?? null,
         });
       }
-      const destination = resolvePostLoginDestination({
-        businesses: payload?.businesses ?? [],
-        activeBusinessId: payload?.activeBusinessId ?? null,
-        nextPath: searchParams.get("next"),
-      });
+      // Canonical routing is authorization-gated: `next` is honoured only
+      // after we know the actor can reach it. Legacy keeps its own resolver so
+      // nothing changes with rollout off.
+      const destination = canonical
+        ? resolveCanonicalPostLoginDestination({
+            businesses: (payload?.businesses ?? []).map((business) => ({
+              id: business.id,
+              membershipStatus: business.membershipStatus,
+            })),
+            lastCanonicalBusinessId: payload?.activeBusinessId ?? null,
+            next: searchParams.get("next"),
+          })
+        : resolvePostLoginDestination({
+            businesses: payload?.businesses ?? [],
+            activeBusinessId: payload?.activeBusinessId ?? null,
+            nextPath: searchParams.get("next"),
+          });
       logClientAuthEvent("login_succeeded", {
         destination,
         userId: payload?.user?.id ?? null,
@@ -196,7 +241,15 @@ function LoginPageClient() {
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Could not sign in.";
-      setError(message);
+      // A thrown fetch never reached the server, so nothing was submitted —
+      // which is a materially different thing to tell the user.
+      setFailureState((current) => {
+        if (current) return current;
+        const offline = loginFailureFromResponse({ networkError: true });
+        setError(loginFailureCopy(offline));
+        return offline;
+      });
+      if (!message.startsWith("Could not reach")) setError(message);
       logClientAuthEvent("login_failed", { email, message });
     } finally {
       setLoading(false);
@@ -242,9 +295,13 @@ function LoginPageClient() {
           />
         </label>
         {error ? (
-          <p className="ad-auth-alert ad-auth-alert-danger" role="alert" aria-live="assertive">
-            {error}
-          </p>
+          canonical && failureState ? (
+            <LoginFailurePanel state={failureState} retryAfterSeconds={retryAfterSeconds} />
+          ) : (
+            <p className="ad-auth-alert ad-auth-alert-danger" role="alert" aria-live="assertive">
+              {error}
+            </p>
+          )
         ) : null}
         <button type="submit" className="ad-auth-primary" disabled={loading}>
           {loading ? t.signingIn : t.signIn}

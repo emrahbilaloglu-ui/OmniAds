@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeMetaLaunchPayload } from "@/lib/launchpad/meta";
+import { META_LAUNCHPAD_MANUAL_AUTHORITY } from "@/lib/launchpad/meta-manual-authority";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@/lib/meta/launch-write", () => ({
   createCampaign: vi.fn(),
   createAdSet: vi.fn(),
   createAd: vi.fn(),
+  preflightMetaLaunchCreatives: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
@@ -100,7 +102,11 @@ function payload() {
 function request(body: unknown) {
   const scopedBody =
     body && typeof body === "object" && !Array.isArray(body)
-      ? { providerAccountId: "act_123", ...body }
+      ? {
+          providerAccountId: "act_123",
+          ...META_LAUNCHPAD_MANUAL_AUTHORITY,
+          ...body,
+        }
       : body;
   return new NextRequest("http://localhost/api/launchpad/meta/launch", {
     method: "POST",
@@ -148,7 +154,11 @@ describe("POST /api/launchpad/meta/launch", () => {
     vi.mocked(intentService.prepareMetaLaunchIntentForExecution).mockResolvedValue({
       ok: true,
       created: true,
-      intent: { id: "intent_1", status: "prepared" },
+      intent: {
+        id: "intent_1",
+        status: "prepared",
+        requestFingerprint: "fingerprint_1",
+      },
     } as never);
     vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({
       id: "intent_1",
@@ -177,6 +187,33 @@ describe("POST /api/launchpad/meta/launch", () => {
         accessToken: "secret-token",
       },
     } as never);
+    vi.mocked(launchWrite.preflightMetaLaunchCreatives).mockResolvedValue({
+      ok: true,
+      providerAccountId: "act_123",
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      checks: [
+        {
+          kind: "creative_identity",
+          requestedCreativeId: "creative_1",
+          requestedProviderAccountId: "act_123",
+          returnedCreativeId: "creative_1",
+          returnedProviderAccountId: "act_123",
+          ok: true,
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          error: null,
+        },
+        {
+          kind: "creative_identity",
+          requestedCreativeId: "creative_2",
+          requestedProviderAccountId: "act_123",
+          returnedCreativeId: "creative_2",
+          returnedProviderAccountId: "act_123",
+          ok: true,
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          error: null,
+        },
+      ],
+    });
     mockValidPayload();
     vi.mocked(launchWrite.createCampaign).mockResolvedValue({
       ok: true,
@@ -236,10 +273,36 @@ describe("POST /api/launchpad/meta/launch", () => {
     expect(launchWrite.createCampaign).toHaveBeenCalledOnce();
     expect(launchWrite.createAdSet).toHaveBeenCalledOnce();
     expect(launchWrite.createAd).toHaveBeenCalledTimes(2);
+    expect(launchWrite.preflightMetaLaunchCreatives).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: "act_123" }),
+      ["creative_1", "creative_2"],
+    );
+    expect(
+      vi.mocked(launchWrite.preflightMetaLaunchCreatives).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(launchWrite.createCampaign).mock.invocationCallOrder[0]!,
+    );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "launch_campaign",
-        payloadRequest: expect.objectContaining({ launch_intent_id: "intent_1" }),
+        source: "launchpad_manual",
+        payloadRequest: expect.objectContaining({
+          action_origin: "launchpad_manual_v1",
+          manual_confirmation: "explicit_operator_confirmation",
+          launch_intent_id: "intent_1",
+          launch_intent_request_fingerprint: "fingerprint_1",
+          creative_preflight_provider_account_id: "act_123",
+          creative_preflight_checks: expect.arrayContaining([
+            expect.objectContaining({
+              requestedCreativeId: "creative_1",
+              ok: true,
+            }),
+            expect.objectContaining({
+              requestedCreativeId: "creative_2",
+              ok: true,
+            }),
+          ]),
+        }),
       }),
     );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -262,13 +325,191 @@ describe("POST /api/launchpad/meta/launch", () => {
       providerAccountId: "act_123",
       payload: normalizeMetaLaunchPayload(payload()),
     });
+    expect(
+      intentService.prepareMetaLaunchIntentForExecution,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestPayload: expect.objectContaining({
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+        }),
+      }),
+    );
     expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "intent_1",
         status: "succeeded",
+        resultReceipt: expect.objectContaining({
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+          requestFingerprint: "fingerprint_1",
+          checks: expect.arrayContaining([
+            expect.objectContaining({
+              requestedCreativeId: "creative_1",
+              returnedProviderAccountId: "act_123",
+              ok: true,
+            }),
+          ]),
+        }),
       }),
     );
   });
+
+  it("finishes all fresh creative identity checks and blocks before the first provider POST", async () => {
+    vi.mocked(launchWrite.preflightMetaLaunchCreatives).mockResolvedValueOnce({
+      ok: false,
+      providerAccountId: "act_123",
+      checkedAt: "2026-07-18T12:05:00.000Z",
+      checks: [
+        {
+          kind: "creative_identity",
+          requestedCreativeId: "creative_1",
+          requestedProviderAccountId: "act_123",
+          returnedCreativeId: "creative_1",
+          returnedProviderAccountId: "act_999",
+          ok: false,
+          checkedAt: "2026-07-18T12:05:00.000Z",
+          error: {
+            code: "creative_account_mismatch",
+            message: "Wrong account.",
+          },
+        },
+        {
+          kind: "creative_identity",
+          requestedCreativeId: "creative_2",
+          requestedProviderAccountId: "act_123",
+          returnedCreativeId: "creative_2",
+          returnedProviderAccountId: "act_123",
+          ok: true,
+          checkedAt: "2026-07-18T12:05:00.000Z",
+          error: null,
+        },
+      ],
+    });
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_creative_preflight",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("creative_preflight_blocked");
+    expect(body.checks).toHaveLength(2);
+    expect(intentStore.recordMetaLaunchIntentValidation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "intent_1",
+        receipt: expect.objectContaining({
+          ok: false,
+          checks: expect.arrayContaining([
+            expect.objectContaining({
+              requestedCreativeId: "creative_1",
+              error: expect.objectContaining({
+                code: "creative_account_mismatch",
+              }),
+            }),
+            expect.objectContaining({
+              requestedCreativeId: "creative_2",
+              ok: true,
+            }),
+          ]),
+        }),
+        errorReceipt: expect.objectContaining({
+          code: "creative_preflight_blocked",
+          checks: expect.any(Array),
+        }),
+      }),
+    );
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+    expect(launchWrite.createAdSet).not.toHaveBeenCalled();
+    expect(launchWrite.createAd).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects an over-limit new-campaign fan-out before account, intent, or provider work", async () => {
+    const oversizedPayload = payload();
+    oversizedPayload.creatives = Array.from({ length: 21 }, (_, index) => ({
+      creativeId: `creative_${index + 1}`,
+      name: `Creative ${index + 1}`,
+    }));
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: oversizedPayload,
+        idempotencyKey: "idem_over_limit",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body).toMatchObject({
+      ok: false,
+      error: { code: "launchpad_creative_limit_exceeded" },
+      counts: { creatives: 21 },
+    });
+    expect(
+      validation.resolveAssignedMetaLaunchAccount,
+    ).not.toHaveBeenCalled();
+    expect(
+      intentService.prepareMetaLaunchIntentForExecution,
+    ).not.toHaveBeenCalled();
+    expect(launchWrite.preflightMetaLaunchCreatives).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      {
+        actionOrigin: undefined,
+        manualConfirmation: undefined,
+      },
+      "action_origin_required",
+    ],
+    [
+      {
+        actionOrigin: "manual_operator_v1",
+        manualConfirmation: "explicit_operator_confirmation",
+      },
+      "action_origin_required",
+    ],
+    [
+      {
+        actionOrigin: "launchpad_manual_v1",
+        manualConfirmation: undefined,
+      },
+      "manual_confirmation_required",
+    ],
+    [
+      {
+        ...META_LAUNCHPAD_MANUAL_AUTHORITY,
+        sourceDecisionId: null,
+      },
+      "mixed_action_origin_contract",
+    ],
+  ])(
+    "rejects an invalid or mixed manual authority before intent or provider work",
+    async (authority, code) => {
+      const response = await POST(
+        request({
+          businessId: BUSINESS_ID,
+          payload: payload(),
+          idempotencyKey: "idem_authority",
+          ...authority,
+        }),
+      );
+      const responseBody = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(responseBody.error.code).toBe(code);
+      expect(
+        intentService.prepareMetaLaunchIntentForExecution,
+      ).not.toHaveBeenCalled();
+      expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+      expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns partial state when campaign succeeds but ad set fails", async () => {
     vi.mocked(launchWrite.createAdSet).mockResolvedValueOnce({
@@ -303,6 +544,104 @@ describe("POST /api/launchpad/meta/launch", () => {
         errorCode: "100",
       }),
     );
+  });
+
+  it("records an ambiguous campaign POST as an unretryable unknown outcome", async () => {
+    const mutationAttempt = {
+      attemptCount: 1 as const,
+      method: "POST" as const,
+      path: "act_123/campaigns",
+      attemptedAt: "2026-07-18T15:00:00.000Z",
+      completedAt: "2026-07-18T15:00:01.000Z",
+      providerResponseReceived: false,
+      httpStatus: null,
+      outcome: "outcome_ambiguous" as const,
+      automaticRetryAttempted: false as const,
+      transportError: {
+        code: "network_error",
+        message: "connection closed after request upload",
+      },
+    };
+    vi.mocked(launchWrite.createCampaign).mockResolvedValueOnce({
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "outcome_ambiguous",
+      error: {
+        code: "provider_outcome_ambiguous",
+        message:
+          "The provider outcome is unknown; reconcile before another write.",
+      },
+      mutationAttempt,
+      responsePayload: {
+        provider_outcome: "outcome_ambiguous",
+        mutation_attempt: mutationAttempt,
+        reconciliation_required: true,
+        retry_disposition:
+          "do_not_retry_before_exact_provider_reconciliation",
+      },
+    });
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_ambiguous",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body).toMatchObject({
+      ok: false,
+      failedAt: "campaign",
+      error: { code: "provider_outcome_ambiguous" },
+      providerOutcome: "outcome_ambiguous",
+      mutationAttempt,
+      retryAllowed: false,
+      launchIntentStatus: "silent_failure",
+      steps: [
+        {
+          kind: "campaign",
+          status: "silent_failure",
+          providerOutcome: "outcome_ambiguous",
+          mutationAttempt,
+          retryAllowed: false,
+        },
+      ],
+    });
+    expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "silent_failure",
+        errorCode: "provider_outcome_ambiguous",
+        payloadResponse: expect.objectContaining({
+          provider_outcome: "outcome_ambiguous",
+        }),
+      }),
+    );
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "silent_failure",
+        errorReceipt: expect.objectContaining({
+          code: "provider_outcome_ambiguous",
+          partialResult: expect.objectContaining({
+            steps: [
+              expect.objectContaining({
+                providerOutcome: "outcome_ambiguous",
+                mutationAttempt,
+                retryAllowed: false,
+              }),
+            ],
+          }),
+          recovery: {
+            rollbackSupported: false,
+            retrySupported: false,
+          },
+        }),
+      }),
+    );
+    expect(launchWrite.createCampaign).toHaveBeenCalledOnce();
+    expect(launchWrite.createAdSet).not.toHaveBeenCalled();
+    expect(launchWrite.createAd).not.toHaveBeenCalled();
   });
 
   it("returns 409 when the idempotency key is already pending", async () => {

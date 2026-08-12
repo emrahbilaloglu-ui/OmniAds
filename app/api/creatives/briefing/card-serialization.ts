@@ -22,6 +22,7 @@ import type {
   BriefingPriorityScore,
   BriefingWatchingSubBucket,
 } from "@/components/creatives/briefing/types";
+import { formatMoney } from "@/components/creatives/money";
 import { classifyMetaCreativeAssessment } from "@/lib/meta/creative-assessment";
 
 type DecisionCenterRowForCard = NonNullable<
@@ -101,6 +102,15 @@ function hardActionAuthorityBlocked(decision: DecisionOutput) {
 function blockedHardActionReview(decision: DecisionOutput) {
   if (decision.badges.some((badge) => badge.type === "pending_transition")) {
     return { kind: "review", label: "Review pending signal" };
+  }
+  if (
+    decision.authorityBlocker === "recent_recovery_unverifiable"
+  ) {
+    return decision.badges.some(
+      (badge) => badge.type === "missing_recent_data",
+    )
+      ? { kind: "review", label: "Refresh recent evidence" }
+      : { kind: "review", label: "Await recent evidence" };
   }
   if (
     decision.authorityBlocker === "source_freshness" ||
@@ -286,12 +296,16 @@ function formatNearMissNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-function formatNearMissCurrency(value: number) {
-  return `$${value.toFixed(0)}`;
+function formatNearMissCurrency(
+  value: number,
+  currency: string | null | undefined,
+) {
+  return formatMoney(Math.round(value), currency, null);
 }
 
 function nearMissFromBlocker(
   blocker: NonNullable<DecisionOutput["blockers"]>[number],
+  currency: string | null | undefined,
 ) {
   if (blocker.predicate === "scale_purchase_depth") {
     const remaining = numericDelta(blocker.threshold, blocker.observed);
@@ -306,7 +320,10 @@ function nearMissFromBlocker(
     const remaining = numericDelta(blocker.threshold, blocker.observed);
     return remaining === null
       ? "Spend maturity gate is still missing enough proof."
-      : `Needs ${formatNearMissCurrency(remaining)} more spend at current ROAS.`;
+      : `Needs ${formatNearMissCurrency(
+          remaining,
+          currency,
+        )} more spend at current ROAS.`;
   }
   if (blocker.predicate === "scale_recent_hold") {
     return `Recent 7d ROAS ${blocker.observed ?? "missing"} below target ${blocker.threshold ?? "missing"}.`;
@@ -317,7 +334,10 @@ function nearMissFromBlocker(
   return null;
 }
 
-function deriveNearMisses(decision: DecisionOutput) {
+function deriveNearMisses(
+  decision: DecisionOutput,
+  currency: string | null | undefined,
+) {
   if (
     decision.label !== "keep" ||
     decision.blockedActionType !== "scale" ||
@@ -326,7 +346,7 @@ function deriveNearMisses(decision: DecisionOutput) {
     return [];
   }
   return decision.blockers
-    .map(nearMissFromBlocker)
+    .map((blocker) => nearMissFromBlocker(blocker, currency))
     .filter((item): item is string => Boolean(item))
     .slice(0, BRIEFING_NEAR_MISS_MAX_COUNT);
 }
@@ -423,6 +443,7 @@ export function buildBriefingPriorityScore(
 
 function buildBriefingDecisionExplainability(input: {
   decision: DecisionOutput;
+  currency?: string | null;
   accountProfile?: AccountDecisionProfile | null;
   backtestSummary?: DecisionBacktestSummary | null;
 }): BriefingDecisionExplainability {
@@ -472,7 +493,7 @@ function buildBriefingDecisionExplainability(input: {
       (blocker) =>
         `${blocker.predicate}: observed ${blocker.observed ?? "missing"} vs threshold ${blocker.threshold ?? "missing"} (${blocker.status})`,
     ),
-    nearMisses: deriveNearMisses(input.decision),
+    nearMisses: deriveNearMisses(input.decision, input.currency),
     historicalPrecision: backtest?.hardActionPrecision ?? null,
     historicalRecall: backtest?.hardActionRecall ?? null,
     expectedCalibrationError: backtest?.expectedCalibrationError ?? null,
@@ -536,6 +557,7 @@ export function cardForDecision(input: {
   const recentRoas = decision.metrics.recent7dRoas ?? roas;
   const explainability = buildBriefingDecisionExplainability({
     decision,
+    currency: input.currency,
     accountProfile: input.accountProfile,
     backtestSummary: input.backtestSummary,
   });

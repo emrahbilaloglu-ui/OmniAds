@@ -43,6 +43,7 @@ import {
 } from "@/lib/google-ads/completion-semantics";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
+import { runMetaAdDuplicateReconciliationSweep } from "@/lib/meta/duplicate-ad-reconciliation";
 
 /**
  * POST /api/sync/cron
@@ -324,6 +325,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Safety-branch (e41691f33) bounded GET-only duplicate-ad sweep. It starts
+  // only after the global admission gate above, because it writes.
+  const duplicateAdReconciliationPromise = runMetaAdDuplicateReconciliationSweep({
+    limit: 3,
+  }).catch((error) => {
+    console.error("[sync-cron] duplicate_ad_reconciliation_failed", error);
+    return {
+      scanned: 0,
+      reconciled: 0,
+      results: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+
   // "Could not read the business list" is NOT "there are no businesses".
   // Coercing a failed read to [] made a total sync outage answer ok:true with
   // HTTP 200 — a truthful-looking receipt for a cycle that did nothing — and it
@@ -336,6 +351,9 @@ export async function POST(request: NextRequest) {
       reason: businessRead.reason,
       message: businessRead.message,
     });
+    // Settle the in-flight sweep before responding: no background work may
+    // escape the request lifecycle (safety branch e41691f33).
+    const duplicateAdReconciliation = await duplicateAdReconciliationPromise;
     return NextResponse.json(
       {
         ok: false,
@@ -348,6 +366,7 @@ export async function POST(request: NextRequest) {
         succeeded: 0,
         failed: 0,
         synced: 0,
+        duplicateAdReconciliation,
       },
       { status: 503 },
     );
@@ -357,6 +376,7 @@ export async function POST(request: NextRequest) {
 
   if (businesses.length === 0) {
     // A genuine zero stays a success — unchanged.
+    const duplicateAdReconciliation = await duplicateAdReconciliationPromise;
     return NextResponse.json({
       ok: true,
       synced: 0,
@@ -364,6 +384,7 @@ export async function POST(request: NextRequest) {
       succeeded: 0,
       failed: 0,
       message: "No active businesses.",
+      duplicateAdReconciliation,
     });
   }
 
@@ -694,6 +715,7 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       console.error("[sync-cron] soak_gate_error", error);
+      await duplicateAdReconciliationPromise;
       return NextResponse.json(
         {
           ok: false,
@@ -787,6 +809,8 @@ export async function POST(request: NextRequest) {
     googleRepairPlan = googleAutoRepair.repairPlan;
   }
 
+  const duplicateAdReconciliation =
+    await duplicateAdReconciliationPromise;
   logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
@@ -823,6 +847,9 @@ export async function POST(request: NextRequest) {
     nativeAdOutcomesJobSkipped: nativeAdOutcomesJob.skipped,
     nativeAdOutcomesJobReason:
       "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
+    duplicateAdReconciliationScanned: duplicateAdReconciliation.scanned,
+    duplicateAdReconciliationReconciled:
+      duplicateAdReconciliation.reconciled,
   });
   const safetyRefused = safetyRefusals.length > 0;
 
@@ -858,6 +885,7 @@ export async function POST(request: NextRequest) {
       nativeAdShadowJob,
       decisionOutcomesJob,
       nativeAdOutcomesJob,
+      duplicateAdReconciliation,
     },
     {
       status:

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { LaunchpadIssue } from "@/lib/launchpad/meta";
+import type { MetaLaunchpadManualAuthority } from "@/lib/launchpad/meta-manual-authority";
 
 export type MetaLaunchIntentOperation = "new_campaign" | "add_to_existing";
 
@@ -35,6 +36,9 @@ export interface MetaLaunchIntentValidationReceipt {
   providerAccountId: string;
   blockers: LaunchpadIssue[];
   warnings: LaunchpadIssue[];
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
 }
 
 export interface MetaLaunchIntentRecoveryContract {
@@ -49,6 +53,9 @@ export interface MetaLaunchIntentResultReceipt {
   adsetIds: string[];
   adIds: string[];
   steps: Array<Record<string, unknown>>;
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
   recovery: MetaLaunchIntentRecoveryContract;
 }
 
@@ -64,6 +71,9 @@ export interface MetaLaunchIntentErrorReceipt {
     adIds: string[];
     steps: Array<Record<string, unknown>>;
   };
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
   recovery: MetaLaunchIntentRecoveryContract;
 }
 
@@ -93,14 +103,38 @@ export const META_LAUNCH_INTENT_RECOVERY_CONTRACT = {
   retrySupported: false,
 } as const satisfies MetaLaunchIntentRecoveryContract;
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
+const META_LAUNCH_INTENT_ATTEMPT_IDENTITY_FIELDS = new Set([
+  "idempotencyKey",
+  "idempotency_key",
+  "launchIntentId",
+  "launch_intent_id",
+  "requestFingerprint",
+  "request_fingerprint",
+]);
+
+const OMIT_ATTEMPT_ONLY_CONTAINER = Symbol("omit-attempt-only-container");
+
+function canonicalizeSemanticPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const canonical = canonicalizeSemanticPayload(item);
+      return canonical === OMIT_ATTEMPT_ONLY_CONTAINER ? [] : [canonical];
+    });
+  }
   if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => [key, canonicalize(item)]),
-  );
+  const originalEntries = Object.entries(value as Record<string, unknown>);
+  const canonicalEntries = originalEntries
+    .filter(([key]) => !META_LAUNCH_INTENT_ATTEMPT_IDENTITY_FIELDS.has(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([key, item]) => {
+      const canonical = canonicalizeSemanticPayload(item);
+      return canonical === OMIT_ATTEMPT_ONLY_CONTAINER
+        ? []
+        : [[key, canonical] as const];
+    });
+  return originalEntries.length > 0 && canonicalEntries.length === 0
+    ? OMIT_ATTEMPT_ONLY_CONTAINER
+    : Object.fromEntries(canonicalEntries);
 }
 
 export function metaLaunchIntentRequestFingerprint(input: {
@@ -111,7 +145,7 @@ export function metaLaunchIntentRequestFingerprint(input: {
   return createHash("sha256")
     .update(
       JSON.stringify(
-        canonicalize({
+        canonicalizeSemanticPayload({
           operation: input.operation,
           providerAccountId: input.providerAccountId,
           requestedStatus: "PAUSED",
@@ -142,6 +176,9 @@ export function buildMetaLaunchIntentValidationReceipt(input: {
   ok: boolean;
   blockers: LaunchpadIssue[];
   warnings: LaunchpadIssue[];
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
   checkedAt?: string;
 }): MetaLaunchIntentValidationReceipt {
   return {
@@ -150,6 +187,9 @@ export function buildMetaLaunchIntentValidationReceipt(input: {
     providerAccountId: input.providerAccountId,
     blockers: input.blockers,
     warnings: input.warnings,
+    executionAuthority: input.executionAuthority ?? null,
+    requestFingerprint: input.requestFingerprint ?? null,
+    checks: input.checks ?? [],
   };
 }
 
@@ -159,6 +199,9 @@ export function buildMetaLaunchIntentResultReceipt(input: {
   adsetIds?: string[];
   adIds?: string[];
   steps?: Array<Record<string, unknown>>;
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
   completedAt?: string;
 }): MetaLaunchIntentResultReceipt {
   return {
@@ -168,6 +211,9 @@ export function buildMetaLaunchIntentResultReceipt(input: {
     adsetIds: input.adsetIds ?? [],
     adIds: input.adIds ?? [],
     steps: input.steps ?? [],
+    executionAuthority: input.executionAuthority ?? null,
+    requestFingerprint: input.requestFingerprint ?? null,
+    checks: input.checks ?? [],
     recovery: META_LAUNCH_INTENT_RECOVERY_CONTRACT,
   };
 }
@@ -181,6 +227,9 @@ export function buildMetaLaunchIntentErrorReceipt(input: {
   adsetIds?: string[];
   adIds?: string[];
   steps?: Array<Record<string, unknown>>;
+  executionAuthority?: MetaLaunchpadManualAuthority | null;
+  requestFingerprint?: string | null;
+  checks?: Array<Record<string, unknown>>;
   recordedAt?: string;
 }): MetaLaunchIntentErrorReceipt {
   return {
@@ -195,6 +244,9 @@ export function buildMetaLaunchIntentErrorReceipt(input: {
       adIds: input.adIds ?? [],
       steps: input.steps ?? [],
     },
+    executionAuthority: input.executionAuthority ?? null,
+    requestFingerprint: input.requestFingerprint ?? null,
+    checks: input.checks ?? [],
     recovery: META_LAUNCH_INTENT_RECOVERY_CONTRACT,
   };
 }

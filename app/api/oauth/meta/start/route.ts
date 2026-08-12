@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { META_CONFIG } from "@/lib/oauth/meta-config";
 import crypto from "crypto";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 /**
  * GET /api/oauth/meta/start?businessId=...
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
   // Generate a random state that encodes the businessId
   const statePayload = JSON.stringify({
     businessId,
+    // Carried through the round trip so the callback can return the operator
+    // to the surface that started it. Sanitized here, re-sanitized on return.
+    returnTo: sanitizeNextPath(searchParams.get("returnTo")),
     nonce: crypto.randomBytes(16).toString("hex"),
   });
   const state = Buffer.from(statePayload).toString("base64url");

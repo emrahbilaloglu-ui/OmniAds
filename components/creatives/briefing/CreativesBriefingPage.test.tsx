@@ -5,6 +5,7 @@ import {
   CLOSED_LAUNCHPAD_OVERLAY_STATE,
   CreativesBriefingPage,
   attachDecisionCenterRowsToAssetLibraryRows,
+  briefingBulkProviderActionAvailability,
   chooseDefaultCreativeLane,
   decisionVisibilitySummary,
   isDecisionCenterUiEnabled,
@@ -585,6 +586,49 @@ describe("CreativesBriefingPage", () => {
     expect(normalizedHappy?.healthy[0]?.decisionCenterRow).toBeUndefined();
   });
 
+  it("never attaches a sibling ad row through creative-id fallback", () => {
+    const canonical = (adId: string) => ({
+      contractVersion: "briefing-canonical-native-ad.v1",
+      identityGrain: "ad",
+      adId,
+    });
+    const normalized = normalizeCreativesBriefingPayload({
+      actionNow: [
+        {
+          id: "ad_1",
+          realAdId: "ad_1",
+          creativeId: "creative_shared",
+          canonicalDecision: canonical("ad_1"),
+        },
+      ],
+      watching: [
+        {
+          id: "ad_2",
+          realAdId: "ad_2",
+          creativeId: "creative_shared",
+          canonicalDecision: canonical("ad_2"),
+        },
+      ],
+      healthy: [],
+      decisionCenter: {
+        rowDecisions: [
+          decisionCenterRow({
+            rowId: "ad_1",
+            creativeId: "creative_shared",
+            identityGrain: "ad",
+            buyerAction: "scale",
+          }),
+        ],
+      },
+    } as any);
+
+    expect((normalized?.actionNow[0] as any).decisionCenterRow).toMatchObject({
+      rowId: "ad_1",
+      buyerAction: "scale",
+    });
+    expect(normalized?.watching[0]?.decisionCenterRow).toBeUndefined();
+  });
+
   it("enriches Asset Library rows from Decision Center rows only behind the UI flag", () => {
     const rows = [
       { id: "row_id_match", creativeId: "cr_unmatched" },
@@ -902,6 +946,59 @@ describe("CreativesBriefingPage", () => {
     expect(launchpadHrefFromOverlayState(CLOSED_LAUNCHPAD_OVERLAY_STATE)).toBeNull();
   });
 
+  it("fails closed before opening or confirming a blocked canonical Launchpad handoff", () => {
+    const legacy = makeBriefingData().actionNow[0] as any;
+    const blocked = {
+      ...legacy,
+      canonicalDecision: {
+        classification: {
+          decisionState: "blocked",
+          buyerAction: null,
+          buyerLabel: "Cut pending",
+          executionAction: null,
+          heldAction: "cut",
+        },
+        sourceAuthority: {
+          status: "native_exact",
+          actionEligible: false,
+          authorizedAction: null,
+        },
+      },
+    };
+
+    expect(
+      openLaunchpadOverlayState({ card: blocked, mode: "fresh_test" }),
+    ).toEqual(CLOSED_LAUNCHPAD_OVERLAY_STATE);
+    expect(
+      launchpadHrefFromOverlayState({
+        open: true,
+        mode: "fresh_test",
+        card: blocked,
+      }),
+    ).toBeNull();
+  });
+
+  it("hides page-level provider CTAs for canonical selections without a launch contract", () => {
+    const legacy = makeBriefingData().actionNow[0] as any;
+    expect(briefingBulkProviderActionAvailability([legacy])).toMatchObject({
+      canPause: false,
+      canDemote: true,
+      canLaunchFreshTest: true,
+    });
+
+    const canonical = {
+      ...legacy,
+      canonicalDecision: {
+        contractVersion: "briefing-canonical-native-ad.v1",
+      },
+    };
+    expect(briefingBulkProviderActionAvailability([canonical])).toEqual({
+      canPause: false,
+      canDemote: false,
+      canLaunchFreshTest: false,
+    });
+  });
+
   it("maps creative data setup and library empty states from backend status", () => {
     expect(
       getCreativeDataSetupNotice({
@@ -1019,6 +1116,56 @@ describe("cardMatchesActionFilter chip completeness (review regressions)", () =>
         "cut",
       ),
     ).toBe(true);
+  });
+
+  it("keeps a nullable exact-ad held Cut under Cut without inventing buyerAction", () => {
+    const card = {
+      id: "ad_held_cut",
+      label: "diagnose",
+      primary: { kind: "review", label: "Evidence review" },
+      decisionCenterRow: null,
+      blockedActionType: "cut",
+      canonicalDecision: {
+        contractVersion: "briefing-canonical-native-ad.v1",
+        identityGrain: "ad",
+        decisionId: "decision_held_cut",
+        episodeId: "episode_held_cut",
+        adId: "ad_held_cut",
+        creativeId: "creative_shared",
+        classification: {
+          decisionState: "blocked",
+          buyerAction: null,
+          buyerLabel: "Cut pending",
+          executionAction: null,
+          heldAction: "cut",
+        },
+        sourceDecision: {
+          label: "diagnose",
+          confidence: 88,
+          reason: "Persisted held Cut",
+          snapshotAsOf: "2026-07-16",
+          computedAt: "2026-07-16T03:05:00.000Z",
+        },
+        sourceAuthority: {
+          snapshotId: "snapshot_held_cut",
+          evaluationId: "evaluation_held_cut",
+          inputHash: "1".repeat(64),
+          decisionHash: "2".repeat(64),
+          engineVersion: "native-ad-engine.v1",
+          providerAccountRefId: "provider-ref-1",
+          providerAccountId: "act_1",
+          realAdId: "ad_held_cut",
+          jobRunId: "job-run-1",
+          authorizedAction: null,
+          actionEligible: false,
+          reviewOnlyReason: "campaign_context",
+        },
+      },
+    } as never;
+
+    expect(cardMatchesActionFilter(card, "cut")).toBe(true);
+    expect(cardMatchesActionFilter(card, "scale")).toBe(false);
+    expect(cardMatchesActionFilter(card, "diagnose")).toBe(false);
   });
 
   it("gives protect/fix/diagnose rows a home under the Diagnose chip", () => {

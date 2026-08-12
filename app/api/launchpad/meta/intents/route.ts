@@ -8,6 +8,11 @@ import {
   listMetaLaunchIntents,
 } from "@/lib/launchpad/meta-launch-intent-store";
 import type { MetaLaunchIntentOperation } from "@/lib/launchpad/meta-launch-intent";
+import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execution-bounds";
+import {
+  bindMetaLaunchpadManualAuthorityToPayload,
+  evaluateMetaLaunchpadManualAuthority,
+} from "@/lib/launchpad/meta-manual-authority";
 import { getMetaLaunchIntentCapability } from "@/lib/launchpad/meta-launch-intent-capability";
 import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent-lineage";
 import {
@@ -28,9 +33,8 @@ type IntentBody = {
   operation?: MetaLaunchIntentOperation;
   idempotencyKey?: string;
   payload?: unknown;
-  sourceDecisionId?: string | null;
-  sourceDecisionSnapshotId?: string | null;
-  creativeBriefId?: string | null;
+  actionOrigin?: string;
+  manualConfirmation?: string;
   sourceDraftId?: string | null;
 };
 
@@ -51,8 +55,14 @@ function accountErrorResponse(
 
 function normalizeIntentPayload(operation: MetaLaunchIntentOperation, payload: unknown) {
   return operation === "add_to_existing"
-    ? normalizeMetaAddToExistingPayload(payload)
-    : normalizeMetaLaunchPayload(payload);
+    ? {
+        operation,
+        payload: normalizeMetaAddToExistingPayload(payload),
+      }
+    : {
+        operation,
+        payload: normalizeMetaLaunchPayload(payload),
+      };
 }
 
 export async function GET(request: NextRequest) {
@@ -108,6 +118,14 @@ export async function POST(request: NextRequest) {
     "launchpad_prepare_intent",
   );
   if (reviewerBlocked) return reviewerBlocked;
+  const manualAuthority = evaluateMetaLaunchpadManualAuthority(body);
+  if (!manualAuthority.ok) {
+    return jsonError(
+      manualAuthority.status,
+      manualAuthority.error.code,
+      manualAuthority.error.message,
+    );
+  }
 
   const account = await resolveAssignedMetaLaunchAccount({
     businessId: access.businessId,
@@ -139,6 +157,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const normalizedIntent = normalizeIntentPayload(operation, body.payload);
+  const executionBounds =
+    normalizedIntent.operation === "add_to_existing"
+      ? evaluateMetaLaunchpadExecutionBounds({
+          operation: normalizedIntent.operation,
+          creativeCount: normalizedIntent.payload.creativeIds.length,
+          adSetOrTargetCount: normalizedIntent.payload.targets.length,
+          copyMode: normalizedIntent.payload.copyMode,
+        })
+      : evaluateMetaLaunchpadExecutionBounds({
+          operation: normalizedIntent.operation,
+          creativeCount: normalizedIntent.payload.creativeIds.length,
+          adSetOrTargetCount: normalizedIntent.payload.adSets.length,
+        });
+  if (!executionBounds.ok) {
+    const blocker = executionBounds.blockers[0]!;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: blocker,
+        blockers: executionBounds.blockers,
+        counts: executionBounds.counts,
+      },
+      { status: 413 },
+    );
+  }
+
   try {
     const capability = await getMetaLaunchIntentCapability();
     if (!capability.canWrite) {
@@ -158,12 +203,12 @@ export async function POST(request: NextRequest) {
     const result = await createMetaLaunchIntent({
       businessId: access.businessId,
       providerAccountId: account.providerAccountId,
-      operation,
+      operation: normalizedIntent.operation,
       idempotencyKey,
-      requestPayload: normalizeIntentPayload(operation, body.payload),
-      sourceDecisionId: body.sourceDecisionId,
-      sourceDecisionSnapshotId: body.sourceDecisionSnapshotId,
-      creativeBriefId: body.creativeBriefId,
+      requestPayload: bindMetaLaunchpadManualAuthorityToPayload(
+        normalizedIntent.payload,
+        manualAuthority.authority,
+      ),
       sourceDraftId: body.sourceDraftId,
       createdBy: access.userId,
     });
@@ -185,6 +230,33 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof MetaLaunchIntentLineageError) {
       return jsonError(422, error.code, error.message);
+    }
+    const guarded = error as {
+      code?: unknown;
+      message?: unknown;
+      intent?: unknown;
+    };
+    if (
+      guarded.code === "launch_intent_provider_outcome_ambiguous" ||
+      guarded.code === "launch_intent_semantic_execution_in_flight"
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: guarded.code,
+            message:
+              typeof guarded.message === "string"
+                ? guarded.message
+                : "An equivalent semantic LaunchIntent is blocked.",
+          },
+          intent:
+            guarded.intent && typeof guarded.intent === "object"
+              ? guarded.intent
+              : null,
+        },
+        { status: 409 },
+      );
     }
     return jsonError(
       500,

@@ -12,7 +12,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Meta page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/legacy-page.tsx", label: "Meta page" },
       // Operating mode now renders in the redesign pulse strip (Mode cell);
       // the legacy card component is dead code (no importer).
       { kind: "component", path: "components/meta/redesign/MetaPlatformPage.tsx", label: "Meta Decision Center (pulse Mode cell)" },
@@ -34,7 +34,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Meta page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/legacy-page.tsx", label: "Meta page" },
       // Recommendations render as Decision Center lanes in the redesign;
       // the legacy panel component is dead code (no importer).
       { kind: "component", path: "components/meta/redesign/MetaPlatformPage.tsx", label: "Meta Decision Center lanes" },
@@ -55,7 +55,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "legacy",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Meta page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/legacy-page.tsx", label: "Meta page" },
       { kind: "component", path: "lib/archive/v1-v2-v21/components/meta/meta-decision-os.tsx", label: "Archived Decision OS overview" },
       { kind: "api", path: "lib/archive/v1-v2-v21/app/api/meta/decision-os/route.ts", label: "Archived Meta Decision OS route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
@@ -76,7 +76,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "legacy",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/page.tsx", label: "Creatives page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx", label: "Creatives page" },
       { kind: "component", path: "lib/archive/v1-v2-v21/components/creatives/CreativeDecisionOsOverview.tsx", label: "Archived Creative Decision OS overview" },
       { kind: "component", path: "lib/archive/v1-v2-v21/components/creatives/CreativeDecisionOsDrawer.tsx", label: "Archived Creative Decision OS drawer" },
       { kind: "api", path: "lib/archive/v1-v2-v21/app/api/creatives/decision-os/route.ts", label: "Archived Creative Decision OS route" },
@@ -116,7 +116,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/page.tsx", label: "Creatives page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx", label: "Creatives page" },
       { kind: "component", path: "components/creatives/CreativeDetailExperience.tsx", label: "Creative detail experience" },
       { kind: "api", path: "app/api/ai/creatives/commentary/route.ts", label: "AI commentary route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
@@ -209,7 +209,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     runtimeState: "live",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/platforms/meta/copies/page.tsx", label: "Copies page" },
+      { kind: "page", path: "app/(dashboard)/platforms/meta/copies/legacy-page.tsx", label: "Copies page" },
       { kind: "api", path: "app/api/meta/copies/route.ts", label: "Copies route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
       { kind: "doc", path: "docs/phase-04-creative-action-contract.md", label: "Phase 04 creative action contract" },

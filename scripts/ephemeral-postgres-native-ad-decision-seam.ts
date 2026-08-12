@@ -41,6 +41,8 @@ import {
   NATIVE_AD_ENGINE_VERSION,
   type AdDecisionInput,
 } from "@/lib/creative-decision-engine/types";
+import { upsertMetaAdDailyRows } from "@/lib/meta/warehouse";
+import type { MetaAdDailyRow } from "@/lib/meta/warehouse-types";
 
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000901";
@@ -94,11 +96,21 @@ async function expectPostgresError(
 
 function resolvePgBinDir() {
   const required = ["initdb", "pg_ctl", "createdb"];
-  const candidates = [
+  const linuxVersionedDirs = fs.existsSync("/usr/lib/postgresql")
+    ? fs
+        .readdirSync("/usr/lib/postgresql", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+        .map((version) => path.join("/usr/lib/postgresql", version, "bin"))
+    : [];
+  const candidates = Array.from(new Set([
     process.env.EPHEMERAL_PG_BIN_DIR?.trim(),
     "/opt/homebrew/opt/postgresql@16/bin",
     "/opt/homebrew/bin",
-  ].filter((value): value is string => Boolean(value));
+    ...linuxVersionedDirs,
+    ...(process.env.PATH ?? "").split(path.delimiter),
+  ].filter((value): value is string => Boolean(value))));
   const found = candidates.find((directory) =>
     required.every((binary) => fs.existsSync(path.join(directory, binary))),
   );
@@ -155,14 +167,18 @@ async function createBaseSchema(client: Client) {
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE TABLE businesses (id UUID PRIMARY KEY);
     CREATE TABLE provider_accounts (
-      id UUID PRIMARY KEY,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       provider TEXT NOT NULL,
       external_account_id TEXT NOT NULL,
+      account_name TEXT,
       timezone TEXT,
       currency TEXT,
+      is_manager BOOLEAN,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (id, provider, external_account_id)
+      UNIQUE (id, provider, external_account_id),
+      UNIQUE (provider, external_account_id)
     );
     CREATE TABLE business_provider_accounts (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -410,22 +426,37 @@ async function createHydrationSourceSchema(client: Client) {
   await client.query(`
     CREATE TABLE meta_ad_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
-      provider_account_id TEXT NOT NULL, date DATE NOT NULL, ad_id TEXT NOT NULL,
-      ad_name_current TEXT, campaign_id TEXT, adset_id TEXT,
-      account_timezone TEXT, account_currency TEXT, truth_state TEXT NOT NULL,
+      business_ref_id UUID, provider_account_id TEXT NOT NULL,
+      provider_account_ref_id UUID, date DATE NOT NULL, ad_id TEXT NOT NULL,
+      ad_name_current TEXT, ad_name_historical TEXT, campaign_id TEXT,
+      adset_id TEXT, ad_status TEXT, destination_url TEXT,
+      destination_url_raw TEXT, destination_url_source TEXT,
+      destination_url_confidence TEXT, cta_type TEXT, object_story_id TEXT,
+      effective_object_story_id TEXT, account_timezone TEXT,
+      account_currency TEXT, truth_state TEXT NOT NULL,
+      truth_version INTEGER NOT NULL DEFAULT 1, finalized_at TIMESTAMPTZ,
       validation_status TEXT NOT NULL, spend DOUBLE PRECISION,
       conversions DOUBLE PRECISION, revenue DOUBLE PRECISION,
-      impressions DOUBLE PRECISION, link_clicks DOUBLE PRECISION,
-      clicks DOUBLE PRECISION, reach DOUBLE PRECISION,
+      impressions BIGINT, link_clicks BIGINT, clicks BIGINT, reach BIGINT,
+      frequency DOUBLE PRECISION, roas DOUBLE PRECISION, cpa DOUBLE PRECISION,
+      ctr DOUBLE PRECISION, cpc DOUBLE PRECISION, source_snapshot_id UUID,
+      source_run_id TEXT, metric_schema_version INTEGER NOT NULL DEFAULT 1,
       payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (business_id, provider_account_id, date, ad_id)
     );
     CREATE TABLE meta_ad_dimensions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
-      provider_account_id TEXT NOT NULL, ad_id TEXT NOT NULL,
-      ad_name_current TEXT, creative_id TEXT, campaign_id TEXT, adset_id TEXT,
-      ad_status TEXT, first_seen_at TIMESTAMPTZ, last_seen_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+      business_ref_id UUID, provider_account_id TEXT NOT NULL,
+      provider_account_ref_id UUID, ad_id TEXT NOT NULL,
+      ad_name_current TEXT, ad_name_historical TEXT, creative_id TEXT,
+      campaign_id TEXT, adset_id TEXT, ad_status TEXT,
+      projection_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      first_seen_at TIMESTAMPTZ, last_seen_at TIMESTAMPTZ,
+      source_updated_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL,
+      UNIQUE (business_id, provider_account_id, ad_id)
     );
     CREATE TABLE meta_creative_dimensions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
@@ -500,6 +531,479 @@ async function createHydrationSourceSchema(client: Client) {
       created_at TIMESTAMPTZ NOT NULL
     );
   `);
+}
+
+async function createMetaWarehouseMutationReadinessSchema(client: Client) {
+  const readinessOnlyTables = [
+    "meta_authoritative_source_manifests",
+    "meta_authoritative_slice_versions",
+    "meta_authoritative_reconciliation_events",
+    "meta_authoritative_day_state",
+    "meta_sync_jobs",
+    "meta_sync_partitions",
+    "meta_sync_runs",
+    "meta_sync_checkpoints",
+    "meta_sync_phase_timings",
+    "meta_sync_state",
+    "meta_raw_snapshots",
+    "meta_account_daily",
+    "meta_breakdown_daily",
+    "meta_creative_daily",
+    "meta_creative_media",
+    "meta_campaign_dimensions",
+    "meta_adset_dimensions",
+  ] as const;
+  for (const table of readinessOnlyTables) {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS ${table} (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+      )`,
+    );
+  }
+}
+
+function metaAdDailyAuthorityInput(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  adId: string;
+  truthState?: MetaAdDailyRow["truthState"];
+  truthVersion?: number;
+  validationStatus?: MetaAdDailyRow["validationStatus"];
+  finalizedAt?: string | null;
+}): MetaAdDailyRow {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    date: input.date,
+    campaignId: "campaign-adversarial",
+    adsetId: "adset-adversarial",
+    adId: input.adId,
+    adNameCurrent: "Enriched current name",
+    adNameHistorical: "Enriched historical name",
+    adStatus: "PAUSED",
+    destinationUrl: "https://example.com/enriched",
+    destinationUrlRaw: "https://example.com/raw-enriched",
+    destinationUrlSource: "creative_api",
+    destinationUrlConfidence: "high",
+    ctaType: "SHOP_NOW",
+    objectStoryId: "story-enriched",
+    effectiveObjectStoryId: "story-effective-enriched",
+    accountTimezone: "UTC",
+    accountCurrency: "EUR",
+    spend: 999,
+    impressions: 999,
+    clicks: 999,
+    reach: 999,
+    frequency: 9,
+    conversions: 9,
+    revenue: 999,
+    roas: 1,
+    cpa: 111,
+    ctr: 1,
+    cpc: 1,
+    linkClicks: 999,
+    sourceSnapshotId: null,
+    truthState: input.truthState ?? "finalized",
+    truthVersion: input.truthVersion ?? 99,
+    finalizedAt:
+      input.finalizedAt === undefined
+        ? "2030-01-01T00:00:00.000Z"
+        : input.finalizedAt,
+    validationStatus: input.validationStatus ?? "passed",
+    sourceRunId: "creative-enrichment-adversarial-run",
+    metricSchemaVersion: 99,
+    payloadJson: { adversarial: true, creative_id: "creative-adversarial" },
+    createdAt: "2030-01-01T00:00:00.000Z",
+    updatedAt: "2030-01-02T00:00:00.000Z",
+  };
+}
+
+async function verifyMetaAdDailyWriteOwnershipAuthority(
+  client: Client,
+) {
+  await createMetaWarehouseMutationReadinessSchema(client);
+  const businessId = "00000000-0000-4000-8000-000000000970";
+  const providerAccountRefId =
+    "00000000-0000-4000-8000-000000000971";
+  const providerAccountId = "act_creative_enrichment_authority";
+  const adId = "ad-creative-enrichment";
+  const sourceSnapshotId = "00000000-0000-4000-8000-000000000972";
+
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [
+    businessId,
+  ]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, account_name, timezone, currency,
+       is_manager, metadata, created_at, updated_at
+     ) VALUES (
+       $1, 'meta', $2, 'Authoritative account', 'America/Chicago', 'USD',
+       false, '{"sentinel":"provider"}'::jsonb,
+       '2026-06-01T00:00:00Z', '2026-06-02T00:00:00Z'
+     )`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id
+     ) VALUES ($1, 'meta', $2, $3)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO meta_ad_daily (
+       business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, campaign_id, adset_id, ad_id,
+       ad_name_current, ad_name_historical, ad_status, destination_url,
+       destination_url_raw, destination_url_source,
+       destination_url_confidence, cta_type, object_story_id,
+       effective_object_story_id, account_timezone, account_currency,
+       spend, impressions, clicks, reach, frequency, conversions, revenue,
+       roas, cpa, ctr, cpc, link_clicks, source_snapshot_id, truth_state,
+       truth_version, finalized_at, validation_status, source_run_id,
+       metric_schema_version, payload_json, created_at, updated_at
+     )
+     SELECT
+       $1::text, $1::uuid, $2, $3::uuid, fixture.date_value, 'campaign-original',
+       'adset-original', $4, 'Original current ' || fixture.date_value::text,
+       'Original historical', 'ACTIVE', 'https://example.com/original',
+       'https://example.com/raw-original', 'authoritative_sync', 'exact',
+       'LEARN_MORE', 'story-original', 'story-effective-original',
+       'America/Chicago', 'USD', fixture.spend, 100, 10, 90, 1.1, 2, 250,
+       2.5, 50, 10, 5, 8, $5::uuid, fixture.truth_state,
+       7, fixture.finalized_at, fixture.validation_status,
+       'authoritative-source-run', 1,
+       jsonb_build_object('sentinel', fixture.date_value::text),
+       '2026-06-01T00:00:00Z', '2026-06-02T00:00:00Z'
+     FROM (
+       VALUES
+         ('2026-07-01'::date, 'finalized', 'passed',
+          '2026-07-02T00:00:00Z'::timestamptz, 10::double precision),
+         ('2026-07-02'::date, 'provisional', 'passed',
+          NULL::timestamptz, 20::double precision),
+         ('2026-07-03'::date, 'finalized', 'failed',
+          '2026-07-04T00:00:00Z'::timestamptz, 30::double precision)
+     ) AS fixture(
+       date_value, truth_state, validation_status, finalized_at, spend
+     )`,
+    [
+      businessId,
+      providerAccountId,
+      providerAccountRefId,
+      adId,
+      sourceSnapshotId,
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_ad_dimensions (
+       business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, campaign_id, adset_id, ad_id,
+       ad_name_current, ad_name_historical, ad_status, creative_id,
+       projection_json, first_seen_at, last_seen_at, source_updated_at,
+       created_at, updated_at
+     ) VALUES (
+       $1::text, $1::uuid, $2, $3::uuid, 'campaign-original', 'adset-original',
+       $4, 'Dimension original', 'Dimension historical', 'ACTIVE',
+       'creative-original', '{"sentinel":"dimension"}'::jsonb,
+       '2026-06-01T00:00:00Z', '2026-07-03T00:00:00Z',
+       '2026-06-02T00:00:00Z', '2026-06-01T00:00:00Z',
+       '2026-06-02T00:00:00Z'
+     )`,
+    [businessId, providerAccountId, providerAccountRefId, adId],
+  );
+
+  type DailyHashRow = {
+    date: string;
+    full_hash: string;
+  };
+  const readDailyHashes = async () =>
+    (
+      await client.query<DailyHashRow>(
+        `SELECT
+           date::text AS date,
+           encode(digest(to_jsonb(d)::text, 'sha256'), 'hex') AS full_hash
+         FROM meta_ad_daily d
+         WHERE business_id = $1 AND provider_account_id = $2
+           AND ad_id = $3
+         ORDER BY date`,
+        [businessId, providerAccountId, adId],
+      )
+    ).rows;
+  const readSingleHash = async (table: "provider_accounts" | "meta_ad_dimensions") => {
+    const filter =
+      table === "provider_accounts"
+        ? "provider = 'meta' AND external_account_id = $1"
+        : "business_id = $1 AND provider_account_id = $2 AND ad_id = $3";
+    const params =
+      table === "provider_accounts"
+        ? [providerAccountId]
+        : [businessId, providerAccountId, adId];
+    const result = await client.query<{ row_hash: string }>(
+      `SELECT encode(digest(to_jsonb(row_value)::text, 'sha256'), 'hex') AS row_hash
+       FROM ${table} AS row_value
+       WHERE ${filter}`,
+      params,
+    );
+    assert(result.rows.length === 1, `${table} sentinel row is missing.`);
+    return result.rows[0]!.row_hash;
+  };
+
+  const beforeDaily = await readDailyHashes();
+  const beforeProviderHash = await readSingleHash("provider_accounts");
+  const beforeDimensionHash = await readSingleHash("meta_ad_dimensions");
+  const creativeRows = [
+    "2026-07-01",
+    "2026-07-02",
+    "2026-07-03",
+    "2026-07-04",
+  ].map((date) =>
+    metaAdDailyAuthorityInput({
+      businessId,
+      providerAccountId,
+      date,
+      adId,
+    }),
+  );
+
+  await upsertMetaAdDailyRows(
+    creativeRows,
+    { writeMode: "creative_enrichment" } as never,
+  ).then(
+    () => {
+      throw new Error(
+        "Creative enrichment unexpectedly acquired Meta Ad fact authority.",
+      );
+    },
+    (error) => {
+      // The refusal names the boundary, the owner and the mode it turned away.
+      //
+      // This used to compare against "Unsupported Meta Ad daily write mode:
+      // creative_enrichment" — the wording before D066 gave meta_ad_daily a
+      // single owner and made the refusal say so. The boundary still holds; the
+      // literal here had simply gone stale, and it is the one thing this seam
+      // is for, so it is matched on what the refusal must state rather than on
+      // one exact sentence.
+      assert(
+        error instanceof Error &&
+          error.message.startsWith("meta_ad_daily_write_mode_unauthorized") &&
+          error.message.includes("creative_enrichment"),
+        `Creative enrichment did not fail closed at the ownership boundary: ${String(error)}`,
+      );
+    },
+  );
+
+  const afterDaily = await readDailyHashes();
+  const beforeByDate = new Map(beforeDaily.map((row) => [row.date, row]));
+  const afterByDate = new Map(afterDaily.map((row) => [row.date, row]));
+  assert(
+    afterDaily.length === 3 && !afterByDate.has("2026-07-04"),
+    "Creative enrichment inserted a missing canonical Meta Ad fact row.",
+  );
+  for (const date of ["2026-07-01", "2026-07-02", "2026-07-03"]) {
+    assert(
+      afterByDate.get(date)?.full_hash === beforeByDate.get(date)?.full_hash,
+      `Rejected creative enrichment changed ${date} fact bytes.`,
+    );
+  }
+  const enriched = await client.query<{
+    ad_name_current: string | null;
+    ad_name_historical: string | null;
+    ad_status: string | null;
+    destination_url: string | null;
+    destination_url_raw: string | null;
+    destination_url_source: string | null;
+    destination_url_confidence: string | null;
+    cta_type: string | null;
+    object_story_id: string | null;
+    effective_object_story_id: string | null;
+  }>(
+    `SELECT
+       ad_name_current, ad_name_historical, ad_status, destination_url,
+       destination_url_raw, destination_url_source,
+       destination_url_confidence, cta_type, object_story_id,
+       effective_object_story_id
+     FROM meta_ad_daily
+     WHERE business_id = $1 AND provider_account_id = $2
+       AND date = '2026-07-01' AND ad_id = $3`,
+    [businessId, providerAccountId, adId],
+  );
+  assert(
+    JSON.stringify(enriched.rows[0]) ===
+      JSON.stringify({
+        ad_name_current: "Original current 2026-07-01",
+        ad_name_historical: "Original historical",
+        ad_status: "ACTIVE",
+        destination_url: "https://example.com/original",
+        destination_url_raw: "https://example.com/raw-original",
+        destination_url_source: "authoritative_sync",
+        destination_url_confidence: "exact",
+        cta_type: "LEARN_MORE",
+        object_story_id: "story-original",
+        effective_object_story_id: "story-effective-original",
+      }),
+    "Rejected creative enrichment changed presentation bytes on a Meta Ad fact.",
+  );
+  assert(
+    (await readSingleHash("provider_accounts")) === beforeProviderHash,
+    "Creative enrichment changed provider-account identity metadata.",
+  );
+  assert(
+    (await readSingleHash("meta_ad_dimensions")) === beforeDimensionHash,
+    "Creative enrichment changed the authoritative Meta Ad dimension.",
+  );
+
+  const authoritativeA = {
+    ...metaAdDailyAuthorityInput({
+      businessId,
+      providerAccountId,
+      date: "2026-07-01",
+      adId,
+      truthState: "provisional",
+      truthVersion: 9,
+      validationStatus: "pending",
+      finalizedAt: null,
+    }),
+    campaignId: "campaign-authoritative",
+    adsetId: "adset-authoritative",
+    adNameCurrent: "Authoritative A",
+    adNameHistorical: "Authoritative A historical",
+    adStatus: "PAUSED",
+    accountTimezone: "America/New_York",
+    accountCurrency: "CAD",
+    spend: 111,
+    payloadJson: {
+      source: "authoritative",
+      creative_id: "creative-authoritative-a",
+    },
+  } satisfies MetaAdDailyRow;
+  const authoritativeE = {
+    ...metaAdDailyAuthorityInput({
+      businessId,
+      providerAccountId,
+      date: "2026-07-05",
+      adId: "ad-authoritative-new",
+      truthState: "finalized",
+      truthVersion: 1,
+      validationStatus: "passed",
+      finalizedAt: "2026-07-06T00:00:00.000Z",
+    }),
+    campaignId: "campaign-authoritative-new",
+    adsetId: "adset-authoritative-new",
+    adNameCurrent: "Authoritative E",
+    adStatus: "ACTIVE",
+    accountTimezone: "America/New_York",
+    accountCurrency: "CAD",
+    spend: 222,
+    payloadJson: {
+      source: "authoritative-new",
+      creative_id: "creative-authoritative-e",
+    },
+  } satisfies MetaAdDailyRow;
+
+  await upsertMetaAdDailyRows([authoritativeA, authoritativeE], {
+    writeMode: "authoritative_fact",
+  });
+
+  const authoritative = await client.query<{
+    date: string;
+    ad_id: string;
+    campaign_id: string | null;
+    adset_id: string | null;
+    ad_status: string | null;
+    account_timezone: string | null;
+    account_currency: string | null;
+    spend: number;
+    truth_state: string;
+    truth_version: number;
+    validation_status: string;
+    payload_json: Record<string, unknown>;
+  }>(
+    `SELECT
+       date::text AS date, ad_id, campaign_id, adset_id, ad_status,
+       account_timezone, account_currency, spend, truth_state, truth_version,
+       validation_status, payload_json
+     FROM meta_ad_daily
+     WHERE business_id = $1 AND provider_account_id = $2
+       AND (
+         (date = '2026-07-01' AND ad_id = $3) OR
+         (date = '2026-07-05' AND ad_id = 'ad-authoritative-new')
+       )
+     ORDER BY date`,
+    [businessId, providerAccountId, adId],
+  );
+  assert(
+    authoritative.rows.length === 2,
+    "Default authoritative mode did not update and insert canonical rows.",
+  );
+  const updatedA = authoritative.rows[0];
+  assert(
+    updatedA?.campaign_id === "campaign-authoritative" &&
+      updatedA.adset_id === "adset-authoritative" &&
+      updatedA.ad_status === "PAUSED" &&
+      updatedA.account_timezone === "America/New_York" &&
+      updatedA.account_currency === "CAD" &&
+      Number(updatedA.spend) === 111 &&
+      updatedA.truth_state === "provisional" &&
+      updatedA.truth_version === 10 &&
+      updatedA.validation_status === "pending" &&
+      updatedA.payload_json.source === "authoritative",
+    "Default authoritative mode no longer owns fact and lifecycle updates.",
+  );
+  const insertedE = authoritative.rows[1];
+  assert(
+    insertedE?.ad_id === "ad-authoritative-new" &&
+      insertedE.truth_state === "finalized" &&
+      insertedE.validation_status === "passed" &&
+      Number(insertedE.spend) === 222,
+    "Default authoritative mode no longer inserts new canonical facts.",
+  );
+  const provider = await client.query<{
+    timezone: string | null;
+    currency: string | null;
+  }>(
+    `SELECT timezone, currency
+     FROM provider_accounts
+     WHERE provider = 'meta' AND external_account_id = $1`,
+    [providerAccountId],
+  );
+  assert(
+    provider.rows[0]?.timezone === "America/New_York" &&
+      provider.rows[0]?.currency === "CAD",
+    "Default authoritative mode stopped updating provider-account metadata.",
+  );
+  const dimensions = await client.query<{
+    ad_id: string;
+    campaign_id: string | null;
+    adset_id: string | null;
+    ad_status: string | null;
+    creative_id: string | null;
+  }>(
+    `SELECT ad_id, campaign_id, adset_id, ad_status, creative_id
+     FROM meta_ad_dimensions
+     WHERE business_id = $1 AND provider_account_id = $2
+       AND ad_id IN ($3, 'ad-authoritative-new')
+     ORDER BY ad_id`,
+    [businessId, providerAccountId, adId],
+  );
+  assert(
+    dimensions.rows.length === 2 &&
+      dimensions.rows.some(
+        (row) =>
+          row.ad_id === adId &&
+          row.campaign_id === "campaign-authoritative" &&
+          row.adset_id === "adset-authoritative" &&
+          row.ad_status === "PAUSED" &&
+          row.creative_id === "creative-authoritative-a",
+      ) &&
+      dimensions.rows.some(
+        (row) =>
+          row.ad_id === "ad-authoritative-new" &&
+          row.campaign_id === "campaign-authoritative-new" &&
+          row.ad_status === "ACTIVE" &&
+          row.creative_id === "creative-authoritative-e",
+      ),
+    "Default authoritative mode no longer owns Meta Ad dimensions.",
+  );
 }
 
 async function verifyHydrationReceiptCaptureAxis(client: Client) {
@@ -1323,8 +1827,8 @@ async function verifyCurrentIdentityAndConfigFallback(client: Client) {
   }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [...params, true, "[]"]);
   assert(current.rows.length === 1, "Current config fallback ad disappeared.");
   assert(
-    current.rows[0]?.account_timezone === "Europe/Istanbul",
-    "Current hydration did not prefer canonical provider timezone.",
+    current.rows[0]?.account_timezone === "UTC",
+    "Current hydration did not preserve the cutoff-safe immutable fact timezone.",
   );
   assert(
     current.rows[0]?.objective === "OUTCOME_SALES" &&
@@ -1847,6 +2351,77 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     "Review-only hard label did not persist with authority cleared.",
   );
 
+  const heldEconomicCutLineage = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000935",
+    adId: "ad-held-economic-cut",
+    marker: "3",
+  });
+  const heldEconomicCut = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000935",
+    adId: "ad-held-economic-cut",
+    label: "cut",
+    ...heldEconomicCutLineage,
+  });
+  heldEconomicCut.label = "test_more";
+  heldEconomicCut.raw_label = "test_more";
+  heldEconomicCut.pre_authority_label = "cut";
+  heldEconomicCut.authority_blocker = "recent_recovery_unverifiable";
+  heldEconomicCut.blocked_action_type = "cut";
+  heldEconomicCut.authorized_action = null;
+  heldEconomicCut.badges = [];
+  await upsertNativeAdDecisionSnapshots([heldEconomicCut], db);
+  const persistedHeldEconomicCut = await client.query<{
+    pre_authority_label: string | null;
+    label: string;
+    raw_label: string;
+    authority_blocker: string | null;
+    blocked_action_type: string | null;
+    authorized_action: string | null;
+    has_pending_transition: boolean;
+  }>(
+    `SELECT pre_authority_label, label, raw_label, authority_blocker,
+       blocked_action_type, authorized_action,
+       badges @> '[{"type":"pending_transition"}]'::jsonb AS has_pending_transition
+     FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-held-economic-cut'`,
+  );
+  const heldRow = persistedHeldEconomicCut.rows[0];
+  assert(
+    heldRow?.pre_authority_label === "cut" &&
+      heldRow.label === "test_more" &&
+      heldRow.raw_label === "test_more" &&
+      heldRow.authority_blocker === "recent_recovery_unverifiable" &&
+      heldRow.blocked_action_type === "cut" &&
+      heldRow.authorized_action === null &&
+      heldRow.has_pending_transition === false,
+    "D063 unverifiable-recovery Cut hold did not persist as the exact non-pending authority tuple.",
+  );
+
+  const invalidHeldEconomicCutLineage = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000936",
+    adId: "ad-invalid-held-economic-cut",
+    marker: "4",
+  });
+  const invalidHeldEconomicCut = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000936",
+    adId: "ad-invalid-held-economic-cut",
+    label: "cut",
+    ...invalidHeldEconomicCutLineage,
+  });
+  invalidHeldEconomicCut.label = "test_more";
+  invalidHeldEconomicCut.raw_label = "test_more";
+  invalidHeldEconomicCut.pre_authority_label = "cut";
+  invalidHeldEconomicCut.authority_blocker =
+    "recent_recovery_unverifiable";
+  invalidHeldEconomicCut.blocked_action_type = "cut";
+  invalidHeldEconomicCut.authorized_action = "cut";
+  invalidHeldEconomicCut.badges = [];
+  await expectPostgresError(
+    () => upsertNativeAdDecisionSnapshots([invalidHeldEconomicCut], db),
+    "23514",
+    "D063 held economic Cut cannot retain action authority",
+  );
+
   const pending = await insertLineage(client, {
     jobRunId: "00000000-0000-4000-8000-000000000933",
     adId: "ad-pending-cut",
@@ -1888,6 +2463,24 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     () => upsertNativeAdDecisionSnapshots([invalidPendingHard], db),
     "23514",
     "pending hard action requires explicit hysteresis proof",
+  );
+
+  const authorizedAndBlocked = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000937",
+    adId: "ad-authorized-and-blocked",
+    marker: "5",
+  });
+  const invalidAuthorizedAndBlocked = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000937",
+    adId: "ad-authorized-and-blocked",
+    label: "cut",
+    ...authorizedAndBlocked,
+  });
+  invalidAuthorizedAndBlocked.blocked_action_type = "cut";
+  await expectPostgresError(
+    () => upsertNativeAdDecisionSnapshots([invalidAuthorizedAndBlocked], db),
+    "23514",
+    "authorized native action cannot retain a blocked action",
   );
 
   const blockedButAuthorized = await insertLineage(client, {
@@ -1942,6 +2535,16 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
      ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
      CHECK ${LEGACY_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK}`,
   );
+  await upsertNativeAdDecisionSnapshots([invalidAuthorizedAndBlocked], db);
+  await expectPostgresError(
+    () => client.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL),
+    "23514",
+    "legacy contradictory authority upgrade fails closed",
+  );
+  await client.query(
+    `DELETE FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-authorized-and-blocked'`,
+  );
   await client.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
   const upgradedPending = await client.query<{
     authorized_action: string | null;
@@ -1982,6 +2585,7 @@ async function runSeam(client: Client) {
     client,
     largeManifestFixture,
   );
+  await verifyMetaAdDailyWriteOwnershipAuthority(client);
 }
 
 async function main() {
@@ -2040,7 +2644,7 @@ async function main() {
       resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
     );
   } finally {
     if (started) {

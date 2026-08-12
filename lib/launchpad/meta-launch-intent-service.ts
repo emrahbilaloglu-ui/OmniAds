@@ -17,6 +17,32 @@ export type PrepareMetaLaunchIntentResult =
       intent?: MetaLaunchIntent;
     };
 
+function hasAmbiguousProviderOutcome(intent: MetaLaunchIntent) {
+  if (intent.errorReceipt?.code === "provider_outcome_ambiguous") return true;
+  const steps = [
+    ...(intent.errorReceipt?.partialResult.steps ?? []),
+    ...(intent.resultReceipt?.steps ?? []),
+  ];
+  return steps.some(
+    (step) =>
+      step.providerOutcome === "outcome_ambiguous" ||
+      step.provider_outcome === "outcome_ambiguous" ||
+      (step.error &&
+        typeof step.error === "object" &&
+        !Array.isArray(step.error) &&
+        (step.error as Record<string, unknown>).code ===
+          "provider_outcome_ambiguous"),
+  );
+}
+
+function ambiguousProviderOutcomeError() {
+  return {
+    code: "launch_intent_provider_outcome_ambiguous",
+    message:
+      "This LaunchIntent has an unresolved provider-write outcome. Reconcile the exact Meta state and Audit Trail first; do not create a new intent, replay this intent, or issue another provider mutation.",
+  };
+}
+
 export async function prepareMetaLaunchIntentForExecution(input: {
   businessId: string;
   providerAccountId: string;
@@ -75,6 +101,14 @@ export async function prepareMetaLaunchIntentForExecution(input: {
       };
     }
     if (intent.status !== "prepared") {
+      if (hasAmbiguousProviderOutcome(intent)) {
+        return {
+          ok: false,
+          status: 409,
+          error: ambiguousProviderOutcomeError(),
+          intent,
+        };
+      }
       return {
         ok: false,
         status: 409,
@@ -89,8 +123,45 @@ export async function prepareMetaLaunchIntentForExecution(input: {
     return { ok: true, intent, created: false };
   }
 
-  const created = await createMetaLaunchIntent(input);
+  let created: Awaited<ReturnType<typeof createMetaLaunchIntent>>;
+  try {
+    created = await createMetaLaunchIntent(input);
+  } catch (error) {
+    const guarded = error as {
+      code?: unknown;
+      message?: unknown;
+      intent?: unknown;
+    };
+    if (
+      (guarded.code === "launch_intent_provider_outcome_ambiguous" ||
+        guarded.code === "launch_intent_semantic_execution_in_flight") &&
+      guarded.intent &&
+      typeof guarded.intent === "object"
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        error: {
+          code: guarded.code,
+          message:
+            typeof guarded.message === "string"
+              ? guarded.message
+              : "An equivalent semantic LaunchIntent is blocked.",
+        },
+        intent: guarded.intent as MetaLaunchIntent,
+      };
+    }
+    throw error;
+  }
   if (!created.created) {
+    if (hasAmbiguousProviderOutcome(created.intent)) {
+      return {
+        ok: false,
+        status: 409,
+        error: ambiguousProviderOutcomeError(),
+        intent: created.intent,
+      };
+    }
     return {
       ok: false,
       status: 409,

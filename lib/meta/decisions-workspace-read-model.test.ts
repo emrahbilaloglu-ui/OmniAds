@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { gzipSync } from "node:zlib";
 import * as db from "@/lib/db";
 import {
+  buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
   buildMetaDecisionsWorkspaceReadModel,
   buildUnavailableMetaDecisionsWorkspaceReadModel,
   reconcileMetaDecisionIdentityRowsWithCurrentAds,
   readMetaDecisionsWorkspaceReadModel,
+  readMetaNativeCanonicalDecisionInventory,
+  readValidatedMetaNativeDecisionGenerationBundle,
   resolveProvisionalCampaignKind,
+  validateMetaNativeDecisionGenerationBundle,
   type MetaDecisionCampaignContextSourceRow,
   type MetaDecisionIdentitySourceRow,
   type MetaDecisionSnapshotSourceRow,
@@ -16,6 +20,7 @@ import {
 } from "@/lib/meta/decisions-workspace-read-model";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -271,6 +276,51 @@ function nativeGeneration(
   };
 }
 
+function nativeGenerationForRows(
+  rows: readonly MetaNativeDecisionSnapshotSourceRow[],
+  overrides: Partial<MetaNativeDecisionGenerationSourceRow> = {},
+): MetaNativeDecisionGenerationSourceRow {
+  const first = rows[0]!;
+  const manifestHash = hashAdDecisionIdentityManifest({
+    businessId: "biz_1",
+    providerAccountId: first.provider_account_id,
+    asOfDate: first.as_of_date,
+    adIds: rows.map((row) => row.ad_id),
+  });
+  return {
+    job_status: "success",
+    job_run_id: first.job_run_id,
+    as_of_date: first.as_of_date,
+    engine_version: NATIVE_AD_ENGINE_VERSION,
+    provider_account_ref_id: first.provider_account_ref_id,
+    provider_account_id: first.provider_account_id,
+    expected_ad_count: rows.length,
+    expected_manifest_hash: manifestHash,
+    hydrated_ad_count: rows.length,
+    hydrated_manifest_hash: manifestHash,
+    authoritative_for_prune: true,
+    ...overrides,
+  };
+}
+
+function nativeBuildGeneration(
+  rows: readonly MetaNativeDecisionSnapshotSourceRow[],
+) {
+  const first = rows[0]!;
+  return {
+    jobRunId: first.job_run_id,
+    asOfDate: first.as_of_date,
+    providerAccountRefId: first.provider_account_ref_id,
+    manifestHash: hashAdDecisionIdentityManifest({
+      businessId: "biz_1",
+      providerAccountId: first.provider_account_id,
+      asOfDate: first.as_of_date,
+      adIds: rows.map((row) => row.ad_id),
+    }),
+    expectedAdCount: rows.length,
+  };
+}
+
 function workspaceReadQuery(input: {
   generationRows?: unknown[];
   nativeRows?: MetaNativeDecisionSnapshotSourceRow[];
@@ -375,7 +425,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     ).toBe(true);
   });
 
-  it("keeps a native Ad authoritative when creative grouping is null", () => {
+  it("keeps a native Ad visible but review-only when creative identity is null", () => {
     const model = nativeModel([
       nativeSnapshot("120000000000000003", {
         creative_id: null,
@@ -393,11 +443,146 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(decision.parentChain.creative).toBeNull();
     expect(decision.sourceAuthority).toMatchObject({
       status: "native_exact",
-      actionEligible: true,
+      actionEligible: false,
+      reviewOnlyReason: "current_creative_identity_is_missing",
       realAdId: "120000000000000003",
-      authorizedAction: "cut",
+      authorizedAction: null,
+    });
+    expect(decision.identityResolution).toMatchObject({
+      basis: "native_ad_exact",
+      adActionEligible: false,
     });
   });
+
+  it("keeps action authority only when campaign, ad set, and ad are exactly ACTIVE", () => {
+    const model = nativeModel([nativeSnapshot("120000000000000006")]);
+    const decision = model.queue.adCandidates?.items[0];
+
+    expect(decision?.deliveryScope).toMatchObject({
+      state: "active",
+      campaignStatus: "ACTIVE",
+      adsetStatus: "ACTIVE",
+      adStatus: "ACTIVE",
+    });
+    expect(decision?.sourceAuthority).toMatchObject({
+      actionEligible: true,
+      reviewOnlyReason: null,
+      authorizedAction: "cut",
+    });
+    expect(decision?.classification).toMatchObject({
+      decisionState: "act",
+      buyerAction: "cut",
+      heldAction: null,
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({ decision: decision! }),
+    ).toMatchObject({
+      lane: "action",
+      card: {
+        sourceDecisionActionEligible: true,
+        sourceDecisionAuthorizedAction: "cut",
+      },
+    });
+  });
+
+  it("keeps a native Main Scale visible as monitor-only briefing evidence", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000007", {
+        label: "scale",
+        raw_label: "scale",
+        authorized_action: "scale",
+        reason: "Exact Ad evidence is above the account target.",
+        ratio_to_target: 1.4,
+        roas: 2.8,
+        recent7d_roas: 2.6,
+      }),
+    ]);
+    const decision = model.queue.adCandidates?.items[0];
+
+    expect(decision?.classification).toMatchObject({
+      lifecycleRole: { value: "main" },
+      decisionState: "monitor",
+      buyerAction: "scale",
+      heldAction: null,
+    });
+    expect(decision?.sourceAuthority).toMatchObject({
+      actionEligible: false,
+      reviewOnlyReason: "served_decision_is_not_actionable",
+      authorizedAction: null,
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({ decision: decision! }),
+    ).toMatchObject({
+      lane: "watching",
+      card: {
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
+      },
+    });
+  });
+
+  it("fails native action authority closed when current hierarchy state is unavailable", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000009", {
+        campaign_status: null,
+        adset_status: null,
+        ad_status: null,
+      }),
+    ]);
+
+    expect(model.queue.adCandidates?.items).toHaveLength(0);
+    expect(model.queue.inactiveAssets).toMatchObject({
+      inactiveCount: 0,
+      unknownCount: 1,
+    });
+    expect(model.queue.inactiveAssets?.items[0]).toMatchObject({
+      deliveryScope: {
+        state: "unknown",
+        campaignStatus: null,
+        adsetStatus: null,
+        adStatus: null,
+      },
+      sourceAuthority: {
+        actionEligible: false,
+        reviewOnlyReason: "current_hierarchy_status_is_unknown",
+        authorizedAction: null,
+      },
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({
+        decision: model.queue.inactiveAssets!.items[0]!,
+      }),
+    ).toMatchObject({
+      lane: "watching",
+      card: {
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
+      },
+    });
+  });
+
+  it.each([
+    ["campaign", "120000000000000011", { campaign_status: "WITH_ISSUES" }],
+    ["ad set", "120000000000000012", { adset_status: "WITH_ISSUES" }],
+    ["ad", "120000000000000013", { ad_status: "WITH_ISSUES" }],
+  ] as const)(
+    "keeps a WITH_ISSUES %s visible but advisory-only",
+    (_level, adId, statusOverride) => {
+      const model = nativeModel([nativeSnapshot(adId, statusOverride)]);
+
+      expect(model.queue.adCandidates?.items).toHaveLength(0);
+      expect(model.queue.inactiveAssets?.items).toHaveLength(1);
+      expect(model.queue.inactiveAssets?.items[0]).toMatchObject({
+        deliveryScope: { state: "inactive" },
+        sourceAuthority: {
+          status: "native_exact",
+          actionEligible: false,
+          reviewOnlyReason: "current_hierarchy_is_not_active",
+          authorizedAction: null,
+        },
+      });
+    },
+  );
 
   it("keeps closed hierarchy Ads out of the main queue and advisory-only", () => {
     const activeAdId = "120000000000000007";
@@ -427,6 +612,7 @@ describe("Meta Decisions workspace canonical read model", () => {
         status: "native_exact",
         actionEligible: false,
         reviewOnlyReason: "current_hierarchy_is_not_active",
+        authorizedAction: null,
       },
     });
   });
@@ -475,6 +661,107 @@ describe("Meta Decisions workspace canonical read model", () => {
         }),
       ]),
     ).toThrow(/lineage or manifest is incomplete/i);
+  });
+
+  it("classifies every generation-integrity failure before serving a bundle", () => {
+    const row = nativeSnapshot("120000000000000031");
+    const generation = nativeBuildGeneration([row]);
+    const validate = (
+      snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[],
+      generationOverrides: Partial<typeof generation> = {},
+    ) =>
+      validateMetaNativeDecisionGenerationBundle({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        generation: { ...generation, ...generationOverrides },
+        snapshotRows,
+      });
+
+    expect(validate([])).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_count_mismatch",
+    });
+    expect(validate([{ ...row, lineage_valid: false }])).toMatchObject({
+      status: "unavailable",
+      validationIssue: "lineage_incomplete",
+    });
+    expect(validate([{ ...row, as_of_date: "2026-07-11" }])).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_as_of_mismatch",
+    });
+    expect(
+      validate([{ ...row, engine_version: "v3-prior-native-epoch" }]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "engine_epoch_mismatch",
+    });
+    expect(validate([{ ...row, input_hash: "not-a-hash" }])).toMatchObject({
+      status: "unavailable",
+      validationIssue: "input_hash_invalid",
+    });
+    expect(
+      validate([{ ...row, blocked_action_type: "cut" }]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([{ ...row, authorized_action: null }]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([
+        {
+          ...row,
+          label: "keep",
+          authorized_action: null,
+          blocked_action_type: "cut",
+        },
+      ]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([
+        {
+          ...row,
+          label: "keep",
+          authorized_action: null,
+          blocked_action_type: "cut",
+          badges: [{ type: "pending_transition" }],
+        },
+      ]),
+    ).toMatchObject({
+      status: "available",
+      validationIssue: null,
+    });
+    expect(validate([row], { manifestHash: "f".repeat(64) })).toMatchObject({
+      status: "unavailable",
+      validationIssue: "manifest_hash_mismatch",
+    });
+  });
+
+  it("fails the complete native inventory closed when one canonical projection is invalid", () => {
+    const row = nativeSnapshot("120000000000000032", {
+      truth_source: "not-a-truth-source",
+    });
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration([row]),
+      snapshotRows: [row],
+      campaignContextRows: [context()],
+    });
+
+    expect(inventory).toEqual({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_canonical_projection_incomplete",
+    });
   });
 
   it("serves an authoritative native zero-Ad account as available, not missing", () => {
@@ -690,24 +977,47 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(model.queue.adCandidates?.items).toEqual([]);
   });
 
-  it("keeps legacy creative compatibility visible but review-only", () => {
-    const model = buildMetaDecisionsWorkspaceReadModel({
-      businessId: "biz_1",
-      providerAccountId: "act_1",
-      snapshotRows: [snapshot("creative_legacy", { label: "cut" })],
-      identityRows: [identity("creative_legacy")],
-      campaignContextRows: [context()],
-    });
-    const decision = model.queue.adCandidates?.items[0]!;
+  it.each([
+    ["scale", "test", "scale"],
+    ["cut", "main", "cut"],
+    ["refresh", "test", "refresh"],
+  ] as const)(
+    "keeps high-confidence legacy %s compatibility visible but review-only",
+    (label, campaignKind, buyerAction) => {
+      const creativeId = `creative_legacy_${label}`;
+      const model = buildMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        snapshotRows: [
+          snapshot(creativeId, {
+            label,
+            confidence: 92,
+          }),
+        ],
+        identityRows: [identity(creativeId)],
+        campaignContextRows: [context({ kind: campaignKind })],
+      });
+      const decision = model.queue.adCandidates?.items[0]!;
 
-    expect(model.source.authority).toBe("legacy_creative");
-    expect(decision.parentChain.ad?.id).toMatch(/^\d+$/);
-    expect(decision.sourceAuthority).toMatchObject({
-      status: "legacy_review_only",
-      actionEligible: false,
-      authorizedAction: null,
-    });
-  });
+      expect(model.source.authority).toBe("legacy_creative");
+      expect(decision.parentChain.ad?.id).toMatch(/^\d+$/);
+      expect(decision.sourceDecision.confidenceBand).toBe("high");
+      expect(decision.classification).toMatchObject({
+        decisionState: "monitor",
+        buyerAction,
+        executionAction: null,
+      });
+      expect(decision.identityResolution).toMatchObject({
+        basis: "single_ad_creative_equivalent",
+        adActionEligible: true,
+      });
+      expect(decision.sourceAuthority).toMatchObject({
+        status: "legacy_review_only",
+        actionEligible: false,
+        authorizedAction: null,
+      });
+    },
+  );
 
   it("uses a complete current Meta Ad receipt as delivery truth without changing identity ambiguity", () => {
     const reconciled = reconcileMetaDecisionIdentityRowsWithCurrentAds({
@@ -877,7 +1187,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
   });
 
-  it("selects exact ads after state classification so Monitoring cannot starve Act Now", () => {
+  it("keeps legacy exact-identity candidates out of Act Now during state classification", () => {
     const monitoringIds = Array.from(
       { length: 100 },
       (_, index) => `monitoring_${index + 1}`,
@@ -911,9 +1221,9 @@ describe("Meta Decisions workspace canonical read model", () => {
       eligiblePreCapCount: 101,
       selectedCount: 60,
       stateCounts: {
-        act: { preCapCount: 1, selectedCount: 1 },
+        act: { preCapCount: 0, selectedCount: 0 },
         blocked: { preCapCount: 0, selectedCount: 0 },
-        monitor: { preCapCount: 100, selectedCount: 59 },
+        monitor: { preCapCount: 101, selectedCount: 60 },
       },
     });
     expect(
@@ -1047,6 +1357,109 @@ describe("Meta Decisions workspace canonical read model", () => {
       authorizedAction: null,
     });
   });
+
+  it("does not synthesize a held Cut from a native stop-loss review badge", () => {
+    const model = nativeModel([
+      nativeSnapshot("1200000000000000785", {
+        label: "keep",
+        pre_authority_label: "keep",
+        authority_blocker: null,
+        raw_label: "keep",
+        blocked_action_type: null,
+        authorized_action: null,
+        badges: [
+          {
+            type: "below_breakeven",
+            label: "Below breakeven",
+            severity: "warning",
+          },
+          {
+            type: "stop_loss_review",
+            label: "Below break-even - automatic Cut authority unavailable",
+            severity: "warning",
+          },
+        ],
+        reason:
+          "[below break-even - stop-loss review] Economic loss is visible but expanded Cut authority is unavailable.",
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+
+    expect(item?.classification).toMatchObject({
+      decisionState: "monitor",
+      heldAction: null,
+      buyerAction: "test_more",
+      executionAction: null,
+    });
+    expect(item?.classification.buyerLabel).not.toMatch(/Cut · Held/i);
+    expect(item?.sourceDecision).toMatchObject({
+      label: "keep",
+      preAuthorityLabel: "keep",
+      authorityBlocker: null,
+    });
+    expect(item?.sourceAuthority).toMatchObject({
+      status: "native_exact",
+      actionEligible: false,
+      authorizedAction: null,
+    });
+  });
+
+  it.each([
+    {
+      name: "missing recent evidence",
+      badges: [
+        {
+          type: "missing_recent_data",
+          label: "Recent break-even evidence unavailable",
+          severity: "warning",
+        },
+      ],
+      resolutionCode: "refresh_decision_data",
+      owner: "integration",
+    },
+    {
+      name: "thin recent evidence",
+      badges: [],
+      resolutionCode: "await_recent_evidence",
+      owner: "system",
+    },
+  ])(
+    "serves a D063 held Cut with null execution for $name",
+    ({ badges, resolutionCode, owner }) => {
+      const model = nativeModel([
+        nativeSnapshot("120000000000000079", {
+          label: "test_more",
+          pre_authority_label: "cut",
+          authority_blocker: "recent_recovery_unverifiable",
+          raw_label: "test_more",
+          blocked_action_type: "cut",
+          authorized_action: null,
+          badges,
+        }),
+      ]);
+      const item = model.queue.adCandidates?.items[0];
+
+      expect(item?.classification).toMatchObject({
+        decisionState: "blocked",
+        heldAction: "cut",
+        legacyBuyerAction: "test_more",
+        buyerAction: null,
+        executionAction: null,
+        assessment: { value: "below_target" },
+        resolution: { code: resolutionCode, owner },
+      });
+      expect(item?.sourceDecision).toMatchObject({
+        preAuthorityLabel: "cut",
+        authorityBlocker: "recent_recovery_unverifiable",
+        rawLabel: "test_more",
+      });
+      expect(item?.sourceAuthority).toMatchObject({
+        status: "native_exact",
+        actionEligible: false,
+        authorizedAction: null,
+      });
+    },
+  );
 
   it("serves ordinary keep and out-of-scope as explicit D035 states", () => {
     const model = buildMetaDecisionsWorkspaceReadModel({
@@ -1308,9 +1721,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     const generationCall = query.mock.calls.find(([sql]) =>
       String(sql).includes("WITH candidate_runs AS"),
     );
-    expect(String(generationCall?.[0])).toContain(
-      "run.business_id = $1::text",
-    );
+    expect(String(generationCall?.[0])).toContain("run.business_id = $1::text");
   });
 
   it("falls back to visible legacy rows when the latest native account manifest is incomplete", async () => {
@@ -1411,6 +1822,10 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
 
+    const bundle = await readValidatedMetaNativeDecisionGenerationBundle({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
     const model = await readMetaDecisionsWorkspaceReadModel({
       businessId: "biz_1",
       providerAccountId: "act_1",
@@ -1419,13 +1834,16 @@ describe("Meta Decisions workspace canonical read model", () => {
       sql.includes("WITH candidate_runs AS"),
     );
 
+    expect(bundle).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_engine_mismatch",
+      validationIssue: null,
+    });
     expect(model.source).toMatchObject({
       authority: "legacy_creative",
       fallbackReason: "native_latest_job_engine_mismatch",
     });
-    expect(String(generationCall?.[0])).not.toContain(
-      "run.engine_version =",
-    );
+    expect(String(generationCall?.[0])).not.toContain("run.engine_version =");
     expect(generationCall?.[1]).toEqual([
       "biz_1",
       "act_1",
@@ -1439,6 +1857,50 @@ describe("Meta Decisions workspace canonical read model", () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    ["identical", {}],
+    ["contradictory", { expected_manifest_hash: "f".repeat(64) }],
+  ] as const)(
+    "fails the native bundle closed for %s duplicate account receipts",
+    async (_kind, duplicateOverrides) => {
+      const row = nativeSnapshot("120000000000000034");
+      const receipt = nativeGeneration(row);
+      const query = workspaceReadQuery({
+        generationRows: [receipt, { ...receipt, ...duplicateOverrides }],
+        nativeRows: [row],
+      });
+      vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+      const bundle = await readValidatedMetaNativeDecisionGenerationBundle({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      });
+      const inventory = await readMetaNativeCanonicalDecisionInventory({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      });
+
+      expect(bundle).toMatchObject({
+        status: "unavailable",
+        unavailableReason: "native_account_receipt_cardinality_invalid",
+        validationIssue: null,
+      });
+      expect(inventory).toEqual({
+        status: "unavailable",
+        generation: null,
+        items: [],
+        unavailableReason: "native_account_receipt_cardinality_invalid",
+      });
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes(
+            "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("serves a later recovery success after a failed native generation", async () => {
     const row = nativeSnapshot("120000000000000022", {
@@ -1556,21 +2018,15 @@ describe("Meta Decisions workspace canonical read model", () => {
       authority: "native_ad",
       generation: { jobRunId: row.job_run_id },
     });
-    expect(generationSql).toContain(
-      "WHEN run.status = 'running'",
-    );
+    expect(generationSql).toContain("WHEN run.status = 'running'");
     expect(generationSql).toContain(
       "make_interval(secs => $5::double precision / 1000.0)",
     );
-    expect(generationSql).toContain(
-      "THEN 'failed'",
-    );
+    expect(generationSql).toContain("THEN 'failed'");
     expect(generationSql).toContain(
       "WHEN run.finished_at IS NULL\n            OR run.finished_at > statement_timestamp()\n          THEN 'failed'",
     );
-    expect(generationSql).toContain(
-      "WHERE run.effective_status <> 'running'",
-    );
+    expect(generationSql).toContain("WHERE run.effective_status <> 'running'");
   });
 
   it("reads native identity by exact Ad id without choosing a representative Ad", async () => {
@@ -1630,9 +2086,109 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(String(nativeSnapshotCall?.[0])).toContain(
       "snapshot.authority_blocker",
     );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "WHEN campaign_state.presence IS NULL THEN NULL",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "WHEN adset_state.presence IS NULL THEN NULL",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "WHEN ad_state.presence IS NULL THEN NULL",
+    );
+    expect(
+      String(nativeSnapshotCall?.[0]).match(
+        /state\.provider_account_ref_id = snapshot\.provider_account_ref_id/g,
+      ),
+    ).toHaveLength(3);
+    expect(String(nativeSnapshotCall?.[0])).not.toContain(
+      "campaign_state.configured_status,\n          campaign_dim.campaign_status",
+    );
+    expect(String(nativeSnapshotCall?.[0])).not.toContain(
+      "adset_state.configured_status,\n          adset_dim.adset_status",
+    );
+    expect(String(nativeSnapshotCall?.[0])).not.toContain(
+      "ad_state.configured_status,\n          ad_dim.ad_status",
+    );
     expect(String(nativeSnapshotCall?.[0])).not.toContain(
       "creative_id = requested.creative_id",
     );
+  });
+
+  it("returns the full server-side native inventory independently of workspace caps", async () => {
+    const rows = Array.from({ length: 305 }, (_, index) =>
+      nativeSnapshot(`120000${String(index + 1).padStart(12, "0")}`),
+    );
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const workspace = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adCandidateLimit: 300,
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.items).toHaveLength(305);
+    expect(
+      new Set(inventory.items.map((item) => item.parentChain.ad?.id)).size,
+    ).toBe(305);
+    expect(
+      inventory.items.every(
+        (item) =>
+          item.identityGrain === "ad" &&
+          item.sourceAuthority?.status === "native_exact" &&
+          item.sourceAuthority.realAdId === item.parentChain.ad?.id,
+      ),
+    ).toBe(true);
+    expect(workspace.queue.adCandidates).toMatchObject({
+      limit: 300,
+      eligiblePreCapCount: 305,
+      selectedCount: 300,
+    });
+  });
+
+  it("keeps invalid bundles unavailable without querying legacy snapshots", async () => {
+    const row = nativeSnapshot("120000000000000033", {
+      lineage_valid: false,
+    });
+    const query = workspaceReadQuery({
+      generationRows: [nativeGeneration(row)],
+      nativeRows: [row],
+      legacyRows: [snapshot("must_not_be_read")],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const bundle = await readValidatedMetaNativeDecisionGenerationBundle({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+
+    expect(bundle).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_generation_lineage_or_manifest_invalid",
+      validationIssue: "lineage_incomplete",
+    });
+    expect(inventory).toEqual({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_generation_lineage_or_manifest_invalid",
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("scoped_history")),
+    ).toBe(false);
   });
 
   it("maps persisted authority provenance from legacy and native snapshots without inferring historical nulls", () => {

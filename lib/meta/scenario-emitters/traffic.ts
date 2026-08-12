@@ -1,3 +1,4 @@
+import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import {
   LEGACY_META_CALIBRATION_THRESHOLDS,
@@ -23,20 +24,6 @@ type TrafficPrimaryMetric = "cost_per_link_click_28d" | "cost_per_lpv_28d";
 
 function r2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "TRY ";
-  if (currency === "EUR") return "EUR ";
-  return "$";
-}
-
-function fmtCurrency(value: number | null, currency: string | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "No events";
-  return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function fmtPercent(value: number) {
@@ -211,7 +198,7 @@ export function emitTrafficAdsetScenario(input: AdsetScenarioInput): MetaRecomme
   const event = primaryEvent(metric);
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Traffic score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
-    { label: primaryLabel(metric), value: fmtCurrency(Number.isFinite(primaryValue) ? primaryValue : null, currency), tone: primaryRank >= 0.7 ? "positive" : primaryRank <= 0.3 ? "warning" : "neutral" },
+    { label: primaryLabel(metric), value: Number.isFinite(primaryValue) ? formatMoney(primaryValue, currency, null) : "No events", tone: primaryRank >= 0.7 ? "positive" : primaryRank <= 0.3 ? "warning" : "neutral" },
     { label: "CTR", value: fmtPercent(input.adset.ctr), tone: ctrRank == null ? "neutral" : ctrRank >= 0.7 ? "positive" : ctrRank <= 0.3 ? "warning" : "neutral" },
     { label: event, value: String(count), tone: count > 0 ? "positive" : "warning" },
   ];

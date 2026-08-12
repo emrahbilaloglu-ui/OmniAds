@@ -10,6 +10,7 @@ import {
   cardName,
 } from "@/components/creatives/briefing/card-utils";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
+import { hasBriefingCanonicalDecision } from "@/components/creatives/briefing/action-authority";
 import type {
   BriefingCreativeCard,
   BriefingPlacement,
@@ -35,11 +36,42 @@ export interface LaunchpadOpenPayload {
   mode: LaunchpadOverlayMode;
 }
 
+export function canOpenBriefingCardInLaunchpad(
+  card: BriefingCreativeCard,
+  mode: LaunchpadBridgeMode,
+) {
+  if (!hasBriefingCanonicalDecision(card)) {
+    return card.blockedActionType == null;
+  }
+
+  // Canonical cards carry decision authority, but Launchpad does not yet
+  // serialize and server-validate the exact source snapshot/evaluation/hash
+  // tuple. Do not let a canonical handoff fall through to Launchpad's manual
+  // provider-write wizard. Explicit legacy/manual cards remain compatible.
+  return false;
+}
+
+export function canOpenBriefingCardsInLaunchpad(
+  cards: BriefingCreativeCard[],
+  mode: LaunchpadBridgeMode,
+) {
+  return (
+    cards.length > 0 &&
+    cards.every((card) => canOpenBriefingCardInLaunchpad(card, mode))
+  );
+}
+
 export function buildLaunchpadBridgeHref(
   card: BriefingCreativeCard | BriefingCreativeCard[],
   mode: LaunchpadBridgeMode,
   options: LaunchpadBridgeHrefOptions = {},
 ) {
+  const cards = Array.isArray(card) ? card : [card];
+  if (!canOpenBriefingCardsInLaunchpad(cards, mode)) {
+    throw new Error(
+      "Launchpad navigation blocked (canonical_launch_authority_contract_required).",
+    );
+  }
   const basePath = options.basePath ?? "/platforms/meta/launchpad";
   const creativeIds = Array.isArray(card)
     ? Array.from(new Set(card.flatMap(getLaunchpadBridgeCreativeIds)))
@@ -56,9 +88,31 @@ export function mapBriefingPrimaryToLaunchpadMode(
   card: BriefingCreativeCard,
 ): LaunchpadOverlayMode | null {
   const primaryKind = card.primary?.kind?.trim().toLowerCase();
+  if (hasBriefingCanonicalDecision(card)) {
+    if (
+      primaryKind &&
+      LAUNCHPAD_MODES.has(primaryKind as LaunchpadOverlayMode) &&
+      canOpenBriefingCardInLaunchpad(
+        card,
+        primaryKind as LaunchpadOverlayMode,
+      )
+    ) {
+      return primaryKind as LaunchpadOverlayMode;
+    }
+    return null;
+  }
+
+  // Legacy/manual fallback is retained only when no canonical decision exists.
+  if (primaryKind === "review" || card.blockedActionType != null) return null;
+
   if (primaryKind && LAUNCHPAD_MODES.has(primaryKind as LaunchpadOverlayMode)) {
     return primaryKind as LaunchpadOverlayMode;
   }
+
+  const executionMode = mapExecutionActionToLaunchpadMode(
+    card.decisionCenterRow?.executionAction,
+  );
+  if (executionMode) return executionMode;
 
   const primaryLabel = card.primary?.label?.trim().toLowerCase() ?? "";
   if (primaryLabel.includes("fresh test")) return "fresh_test";

@@ -11,6 +11,10 @@ import type {
 } from "@/lib/launchpad/meta";
 import { hasBelowBreakeven } from "@/components/launchpad/LaunchpadCreativeSelection";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
+import {
+  META_LAUNCHPAD_MANUAL_AUTHORITY,
+  type MetaLaunchpadManualAuthority,
+} from "@/lib/launchpad/meta-manual-authority";
 
 export interface LaunchpadValidationState {
   ok: boolean;
@@ -23,6 +27,18 @@ export interface LaunchpadTargetBudgetLine {
   amountMinor: number | null;
   schedule: "daily" | "lifetime" | null;
   source: "campaign" | "ad set" | null;
+}
+
+export function buildLaunchpadValidationRequest(input: {
+  businessId: string;
+  providerAccountId: string;
+  payload: MetaLaunchPayload | MetaAddToExistingPayload;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    payload: input.payload,
+  };
 }
 
 export function buildLaunchpadBudgetReview(
@@ -122,6 +138,7 @@ export function buildEngineAggregate(input: {
 export function LaunchpadReview({
   mode = "new_campaign",
   businessId,
+  providerAccountId,
   payload,
   currencyCode,
   selectedCreatives,
@@ -135,6 +152,7 @@ export function LaunchpadReview({
 }: {
   mode?: "new_campaign" | "add_to_existing";
   businessId: string;
+  providerAccountId: string;
   payload: MetaLaunchPayload | MetaAddToExistingPayload;
   currencyCode: string | null;
   selectedCreatives: MetaCreativeRow[];
@@ -150,7 +168,7 @@ export function LaunchpadReview({
   onValidation?: (state: LaunchpadValidationState) => void;
   onSaveTemplate?: () => void;
   onSaveDraft?: () => void;
-  onLaunch: () => void;
+  onLaunch: (authority: MetaLaunchpadManualAuthority) => void;
   executionBlockedReason?: string | null;
 }) {
   const [validation, setValidation] = useState<LaunchpadValidationState | null>(
@@ -165,13 +183,26 @@ export function LaunchpadReview({
   );
 
   useEffect(() => {
-    if (!businessId) return;
+    // Confirmation belongs to the exact payload currently on screen. Changing
+    // the business, mode, creatives, targets, or launch settings requires a
+    // fresh acknowledgement before a provider write can be requested.
+    setAck(false);
+  }, [businessId, mode, payload, providerAccountId]);
+
+  useEffect(() => {
+    if (!businessId || !providerAccountId) return;
     let cancelled = false;
     setValidating(true);
     fetch("/api/launchpad/meta/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessId, payload }),
+      body: JSON.stringify(
+        buildLaunchpadValidationRequest({
+          businessId,
+          providerAccountId,
+          payload,
+        }),
+      ),
     })
       .then(async (response) => {
         const body = (await response.json().catch(() => null)) as
@@ -219,7 +250,7 @@ export function LaunchpadReview({
     return () => {
       cancelled = true;
     };
-  }, [businessId, onValidation, payload]);
+  }, [businessId, onValidation, payload, providerAccountId]);
 
   const launchBlocked = validating || !validation?.ok;
   const targetCount = Math.max(1, targetSummary?.targetCount ?? 1);
@@ -574,7 +605,7 @@ export function LaunchpadReview({
           type="button"
           className="btn btn--primary"
           disabled={reviewBlocked || !ack}
-          onClick={onLaunch}
+          onClick={() => onLaunch({ ...META_LAUNCHPAD_MANUAL_AUTHORITY })}
         >
           <Send className="h-4 w-4" />
           Create PAUSED

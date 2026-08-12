@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.query),
 }));
 
-const { default: MetaLaunchpadPage } = await import("./page");
+const { default: MetaLaunchpadPage } = await import("./legacy-page");
 const { launchpadLibraryCount } = await import("./launchpad-library-count");
 
 describe("MetaLaunchpadPage", () => {

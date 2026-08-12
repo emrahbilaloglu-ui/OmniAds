@@ -1346,7 +1346,7 @@ if [ -n "${manifest_path}" ] && [ -s "${manifest_path}" ]; then
   # equality check still passed, because empty equals empty. Asserting the shape
   # AND recomputing it here is what makes the pin real rather than self-agreeing.
   recomputed="$(sha256_of "${artifact}" 2>/dev/null || true)"
-  if [ "${#artifact_sha}" -eq 64 ] && [ -z "${artifact_sha//[0-9a-f]/}" ] &&
+  if [ "${#artifact_sha}" -eq 64 ] && [ -z "${artifact_sha//[0123456789abcdef]/}" ] &&
     [ "${artifact_sha}" = "${recomputed}" ]; then
     pass "P2b the manifest pins the artifact to its own real sha256, recomputed independently"
   else

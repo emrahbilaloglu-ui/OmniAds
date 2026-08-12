@@ -6,11 +6,25 @@ import {
   createCustomReportShareSnapshot,
   getCustomReportById,
 } from "@/lib/custom-report-store";
+import {
+  REPORT_SHARE_DISABLED_RESPONSE,
+  REPORT_SHARE_DISABLED_STATUS,
+  isReportShareFailClosed,
+} from "@/lib/reports/share-fail-closed";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ reportId: string }> }
 ) {
+  // Fail closed before anything is read or written: no report lookup, no
+  // render, no snapshot. Every caller gets the same body, so a refusal cannot
+  // be used to probe which report IDs exist.
+  if (isReportShareFailClosed()) {
+    return NextResponse.json(REPORT_SHARE_DISABLED_RESPONSE, {
+      status: REPORT_SHARE_DISABLED_STATUS,
+    });
+  }
+
   const { reportId } = await params;
   const report = await getCustomReportById(reportId);
   if (!report) {

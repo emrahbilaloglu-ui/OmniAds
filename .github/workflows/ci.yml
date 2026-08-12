@@ -16,6 +16,11 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The zero-base route and interaction graph pushes TypeScript past Node's
+    # default ~2 GB heap on a clean Linux checkout. Keep the exact same full
+    # typecheck, but give it bounded headroom below the build job's 6 GB cap.
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,8 +39,7 @@ jobs:
           npx tsc --noEmit
 
       - name: Verify release authority preflight
-        run: >-
-          node --import tsx scripts/verify-release-authority.ts --mode=preflight
+        run: npm run release:authority:preflight
 
   test:
     runs-on: ubuntu-latest
@@ -105,6 +109,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,7 +129,7 @@ jobs:
         # process, and together they exceed the runner's default ~2GB heap:
         # the compile succeeds and the type-check phase then dies with
         # "Ineffective mark-compacts near heap limit". The standalone typecheck
-        # job passes at the default, which is why this surfaced here first.
+        # uses its own 4GB cap; webpack still needs the Dockerfile-matched 6GB.
         #
         # Matched to the Dockerfile's allocation on purpose. A gate that passes
         # with more headroom than the image it is meant to vouch for is not a

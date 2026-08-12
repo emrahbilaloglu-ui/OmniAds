@@ -1161,8 +1161,17 @@ RUNNER_PKG_POLICY_SHA=""
 # command substitution that does NOT match returns 1 — which under `set -e`
 # aborts the phase instead of answering the question that was asked.
 is_lower_hex() { # <string> <length>
+  # The sixteen characters are enumerated, never expressed as a range.
+  #
+  # `[0-9a-f]` is a COLLATION range, and every UTF-8 locale orders letters
+  # aAbBcC…, so "A" sits inside a-f and an UPPERCASE digest passed this check
+  # unnoticed. It was then refused further downstream for a different reason —
+  # not being present on the host — which reads as a correct refusal and is not
+  # one: a malformed digest that happened to be present would have been
+  # accepted. Only `LC_ALL=C` makes the range mean bytes, and a validator must
+  # not depend on the caller's locale to be a validator.
   case "$1" in
-    "" | *[!0-9a-f]*) return 1 ;;
+    "" | *[!0123456789abcdef]*) return 1 ;;
   esac
   [ "${#1}" -eq "$2" ]
 }

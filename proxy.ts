@@ -1,27 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isPublicPagePath } from "@/lib/public-page-prefixes";
+
 const AUTH_COOKIE = "omniads_session";
 const LANGUAGE_COOKIE = "adsecute_locale";
 
-const PUBLIC_PAGE_PREFIXES = [
-  "/login",
-  "/signup",
-  "/forgot-password",
-  "/reset-password",
-  "/invite",
-  "/share",
-  "/about",
-  "/privacy",
-  "/terms",
-  "/ai-transparency",
-  "/contact",
-  "/security",
-  "/product",
-  "/pricing",
-  "/demo",
-  "/select-language",
-  "/shopify/connect",
-];
 const PUBLIC_API_PREFIXES = [
   "/api/auth/login",
   "/api/auth/signup",
@@ -55,11 +38,9 @@ function getBearerToken(request: NextRequest) {
   return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 }
 
-function isPublicPage(pathname: string): boolean {
-  return PUBLIC_PAGE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
+// One list, shared with the compatibility layer: a legacy path that is public
+// here must stay public when the canonical UI is switched on.
+const isPublicPage = isPublicPagePath;
 
 function isPublicCreativeShareRead(request: NextRequest): boolean {
   if (request.method !== "GET") return false;

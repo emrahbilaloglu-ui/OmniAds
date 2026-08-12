@@ -25,7 +25,9 @@ const context: MetaCalibrationContext = {
   cohort: "mid_funnel",
 };
 
-function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+function adset(
+  overrides: Partial<MetaAdSetData> & { currency?: string | null } = {},
+): MetaAdSetData {
   return {
     id: "adset_1",
     accountId: "act_1",
@@ -98,6 +100,28 @@ describe("emitMidFunnelAdsetScenario", () => {
     expect(rec?.type).toBe("scenario_m1_mid_funnel_efficient_scale");
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.cohort).toBe("mid_funnel");
+  });
+
+  it.each([
+    ["GBP", "£4.00"],
+    [null, "4 (Currency unavailable)"],
+  ] as const)("formats mid-funnel cost with provider currency %s", (currency, expected) => {
+    const rec = emitMidFunnelAdsetScenario({
+      adset: adset({
+        spend: 400,
+        addToCart: 100,
+        purchases: 20,
+        impressions: 1000,
+        currency,
+      }),
+      context,
+      cohort: "mid_funnel",
+      signals: signal(20),
+    });
+
+    const cost = rec?.evidence.find((item) => item.label === "Cost / ATC")?.value;
+    expect(cost).toBe(expected);
+    if (currency === null) expect(cost).not.toContain("$");
   });
 
   it("keeps an efficient one-event mid_funnel row on watch", () => {

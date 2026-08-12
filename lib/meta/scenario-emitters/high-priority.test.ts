@@ -331,6 +331,42 @@ describe("high priority Meta scenario emitters", () => {
   });
 
   it.each([
+    ["GBP", "£50.00"],
+    [null, "50 (Currency unavailable)"],
+  ] as const)("formats capped-bid money with provider currency %s", (currency, expected) => {
+    const rec = maybeB1CappedBidRaise({
+      window: windowFor(
+        campaign({
+          currency,
+          bidStrategyType: "cost_cap",
+          bidValue: 5000,
+          bidValueFormat: "currency",
+          roas: 2.4,
+          dailyBudget: 50_000,
+          spend: 1000,
+        }),
+        {
+          last30: campaign({
+            bidStrategyType: "cost_cap",
+            bidValue: 5000,
+            bidValueFormat: "currency",
+            roas: 2.4,
+            dailyBudget: 50_000,
+            spend: 7500,
+          }),
+        },
+      ),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+    });
+
+    const currentBid = rec?.evidence.find((item) => item.label === "Current bid")?.value;
+    expect(currentBid).toBe(expected);
+    if (currency === null) expect(currentBid).not.toContain("$");
+  });
+
+  it.each([
     [
       "C1",
       () =>

@@ -74,22 +74,19 @@ Read routes used by the page:
   lane-partitioned and presentation-annotated at read time.
 - `app/api/meta/anomalies/route.ts` — active tracking anomalies.
 
-Write routes used by the page:
+Mutation routes used directly by the page:
 
-- `app/api/meta/adsets/[adsetId]/pause/route.ts`
-- `app/api/meta/adsets/[adsetId]/apply-bid/route.ts`
-- `app/api/meta/adsets/[adsetId]/resume/route.ts`
-- `app/api/meta/campaigns/[campaignId]/resume/route.ts`
-- `app/api/meta/ads/[adId]/resume/route.ts` (reachable via
-  `resumeEndpointForEntity`; the page currently only produces campaign/adset
-  resume intents)
 - `app/api/meta/recommendations/respond/route.ts` — operator response log.
 - `app/api/meta/snapshot/run-now/route.ts` — manual snapshot refresh.
 - `/api/triage/event` + `/api/triage/state` — scope-level defer state
   (`useDeferState` in `components/common/briefing/DeferChip.tsx:132`).
 
-All write handlers funnel through `lib/meta/entity-action-routes.ts` and
-`lib/meta/ads-write.ts`.
+The recommendation page performs **no direct Meta provider write**. Its
+campaign/ad-set recommendations are advisory until those entity levels have an
+immutable canonical execution-authority contract. Rebuild/duplicate controls
+only route the operator into Launchpad; any later provider write is a separate
+manual Launchpad flow with its own confirmation, write guard, intent lineage,
+action log, and verify-after-write boundary.
 
 ## Page anatomy
 
@@ -171,10 +168,13 @@ Rendered inline at the top of the queue column (right of the scope rail) from
 5. **Mode** — `operatingMode` value plus `seasonalRegime` and
    `trackingHealth.status` chips.
 
-Money is currency-aware: `formatMoney` (`MetaPlatformPage.tsx:839-854`) uses
-`pulse.currency` (ad-account currency from warehouse rows,
-`account-pulse/route.ts:495`) first, then the business `currency` prop, and
-only falls back to the legacy USD-style formatter when both are unknown.
+Money is currency-aware: `formatMoney` uses `pulse.currency` (the decision
+payload's cutoff-safe ad-account currency) first, then the selected provider
+account currency only when the decision payload has no currency. It never
+defaults to USD; when both are unknown the copy says `Currency unavailable`.
+The campaign-label table formats each campaign's spend with that row's
+server-returned `currency`; it does not drop the row currency or borrow a
+different selected-account symbol.
 
 ### MetaWorkspacePostureBanners
 
@@ -199,12 +199,12 @@ banner affects presentation only and never changes the write gate.
 - `trackingDismissed` local state only hides the `tracking_write_gate` row in
   `MetaWorkspacePostureBanners`; the posture copy explicitly says hiding the
   banner does not unlock writes. The write gate above still stays active.
-- While gated, tracking-sensitive primaries (`execute_pause`,
-  `execute_bid`, `route_launchpad_rebuild` — `isTrackingSensitiveRec`) and
-  all resume intents are intercepted by `TrackingConfirmModal` ("Pause
-  anyway" / "Rebuild anyway" / "Resume anyway") before
-  `performPrimary`/resume runs. It is a confirm interstitial, not a hard
-  block.
+- While gated, the remaining tracking-sensitive provider handoff
+  (`route_launchpad_rebuild` — `isTrackingSensitiveRec`) is intercepted by
+  `TrackingConfirmModal` before routing to Launchpad. Legacy
+  `execute_pause`, `execute_resume`, and `execute_bid` payload values never
+  reach a provider endpoint: the client boundary downgrades them to
+  `review_drill`.
 
 ### Lanes (`MetaPlatformPage.tsx:1899-1909`)
 
@@ -441,10 +441,12 @@ fields too):
   check for `scale_for_profitability` (server-generated text analyzed
   server-side).
 - `actionKind` (`serverActionKindForRec`, `rec-presentation.ts:165`) — what
-  the primary control actually does:
-  `execute_pause | execute_bid | execute_resume | route_launchpad_rebuild |
-  route_launchpad_duplicate | review_drill`. Typed `proposedAction.kind` takes
-  precedence over type mapping.
+  the primary control actually does. The server emits
+  `route_launchpad_rebuild | route_launchpad_duplicate | review_drill`.
+  Historical `execute_pause | execute_bid | execute_resume` values remain in
+  the wire type only for snapshot compatibility and are defensively normalized
+  to `review_drill` by `uiActionKindForRec`; typed `proposedAction.kind` is
+  advisory and cannot grant write authority.
 - `primaryActionLabel` (`serverPrimaryActionLabelForRec`,
   `rec-presentation.ts:189`) — **honest CTA copy**: execute verbs ("Pause
   adset", "Apply bid cap", "Resume") only for controls that execute a write;
@@ -462,28 +464,24 @@ returns `rec.decisionLabel ?? "diagnose"`, `launchModeForRec` switches on
 Primary routing in `performPrimary` (`MetaPlatformPage.tsx:1534-1585`) follows
 `actionKind` only — never rec type or display text.
 
-Executable bid values are typed minor units only:
+Advisory bid values are typed minor units only:
 `proposedBidMinorForExecute` (`meta-card-utils.ts:75`) accepts
-`proposedAction.bidAmountMinor` / `targetValue.bidAmountMinor`; a rec without
-one gets a disabled apply-bid primary ("No executable bid value - open
-evidence").
+`proposedAction.bidAmountMinor` / `targetValue.bidAmountMinor`. This value can
+be shown as evidence but does not make the recommendation executable.
 
 ## Write surfaces and safety model
 
-Three writes execute from this page:
+No campaign, ad-set, or Ad provider write executes from this recommendation
+page. Clicking a server-emitted review action opens evidence; clicking a
+Launchpad route records the operator response and navigates to a separate
+manual workflow. Even a stale or injected `execute_*` value is review-only.
 
-1. **Adset pause** — `POST /api/meta/adsets/{id}/pause` from
-   `actionKind === "execute_pause"` primaries.
-2. **Apply bid cap** — `POST /api/meta/adsets/{id}/apply-bid` with
-   `{ bidAmountMinor, recId }`, always behind the `MetaLaunchpadOverlay`
-   confirm step. The route rejects anything but a positive-integer
-   `bidAmountMinor`; legacy `bidValue`/`bidValueMinor` fields are refused with
-   `invalid_bid_unit` (`entity-action-routes.ts:446-462`).
-3. **Resume** — campaign/adset resume from acted-pause cards
-   (`canResumeCompletedPrimary`) and from `PAUSED` archive rows.
+The still-supported explicit manual campaign/ad-set routes use the shared
+pipeline in `lib/meta/entity-action-routes.ts`, but they are not recommendation
+execution authority:
 
-Shared pipeline (`lib/meta/entity-action-routes.ts`):
-
+- Exact `actionOrigin: "manual_operator_v1"` plus
+  `manualConfirmation: "explicit_operator_confirmation"` is mandatory.
 - `requireBusinessAccess` at `collaborator` (reads are `guest`).
 - Entity → provider-account resolution from warehouse dimension/config tables.
 - **In-flight guard**: 409 `action_in_flight` if a pending action exists for
@@ -502,6 +500,22 @@ Shared pipeline (`lib/meta/entity-action-routes.ts`):
   `verifiedAt`, and verification payload; success responses return the
   Meta-verified status/bid (`result.verifiedStatus` /
   `result.verifiedBidAmount`).
+- A provider POST transport exception has an unknown external outcome. It is
+  recorded as `silent_failure` with
+  `error.code = "provider_outcome_ambiguous"`, a durable single-attempt
+  receipt, and `retryAllowed: false`; the request chain stops. A received
+  provider HTTP rejection is a definite `failure`. Neither case automatically
+  retries the mutation.
+- Manual, native-decision, and Launchpad envelopes are presence-checked as
+  non-overlapping contracts. Explicit `null` or empty fields from another
+  origin still fail closed; shared manual request fields such as
+  `idempotencyKey`, operation `action`, and `creativeBriefId` are not
+  misclassified as native decision lineage.
+- Launchpad intent creation and execution share one server-side fan-out gate:
+  at most 20 creatives, 10 ad sets or 10 targets, and 20 total planned
+  provider creates. Limit failure returns before capability lookup, intent
+  persistence, live provider reads, or mutations. Manual bulk status actions
+  are independently capped at 20 exact Ads.
 
 Respond / defer flow:
 
@@ -595,7 +609,7 @@ Real, current limitations — kept explicit on purpose:
   `formatMoney` (shared in `meta-card-utils.ts`) renders the pulse spend
   cell and 7d-avg sublabel, card KPI strips, healthy hierarchy rows, the
   archive table, and the drill-drawer KPI header with the account currency
-  (pulse payload `currency`, business prop fallback). Remaining legacy `$`:
+  (pulse payload `currency`, selected-provider fallback). Remaining legacy `$`:
   the transient bid apply/dry-run notices and the compare drawer's internal
   formatting (shared component) - tracked in the readiness ledger.
 - **Display-string parsing survives only as explicit fallback.** The

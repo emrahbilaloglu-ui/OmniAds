@@ -1,13 +1,20 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { newWorkflowRecord, type WorkflowRecord } from "@/lib/decision-workflow";
 
 /**
  * Persistence for the operator workflow overlay.
  *
- * State and journal are written together: a transition that changed the state
- * but left no journal entry would lose the record of who decided what, which is
- * the whole reason the overlay exists.
+ * State and journal are written together, in one transaction. They were
+ * previously two independent statements: the state upsert committed, then the
+ * event insert ran, and if that second write failed the state had already
+ * moved with nothing in the journal to explain it. The overlay exists to record
+ * who decided what, so a state change with no event is worse than no change.
+ *
+ * A `mutationId` makes a retry safe. Without one, a flaky connection or a
+ * double click appends a second event and bumps the version again, so the
+ * operator sees their own action twice and the next actor's expectedVersion is
+ * already wrong.
  */
 
 interface StateRow {
@@ -85,6 +92,83 @@ export async function readWorkflowRecords(input: {
   return result;
 }
 
+export interface WorkflowEvent {
+  event: string;
+  fromState: string | null;
+  toState: string | null;
+  /** Null when the acting user was never recorded or has since been removed. */
+  actorUserId: string | null;
+  actorName: string | null;
+  reasonCode: string | null;
+  stateVersion: number;
+  occurredAt: string;
+}
+
+/**
+ * Read the journal for one decision, newest first and bounded.
+ *
+ * `comment` is deliberately **not** selected. The canonical surface has no
+ * comment control and no comment read; projecting the column here would put
+ * free-form text one render away from a surface that must not carry it, and
+ * INVARIANTS is explicit that a blocked resolution must never be recovered by
+ * parsing free-form reason text.
+ */
+export async function readWorkflowEvents(input: {
+  businessId: string;
+  decisionKey: string;
+  limit?: number;
+}): Promise<WorkflowEvent[]> {
+  if (!(await overlayReady())) return [];
+  // Bounded so one noisy decision cannot return an unbounded journal.
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 50);
+  const rows = (await getDb().query<{
+    event: string;
+    from_state: string | null;
+    to_state: string | null;
+    actor_user_id: string | null;
+    actor_name: string | null;
+    reason_code: string | null;
+    state_version: number;
+    created_at: string;
+  }>(
+    `
+      SELECT e.event,
+             e.from_state,
+             e.to_state,
+             e.actor_user_id::text AS actor_user_id,
+             u.name               AS actor_name,
+             e.reason_code,
+             e.state_version,
+             e.created_at::text   AS created_at
+      FROM decision_workflow_events e
+      LEFT JOIN users u ON u.id = e.actor_user_id
+      WHERE e.business_id = $1 AND e.decision_key = $2
+      ORDER BY e.created_at DESC, e.state_version DESC
+      LIMIT $3
+    `,
+    [input.businessId, input.decisionKey, limit],
+  )) as Array<{
+    event: string;
+    from_state: string | null;
+    to_state: string | null;
+    actor_user_id: string | null;
+    actor_name: string | null;
+    reason_code: string | null;
+    state_version: number;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    event: row.event,
+    fromState: row.from_state,
+    toState: row.to_state,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name,
+    reasonCode: row.reason_code,
+    stateVersion: row.state_version,
+    occurredAt: row.created_at,
+  }));
+}
+
 /**
  * Persist a transition.
  *
@@ -98,6 +182,8 @@ export async function persistWorkflowTransition(input: {
   entityType: string;
   entityId: string;
   providerAccountId: string | null;
+  /** Client-generated idempotency key. A repeat is accepted as a no-op. */
+  mutationId?: string | null;
   event: {
     event: string;
     fromState: string;
@@ -107,10 +193,26 @@ export async function persistWorkflowTransition(input: {
     comment: string | null;
     stateVersion: number;
   };
-}): Promise<{ ok: true } | { ok: false; reason: "version_conflict" | "unavailable" }> {
+}): Promise<
+  { ok: true; replayed?: boolean } | { ok: false; reason: "version_conflict" | "unavailable" }
+> {
   if (!(await overlayReady())) return { ok: false, reason: "unavailable" };
-  const sql = getDb();
   const { next } = input;
+
+  return runDbTransaction(async () => {
+  const sql = getDb();
+
+  // A replay of a mutation we already recorded is a no-op success, not a
+  // second transition. Checked inside the transaction so two concurrent
+  // retries cannot both pass it.
+  if (input.mutationId) {
+    const seen = (await sql.query<{ id: string }>(
+      `SELECT id FROM decision_workflow_events
+       WHERE business_id = $1 AND mutation_id = $2::uuid LIMIT 1`,
+      [next.businessId, input.mutationId],
+    )) as Array<{ id: string }>;
+    if (seen.length > 0) return { ok: true as const, replayed: true };
+  }
 
   const updated = (await sql.query<{ decision_key: string }>(
     `
@@ -119,7 +221,7 @@ export async function persistWorkflowTransition(input: {
         decision_key, state, assignee_user_id, due_at, snooze_until, reason_code,
         state_version, updated_by_user_id, updated_at
       ) VALUES (
-        $1, $1::uuid, $2, $3, $4, $5, $6, $7::uuid, $8::timestamptz, $9::timestamptz,
+        $1, $14::uuid, $2, $3, $4, $5, $6, $7::uuid, $8::timestamptz, $9::timestamptz,
         $10, $11, $12::uuid, now()
       )
       ON CONFLICT (business_id, decision_key) DO UPDATE SET
@@ -148,17 +250,23 @@ export async function persistWorkflowTransition(input: {
       next.stateVersion,
       input.event.actorUserId,
       input.expectedVersion,
+      // Separate parameter for the UUID form: reusing $1 for both the TEXT
+      // business_id and business_ref_id::uuid made PostgreSQL deduce two
+      // conflicting types for one parameter and refuse the whole statement.
+      next.businessId,
     ],
   )) as Array<{ decision_key: string }>;
 
-  if (updated.length === 0) return { ok: false, reason: "version_conflict" };
+  if (updated.length === 0) return { ok: false as const, reason: "version_conflict" as const };
 
+  // Same transaction: if this throws, the state upsert above is rolled back.
   await sql.query(
     `
       INSERT INTO decision_workflow_events (
         business_id, decision_key, event, from_state, to_state,
-        assignee_user_id, reason_code, comment, actor_user_id, state_version
-      ) VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::uuid, $10)
+        assignee_user_id, reason_code, comment, actor_user_id, state_version,
+        mutation_id
+      ) VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::uuid, $10, $11::uuid)
     `,
     [
       next.businessId,
@@ -171,8 +279,10 @@ export async function persistWorkflowTransition(input: {
       input.event.comment,
       input.event.actorUserId,
       input.event.stateVersion,
+      input.mutationId ?? null,
     ],
   );
 
-  return { ok: true };
+  return { ok: true as const };
+  });
 }

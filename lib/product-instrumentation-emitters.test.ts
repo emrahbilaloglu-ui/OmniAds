@@ -43,7 +43,7 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   provider_health_recovery_started:
     "components/integrations/integrations-card.tsx",
   provider_health_recovery_completed:
-    "app/(dashboard)/integrations/callback/[provider]/page.tsx",
+    "app/(dashboard)/integrations/callback/[provider]/legacy-page.tsx",
   // Guarded action lifecycle (the stages this build can reach)
   guarded_action_preflight: "app/api/meta/decision-action/preflight/route.ts",
   guarded_action_dry_run: "app/api/meta/decision-action/preflight/route.ts",

@@ -1,0 +1,182 @@
+{
+ "packageHash": "f27bf51b31ddffe20b5c6404f5b7c1758ba5087342cd84941bf6c2d937befe4a",
+ "ruleVersion": "3.1.0",
+ "artifacts": {
+  "10": {
+   "frames": [
+    "H01",
+    "H02",
+    "H03",
+    "H04",
+    "H05",
+    "H06",
+    "H07",
+    "H08"
+   ],
+   "ctlInstances": 113,
+   "els": 24,
+   "collections": 4
+  },
+  "11": {
+   "frames": [
+    "H09",
+    "H10",
+    "H11",
+    "H12",
+    "H13",
+    "H14",
+    "H15",
+    "H16",
+    "H17",
+    "H18",
+    "H19",
+    "H20"
+   ],
+   "ctlInstances": 198,
+   "els": 44,
+   "collections": 5
+  },
+  "12": {
+   "frames": [
+    "H21",
+    "H22",
+    "H23",
+    "H24",
+    "H25",
+    "H26",
+    "H27",
+    "H28"
+   ],
+   "ctlInstances": 167,
+   "els": 36,
+   "collections": 3
+  },
+  "13": {
+   "frames": [
+    "H29",
+    "H30",
+    "H31",
+    "H32",
+    "H33",
+    "H34",
+    "H35",
+    "H36",
+    "H37",
+    "H38",
+    "H39",
+    "H40"
+   ],
+   "ctlInstances": 240,
+   "els": 46,
+   "collections": 11
+  },
+  "14": {
+   "frames": [
+    "H41",
+    "H42",
+    "H43",
+    "H44",
+    "H45",
+    "H46",
+    "H47",
+    "H48",
+    "H49",
+    "H50",
+    "H51",
+    "H52",
+    "H53",
+    "H54",
+    "H55",
+    "H56",
+    "H57",
+    "H58",
+    "H59",
+    "H60",
+    "H61",
+    "H62",
+    "H63",
+    "H64",
+    "H65",
+    "H66"
+   ],
+   "ctlInstances": 249,
+   "els": 68,
+   "collections": 5
+  },
+  "17": {
+   "frames": [],
+   "ctlInstances": 0,
+   "els": 1,
+   "collections": 0
+  },
+  "18": {
+   "frames": [
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B09"
+   ],
+   "ctlInstances": 155,
+   "els": 15,
+   "collections": 7
+  },
+  "19": {
+   "frames": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08"
+   ],
+   "ctlInstances": 16,
+   "els": 2,
+   "collections": 0
+  },
+  "02": {
+   "frames": [],
+   "ctlInstances": 0,
+   "els": 0,
+   "collections": 0
+  },
+  "03": {
+   "frames": [
+    "Flow"
+   ],
+   "ctlInstances": 0,
+   "els": 2,
+   "collections": 0
+  },
+  "04": {
+   "frames": [
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9"
+   ],
+   "ctlInstances": 0,
+   "els": 0,
+   "collections": 0
+  }
+ },
+ "frameTotals": {
+  "H": 66,
+  "B": 9,
+  "P": 8,
+  "M": 9,
+  "W": 80
+ },
+ "screenshots": "archived V1/V2 check images live under v1/ and export/v2/checks/ and are history, not evidence"
+}

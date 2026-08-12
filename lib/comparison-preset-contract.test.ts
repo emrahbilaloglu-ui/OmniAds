@@ -138,7 +138,7 @@ describe("no surface offers a comparison it does not read", () => {
     // lib/overview-summary-support.ts types CompareMode as
     // "none" | "previous_period". Offering previousYear here would have put a
     // year-over-year label on a previous-period delta.
-    const page = await read("app/(dashboard)/overview/page.tsx");
+    const page = await read("app/(dashboard)/overview/legacy-page.tsx");
     expect(page).toContain("comparisonPresets={OVERVIEW_COMPARISON_PRESETS}");
     expect(page).not.toContain(
       'dateRange.comparisonPreset === "none" ? "none" : "previous_period"',
@@ -148,10 +148,10 @@ describe("no surface offers a comparison it does not read", () => {
   });
 
   for (const file of [
-    "app/(dashboard)/insights/analytics/page.tsx",
-    "app/(dashboard)/insights/seo/page.tsx",
-    "app/(dashboard)/insights/ai-visibility/page.tsx",
-    "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+    "app/(dashboard)/insights/analytics/legacy-page.tsx",
+    "app/(dashboard)/insights/seo/legacy-page.tsx",
+    "app/(dashboard)/insights/ai-visibility/legacy-page.tsx",
+    "app/(dashboard)/platforms/meta/landing-pages/legacy-page.tsx",
   ]) {
     it(`${file.split("/").slice(-2)[0]} hides the comparison it never reads`, async () => {
       const page = await read(file);

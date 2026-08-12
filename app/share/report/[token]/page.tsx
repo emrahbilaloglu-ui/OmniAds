@@ -5,6 +5,7 @@ import { getCustomReportShareSnapshot } from "@/lib/custom-report-store";
 import { ReportCanvas } from "@/components/reports/report-canvas";
 import { ClientPanelPrintButton } from "@/components/client/ClientPanelPrintButton";
 import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
+import { isReportShareFailClosed } from "@/lib/reports/share-fail-closed";
 
 export const metadata: Metadata = {
   title: "Shared Report",
@@ -17,6 +18,32 @@ export default async function ShareReportPage({
   params: Promise<{ token: string }>;
 }) {
   const language = getLanguageFromCookieValue((await cookies()).get(LANGUAGE_COOKIE_NAME)?.value);
+
+  // Fail closed before the token is read. Resolving it first — even to discard
+  // the result — would make a valid token distinguishable from an invalid one
+  // by timing, so `params` is deliberately left un-awaited on this path.
+  if (isReportShareFailClosed()) {
+    return (
+      <div className="ad-client-panel">
+        <main className="ad-client-empty-state">
+          <div className="ad-client-card">
+            <h1>
+              {language === "tr" ? "Rapor paylaşımı kullanılamıyor" : "Report sharing is unavailable"}
+            </h1>
+            <p>
+              {language === "tr"
+                ? "Bu çalışma alanı için paylaşılan raporlar kapalı. Raporu sizinle paylaşan kişiyle iletişime geçin."
+                : "Shared reports are turned off for this workspace. Contact the person who shared this report with you."}
+            </p>
+            <Link href="/">
+              {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const { token } = await params;
   const payload = await getCustomReportShareSnapshot(token);
 

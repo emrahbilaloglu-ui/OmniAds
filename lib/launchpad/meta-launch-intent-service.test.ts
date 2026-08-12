@@ -82,6 +82,46 @@ describe("prepareMetaLaunchIntentForExecution", () => {
     });
   });
 
+  it("forbids a fresh-key or replay attempt while provider outcome is ambiguous", async () => {
+    vi.mocked(store.getMetaLaunchIntent).mockResolvedValue(
+      intent({
+        status: "silent_failure",
+        errorReceipt: {
+          code: "provider_outcome_ambiguous",
+          partialResult: {
+            campaignId: null,
+            adsetIds: [],
+            adIds: [],
+            steps: [
+              {
+                providerOutcome: "outcome_ambiguous",
+                retryAllowed: false,
+              },
+            ],
+          },
+        },
+      }) as never,
+    );
+
+    const result = await prepareMetaLaunchIntentForExecution({
+      ...base,
+      launchIntentId: "intent_1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: {
+        code: "launch_intent_provider_outcome_ambiguous",
+        message: expect.stringContaining("do not create a new intent"),
+      },
+    });
+    expect(result.ok || result.error.message).toContain(
+      "Reconcile the exact Meta state",
+    );
+    expect(store.createMetaLaunchIntent).not.toHaveBeenCalled();
+  });
+
   it("rejects account or payload drift against a prepared intent", async () => {
     vi.mocked(store.getMetaLaunchIntent).mockResolvedValue(
       intent({ providerAccountId: "act_456" }) as never,
@@ -128,5 +168,65 @@ describe("prepareMetaLaunchIntentForExecution", () => {
       status: 409,
       error: { code: "launch_intent_already_exists" },
     });
+  });
+
+  it("does not suggest a new intent when an existing idempotency tuple is ambiguous", async () => {
+    vi.mocked(store.createMetaLaunchIntent).mockResolvedValue({
+      created: false,
+      intent: intent({
+        status: "silent_failure",
+        errorReceipt: {
+          code: "provider_outcome_ambiguous",
+          partialResult: {
+            campaignId: null,
+            adsetIds: [],
+            adIds: [],
+            steps: [],
+          },
+        },
+      }),
+    } as never);
+
+    const result = await prepareMetaLaunchIntentForExecution(base);
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: {
+        code: "launch_intent_provider_outcome_ambiguous",
+        message: expect.stringContaining("do not create a new intent"),
+      },
+    });
+  });
+
+  it("blocks a different idempotency key for the same unresolved semantic request", async () => {
+    vi.mocked(store.createMetaLaunchIntent).mockRejectedValue(
+      Object.assign(
+        new Error(
+          "Reconcile the exact Meta state before another provider mutation.",
+        ),
+        {
+          code: "launch_intent_provider_outcome_ambiguous",
+          intent: intent({
+            id: "intent_ambiguous",
+            idempotencyKey: "old-key",
+            status: "silent_failure",
+          }),
+        },
+      ),
+    );
+
+    const result = await prepareMetaLaunchIntentForExecution({
+      ...base,
+      idempotencyKey: "fresh-key",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: { code: "launch_intent_provider_outcome_ambiguous" },
+      intent: { id: "intent_ambiguous" },
+    });
+    expect(store.createMetaLaunchIntent).toHaveBeenCalledTimes(1);
   });
 });

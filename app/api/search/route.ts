@@ -9,6 +9,11 @@ import {
   type EntitySearchCandidate,
 } from "@/lib/entity-search";
 import { findEntitySearchCandidates } from "@/lib/entity-search-store";
+import {
+  SEARCH_PERMISSION_EMPTY,
+  SEARCH_SCOPE_LABEL,
+  toZeroBaseSearchEnvelope,
+} from "@/lib/zero-base/search-adapter";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +33,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Canonical callers opt in explicitly, so the legacy response shape is
+  // preserved byte-for-byte for everything already consuming this route.
+  const zeroBase = request.nextUrl.searchParams.get("contract") === "zero-base.v1";
   const rawQuery = request.nextUrl.searchParams.get("q") ?? "";
   if (!isSearchableQuery(rawQuery)) {
     return NextResponse.json({
@@ -42,6 +50,17 @@ export async function GET(request: NextRequest) {
     (business) => business.membershipStatus === "active",
   );
   if (businesses.length === 0) {
+    // "No matches" would be a lie here: the caller has no scope at all, which
+    // is a different fact and needs different copy.
+    if (zeroBase) {
+      return NextResponse.json({
+        query: rawQuery,
+        label: SEARCH_SCOPE_LABEL,
+        reason: "permission_empty",
+        message: SEARCH_PERMISSION_EMPTY,
+        ...toZeroBaseSearchEnvelope([]),
+      });
+    }
     return NextResponse.json({ query: rawQuery, results: [], reason: "no_scope" });
   }
 
@@ -92,6 +111,14 @@ export async function GET(request: NextRequest) {
     itemCount: results.length,
     occurredAt: new Date().toISOString(),
   });
+
+  if (zeroBase) {
+    return NextResponse.json({
+      query: rawQuery,
+      label: SEARCH_SCOPE_LABEL,
+      ...toZeroBaseSearchEnvelope(results),
+    });
+  }
 
   return NextResponse.json({ query: rawQuery, results });
 }

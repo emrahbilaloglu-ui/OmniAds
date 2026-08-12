@@ -14,6 +14,7 @@ describe("HealthyRow", () => {
           brand: "TheSwaf",
           label: "keep",
           spend: 1200,
+          currency: "USD",
           roas: 2.42,
           purchases: 17,
         }}
@@ -27,5 +28,22 @@ describe("HealthyRow", () => {
     expect(html).toContain("$1,200");
     expect(html).toContain("Healthy");
     expect(html).toContain('aria-checked="true"');
+  });
+
+  it("renders the card account currency instead of inferring USD", () => {
+    const html = renderToStaticMarkup(
+      <HealthyRow
+        card={{
+          id: "cr_h2",
+          name: "GBP creative",
+          label: "keep",
+          spend: 1200,
+          currency: "GBP",
+        }}
+      />,
+    );
+
+    expect(html).toContain("£1,200");
+    expect(html).not.toContain("$1,200");
   });
 });

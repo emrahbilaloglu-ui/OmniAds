@@ -5,6 +5,13 @@ import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import type { CreativeDateRangeValue } from "@/components/creatives/CreativesTopSection";
 import { syncLanguageCookie, type AppLanguage } from "@/lib/i18n";
 import {
+  DEFAULT_THEME_PREFERENCE,
+  THEME_ATTRIBUTE,
+  resolveTheme,
+  syncThemeCookie,
+  type ThemePreference,
+} from "@/lib/theme";
+import {
   appendUniqueMetric,
   dedupeMetricKeys,
   moveMetric,
@@ -17,9 +24,12 @@ export type MetricDisplayPreference = "compact" | "detailed";
 export type TableDensityPreference = "comfortable" | "compact";
 export type AppLanguagePreference = AppLanguage;
 export type OperatorSurfacePreset = "action_first" | "creative_rich" | "media_limited";
+export type ThemePreferenceValue = ThemePreference;
 
 interface PreferencesState {
   language: AppLanguagePreference;
+  /** system | light | dark. What renders is resolved separately. */
+  theme: ThemePreferenceValue;
   defaultDateRange: ReportDateRangePreference;
   metricDisplay: MetricDisplayPreference;
   tableDensity: TableDensityPreference;
@@ -34,6 +44,7 @@ interface PreferencesState {
   commandCenterDateRange: DateRangeValue | null;
   creativeDateRange: CreativeDateRangeValue | null;
   setLanguage: (value: AppLanguagePreference) => void;
+  setTheme: (value: ThemePreferenceValue) => void;
   setDashboardDateRange: (value: DateRangeValue) => void;
   setMetaDateRange: (value: DateRangeValue) => void;
   setCommandCenterDateRange: (value: DateRangeValue) => void;
@@ -56,6 +67,7 @@ export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
       language: "en",
+      theme: DEFAULT_THEME_PREFERENCE,
       defaultDateRange: "30d",
       metricDisplay: "detailed",
       tableDensity: "comfortable",
@@ -70,6 +82,22 @@ export const usePreferencesStore = create<PreferencesState>()(
       setLanguage: (value) => {
         syncLanguageCookie(value);
         set({ language: value });
+      },
+      // The cookie is the authority the server reads on the next request; the
+      // attribute is what repaints this one. Both are written, in that order.
+      setTheme: (value) => {
+        syncThemeCookie(value);
+        if (typeof document !== "undefined") {
+          const prefersDark =
+            typeof window !== "undefined" && typeof window.matchMedia === "function"
+              ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              : false;
+          document.documentElement.setAttribute(
+            THEME_ATTRIBUTE,
+            resolveTheme(value, prefersDark),
+          );
+        }
+        set({ theme: value });
       },
       setDashboardDateRange: (value) => set({ dashboardDateRange: value }),
       setMetaDateRange: (value) => set({ metaDateRange: value }),

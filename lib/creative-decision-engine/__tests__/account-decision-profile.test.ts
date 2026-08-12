@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveAccountDecisionProfile } from "../account-decision-profile";
+import {
+  applyCommercialStopLossAovAuthority,
+  isAccountAovRevenueArithmeticConsistent,
+  resolveAccountDecisionProfile,
+} from "../account-decision-profile";
 import type {
   BusinessTargetPack,
   CampaignCalibrationLookup,
@@ -26,8 +30,7 @@ class ProfileDataSource implements CreativeDecisionDataSource {
   constructor(
     private readonly targetPack: BusinessTargetPack | null,
     private readonly calibration = makeAccountCalibration(),
-    private readonly profileConfig: DecisionCalibrationProfileConfig | null =
-      null,
+    private readonly profileConfig: DecisionCalibrationProfileConfig | null = null,
     private readonly campaignLookup: CampaignCalibrationLookup = {
       calibration: null,
       matureCreativeCount: null,
@@ -100,8 +103,7 @@ class ProfileDataSource implements CreativeDecisionDataSource {
     return this.targetPack
       ? {
           ...this.targetPack,
-          updatedAt:
-            this.targetPack.updatedAt ?? "2026-05-04T02:00:00.000Z",
+          updatedAt: this.targetPack.updatedAt ?? "2026-05-04T02:00:00.000Z",
           freshness: this.targetPack.freshness ?? "fresh",
         }
       : null;
@@ -145,6 +147,93 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
 }
 
 describe("resolveAccountDecisionProfile", () => {
+  it("validates account-AOV arithmetic without a fixed currency minor-unit tolerance", () => {
+    expect(
+      isAccountAovRevenueArithmeticConsistent({
+        meanAov: 100 / 3,
+        purchaseCount: 3,
+        totalRevenue: 100,
+      }),
+    ).toBe(true);
+    expect(
+      isAccountAovRevenueArithmeticConsistent({
+        meanAov: 0.001,
+        purchaseCount: 20,
+        totalRevenue: 0.025,
+      }),
+    ).toBe(false);
+  });
+
+  it("applies physical-account AOV as a Cut-only profile overlay", async () => {
+    const targetPack: BusinessTargetPack = {
+      targetCpa: null,
+      targetRoas: 2.2,
+      breakEvenCpa: null,
+      breakEvenRoas: 1.8,
+      operatorAovAssumption: null,
+      defaultRiskPosture: "balanced",
+      updatedAt: "2026-05-04T02:00:00.000Z",
+      freshness: "fresh",
+    };
+    const baseProfile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: "2026-05-04",
+      dataSource: new ProfileDataSource(
+        targetPack,
+        makeAccountCalibration({
+          metaAttributedAovMean90d: 50,
+          metaAttributedAovPurchaseCount90d: 5,
+          metaAttributedRevenue90d: 250,
+          metaAovQuality: "low_sample",
+        }),
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+    const overlaidProfile = applyCommercialStopLossAovAuthority({
+      profile: baseProfile,
+      targetPack,
+      attributionAovAdjustmentMultiplier: 1,
+      shadowOnly: false,
+      authority: {
+        meanAov: 100,
+        purchaseCount: 20,
+        totalRevenue: 2_000,
+      },
+    });
+    const nonCutProjection = (profile: typeof baseProfile) => {
+      const {
+        commercialStopLossSpendUnit: _commercialStopLossSpendUnit,
+        commercialStopLossThresholds: _commercialStopLossThresholds,
+        commercialStopLossCanonicalHardActionEligibility:
+          _commercialStopLossCanonicalHardActionEligibility,
+        hardActionEligibility,
+        ...canonicalProfile
+      } = profile;
+      return {
+        canonicalProfile,
+        scale: hardActionEligibility.scale,
+        scaleReason: hardActionEligibility.reasons?.scale,
+        refresh: hardActionEligibility.refresh,
+        refreshReason: hardActionEligibility.reasons?.refresh,
+      };
+    };
+
+    expect(nonCutProjection(overlaidProfile)).toEqual(
+      nonCutProjection(baseProfile),
+    );
+    expect(overlaidProfile.commercialStopLossSpendUnit?.spendUnit).toBeCloseTo(
+      100 / 2.2,
+      8,
+    );
+    expect(overlaidProfile.commercialStopLossThresholds).not.toEqual(
+      baseProfile.thresholds,
+    );
+    expect(
+      overlaidProfile.commercialStopLossCanonicalHardActionEligibility,
+    ).toEqual(baseProfile.hardActionEligibility);
+    expect(overlaidProfile.hardActionEligibility.cut).toBe(true);
+  });
+
   it("builds a production-like Meta-derived profile with populated thresholds", async () => {
     const profile = await resolveAccountDecisionProfile({
       businessId: "00000000-0000-4000-8000-000000000501",

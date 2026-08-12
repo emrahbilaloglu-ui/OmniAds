@@ -337,6 +337,55 @@ describe("stabilizeDecisionLabel", () => {
     });
   });
 
+  it("does not accrue D036 while recent evidence holds Cut and starts only after the hold clears", () => {
+    const heldCut: DecisionOutput = {
+      ...baseDecision,
+      label: "test_more",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "recent_recovery_unverifiable",
+      blockedActionType: "cut",
+      reason: "Cut held until recent break-even evidence is sufficient.",
+    };
+
+    const held = stabilizeDecisionLabel(heldCut, {
+      publishedLabel: "keep",
+      rawLabel: "keep",
+    });
+    expect(held).toMatchObject({ rawLabel: "test_more", suppressed: false });
+    expect(held.decision).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "recent_recovery_unverifiable",
+      blockedActionType: "cut",
+    });
+    expect(held.decision.badges.map((badge) => badge.type)).not.toContain(
+      "pending_transition",
+    );
+
+    const unblockedCut: DecisionOutput = {
+      ...baseDecision,
+      label: "cut",
+      preAuthorityLabel: "cut",
+      reason: "Recent evidence confirms the economic loss.",
+    };
+    const firstUnblocked = stabilizeDecisionLabel(unblockedCut, {
+      publishedLabel: held.decision.label,
+      rawLabel: held.rawLabel,
+    });
+    expect(firstUnblocked).toMatchObject({ rawLabel: "cut", suppressed: true });
+    expect(firstUnblocked.decision.label).toBe("keep");
+    expect(
+      firstUnblocked.decision.badges.map((badge) => badge.type),
+    ).toContain("pending_transition");
+
+    const confirmed = stabilizeDecisionLabel(unblockedCut, {
+      publishedLabel: firstUnblocked.decision.label,
+      rawLabel: firstUnblocked.rawLabel,
+    });
+    expect(confirmed).toMatchObject({ rawLabel: "cut", suppressed: false });
+    expect(confirmed.decision.label).toBe("cut");
+  });
+
   it("returns the complete current safety decision without hysteresis suppression", () => {
     const safetyDecision: DecisionOutput = {
       ...baseDecision,

@@ -286,6 +286,7 @@ export async function getMetaAdsWriteBlockFailure(
     return {
       ok: false,
       httpStatus: 503,
+      providerMutationAttempted: false,
       error: {
         code: "kill_switch_engaged",
         message: block.message ?? "Meta writes are disabled by kill switch.",
@@ -319,6 +320,7 @@ export async function getMetaAdsWriteBlockFailure(
     return {
       ok: false,
       httpStatus: atomicAuthority.httpStatus,
+      providerMutationAttempted: false,
       error: {
         code:
           atomicAuthority.httpStatus === 503
@@ -339,6 +341,7 @@ export async function getMetaAdsWriteBlockFailure(
     return {
       ok: false,
       httpStatus: 503,
+      providerMutationAttempted: false,
       error: {
         code: META_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
         message:
@@ -352,6 +355,7 @@ export async function getMetaAdsWriteBlockFailure(
     return {
       ok: false,
       httpStatus: 409,
+      providerMutationAttempted: false,
       error: {
         code: META_ACCOUNT_NOT_SELECTED_CODE,
         message:

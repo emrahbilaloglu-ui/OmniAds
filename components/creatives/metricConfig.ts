@@ -9,6 +9,7 @@ import type {
   CreativeType,
   CreativeVisualFormat,
 } from "@/lib/meta/creatives-types";
+import { formatMoney } from "@/components/creatives/money";
 
 export const META_METRIC_KEYS = [
   "spend",
@@ -182,11 +183,16 @@ type GoodDirection = "high" | "low" | "neutral";
 type MetricConfigItem = {
   label: string;
   goodDirection: GoodDirection;
-  format: (value: number) => string;
+  format: (
+    value: number,
+    currency?: string | null,
+  ) => string;
 };
 
-const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
-const formatCurrencyFixed = (value: number) => `$${value.toFixed(2)}`;
+const formatCurrency = (
+  value: number,
+  currency?: string | null,
+) => formatMoney(value, currency, null);
 const formatNumber = (value: number) => value.toLocaleString();
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 const formatDecimal = (value: number) => value.toFixed(2);
@@ -210,17 +216,17 @@ export const METRIC_CONFIG: Record<MetaMetricKey, MetricConfigItem> = {
   cpa: {
     label: "CPA",
     goodDirection: "low",
-    format: formatCurrencyFixed,
+    format: formatCurrency,
   },
   cpcLink: {
     label: "CPC (link)",
     goodDirection: "low",
-    format: formatCurrencyFixed,
+    format: formatCurrency,
   },
   cpm: {
     label: "CPM",
     goodDirection: "low",
-    format: formatCurrencyFixed,
+    format: formatCurrency,
   },
   ctrAll: {
     label: "CTR (all)",

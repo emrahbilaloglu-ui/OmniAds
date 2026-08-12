@@ -79,6 +79,43 @@ describe("projectMetaDecisionSemantics", () => {
     });
   });
 
+  it.each([
+    {
+      name: "missing recent evidence",
+      badgeCodes: ["missing_recent_data"],
+      code: "refresh_decision_data",
+      category: "data",
+      owner: "integration",
+    },
+    {
+      name: "thin recent sample",
+      badgeCodes: [],
+      code: "await_recent_evidence",
+      category: "system",
+      owner: "system",
+    },
+  ] as const)(
+    "keeps a D063 held Cut blocked for $name",
+    ({ badgeCodes, code, category, owner }) => {
+      expect(
+        projectMetaDecisionSemantics({
+          legacyBuyerAction: "test_more",
+          sourceLabel: "test_more",
+          lifecycleRole: "main",
+          badgeCodes,
+          blockerCodes: ["recent_recovery_unverifiable"],
+          heldAction: "cut",
+          authorityBlocker: "recent_recovery_unverifiable",
+        }),
+      ).toMatchObject({
+        decisionState: "blocked",
+        legacyBuyerAction: "test_more",
+        buyerAction: null,
+        resolution: { code, category, owner },
+      });
+    },
+  );
+
   it("keeps a held verdict blocked even when its compatibility label is out of scope", () => {
     expect(
       projectMetaDecisionSemantics({

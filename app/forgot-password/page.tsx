@@ -3,12 +3,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AuthSurface } from "@/components/auth/auth-surface";
+import { ResetDeliveryPanel } from "@/components/zero-base/auth/auth-states";
+import { resetDeliveryFromResponse, type ResetDeliveryState } from "@/lib/zero-base/auth-states";
+import { useZeroBaseUi } from "@/components/zero-base/rollout-provider";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [tone, setTone] = useState<"positive" | "caution" | "danger">("caution");
+  // "Password reset is not available right now" was shown both when the mail
+  // went out and when it could not be sent. A user waiting for an email that
+  // never left has no way to tell.
+  const [deliveryState, setDeliveryState] = useState<ResetDeliveryState | null>(null);
+  const { canonical } = useZeroBaseUi();
 
   async function requestReset() {
     setLoading(true);
@@ -21,9 +29,16 @@ export default function ForgotPasswordPage() {
       });
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       setTone(response.ok ? "positive" : response.status === 501 ? "caution" : "danger");
+      setDeliveryState(
+        resetDeliveryFromResponse({
+          status: response.status,
+          code: (payload as { error?: string } | null)?.error ?? null,
+        }),
+      );
       setMessage(payload?.message ?? "Password reset is not available right now.");
     } catch {
       setTone("danger");
+      setDeliveryState(resetDeliveryFromResponse({ networkError: true }));
       setMessage("Password reset is not available right now.");
     } finally {
       setLoading(false);
@@ -60,17 +75,21 @@ export default function ForgotPasswordPage() {
           {loading ? "Checking reset setup..." : "Send reset link"}
         </button>
         {message ? (
-          <p
-            className={`ad-auth-alert ${
-              tone === "danger"
-                ? "ad-auth-alert-danger"
-                : tone === "positive"
-                  ? "ad-auth-alert-positive"
-                  : "ad-auth-alert-caution"
-            }`}
-          >
-            {message}
-          </p>
+          canonical && deliveryState ? (
+            <ResetDeliveryPanel state={deliveryState} />
+          ) : (
+            <p
+              className={`ad-auth-alert ${
+                tone === "danger"
+                  ? "ad-auth-alert-danger"
+                  : tone === "positive"
+                    ? "ad-auth-alert-positive"
+                    : "ad-auth-alert-caution"
+              }`}
+            >
+              {message}
+            </p>
+          )
         ) : null}
         <div className="ad-auth-row">
           <Link href="/login">Back to sign in</Link>

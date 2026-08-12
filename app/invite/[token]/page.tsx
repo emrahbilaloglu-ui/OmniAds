@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AuthSurface } from "@/components/auth/auth-surface";
+import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
+import { inviteStateFromResponse, type InviteState } from "@/lib/zero-base/auth-states";
+import { useZeroBaseUi } from "@/components/zero-base/rollout-provider";
 
 interface InvitePayload {
   invite: {
@@ -30,6 +33,11 @@ export default function InviteAcceptPage() {
   const [submitting, setSubmitting] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server distinguishes five outcomes with five codes; the page renders
+  // whichever it returned rather than collapsing them into "invalid or
+  // expired", which covers four situations with four different remedies.
+  const [inviteState, setInviteState] = useState<InviteState | null>(null);
+  const { canonical } = useZeroBaseUi();
 
   useEffect(() => {
     let mounted = true;
@@ -46,7 +54,11 @@ export default function InviteAcceptPage() {
       const meJson = (await meRes.json().catch(() => null)) as MePayload | null;
       if (!mounted) return;
       if (!inviteRes.ok || !inviteJson || !("invite" in inviteJson)) {
-        setError((inviteJson as { message?: string } | null)?.message ?? "Invite link is invalid or expired.");
+        const payload = inviteJson as { message?: string; error?: string } | null;
+        setInviteState(
+          inviteStateFromResponse({ status: inviteRes.status, code: payload?.error ?? null }),
+        );
+        setError(payload?.message ?? "Invite link is invalid or expired.");
       } else {
         setInvite(inviteJson.invite);
       }
@@ -63,13 +75,18 @@ export default function InviteAcceptPage() {
     setSubmitting(true);
     setError(null);
     const res = await fetch(`/api/invite/${token}`, { method: "POST" });
-    const json = (await res.json().catch(() => null)) as { message?: string } | null;
+    const json = (await res.json().catch(() => null)) as
+      | { message?: string; error?: string; businessId?: string }
+      | null;
     if (!res.ok) {
+      setInviteState(inviteStateFromResponse({ status: res.status, code: json?.error ?? null }));
       setError(json?.message ?? "Could not accept invite.");
       setSubmitting(false);
       return;
     }
-    router.push("/overview");
+    // Canonicalise onto the business just joined, which is now the actor's
+    // single active membership. Legacy keeps its own destination.
+    router.push(canonical && json?.businessId ? `/c/${json.businessId}/home` : "/overview");
   }
 
   async function switchAccount() {
@@ -92,12 +109,10 @@ export default function InviteAcceptPage() {
   }
 
   if (!invite) {
+    const state = inviteState ?? "not_found";
     return (
-      <AuthSurface
-        eyebrow="Team invite"
-        title="Invite unavailable"
-        description={error ?? "Invite link is invalid or expired."}
-      >
+      <AuthSurface eyebrow="Team invite" title="Team invite">
+        <InviteStatePanel state={state} token={token} />
         <Link href="/login" className="ad-auth-link-button">
           Back to sign in
         </Link>

@@ -12,6 +12,7 @@ import {
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+import { normalizeCurrencyCode } from "@/components/creatives/money";
 
 interface BulkCutConfirmModalProps {
   open: boolean;
@@ -22,17 +23,33 @@ interface BulkCutConfirmModalProps {
 }
 
 export function getBulkCutTotals(cards: BriefingCreativeCard[]) {
-  const spendValues = cards.map((card) => card.spend).filter(hasMetricValue);
-  const spend =
-    spendValues.length > 0
-      ? spendValues.reduce((total, value) => total + numberOrZero(value), 0)
-      : null;
+  const groupedSpend = new Map<string | null, number>();
+  for (const card of cards) {
+    if (!hasMetricValue(card.spend)) continue;
+    const currency = normalizeCurrencyCode(card.currency);
+    groupedSpend.set(
+      currency,
+      (groupedSpend.get(currency) ?? 0) + numberOrZero(card.spend),
+    );
+  }
+  const spendByCurrency = [...groupedSpend.entries()]
+    .map(([currency, spend]) => ({ currency, spend }))
+    .sort((left, right) =>
+      (left.currency ?? "").localeCompare(right.currency ?? ""),
+    );
+  const singleSpend = spendByCurrency.length === 1 ? spendByCurrency[0] : null;
   const roasValues = cards.map((card) => card.roas).filter(hasMetricValue);
   const avgRoas =
     roasValues.length > 0
       ? roasValues.reduce((total, roas) => total + roas, 0) / roasValues.length
       : null;
-  return { spend, avgRoas };
+  return {
+    spend: singleSpend?.spend ?? null,
+    currency: singleSpend?.currency ?? null,
+    spendByCurrency,
+    mixedCurrency: spendByCurrency.length > 1,
+    avgRoas,
+  };
 }
 
 export function bulkCutTrackingPrimaryLabel(count: number) {
@@ -108,7 +125,7 @@ export function BulkCutConfirmModal({
                     </div>
                   </div>
                   <span className="font-mono tabular-nums text-[12px] text-neutral-600">
-                    {formatOptionalCurrency(card.spend)}
+                    {formatOptionalCurrency(card.spend, card.currency)}
                   </span>
                   <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
                     {formatOptionalRoas(card.roas)}
@@ -122,7 +139,13 @@ export function BulkCutConfirmModal({
             <div className="text-[12px] text-neutral-500">
               Total spend{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
-                {formatOptionalCurrency(totals.spend)}
+                {totals.mixedCurrency
+                  ? totals.spendByCurrency
+                      .map(({ spend, currency }) =>
+                        formatOptionalCurrency(spend, currency),
+                      )
+                      .join(" · ")
+                  : formatOptionalCurrency(totals.spend, totals.currency)}
               </span>
             </div>
             <div className="text-[12px] text-neutral-500">

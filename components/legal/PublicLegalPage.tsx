@@ -1,3 +1,5 @@
+import "@/app/marketing-ledger.css";
+
 import { ReactNode } from "react";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { MarketingNavbar } from "@/components/marketing/MarketingNavbar";
@@ -10,7 +12,9 @@ interface PublicLegalPageProps {
 
 export function PublicLegalPage({ title, subtitle, children }: PublicLegalPageProps) {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    // Ledger presentation, scoped. These pages carry legal and security
+    // claims: the styling changes, the words do not.
+    <div data-adc-marketing className="min-h-screen bg-background text-foreground flex flex-col">
       {/* The real marketing header, not a reduced copy of it.
           These six pages are exactly where the footer sends people — Privacy,
           Terms, Security, About, Contact, AI Transparency — and each one used to

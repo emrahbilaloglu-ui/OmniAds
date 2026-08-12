@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuthedRequest, requireBusinessAccess } from "@/lib/access";
+import { getSessionFromRequest } from "@/lib/auth";
+import { recordZeroBaseScreenView } from "@/lib/zero-base/instrumentation-sink";
+import {
+  validateInstrumentationEvent,
+  widthBucketFor,
+} from "@/lib/zero-base/instrumentation-contract";
+import type { ActorRole } from "@/lib/zero-base/instrumentation-schema";
 import {
   PRODUCT_INSTRUMENTATION_EVENT_NAMES,
   PRODUCT_INSTRUMENTATION_FAILURE_CODES,
@@ -40,13 +47,22 @@ function clampCounter(value: unknown): number | null {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAuthedRequest(request);
-  if ("error" in auth) return auth.error;
-
-  const body = (await request.json().catch(() => null)) as Record<
+  const rawBody = (await request.json().catch(() => null)) as Record<
     string,
     unknown
   > | null;
+
+  // The v2 branch is selected by an explicit discriminator, so every existing
+  // v1 caller keeps its exact behaviour — including requiring a session before
+  // the body is even read.
+  if (rawBody?.contract === "zero-base.v2") {
+    return handleZeroBaseEvent(request, rawBody);
+  }
+
+  const auth = await requireAuthedRequest(request);
+  if ("error" in auth) return auth.error;
+
+  const body = rawBody;
 
   const eventName = body?.eventName;
   const surface = body?.surface;
@@ -123,4 +139,63 @@ export async function POST(request: NextRequest) {
 
   const result = await recordProductInstrumentationEvent(event);
   return NextResponse.json(result, { status: result.recorded ? 202 : 200 });
+}
+
+/**
+ * Zero-base v2 ingest.
+ *
+ * Differs from v1 in three ways that matter: the 15 pre-auth public surfaces
+ * may be emitted without a session, `actor_role` and `width_bucket` are
+ * derived here rather than taken from the client, and a repeated `eventId` is
+ * accepted as a no-op so an offline retry cannot double-count.
+ *
+ * Failure never propagates. A telemetry sink that can break navigation is
+ * worse than no telemetry, so every path returns 202-or-better and the caller
+ * is told nothing it could use to probe the system.
+ */
+async function handleZeroBaseEvent(
+  request: NextRequest,
+  body: Record<string, unknown>,
+): Promise<NextResponse> {
+  const session = await getSessionFromRequest(request);
+
+  // Server-derived. A client that could name its own role could relabel its
+  // own telemetry, so nothing here is read from the body.
+  let actorRole: ActorRole = session ? "authenticated" : "anonymous";
+  const businessId = typeof body.businessId === "string" ? body.businessId : null;
+  if (session && businessId) {
+    const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+    if ("error" in access) return access.error;
+    actorRole = access.membership.role;
+  }
+
+  const widthRaw = typeof body.width === "number" ? body.width : 1280;
+  const result = validateInstrumentationEvent(
+    {
+      surface: String(body.surface ?? ""),
+      event: String(body.event ?? ""),
+      eventId: typeof body.eventId === "string" ? body.eventId : null,
+      properties:
+        body.properties && typeof body.properties === "object"
+          ? (body.properties as Record<string, unknown>)
+          : null,
+      businessId,
+      accountId: typeof body.accountId === "string" ? body.accountId : null,
+    },
+    {
+      authenticated: Boolean(session),
+      actorRole,
+      widthBucket: widthBucketFor(widthRaw),
+    },
+  );
+
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.rejection.code, message: result.rejection.message },
+      { status: result.rejection.status },
+    );
+  }
+
+  await recordZeroBaseScreenView(result.event);
+  return NextResponse.json({ status: "accepted" }, { status: 202 });
 }

@@ -2647,6 +2647,46 @@ async function main() {
       "product instrumentation DB seam check",
     );
 
+    // Workflow overlay atomicity and idempotency. Only a real transaction and
+    // a real unique index can prove that a failed event insert rolls the state
+    // back and that a replayed mutation appends nothing.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-workflow-overlay-seam-child.ts"),
+      "decision workflow overlay DB seam check",
+    );
+
+    // Decision-bound provider targets. The claims here — business scoping,
+    // per-grain column mapping, ambiguity detection — are claims about SQL, so
+    // a mock that echoes its own input proves none of them.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-decision-bound-target-seam-child.ts"),
+      "decision-bound provider target DB seam check",
+    );
+
+    // Public creative share lifecycle. Rotation atomicity and the "every dead
+    // state looks the same" property are claims about a transaction and a SQL
+    // predicate, so a mocked store proves neither.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-public-share-seam-child.ts"),
+      "public creative share DB seam check",
+    );
+
+    // Agency directory keyset pagination. Only real PostgreSQL can prove that
+    // the ORDER BY producing a cursor and the comparison consuming it agree —
+    // collation, tie-breaks, duplicate and accented names included.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-agency-directory-seam-child.ts"),
+      "agency directory pagination DB seam check",
+    );
+
     // The notification lifecycle, driven through its real production
     // transitions rather than asserted from shape.
     await runChildScript(
@@ -2654,6 +2694,26 @@ async function main() {
       databaseUrl,
       path.join("scripts", "ephemeral-postgres-notification-seam-child.ts"),
       "notification lifecycle DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
+      ),
+      "native-ad decision-fact ownership DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
+      ),
+      "duplicate-ad reconciliation DB seam check",
     );
 
     // Production-seam checks against the freshly migrated schema: real

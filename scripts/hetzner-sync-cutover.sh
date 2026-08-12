@@ -389,7 +389,9 @@ require_phase() {
 require_sha() {
   [ -n "${EXPECTED_SHA}" ] || die "DEPLOY_SHA is required and must be the exact commit being cut over to"
   case "${EXPECTED_SHA}" in
-    *[!0-9a-f]* | "") die "DEPLOY_SHA must be a lowercase hex commit sha" ;;
+    # Enumerated, not a range: see is_lower_hex in hetzner-remote.sh. A range
+    # is collation-ordered and accepts uppercase in any UTF-8 locale.
+    *[!0123456789abcdef]* | "") die "DEPLOY_SHA must be a lowercase hex commit sha" ;;
   esac
 }
 
@@ -1008,7 +1010,7 @@ snapshot_assert_baseline() {
       die "the ${name} baseline could not be read under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed" ;;
     empty | absent)
       return 0 ;;
-    *[!0-9a-f]*)
+    *[!0123456789abcdef]*)
       die "the ${name} baseline read under the exported snapshot is '${value}', which is not a digest; the rollback artifact cannot be verified and nothing may proceed" ;;
     *)
       [ "${#value}" -eq 64 ] \
@@ -2111,8 +2113,12 @@ EOF
   artifact_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   case "${artifact_bytes}" in "" | 0 | *[!0-9]*) die "the backup artifact ${artifact} is empty or unreadable" ;; esac
   case "${artifact_sha}" in
-    [0-9a-f]*) [ "${#artifact_sha}" -eq 64 ] || die "the backup artifact digest is ${#artifact_sha} characters, not 64; the artifact is not pinned and nothing may proceed" ;;
-    *) die "the backup artifact digest is empty or malformed; the artifact is not pinned and nothing may proceed" ;;
+    # Two arms cover everything: anything empty or carrying a non-hex byte is
+    # malformed, and whatever survives that must be exactly 64 characters. A
+    # third arm here would be unreachable, which is how a refusal quietly stops
+    # being one.
+    *[!0123456789abcdef]* | "") die "the backup artifact digest is empty or malformed; the artifact is not pinned and nothing may proceed" ;;
+    *) [ "${#artifact_sha}" -eq 64 ] || die "the backup artifact digest is ${#artifact_sha} characters, not 64; the artifact is not pinned and nothing may proceed" ;;
   esac
   log "backup artifact bytes=${artifact_bytes} sha256=${artifact_sha}"
 

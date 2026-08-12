@@ -5,7 +5,7 @@ import type {
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v4" as const;
+  "meta-os-decisions.presentation.v5" as const;
 
 export type MetaOsWorkspaceBannerScope =
   | "workspace"

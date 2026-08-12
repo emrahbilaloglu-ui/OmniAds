@@ -247,43 +247,74 @@ jobs:
 
             if [ "${ROLLOUT_ACTION}" = "recover-worker" ]; then
               decision_json="$({
-                docker compose exec -T web node --import tsx -e '
+                docker compose exec -T web node -e '
+                  const { Client } = require("pg");
+                  const client = new Client({ connectionString: process.env.DATABASE_URL });
                   (async () => {
-                    const fence = await import("@/lib/sync/db-growth-fence");
-                    fence.resetDbGrowthFenceCache();
-                    const decision = await fence.evaluateDbGrowthFence();
-                    process.stdout.write(JSON.stringify(decision));
-                  })().catch((error) => {
+                    await client.connect();
+                    const result = await client.query(`
+                      SELECT
+                        current_database() AS database_name,
+                        pg_database_size(current_database())::text AS database_bytes,
+                        pg_total_relation_size($1::regclass)::text AS table_bytes,
+                        capacity.sampled_at,
+                        EXTRACT(EPOCH FROM (clock_timestamp() - capacity.sampled_at))::float8 AS age_seconds,
+                        capacity.payload
+                      FROM (
+                        SELECT sampled_at, payload
+                        FROM system_capacity_snapshots
+                        WHERE source = $2
+                        ORDER BY sampled_at DESC, id DESC
+                        LIMIT 1
+                      ) capacity
+                    `, ["meta_entity_state_history", "db_host_healthcheck"]);
+                    process.stdout.write(JSON.stringify(result.rows[0] ?? null));
+                  })().finally(() => client.end()).catch((error) => {
                     console.error(error.message);
                     process.exit(1);
                   });
                 '
-              } 2>/dev/null)"
+              })"
 
               DECISION_JSON="${decision_json}" python3 - <<'PY'
           import json
           import os
           import sys
 
-          decision = json.loads(os.environ["DECISION_JSON"])
-          offender = decision.get("offender") or {}
-          physical = decision.get("physical") or {}
+          row = json.loads(os.environ["DECISION_JSON"])
+          if not isinstance(row, dict):
+              print("Refusing recovery: the capacity query returned no row.")
+              sys.exit(1)
+
+          database_budget = 160 * 1024 ** 3
+          table_budget = 4 * 1024 ** 3
+          minimum_free = 40 * 1024 ** 3
+          database_bytes = int(row["database_bytes"])
+          table_bytes = int(row["table_bytes"])
+          age_seconds = float(row["age_seconds"])
+          payload = row.get("payload") or {}
+          database = payload.get("database") or {}
+          disks = payload.get("disks") or []
+          disk = next((item for item in disks if item.get("path") == "/var/lib/postgresql"), None)
+          available_bytes = int(disk["availableBytes"]) if disk else -1
+          projected_free = available_bytes - max(database_budget - database_bytes, 0)
           safe = (
-              decision.get("allowed") is False
-              and decision.get("reason") == "table_budget_exceeded"
-              and offender.get("table") == "meta_entity_state_history"
-              and physical.get("admitted") is True
-              and isinstance(decision.get("databaseBytes"), int)
-              and decision["databaseBytes"] < decision.get("databaseBudgetBytes", 0)
+              table_bytes > table_budget
+              and database_bytes < database_budget
+              and database.get("name") == row.get("database_name")
+              and -60 <= age_seconds <= 2100
+              and available_bytes >= minimum_free
+              and projected_free >= minimum_free
           )
           print(
-              "growth_fence_reason={reason} offender={table} bytes={bytes} budget={budget} "
-              "physical_admitted={physical}".format(
-                  reason=decision.get("reason"),
-                  table=offender.get("table"),
-                  bytes=offender.get("bytes"),
-                  budget=offender.get("budget"),
-                  physical=str(physical.get("admitted") is True).lower(),
+              "growth_fence_reason=table_budget_exceeded offender=meta_entity_state_history "
+              "bytes={bytes} budget={budget} database_bytes={database_bytes} "
+              "available_bytes={available_bytes} projected_free={projected_free}".format(
+                  bytes=table_bytes,
+                  budget=table_budget,
+                  database_bytes=database_bytes,
+                  available_bytes=available_bytes,
+                  projected_free=projected_free,
               )
           )
           if not safe:

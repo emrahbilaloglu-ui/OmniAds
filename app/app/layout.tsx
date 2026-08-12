@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * Session-scoped application shell.
  *
  * The active business is authorised on every request but is deliberately not
- * part of the public URL.  Business switching changes the authenticated
+ * part of the public URL. Business switching changes the authenticated
  * session, then returns to the same human-readable `/app/**` surface.
  * The imported route module supplies the page body only; layouts from the
  * `/c/[businessId]` route tree are not inherited across this route boundary.

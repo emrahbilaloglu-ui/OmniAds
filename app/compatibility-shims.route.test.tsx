@@ -129,12 +129,22 @@ async function loadShim(route: string): Promise<LoadedShim> {
   const cached = loaded.get(route);
   if (cached) return cached;
   const dir = dirFor(route);
-  const [page, legacy] = await Promise.all([
-    import(/* @vite-ignore */ `@/${dir}/page`) as Promise<{
-      default: (props: unknown) => Promise<unknown>;
-    }>,
-    import(/* @vite-ignore */ `@/${dir}/legacy-page`) as Promise<{ default: unknown }>,
-  ]);
+  // The shim first, and awaited, before its body is asked for by name.
+  //
+  // These two imports must not be in flight together. The shim's own
+  // `import LegacyBody from "./legacy-page"` and this file's
+  // `@/<dir>/legacy-page` are two specifiers for one file, and requesting both
+  // concurrently can leave the module runner with two instances of it — after
+  // which the element the shim returns is built from a different function
+  // object than the one compared against, and a correct rollback reads as a
+  // failure. It reproduced roughly one run in six, always on the same route.
+  // Sequencing costs nothing here and removes the race entirely.
+  const page = (await import(/* @vite-ignore */ `@/${dir}/page`)) as {
+    default: (props: unknown) => Promise<unknown>;
+  };
+  const legacy = (await import(/* @vite-ignore */ `@/${dir}/legacy-page`)) as {
+    default: unknown;
+  };
   const shim: LoadedShim = { page: page.default, legacy: legacy.default, dir };
   loaded.set(route, shim);
   return shim;

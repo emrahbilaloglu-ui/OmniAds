@@ -242,10 +242,10 @@ export async function readAgencyDirectoryPage(input: {
           count(binding.id) FILTER (WHERE binding.is_selected)::text AS selected_account_count
         FROM unnest($1::uuid[]) AS scoped(business_id)
         LEFT JOIN provider_connections connection
-          ON connection.business_id = scoped.business_id
+          ON connection.business_id = scoped.business_id::text
          AND connection.provider = 'meta'
         LEFT JOIN business_provider_accounts binding
-          ON binding.business_id = scoped.business_id
+          ON binding.business_id = scoped.business_id::text
          AND binding.provider = 'meta'
         GROUP BY scoped.business_id, connection.status
       `,

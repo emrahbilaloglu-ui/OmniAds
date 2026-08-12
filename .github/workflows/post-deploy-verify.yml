@@ -64,6 +64,31 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Verify public document styles
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p .artifacts
+          curl -fsS --retry 4 --retry-all-errors \
+            "https://adsecute.com/login?post_deploy_style=${EXPECTED_SHA}" \
+            -o .artifacts/public-login.html
+
+          if grep -q '__next_error__' .artifacts/public-login.html; then
+            echo "Public document rendered through the Next error shell."
+            exit 1
+          fi
+          if ! grep -q '<html lang=' .artifacts/public-login.html; then
+            echo "Public document is missing the canonical root layout."
+            exit 1
+          fi
+          if ! grep -q '<link rel="stylesheet"' .artifacts/public-login.html; then
+            echo "Public document has no stylesheet entry."
+            exit 1
+          fi
+
       # The live runtime cannot resolve the private repo's main SHA anonymously,
       # so the checker resolves refs/heads/main itself (git ls-remote via the
       # persisted checkout credentials, with GITHUB_SHA as fallback) and
@@ -127,6 +152,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-verify-${{ steps.expected.outputs.sha }}
-          path: .artifacts/post-deploy-release-authority.json
+          path: |
+            .artifacts/post-deploy-release-authority.json
+            .artifacts/public-login.html
           if-no-files-found: error
           include-hidden-files: true

@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+
+// Keep the canonical workspace independently styled. Production can serve an
+// app-router recovery document while a dynamic layout redirects or streams;
+// relying only on the root entry's CSS then leaves the authenticated workspace
+// as unstyled HTML. The route-owned entry keeps /app/** independently styled.
+import "./workspace.css";
 
 import { listUserBusinesses } from "@/lib/access";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
@@ -9,6 +16,11 @@ import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context
 import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Adsecute",
+  description: "Multi-platform ad management dashboard",
+};
 
 /**
  * Session-scoped application shell.

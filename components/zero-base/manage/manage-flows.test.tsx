@@ -353,6 +353,153 @@ describe("WP-23 account assignment", () => {
     expect(save.body).toEqual({ account_ids: ["act_1", "act_2"] });
   });
 
+  /**
+   * The assignment draft's lifecycle, through the production owner.
+   *
+   * Ownership of the draft begins at the first tick and ends only on a
+   * read-back-confirmed save, on Cancel, or on changing provider. Each of the
+   * cases below is one of those endings, or a way the ending must NOT happen.
+   */
+  const assignmentPanel = (options: {
+    provider?: string;
+    assigned: string[];
+    state?: { pending: boolean; error: string | null; confirmed: string | null };
+    onSave?: (ids: string[]) => void;
+    onCancel?: () => void;
+  }) => (
+    <IntegrationsView
+      providers={[]}
+      outcome={{ kind: "unstarted" }}
+      assignment={{
+        provider: options.provider ?? "meta",
+        accounts: [
+          { id: "act_1", name: "Main", assigned: options.assigned.includes("act_1"), isManager: false },
+          { id: "act_2", name: "Second", assigned: options.assigned.includes("act_2"), isManager: false },
+          { id: "act_3", name: "Third", assigned: options.assigned.includes("act_3"), isManager: false },
+        ],
+        notice: null,
+        unavailable: null,
+        state: options.state ?? { pending: false, confirmed: null, error: null },
+        permission: { ok: true },
+        onSave: options.onSave ?? (() => {}),
+        onCancel: options.onCancel,
+      }}
+    />
+  );
+
+  const box = (id: string) =>
+    document.querySelector(`[data-assignment-account="${id}"]`) as HTMLInputElement;
+
+  it("REGRESSION: a confirmed save hands the draft back, so later served truth is adopted", async () => {
+    // The panel used to set a dirty flag on the first tick and clear it only
+    // when the provider changed. After one edit it ignored every later served
+    // change for the rest of its life — including the read-back of the very
+    // save it had just made, and any change another operator went on to make.
+    const saved: string[][] = [];
+    const view = render(assignmentPanel({ assigned: ["act_1"], onSave: (ids) => saved.push(ids) }));
+
+    click('[data-assignment-account="act_2"]');
+    click("[data-assignment-save]");
+    expect(saved.at(-1)).toEqual(["act_1", "act_2"]);
+
+    // The write returned and the server re-read: this is the only success
+    // signal, and it ends the operator's ownership of the draft.
+    view.rerender(
+      assignmentPanel({
+        assigned: ["act_1", "act_2"],
+        state: { pending: false, confirmed: "confirmed by a fresh read", error: null },
+      }),
+    );
+    expect(box("act_2").checked).toBe(true);
+
+    // Someone else now changes the assignment. The panel is no longer holding
+    // an edit, so it must follow.
+    view.rerender(
+      assignmentPanel({
+        assigned: ["act_1", "act_3"],
+        state: { pending: false, confirmed: "confirmed by a fresh read", error: null },
+      }),
+    );
+    expect(box("act_3").checked, "a confirmed save left the panel deaf to served truth").toBe(true);
+    expect(box("act_2").checked).toBe(false);
+  });
+
+  // Guard, not a regression: the previous code preserved the draft here too,
+  // because it never released it at all. The behaviour has to survive the fix.
+  it("a failed save keeps the draft for correction, and does not adopt served", async () => {
+    const view = render(assignmentPanel({ assigned: ["act_1"] }));
+    click('[data-assignment-account="act_2"]');
+    click("[data-assignment-save]");
+
+    view.rerender(
+      assignmentPanel({
+        assigned: ["act_1"],
+        state: { pending: false, confirmed: null, error: "The write was refused." },
+      }),
+    );
+    expect(box("act_2").checked, "a refused save discarded the operator's work").toBe(true);
+    expect(document.querySelector("[data-assignment-error]")!.textContent).toContain("refused");
+  });
+
+  // Guard: pending is not success, and neither is a write that returned.
+  it("a save that has not been confirmed yet still holds the draft", async () => {
+    // Pending is not success, and neither is the write returning with nothing
+    // said about a re-read.
+    const view = render(assignmentPanel({ assigned: ["act_1"] }));
+    click('[data-assignment-account="act_2"]');
+    click("[data-assignment-save]");
+
+    view.rerender(
+      assignmentPanel({
+        assigned: ["act_1"],
+        state: { pending: true, confirmed: null, error: null },
+      }),
+    );
+    expect(box("act_2").checked).toBe(true);
+  });
+
+  it("REGRESSION: Cancel restores the served set and lets later served truth through", async () => {
+    const cancelled: number[] = [];
+    const view = render(
+      assignmentPanel({ assigned: ["act_1"], onCancel: () => cancelled.push(1) }),
+    );
+
+    click('[data-assignment-account="act_2"]');
+    expect(box("act_2").checked).toBe(true);
+    click("[data-assignment-cancel]");
+
+    expect(cancelled).toHaveLength(1);
+    expect(box("act_2").checked, "Cancel left the discarded tick on screen").toBe(false);
+    expect(box("act_1").checked).toBe(true);
+
+    // And the panel is listening again.
+    view.rerender(assignmentPanel({ assigned: ["act_3"] }));
+    expect(box("act_3").checked, "Cancel left the panel deaf to served truth").toBe(true);
+  });
+
+  // Guard, not a regression: the previous code also reset on provider change.
+  // Both directions are covered — a different served set, and an identical one,
+  // which is the case a naive "re-seed when served changes" gets wrong.
+  it("changing provider starts from that provider's served truth", async () => {
+    const view = render(assignmentPanel({ provider: "meta", assigned: ["act_1"] }));
+    click('[data-assignment-account="act_2"]');
+    expect(box("act_2").checked).toBe(true);
+
+    view.rerender(assignmentPanel({ provider: "google", assigned: ["act_3"] }));
+    expect(box("act_3").checked, "the new provider did not start from its own served set").toBe(true);
+    expect(box("act_2").checked, "an edit was carried across providers").toBe(false);
+  });
+
+  it("changing provider resets even when the served set is identical", async () => {
+    const view = render(assignmentPanel({ provider: "meta", assigned: ["act_1"] }));
+    click('[data-assignment-account="act_2"]');
+    expect(box("act_2").checked).toBe(true);
+
+    view.rerender(assignmentPanel({ provider: "google", assigned: ["act_1"] }));
+    expect(box("act_2").checked, "the edit survived a provider change").toBe(false);
+    expect(box("act_1").checked).toBe(true);
+  });
+
   it("REGRESSION: a read landing after a tick does not discard the tick", async () => {
     // The panel used to re-seed its draft from the served set every time that
     // set changed. An operator who ticked an account while a read was still in
@@ -393,7 +540,7 @@ describe("WP-23 account assignment", () => {
       "a served re-read discarded the operator's unsaved tick",
     ).toBe(true);
 
-    (document.querySelector("[data-assignment-save]") as HTMLElement).click();
+    click("[data-assignment-save]");
     expect(saved.at(-1)).toEqual(["act_1", "act_2"]);
   });
 

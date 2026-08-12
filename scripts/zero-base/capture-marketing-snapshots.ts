@@ -10,17 +10,27 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
+/**
+ * The WP-25 marketing surfaces: one list, carrying both the file the copy is
+ * read from and the URL it is served at.
+ *
+ * The URL is here rather than derived from the path because route groups make
+ * that derivation wrong — `app/(marketing)/product/page.tsx` is served at
+ * `/product`, not `/(marketing)/product`. Anything that needs to *visit* these
+ * pages reads this list, so a new marketing surface cannot be added to the copy
+ * snapshot while quietly staying out of the smoke that proves it renders.
+ */
 export const MARKETING_PAGES = [
-  { id: "root", file: "app/page.tsx" },
-  { id: "about", file: "app/about/page.tsx" },
-  { id: "product", file: "app/(marketing)/product/page.tsx" },
-  { id: "pricing", file: "app/(marketing)/pricing/page.tsx" },
-  { id: "contact", file: "app/contact/page.tsx" },
-  { id: "privacy", file: "app/privacy/page.tsx" },
-  { id: "terms", file: "app/terms/page.tsx" },
-  { id: "security", file: "app/security/page.tsx" },
-  { id: "ai-transparency", file: "app/ai-transparency/page.tsx" },
-  { id: "demo", file: "app/(marketing)/demo/page.tsx" },
+  { id: "root", file: "app/page.tsx", url: "/" },
+  { id: "about", file: "app/about/page.tsx", url: "/about" },
+  { id: "product", file: "app/(marketing)/product/page.tsx", url: "/product" },
+  { id: "pricing", file: "app/(marketing)/pricing/page.tsx", url: "/pricing" },
+  { id: "contact", file: "app/contact/page.tsx", url: "/contact" },
+  { id: "privacy", file: "app/privacy/page.tsx", url: "/privacy" },
+  { id: "terms", file: "app/terms/page.tsx", url: "/terms" },
+  { id: "security", file: "app/security/page.tsx", url: "/security" },
+  { id: "ai-transparency", file: "app/ai-transparency/page.tsx", url: "/ai-transparency" },
+  { id: "demo", file: "app/(marketing)/demo/page.tsx", url: "/demo" },
 ] as const;
 
 /**

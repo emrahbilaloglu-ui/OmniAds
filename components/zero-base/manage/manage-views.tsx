@@ -462,25 +462,82 @@ function AssignmentPanel({
 }: AssignmentPanelProps) {
   const copy = useCopy();
   const served = accounts.filter((account) => account.assigned).map((account) => account.id);
-  const [draft, setDraft] = useState<string[]>(served);
-  // The draft belongs to the operator from the first tick until they save or
-  // cancel it.
-  //
-  // This used to re-seed from the served set whenever that set changed, which
-  // meant a read landing after the operator had already ticked a box silently
-  // replaced their selection with the old one — and Save then sent the old set
-  // while the panel showed no sign anything had been discarded. The seed is
-  // what the panel starts from, not something that keeps arriving.
-  const [edited, setEdited] = useState(false);
   const servedKey = served.join(",");
+  const [draft, setDraft] = useState<string[]>(served);
+
+  /**
+   * Who owns the draft, and when ownership ends.
+   *
+   * The panel started by re-seeding from the served set on every change, so a
+   * read landing after the operator had ticked a box silently replaced their
+   * selection and Save sent the old set. The first fix stopped that but never
+   * gave ownership back: one tick made the panel deaf to every later served
+   * change, for the rest of its life.
+   *
+   * Ownership now has a beginning and an end. It begins at the first tick. It
+   * ends only in three ways, and each is a thing the operator actually did:
+   *
+   *  - **A save the server confirmed by re-reading.** `state.confirmed` is that
+   *    read-back, and it is the only success signal used here — the write
+   *    returning is not evidence that anything was stored.
+   *  - **Cancel**, which puts the served set back before the caller is told.
+   *  - **Changing provider**, which is a different question about a different
+   *    account list.
+   *
+   * A save that failed, or that has not been confirmed yet, keeps the draft, so
+   * the operator can correct it and retry instead of retyping it.
+   *
+   * `baseKey` is what makes this race-free. It records the served set the draft
+   * currently corresponds to, so re-seeding is driven by "the served truth has
+   * moved" rather than by an effect firing. On a confirmed save it is set to
+   * what was saved, so the fresh read arriving a moment later is recognised as
+   * agreement and does not flicker the selection back through the old value.
+   */
+  const [dirty, setDirty] = useState(false);
+  const [baseKey, setBaseKey] = useState(servedKey);
+  const [submitted, setSubmitted] = useState(false);
+
   useEffect(() => {
-    if (edited) return;
+    if (dirty || servedKey === baseKey) return;
     setDraft(servedKey ? servedKey.split(",") : []);
-  }, [servedKey, edited]);
-  // A different provider is a different question, so the answer starts over.
+    setBaseKey(servedKey);
+  }, [dirty, servedKey, baseKey]);
+
+  // A different provider is a different question, so the answer starts over
+  // from that provider's served truth rather than carrying an edit across.
   useEffect(() => {
-    setEdited(false);
+    setDirty(false);
+    setSubmitted(false);
+    setDraft(servedKey ? servedKey.split(",") : []);
+    setBaseKey(servedKey);
+    // Deliberately keyed on the provider alone: this is the reset, and it must
+    // not re-run every time the served set moves underneath it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
+
+  // The end of a save, judged by the read-back and never by the write.
+  useEffect(() => {
+    if (!submitted || state.pending) return;
+    if (state.confirmed) {
+      setSubmitted(false);
+      setDirty(false);
+      // What was saved is now the base, so the fresh read that follows is
+      // agreement rather than a change to adopt.
+      setBaseKey(draft.join(","));
+      return;
+    }
+    if (state.error) {
+      // Nothing landed. The draft stays exactly as the operator left it.
+      setSubmitted(false);
+    }
+  }, [submitted, state.pending, state.confirmed, state.error, draft]);
+
+  const restoreServed = () => {
+    setDraft(servedKey ? servedKey.split(",") : []);
+    setBaseKey(servedKey);
+    setDirty(false);
+    setSubmitted(false);
+  };
 
   return (
     <section data-assignment-panel={provider} data-el="assignment-sheet" aria-label={copy.accountAssignment} style={{ marginTop: 24 }}>
@@ -526,7 +583,7 @@ function AssignmentPanel({
                     data-ctl="live:INTEGRATION-07 assign"
                     checked={draft.includes(account.id)}
                     onChange={(event) => {
-                      setEdited(true);
+                      setDirty(true);
                       setDraft((current) =>
                         event.target.checked
                           ? [...current, account.id]
@@ -558,7 +615,10 @@ function AssignmentPanel({
               data-assignment-save=""
               data-ctl="live:INTEGRATION-07 save"
               state={state.pending ? { kind: "busy", label: "Saving\u2026" } : { kind: "enabled" }}
-              onClick={() => onSave?.(draft)}
+              onClick={() => {
+                setSubmitted(true);
+                onSave?.(draft);
+              }}
             >
               {copy.saveAssignment}
             </Button>
@@ -567,7 +627,12 @@ function AssignmentPanel({
                 variant="quiet"
                 data-assignment-cancel=""
                 data-ctl="live:cancel"
-                onClick={onCancel}
+                onClick={() => {
+                  // Restored first, so the caller is never told to discard
+                  // something the panel is still showing.
+                  restoreServed();
+                  onCancel();
+                }}
                 style={{ marginLeft: 6 }}
               >
                 {copy.cancel}

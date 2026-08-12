@@ -25,21 +25,41 @@
  */
 import { test, expect } from "@playwright/test";
 
-/** Every surface reachable without an account. */
+import { MARKETING_PAGES } from "../../scripts/zero-base/capture-marketing-snapshots";
+
+/**
+ * The surfaces a person with no account can reach, and nothing else.
+ *
+ * The marketing set is not restated here — it is read from `MARKETING_PAGES`,
+ * the same list the copy snapshot and the marketing tests use, so a new public
+ * surface cannot be added there and quietly stay out of the smoke that proves
+ * it renders. `marketing.test.ts` pins that list's exact ids, which makes the
+ * denominator below exact rather than a hopeful sample.
+ *
+ * Two public auth pages are added because they are reachable without an
+ * account and render deterministically.
+ *
+ * Excluded, each for a stated reason rather than by omission:
+ *
+ *  - `/reset` and `/select-language` redirect (307) rather than render, so a
+ *    200 assertion would be wrong about them;
+ *  - `/share/creative/[token]` and `/share/report/[token]` need a valid token,
+ *    and an invalid one exercises the refusal path, not the render path. They
+ *    belong in a smoke with a real local fixture, which this is not;
+ *  - `/shopify/connect` is an install landing surface whose behaviour depends
+ *    on Shopify-supplied query parameters.
+ */
 const PUBLIC_ROUTES = [
-  "/",
+  ...MARKETING_PAGES.map((page) => page.url),
   "/login",
   "/signup",
-  "/pricing",
-  "/product",
-  "/contact",
-  "/terms",
-  "/privacy",
-  "/demo",
 ] as const;
 
 test.describe("zero-base local production smoke", () => {
   test("every public surface renders from the production build", async ({ page }) => {
+    // The count is asserted so a surface silently dropped from the list is a
+    // failure rather than a smaller, still-green run.
+    expect(PUBLIC_ROUTES.length, "the public surface set changed").toBe(12);
     for (const route of PUBLIC_ROUTES) {
       const response = await page.goto(route, { waitUntil: "domcontentloaded" });
       expect(response, `${route} returned no response`).not.toBeNull();

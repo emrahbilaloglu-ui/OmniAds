@@ -2113,9 +2113,12 @@ EOF
   artifact_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   case "${artifact_bytes}" in "" | 0 | *[!0-9]*) die "the backup artifact ${artifact} is empty or unreadable" ;; esac
   case "${artifact_sha}" in
+    # Two arms cover everything: anything empty or carrying a non-hex byte is
+    # malformed, and whatever survives that must be exactly 64 characters. A
+    # third arm here would be unreachable, which is how a refusal quietly stops
+    # being one.
     *[!0123456789abcdef]* | "") die "the backup artifact digest is empty or malformed; the artifact is not pinned and nothing may proceed" ;;
     *) [ "${#artifact_sha}" -eq 64 ] || die "the backup artifact digest is ${#artifact_sha} characters, not 64; the artifact is not pinned and nothing may proceed" ;;
-    *) die "the backup artifact digest is empty or malformed; the artifact is not pinned and nothing may proceed" ;;
   esac
   log "backup artifact bytes=${artifact_bytes} sha256=${artifact_sha}"
 

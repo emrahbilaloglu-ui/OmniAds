@@ -162,7 +162,7 @@ describe("G7 — Home composition contracts", () => {
     expect(document.querySelector('[data-econ-break-even="2.12"]')).not.toBeNull();
     expect(document.querySelector('[data-econ-target="2.6"]')).not.toBeNull();
 
-    expectNavigates(link, /^\/c\/biz\/manage\/business#economics$/, "economics divergence link");
+    expectNavigates(link, /^\/app\/manage\/business#economics$/, "economics divergence link");
   });
 
   /**

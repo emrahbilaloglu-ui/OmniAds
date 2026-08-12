@@ -15,7 +15,6 @@ import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   DELETE_CEREMONY_NOTE,
   NO_UNIVERSAL_HEALTH,
-  PLAN_BILLING_ELSEWHERE,
   PLAN_GATES_NOTHING,
   RECOMMENDED_MODE_READ_ONLY,
   economicsDivergence,
@@ -1129,14 +1128,40 @@ export function BusinessView({
 
 /* ------------------------------------------------------------------ plan */
 
-export function PlanView({ planName, features }: { planName: string | null; features: readonly string[] }) {
+export function PlanView({
+  planName,
+  planId = null,
+  monthlyPrice = null,
+  status = null,
+  storeName = null,
+  source = null,
+  managedPricingUrl = null,
+  features,
+}: {
+  planName: string | null;
+  planId?: string | null;
+  monthlyPrice?: number | null;
+  status?: string | null;
+  storeName?: string | null;
+  source?: string | null;
+  managedPricingUrl?: string | null;
+  features: readonly string[];
+}) {
   const copy = useCopy();
   return (
     <Shell title={copy.planAndBilling}>
       <section style={{ maxWidth: 900, marginTop: 12, display: "grid", gap: 12 }}>
       <div style={{ border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", padding: "14px 18px" }}>
-        <p data-plan-name="" style={{ margin: 0, fontSize: 13 }}><strong>Current plan: {planName ?? "Not served"}</strong>{" "}<span style={{ marginLeft: 8, padding: "3px 8px", borderRadius: 999, background: "var(--ledger-bg-inset)", color: "var(--ledger-ink-secondary)", font: "12px/1.2 var(--font-mono, monospace)" }}>static intended-plan copy</span></p>
-        <p style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>Includes: {features.join(" · ")}. Plan availability is commercial presentation; real access gates remain role and provider checks.</p>
+        <p data-plan-name="" style={{ margin: 0, fontSize: 13 }}>
+          <strong>Current plan: {planName ?? "Not served"}</strong>{" "}
+          <span style={{ marginLeft: 8, padding: "3px 8px", borderRadius: 999, background: "var(--ledger-bg-inset)", color: "var(--ledger-ink-secondary)", font: "12px/1.2 var(--font-mono, monospace)" }}>
+            {status ?? "status not served"}
+          </span>
+        </p>
+        <p style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
+          {monthlyPrice === null ? "Price not served" : `$${monthlyPrice}/month`} · {storeName ?? "No Shopify store attached"} · source {source ?? "not served"} · id {planId ?? "not served"}
+        </p>
+        <p style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>Includes: {features.join(" · ")}.</p>
       </div>
       {/* Static presentation. No billing control, and no gating. */}
       <p
@@ -1146,15 +1171,21 @@ export function PlanView({ planName, features }: { planName: string | null; feat
       >
         <strong>{copy.featureAccessNotBillingGated}</strong> {PLAN_GATES_NOTHING}
       </p>
-      <p
-        data-el="billing-gated"
-        style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
-      >
-        {/* Stated rather than implied by the absence of a button: an operator
-            looking for an invoice needs to know where it is, not that it is
-            missing here. */}
-        <strong>Billing details & controls — not available.</strong> {PLAN_BILLING_ELSEWHERE}
-      </p>
+      {managedPricingUrl ? (
+        <a
+          data-el="billing-manage"
+          href={managedPricingUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", width: "fit-content", minHeight: 44, padding: "0 14px", border: "1px solid var(--ledger-border-control)", borderRadius: "var(--ledger-radius-button)", color: "var(--ledger-accent-action)", textDecoration: "none", fontSize: 13, fontWeight: 600 }}
+        >
+          Manage billing in Shopify
+        </a>
+      ) : (
+        <p data-el="billing-unavailable" style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
+          Billing is not attached to a Shopify store for this business.
+        </p>
+      )}
       </section>
     </Shell>
   );

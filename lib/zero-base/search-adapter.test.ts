@@ -41,21 +41,21 @@ describe("scope label", () => {
 describe("canonical deep links", () => {
   it("routes each entity type to a canonical destination", () => {
     expect(canonicalHrefFor({ entityType: "business", entityId: "biz_1", businessId: "biz_1" })).toBe(
-      "/c/biz_1/home",
+      "/switch-business/biz_1?next=%2Fapp%2Fhome",
     );
     expect(canonicalHrefFor({ entityType: "report", entityId: "r_9", businessId: "biz_1" })).toBe(
-      "/c/biz_1/reports/r_9",
+      "/switch-business/biz_1?next=%2Fapp%2Freports%2Fr_9",
     );
     for (const entityType of ["campaign", "adset", "ad"] as const) {
       expect(canonicalHrefFor({ entityType, entityId: "x", businessId: "biz_1" })).toBe(
-        "/c/biz_1/meta/decisions",
+        "/switch-business/biz_1?next=%2Fapp%2Fmeta%2Fdecisions",
       );
     }
   });
 
   it("carries the entity's own business, never another", () => {
     const href = canonicalHrefFor({ entityType: "report", entityId: "r_9", businessId: "biz_2" });
-    expect(href).toContain("/c/biz_2/");
+    expect(href).toContain("/switch-business/biz_2?");
     expect(href).not.toContain("biz_1");
   });
 
@@ -63,10 +63,11 @@ describe("canonical deep links", () => {
     expect(canonicalHrefFor({ entityType: "ad", entityId: "a_1", businessId: "" })).toBeNull();
   });
 
-  it("emits only canonical /c/ routes, never legacy paths", () => {
+  it("emits only authorized transitions to clean /app routes, never legacy paths", () => {
     const envelope = toZeroBaseSearchEnvelope([result(), result({ entityType: "business", entityId: "biz_1" })]);
     for (const item of envelope.items) {
-      expect(item.href).toMatch(/^\/c\//);
+      expect(item.href).toMatch(/^\/switch-business\//);
+      expect(decodeURIComponent(item.href!)).toContain("next=/app/");
       expect(item.href).not.toMatch(/\/platforms\/|\/overview|\/dashboard/);
     }
   });

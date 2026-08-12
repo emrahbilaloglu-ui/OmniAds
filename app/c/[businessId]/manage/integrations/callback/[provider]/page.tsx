@@ -27,5 +27,5 @@ export default async function Page({
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  redirect(`/c/${businessId}/manage/integrations`);
+  redirect("/app/manage/integrations");
 }

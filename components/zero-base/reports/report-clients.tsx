@@ -127,7 +127,7 @@ export function ReportLibraryClient({ businessId }: { businessId: string }) {
       <ReportLibraryView
         reports={reports}
         unavailableReason={reason ?? error}
-        onCreate={() => router.push(`/c/${encodeURIComponent(businessId)}/reports/new`)}
+        onCreate={() => router.push("/app/reports/new")}
         onDuplicate={(id) => void duplicate(id)}
       />
     </SurfaceStateBoundary>
@@ -209,7 +209,7 @@ export function ReportBuilderClient({
         setError(json?.message ?? "The report could not be saved.");
         return;
       }
-      router.push(`/c/${encodeURIComponent(businessId)}/reports`);
+      router.push("/app/reports");
     },
     [businessId, name, reportId, router, stored],
   );

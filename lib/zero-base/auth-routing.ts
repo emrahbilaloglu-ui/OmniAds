@@ -48,6 +48,7 @@ export function isReachableCanonicalPath(
   if (clientMatch) {
     return active.some((business) => business.id === clientMatch[1]);
   }
+  if (path === "/app" || path.startsWith("/app/")) return active.length >= 1;
   if (path.startsWith("/a/")) return active.length >= 2;
   // Account-scoped and onboarding paths need no business.
   return path.startsWith("/me/") || path === "/businesses/new" || path === "/select-business";
@@ -68,12 +69,12 @@ export function resolveCanonicalPostLoginDestination(input: CanonicalRoutingInpu
   if (sanitized && isReachableCanonicalPath(sanitized, businesses)) return sanitized;
 
   // 3 · A single client goes straight to its Home; there is nothing to choose.
-  if (active.length === 1) return `/c/${active[0].id}/home`;
+  if (active.length === 1) return "/app/home";
 
   // 4 · Several clients: return to the last one if it is still visible,
   //     otherwise the Agency desk rather than an arbitrary pick.
   if (lastCanonicalBusinessId && active.some((b) => b.id === lastCanonicalBusinessId)) {
-    return `/c/${lastCanonicalBusinessId}/home`;
+    return "/app/home";
   }
   return AGENCY_DESTINATION;
 }

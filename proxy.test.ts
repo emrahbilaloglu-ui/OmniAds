@@ -126,8 +126,8 @@ describe("proxy internal sync auth", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/app/meta/decisions");
     expect(response.cookies.get("adsecute_locale")?.value).toBe("en");
   });
 

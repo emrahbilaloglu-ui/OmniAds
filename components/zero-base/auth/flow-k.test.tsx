@@ -136,7 +136,7 @@ describe("Flow K — first business, then canonical Home", () => {
       resolveCanonicalPostLoginDestination({
         businesses: [{ id: "biz_1", membershipStatus: "active" }],
       }),
-    ).toBe("/c/biz_1/home");
+    ).toBe("/app/home");
   });
 
   it("holds an invited-only account at select-business", () => {
@@ -167,7 +167,7 @@ describe("Flow K — first business, then canonical Home", () => {
       "/c/biz_other/home",
       "/ops",
     ]) {
-      expect(resolveCanonicalPostLoginDestination({ businesses, next }), next).toBe("/c/biz_1/home");
+      expect(resolveCanonicalPostLoginDestination({ businesses, next }), next).toBe("/app/home");
     }
   });
 });

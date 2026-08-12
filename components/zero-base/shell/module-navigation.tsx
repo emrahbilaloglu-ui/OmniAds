@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
+import { isNavHrefActive, navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
 
 /**
  * The rail names product modules; this row names the leaves inside the active
@@ -21,7 +21,7 @@ export function ModuleNavigation({
   const group = groups.find((candidate) =>
     candidate.items.some((item) => {
       const href = navHref(item.url, businessId);
-      return pathname === href || pathname.startsWith(`${href}/`);
+      return isNavHrefActive(href, pathname);
     }),
   );
 
@@ -46,7 +46,7 @@ export function ModuleNavigation({
     >
       {group.items.map((item) => {
         const href = navHref(item.url, businessId);
-        const current = pathname === href || pathname.startsWith(`${href}/`);
+        const current = isNavHrefActive(href, pathname);
         return (
           <Link
             key={item.leaf}

@@ -51,8 +51,8 @@ describe("SearchOverlay", () => {
     const dialog = await screen.findByRole("dialog");
     const links = within(dialog).getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/c/biz_1/home",
-      "/c/biz_1/meta/decisions",
+      "/switch-business/biz_1?next=%2Fapp%2Fhome",
+      "/switch-business/biz_1?next=%2Fapp%2Fmeta%2Fdecisions",
     ]);
   });
 

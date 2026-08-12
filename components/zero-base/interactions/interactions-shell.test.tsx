@@ -158,11 +158,11 @@ describe("G7 — shell navigation", () => {
     // Routes to a real surface, and the current item is marked as such.
     const first = expectOperable(items[0], "rail nav item");
     expect(first.tagName).toBe("A");
-    expect(first.getAttribute("href")).toMatch(/^\/c\/biz\//);
+    expect(first.getAttribute("href")).toMatch(/^\/app\//);
 
     const current = rail!.querySelector('[aria-current="page"]');
     expect(current, "the active surface is marked, not merely tinted").not.toBeNull();
-    expect(current!.getAttribute("href")).toBe("/c/biz/home");
+    expect(current!.getAttribute("href")).toBe("/app/home");
 
     // Nav is a landmark, and the skip link precedes it.
     expect(rail!.tagName).toBe("NAV");
@@ -340,7 +340,8 @@ describe("G7 — agency desk", () => {
       "open client",
     );
     // The return carries the row's own page, so returning lands where they left.
-    const href = expectNavigates(link, /^\/c\/biz-0\/home\?/, "open client");
+    const href = expectNavigates(link, /^\/switch-business\/biz-0\?/, "open client");
+    expect(decodeURIComponent(href)).toContain("next=/app/home");
     expect(decodeURIComponent(href)).toContain("row=biz-0");
   });
 

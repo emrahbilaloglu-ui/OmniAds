@@ -5,6 +5,7 @@ import { requireBusinessPageContext } from "@/lib/access/require-business-page-c
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { CreativeBriefsClient } from "@/components/zero-base/creative/studio-clients";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
+import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +32,16 @@ export default async function CreativeBriefsPage({
 
   const raw = (await searchParams) ?? {};
   const scope = scopeFromSearchParams(raw, defaultCreativeWindow(new Date()));
+  const providerAccountId = await resolveProviderAccountId({
+    businessId,
+    provider: "meta",
+    requestedAccountId: scope.providerAccountId,
+  });
 
   return (
     <CreativeBriefsClient
       businessId={businessId}
-      providerAccountId={scope.providerAccountId}
+      providerAccountId={providerAccountId}
       start={scope.start}
       end={scope.end}
       // Lineage from the URL: a brief is derived from a decision snapshot, and

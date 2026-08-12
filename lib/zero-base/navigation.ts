@@ -108,11 +108,18 @@ export function navGroupsFor(context: NavContext): NavGroup[] {
   });
 }
 
-/** Substitutes the scope into a canonical pattern. */
+/**
+ * Converts the generated business-scoped pattern into the public workspace URL.
+ *
+ * Business identity is session state, not navigation decoration.  Keeping the
+ * UUID in every href made otherwise identical bookmarks different per client
+ * and let legacy `/c/**` links leak back into the product.  The generated
+ * ledger remains the route authority; only its public spelling changes here.
+ */
 export function navHref(url: string, businessId: string | null): string {
   if (!url.includes("[businessId]")) return url;
   if (!businessId) return url;
-  return url.replace("[businessId]", businessId);
+  return url.replace("/c/[businessId]", "/app");
 }
 
 /**
@@ -124,7 +131,16 @@ export function railLabel(label: string): string {
   return separator === -1 ? label : label.slice(separator + 3);
 }
 
+function publicWorkspacePath(pathname: string): string {
+  return pathname.replace(/^\/c\/[^/]+(?=\/|$)/, "/app");
+}
+
+export function isNavHrefActive(href: string, pathname: string): boolean {
+  const current = publicWorkspacePath(pathname);
+  return current === href || current.startsWith(`${href}/`);
+}
+
 /** True when `pathname` is the leaf currently being viewed. */
 export function isCurrentNavItem(item: NavItem, pathname: string, businessId: string | null): boolean {
-  return navHref(item.url, businessId) === pathname;
+  return isNavHrefActive(navHref(item.url, businessId), pathname);
 }

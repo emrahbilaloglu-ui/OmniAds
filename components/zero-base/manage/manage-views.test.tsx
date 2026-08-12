@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import path from "node:path";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -14,10 +12,9 @@ import {
   TeamView,
 } from "@/components/zero-base/manage/manage-views";
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
-import { BILLING_ENDPOINT, adaptProviderHealth } from "@/lib/zero-base/manage/manage-contract";
+import { adaptProviderHealth } from "@/lib/zero-base/manage/manage-contract";
 
 afterEach(cleanup);
-const ROOT = process.cwd();
 
 describe("integrations are per provider", () => {
   it("shows each provider's own state, including unknown", () => {
@@ -139,37 +136,28 @@ describe("team permissions are visible", () => {
   });
 });
 
-describe("plan gates nothing and has no billing control", () => {
-  it("says so on the surface", () => {
-    render(<PlanView planName="Adsecute" features={["Reports"]} />);
+describe("plan truth", () => {
+  it("shows served billing facts without using them as feature gates", () => {
+    render(
+      <PlanView
+        planName="Growth"
+        planId="growth"
+        monthlyPrice={99}
+        status="active"
+        storeName="store.myshopify.com"
+        source="shopify"
+        managedPricingUrl="https://admin.shopify.com/store/store/settings/billing"
+        features={["Reports"]}
+      />,
+    );
     expect(document.querySelector("[data-plan-gates-nothing]")!.textContent).toMatch(
       /No route or control in this product is gated by it/,
     );
+    expect(document.querySelector("[data-plan-name]")!.textContent).toMatch(/Growth.*active/);
+    expect(document.querySelector("[data-el='billing-manage']")).toHaveAttribute(
+      "href",
+      "https://admin.shopify.com/store/store/settings/billing",
+    );
     expect(document.querySelectorAll("button").length).toBe(0);
-  });
-
-  it("has zero call sites to /api/billing in the shipped Manage bundle", () => {
-    function walk(dir: string): string[] {
-      const out: string[] = [];
-      for (const entry of readdirSync(dir)) {
-        const full = path.join(dir, entry);
-        if (statSync(full).isDirectory()) out.push(...walk(full));
-        else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
-      }
-      return out;
-    }
-    const files = [
-      ...walk(path.join(ROOT, "components", "zero-base", "manage")),
-      ...walk(path.join(ROOT, "lib", "zero-base", "manage")),
-      ...walk(path.join(ROOT, "app", "c", "[businessId]", "manage")),
-    ];
-    expect(files.length).toBeGreaterThanOrEqual(7);
-    for (const file of files) {
-      // The contract module names the endpoint in a constant for this test.
-      if (file.endsWith("manage-contract.ts")) continue;
-      const source = readFileSync(file, "utf8");
-      expect(source.includes(BILLING_ENDPOINT), path.basename(file)).toBe(false);
-      expect(source).not.toMatch(/fetch\s*\(\s*["'`]\/api\/billing/);
-    }
   });
 });

@@ -42,7 +42,15 @@ function useJson<T>(url: string | null, label: string) {
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    if (!url) return;
+    if (!url) {
+      setData(null);
+      setSurface({
+        kind: "unavailable",
+        reason: `${label} needs a provider account. Choose one from the scope bar.`,
+        code: "SCOPE-03",
+      });
+      return;
+    }
     let cancelled = false;
     setSurface({ kind: "loading", label });
     (async () => {
@@ -82,7 +90,13 @@ function useJson<T>(url: string | null, label: string) {
   return { data, surface, refresh: () => setNonce((value) => value + 1) };
 }
 
-function scoped(base: string, scope: ScopeProps, extra: Record<string, string> = {}) {
+function scoped(
+  base: string,
+  scope: ScopeProps,
+  extra: Record<string, string> = {},
+  requireAccount = true,
+): string | null {
+  if (requireAccount && !scope.providerAccountId) return null;
   const params = new URLSearchParams({
     businessId: scope.businessId,
     start: scope.start,
@@ -168,15 +182,34 @@ export function CreativeBriefsClient(
 
 export function CreativeInboxClient(props: ScopeProps) {
   const copy = useCopy();
-  const { data, surface } = useJson<{ items?: SourcedRow[] }>(
-    scoped("/api/creatives/inbox", props),
+  const inboxParams = new URLSearchParams({ businessIds: props.businessId });
+  const { data, surface } = useJson<{
+    inbox?: Array<{
+      id: string;
+      creativeName?: string | null;
+      name?: string | null;
+      campaignName?: string | null;
+      campaign?: string | null;
+      adsetName?: string | null;
+      adset?: string | null;
+    }>;
+  }>(
+    `/api/creatives/inbox?${inboxParams.toString()}`,
     "Creative inbox",
   );
+  const rows: SourcedRow[] = (data?.inbox ?? []).map((item) => ({
+    id: item.id,
+    label: item.creativeName ?? item.name ?? item.id,
+    detail: [item.campaignName ?? item.campaign, item.adsetName ?? item.adset]
+      .filter(Boolean)
+      .join(" · ") || null,
+    source: "Creative briefing",
+  }));
   return (
     <SurfaceStateBoundary state={surface}>
       <SourcedListView
         title={copy.creativeInbox}
-        rows={data?.items ?? []}
+        rows={rows}
         emptyReason="Nothing is waiting in the inbox for this window."
       />
     </SurfaceStateBoundary>
@@ -187,15 +220,30 @@ export function CreativeInboxClient(props: ScopeProps) {
 
 export function CreativeCopiesClient(props: ScopeProps) {
   const copy = useCopy();
-  const { data, surface } = useJson<{ copies?: SourcedRow[] }>(
+  const { data, surface } = useJson<{
+    rows?: Array<{
+      id: string;
+      copy_text?: string | null;
+      name?: string | null;
+      campaign_name?: string | null;
+      account_name?: string | null;
+      copy_source?: string | null;
+    }>;
+  }>(
     scoped("/api/meta/copies", props),
     "Creative copies",
   );
+  const rows: SourcedRow[] = (data?.rows ?? []).map((item) => ({
+    id: item.id,
+    label: item.copy_text ?? item.name ?? item.id,
+    detail: [item.campaign_name, item.account_name].filter(Boolean).join(" · ") || null,
+    source: item.copy_source ?? null,
+  }));
   return (
     <SurfaceStateBoundary state={surface}>
       <SourcedListView
         title={copy.creativeCopies}
-        rows={data?.copies ?? []}
+        rows={rows}
         emptyReason="No copy was served for this window."
       />
     </SurfaceStateBoundary>
@@ -206,7 +254,7 @@ export function CreativeCopiesClient(props: ScopeProps) {
 
 export function CreativeLandingPagesClient(props: ScopeProps) {
   const { data, surface } = useJson<{
-    pages?: Array<{ id?: string; path?: string; sessions?: number; conversions?: number }>;
+    pages?: Array<{ id?: string; path?: string; sessions?: number; purchases?: number; purchaseCvr?: number }>;
     rowCap?: number | null;
     pageSize?: number | null;
   }>(
@@ -221,7 +269,10 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
           id: page.id ?? page.path ?? String(index),
           path: page.path ?? "(path not served)",
           sessions: page.sessions === undefined ? "Not served" : String(page.sessions),
-          conversions: page.conversions === undefined ? "Not served" : String(page.conversions),
+          conversions:
+            page.purchases === undefined
+              ? "Not served"
+              : `${page.purchases}${page.purchaseCvr === undefined ? "" : ` · ${(page.purchaseCvr * 100).toFixed(2)}% CVR`}`,
         }))}
         // Passed straight through: absent stays absent, so the view can say the
         // backend supplied no cap rather than printing one from a spec.
@@ -235,7 +286,7 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
 
 export function CreativeSharesClient(props: ScopeProps) {
   const { data, surface, refresh } = useJson<{ shares?: ServedShare[] }>(
-    scoped("/api/creatives/share", props),
+    scoped("/api/creatives/share", props, {}, false),
     "Shares",
   );
   const [busyToken, setBusy] = useState<string | null>(null);

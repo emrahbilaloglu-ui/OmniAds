@@ -278,7 +278,7 @@ describe("Open Client carries an allowlisted return state", () => {
   it("parses back to the allowlist, with the row anchor", () => {
     renderDirectory(25);
     const href = screen.getByRole("link", { name: "Open Client 000" }).getAttribute("href")!;
-    expect(href.startsWith("/c/biz_000/home?")).toBe(true);
+    expect(href.startsWith("/switch-business/biz_000?")).toBe(true);
 
     const returnTo = new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM);
     const parsed = parseAgencyReturn(returnTo)!;

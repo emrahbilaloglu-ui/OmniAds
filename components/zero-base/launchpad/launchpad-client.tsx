@@ -36,6 +36,14 @@ export function LaunchpadClient({
   }, [businessId, providerAccountId]);
 
   useEffect(() => {
+    if (!providerAccountId) {
+      setSurface({
+        kind: "unavailable",
+        reason: "Launchpad needs a Meta account. Choose one from the scope bar.",
+        code: "SCOPE-03",
+      });
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {

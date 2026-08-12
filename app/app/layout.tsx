@@ -1,0 +1,86 @@
+import { notFound, redirect } from "next/navigation";
+
+import { listUserBusinesses } from "@/lib/access";
+import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
+import { getSessionFromCookies } from "@/lib/auth";
+import { ClientShell } from "@/components/zero-base/shell/client-shell";
+import { readProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
+import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Session-scoped application shell.
+ *
+ * The active business is authorised on every request but is deliberately not
+ * part of the public URL.  Business switching changes the authenticated
+ * session, then returns to the same human-readable `/app/**` surface.
+ */
+export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSessionFromCookies();
+  if (!session) redirect(`/login?next=${encodeURIComponent("/app/home")}`);
+  if (!session.activeBusinessId) {
+    redirect(`/select-business?next=${encodeURIComponent("/app/home")}`);
+  }
+
+  const businessId = session.activeBusinessId;
+  const access = await requireBusinessPageContext({ businessId });
+  if (access.kind === "unauthenticated") redirect(`/login?next=${encodeURIComponent("/app/home")}`);
+  if (access.kind !== "ok") notFound();
+
+  const [businesses, metaAccounts, googleAccounts] = await Promise.all([
+    listUserBusinesses(access.context.session.user.id),
+    readProviderScopeCatalog(businessId, "meta"),
+    readProviderScopeCatalog(businessId, "google"),
+  ]);
+  const business = businesses.find((item) => item.id === businessId) ?? null;
+  const rollout = readZeroBaseRolloutConfig();
+
+  const envelope: WorkspaceContextEnvelope = {
+    actor: {
+      userId: access.context.session.user.id,
+      name: access.context.session.user.name,
+      language: access.context.session.user.language,
+      membershipRole: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+    mode: "client",
+    business: business
+      ? {
+          id: business.id,
+          name: business.name,
+          configuredCurrency: business.currency ?? null,
+          businessTimezone: business.timezone ?? null,
+        }
+      : { id: businessId, name: businessId, configuredCurrency: null, businessTimezone: null },
+    provider: null,
+    evidence: {
+      windowLabel: null,
+      snapshotAt: null,
+      sourceUpdatedAt: null,
+      freshness: "unknown",
+    },
+    proof: {
+      currency: business?.currency ? "configured-only" : "unknown",
+      timezone: business?.timezone ? "unknown" : "missing",
+    },
+    rollout: {
+      zeroBaseEnabled: true,
+      mutationUiEnabled: rollout.mutationUiEnabled,
+    },
+  };
+
+  return (
+    <ClientShell
+      envelope={envelope}
+      businessId={businessId}
+      providerScopeMode="none"
+      providerCatalogs={[metaAccounts, googleAccounts]}
+      businesses={businesses.map((item) => ({ id: item.id, name: item.name }))}
+    >
+      {children}
+    </ClientShell>
+  );
+}

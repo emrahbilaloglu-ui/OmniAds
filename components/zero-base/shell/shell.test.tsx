@@ -97,7 +97,7 @@ describe("navigation is derived from the leaf registry", () => {
   });
 
   it("substitutes the scope into canonical patterns", () => {
-    expect(navHref("/c/[businessId]/home", "biz_1")).toBe("/c/biz_1/home");
+    expect(navHref("/c/[businessId]/home", "biz_1")).toBe("/app/home");
     expect(navHref("/a/desk", null)).toBe("/a/desk");
     expect(isCurrentNavItem({ leaf: "L-C-HOME", label: "", url: "/c/[businessId]/home", role: "" }, "/c/biz_1/home", "biz_1")).toBe(true);
   });
@@ -144,7 +144,7 @@ describe("Rail — B02", () => {
     );
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav.style.width).toBe("232px");
-    expect(screen.getByRole("link", { current: "page" })).toHaveAttribute("href", "/c/biz_1/home");
+    expect(screen.getByRole("link", { current: "page" })).toHaveAttribute("href", "/app/home");
   });
 });
 

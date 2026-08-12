@@ -171,6 +171,36 @@ describe("AppShell", () => {
     expect(document.querySelector("[data-nav-drawer-trigger]")).toBeNull();
   });
 
+  it("collapses a nested route shell to its page body", () => {
+    setViewport(1280);
+    render(
+      <AppShell
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/app/home"
+        title="Public app shell"
+        scope={scope}
+        railFooter={<p>Ada</p>}
+      >
+        <AppShell
+          groups={navGroupsFor("Client")}
+          businessId="biz_1"
+          pathname="/c/biz_1/home"
+          title="Imported route shell"
+          scope={scope}
+          railFooter={<p>Ada</p>}
+        >
+          <p>Canonical page body</p>
+        </AppShell>
+      </AppShell>,
+    );
+
+    expect(document.querySelectorAll("[data-shell]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-rail]")).toHaveLength(1);
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getByText("Canonical page body")).toBeVisible();
+  });
+
   it("replaces the rail with a complete drawer below 768", async () => {
     const user = userEvent.setup();
     renderShell(390);

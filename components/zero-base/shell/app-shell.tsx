@@ -14,7 +14,7 @@
  * that opens the scope sheet. Mobile is never a read-only placeholder.
  */
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { Rail } from "@/components/zero-base/shell/rail";
@@ -39,6 +39,17 @@ import type { NavGroup } from "@/lib/zero-base/navigation";
  * 768 itself is a drawer width, not the last rail width.
  */
 export const DRAWER_BREAKPOINT = 768;
+
+/**
+ * A readable `/app/**` route can render a page module whose original route
+ * layout already carries an AppShell. The public route also needs its own
+ * session-aware shell, so without an explicit boundary those two layouts nest
+ * and duplicate the rail, top bar, context bar and main landmark.
+ *
+ * A nested shell contributes its page body only. Context makes this decision
+ * during SSR as well as hydration, avoiding a duplicate first paint.
+ */
+const AppShellNestingContext = createContext(false);
 
 /** The one place the breakpoint is turned into a decision. */
 export function isNarrowWidth(width: number): boolean {
@@ -149,15 +160,19 @@ export function AppShell({
   agencyReturn,
   children,
 }: AppShellProps) {
+  const nested = useContext(AppShellNestingContext);
   const copy = useCopy();
   const narrow = useIsNarrow(initialNarrow);
   const [scopeOpen, setScopeOpen] = useState(initialScopeOpen);
 
+  if (nested) return <>{children}</>;
+
   return (
-    <div
-      {...{ [ZERO_BASE_ROOT_ATTRIBUTE]: ZERO_BASE_ROOT_VALUE }}
-      data-shell=""
-      style={{
+    <AppShellNestingContext.Provider value>
+      <div
+        {...{ [ZERO_BASE_ROOT_ATTRIBUTE]: ZERO_BASE_ROOT_VALUE }}
+        data-shell=""
+        style={{
         // Bounded to the viewport, not min-height: a rail whose parent has no
         // definite height grows with its own nav list, which pushes the footer
         // identity row below the fold (B02). Height must be definite for
@@ -318,6 +333,7 @@ export function AppShell({
           />
         ) : null}
       </ZeroBasePortalHost>
-    </div>
+      </div>
+    </AppShellNestingContext.Provider>
   );
 }

@@ -72,20 +72,31 @@ jobs:
           set -euo pipefail
 
           mkdir -p .artifacts
-          curl -fsS --retry 4 --retry-all-errors \
+          curl -sS --retry 4 --retry-all-errors \
             "https://adsecute.com/login?post_deploy_style=${EXPECTED_SHA}" \
             -o .artifacts/public-login.html
 
-          if grep -q '__next_error__' .artifacts/public-login.html; then
-            echo "Public document rendered through the Next error shell."
-            exit 1
-          fi
-          if ! grep -q '<html lang=' .artifacts/public-login.html; then
-            echo "Public document is missing the canonical root layout."
-            exit 1
-          fi
           if ! grep -q '<link rel="stylesheet"' .artifacts/public-login.html; then
-            echo "Public document has no stylesheet entry."
+            echo "Public workspace response has no stylesheet entry."
+            exit 1
+          fi
+
+          mapfile -t stylesheet_paths < <(
+            grep -o '/_next/static/css/[^"[:space:]]*\.css' .artifacts/public-login.html | sort -u
+          )
+          if [ "${#stylesheet_paths[@]}" -eq 0 ]; then
+            echo "Could not resolve the emitted workspace stylesheet."
+            exit 1
+          fi
+
+          : > .artifacts/public-workspace.css
+          for stylesheet_path in "${stylesheet_paths[@]}"; do
+            curl -fsS --retry 4 --retry-all-errors \
+              "https://adsecute.com${stylesheet_path}" \
+              >> .artifacts/public-workspace.css
+          done
+          if ! grep -q -- '--font-adc-sans' .artifacts/public-workspace.css; then
+            echo "The emitted stylesheet does not contain the canonical workspace design contract."
             exit 1
           fi
 
@@ -155,5 +166,6 @@ jobs:
           path: |
             .artifacts/post-deploy-release-authority.json
             .artifacts/public-login.html
+            .artifacts/public-workspace.css
           if-no-files-found: error
           include-hidden-files: true

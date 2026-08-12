@@ -353,6 +353,50 @@ describe("WP-23 account assignment", () => {
     expect(save.body).toEqual({ account_ids: ["act_1", "act_2"] });
   });
 
+  it("REGRESSION: a read landing after a tick does not discard the tick", async () => {
+    // The panel used to re-seed its draft from the served set every time that
+    // set changed. An operator who ticked an account while a read was still in
+    // flight had their selection replaced by the old one, with nothing on
+    // screen to say so — and Save then sent the set they had just changed away
+    // from. Rendered directly so the late arrival is the only moving part.
+    const accounts = (act2Assigned: boolean) => [
+      { id: "act_1", name: "Main", assigned: true, isManager: false },
+      { id: "act_2", name: "Second", assigned: act2Assigned, isManager: false },
+    ];
+    const saved: unknown[] = [];
+    const panel = (act2Assigned: boolean) => (
+      <IntegrationsView
+        providers={[]}
+        outcome={{ kind: "unstarted" }}
+        assignment={{
+          provider: "meta",
+          accounts: accounts(act2Assigned),
+          notice: null,
+          unavailable: null,
+          state: { pending: false, confirmed: null, error: null },
+          permission: { ok: true },
+          onSave: (ids: string[]) => saved.push(ids),
+          onCancel: () => {},
+        }}
+      />
+    );
+
+    const view = render(panel(false));
+    const box = document.querySelector('[data-assignment-account="act_2"]') as HTMLInputElement;
+    box.click();
+    expect(box.checked).toBe(true);
+
+    // The read lands, and it still describes the world before the tick.
+    view.rerender(panel(false));
+    expect(
+      (document.querySelector('[data-assignment-account="act_2"]') as HTMLInputElement).checked,
+      "a served re-read discarded the operator's unsaved tick",
+    ).toBe(true);
+
+    (document.querySelector("[data-assignment-save]") as HTMLElement).click();
+    expect(saved.at(-1)).toEqual(["act_1", "act_2"]);
+  });
+
   it("REGRESSION: does not claim success when the re-read disagrees", async () => {
     // The save reports ok but nothing actually changed.
     stubAssignment({ landsAs: ["act_1"] });

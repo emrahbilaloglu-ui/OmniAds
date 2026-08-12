@@ -463,10 +463,24 @@ function AssignmentPanel({
   const copy = useCopy();
   const served = accounts.filter((account) => account.assigned).map((account) => account.id);
   const [draft, setDraft] = useState<string[]>(served);
+  // The draft belongs to the operator from the first tick until they save or
+  // cancel it.
+  //
+  // This used to re-seed from the served set whenever that set changed, which
+  // meant a read landing after the operator had already ticked a box silently
+  // replaced their selection with the old one — and Save then sent the old set
+  // while the panel showed no sign anything had been discarded. The seed is
+  // what the panel starts from, not something that keeps arriving.
+  const [edited, setEdited] = useState(false);
   const servedKey = served.join(",");
   useEffect(() => {
+    if (edited) return;
     setDraft(servedKey ? servedKey.split(",") : []);
-  }, [servedKey]);
+  }, [servedKey, edited]);
+  // A different provider is a different question, so the answer starts over.
+  useEffect(() => {
+    setEdited(false);
+  }, [provider]);
 
   return (
     <section data-assignment-panel={provider} data-el="assignment-sheet" aria-label={copy.accountAssignment} style={{ marginTop: 24 }}>
@@ -511,13 +525,14 @@ function AssignmentPanel({
                     data-assignment-account={account.id}
                     data-ctl="live:INTEGRATION-07 assign"
                     checked={draft.includes(account.id)}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setEdited(true);
                       setDraft((current) =>
                         event.target.checked
                           ? [...current, account.id]
                           : current.filter((id) => id !== account.id),
-                      )
-                    }
+                      );
+                    }}
                   />
                   <span>
                     {account.name}

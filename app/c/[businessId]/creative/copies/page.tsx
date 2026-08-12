@@ -5,6 +5,7 @@ import { requireBusinessPageContext } from "@/lib/access/require-business-page-c
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { CreativeCopiesClient } from "@/components/zero-base/creative/studio-clients";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
+import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +25,12 @@ export default async function CreativeCopiesPage({
   if (access.kind !== "ok") notFound();
 
   const scope = scopeFromSearchParams(await searchParams, defaultCreativeWindow(new Date()));
+  const providerAccountId = await resolveProviderAccountId({ businessId, provider: "meta", requestedAccountId: scope.providerAccountId });
 
   return (
     <CreativeCopiesClient
       businessId={businessId}
-      providerAccountId={scope.providerAccountId}
+      providerAccountId={providerAccountId}
       start={scope.start}
       end={scope.end}
     />

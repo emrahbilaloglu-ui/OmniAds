@@ -89,7 +89,10 @@ export default function SelectBusinessPage() {
     // Canonicalise onto the business just chosen. The legacy helper returns a
     // surface-preserving path, which is right for legacy but wrong here: the
     // canonical scope lives in the URL, so the destination must name it.
-    const destination = canonical ? `/c/${id}/home` : getPostSwitchDestination();
+    const requestedNext = sanitizeNextPath(searchParams.get("next"));
+    const destination = canonical
+      ? (requestedNext?.startsWith("/app") ? requestedNext : "/app/home")
+      : getPostSwitchDestination();
     selectBusiness(id);
 
     const response = await fetch("/api/auth/switch-business", {

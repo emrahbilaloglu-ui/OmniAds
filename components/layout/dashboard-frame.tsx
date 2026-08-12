@@ -18,6 +18,7 @@ import { SidebarContent } from "@/components/layout/sidebar-content";
 import { Topbar } from "@/components/layout/topbar";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
+import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
 
 interface DashboardFrameProps {
   userName: string;
@@ -44,6 +45,10 @@ function hasRouteOwnedMetaSurface(pathname: string | null) {
 
 function isOverviewPath(pathname: string | null) {
   return pathname === "/overview" || pathname?.startsWith("/overview/");
+}
+
+function isStandaloneWorkspacePath(pathname: string | null) {
+  return pathname === "/select-business" || pathname === "/businesses/new";
 }
 
 function mobileSurfaceForPath(pathname: string | null) {
@@ -229,6 +234,18 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
 
   if (isOverviewPath(pathname)) {
     return <LegacyDashboardFrame userName={userName}>{children}</LegacyDashboardFrame>;
+  }
+
+  if (isStandaloneWorkspacePath(pathname)) {
+    return (
+      <main
+        id="main-content"
+        {...{ [ZERO_BASE_ROOT_ATTRIBUTE]: ZERO_BASE_ROOT_VALUE }}
+        style={{ minHeight: "100vh", padding: 24, background: "var(--ledger-bg-page)" }}
+      >
+        {children}
+      </main>
+    );
   }
 
   return (

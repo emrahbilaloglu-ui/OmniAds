@@ -265,7 +265,7 @@ export function decisionsHrefForCreative(input: {
     // not a destination.
     params.set("row", `ad:${input.row.adId}`);
   }
-  return `/c/${encodeURIComponent(input.businessId)}/meta/decisions?${params.toString()}`;
+  return `/app/meta/decisions?${params.toString()}`;
 }
 
 /** Canonical detail href, scoped to the account the row belongs to. */
@@ -275,7 +275,5 @@ export function creativeDetailHref(input: {
   accountId: string;
 }): string {
   const params = new URLSearchParams({ providerAccountId: input.accountId });
-  return `/c/${encodeURIComponent(input.businessId)}/creative/${encodeURIComponent(
-    input.creativeId,
-  )}?${params.toString()}`;
+  return `/app/creative/${encodeURIComponent(input.creativeId)}?${params.toString()}`;
 }

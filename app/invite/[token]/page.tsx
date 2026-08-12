@@ -86,7 +86,7 @@ export default function InviteAcceptPage() {
     }
     // Canonicalise onto the business just joined, which is now the actor's
     // single active membership. Legacy keeps its own destination.
-    router.push(canonical && json?.businessId ? `/c/${json.businessId}/home` : "/overview");
+    router.push(canonical && json?.businessId ? "/app/home" : "/overview");
   }
 
   async function switchAccount() {

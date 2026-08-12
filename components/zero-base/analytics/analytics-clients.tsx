@@ -58,7 +58,13 @@ function useEndpoint<T>(path: string, businessId: string, label: string, adapt: 
         });
         if (!response.ok) {
           if (!cancelled) {
-            setReason(`${label} could not be read (HTTP ${response.status}).`);
+            const body = (await response.json().catch(() => null)) as
+              | { message?: string; error?: string }
+              | null;
+            setReason(
+              body?.message ??
+                `${label} could not be read (HTTP ${response.status}${body?.error ? ` · ${body.error}` : ""}).`,
+            );
             setSurface({ kind: "ready" });
           }
           return;

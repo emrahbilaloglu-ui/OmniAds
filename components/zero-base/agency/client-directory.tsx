@@ -182,7 +182,11 @@ export function ClientDirectory({
       cursor: cursorByRow.get(businessId) ?? null,
       row: businessId,
     });
-    return `/c/${businessId}/home?${AGENCY_RETURN_PARAM}=${encodeURIComponent(returnTo)}`;
+    const params = new URLSearchParams({
+      next: "/app/home",
+      [AGENCY_RETURN_PARAM]: returnTo,
+    });
+    return `/switch-business/${encodeURIComponent(businessId)}?${params.toString()}`;
   };
 
   return (

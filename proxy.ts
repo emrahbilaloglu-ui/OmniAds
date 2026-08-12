@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isPublicPagePath } from "@/lib/public-page-prefixes";
+import { resolvePublicRouteRedirect } from "@/lib/zero-base/public-routes";
 
 const AUTH_COOKIE = "omniads_session";
 const LANGUAGE_COOKIE = "adsecute_locale";
@@ -117,6 +118,22 @@ export function proxy(request: NextRequest) {
       );
     }
     return NextResponse.next();
+  }
+
+  const publicRoute = resolvePublicRouteRedirect(pathname);
+  if (publicRoute && hasSession) {
+    const destination = publicRoute.businessId
+      ? `/switch-business/${encodeURIComponent(publicRoute.businessId)}?next=${encodeURIComponent(`${publicRoute.destination}${request.nextUrl.search}`)}`
+      : `${publicRoute.destination}${request.nextUrl.search}`;
+    const response = NextResponse.redirect(new URL(destination, request.url));
+    if (!hasLanguage) {
+      response.cookies.set(LANGUAGE_COOKIE, "en", {
+        path: "/",
+        maxAge: 31536000,
+        sameSite: "lax",
+      });
+    }
+    return response;
   }
 
   if (

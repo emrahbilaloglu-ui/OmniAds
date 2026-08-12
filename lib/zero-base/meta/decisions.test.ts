@@ -76,7 +76,7 @@ describe("URL state is total and restorable", () => {
 
   it("omits defaults so equivalent views produce the same URL", () => {
     expect(serializeDecisionsUrlState(emptyState)).toBe("");
-    expect(decisionsHref("biz_1", emptyState)).toBe("/c/biz_1/meta/decisions");
+    expect(decisionsHref("biz_1", emptyState)).toBe("/app/meta/decisions");
   });
 
   it("normalises level order, so two links to the same view match", () => {

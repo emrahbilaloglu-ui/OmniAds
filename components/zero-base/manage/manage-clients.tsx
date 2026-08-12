@@ -4,8 +4,7 @@
  * Data boundaries for the Manage routes.
  *
  * Reconnect and delete each end with an independent read of the resulting
- * state — the POST's own response is never treated as an observation. There is
- * no billing call anywhere here, asserted by a call-site scan.
+ * state — the POST's own response is never treated as an observation.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -879,20 +878,63 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
   );
 }
 
-/** Static presentation. No billing read, no gating. */
-export function PlanClient() {
+interface BillingRead {
+  planId?: string;
+  planName?: string;
+  monthlyPrice?: number;
+  status?: string;
+  storeName?: string | null;
+  source?: string;
+  managedPricingUrl?: string | null;
+}
+
+export function PlanClient({ businessId }: { businessId: string }) {
+  const [billing, setBilling] = useState<BillingRead | null>(null);
+  const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading plan" });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await fetch(`/api/billing?businessId=${encodeURIComponent(businessId)}`, {
+        cache: "no-store",
+      }).catch(() => null);
+      if (cancelled) return;
+      if (!response?.ok) {
+        setSurface({
+          kind: "error",
+          reason: "Billing could not be read for this business.",
+          verbatim: response ? `HTTP ${response.status}` : "No response",
+          retry: false,
+        });
+        return;
+      }
+      setBilling((await response.json().catch(() => null)) as BillingRead | null);
+      setSurface({ kind: "ready" });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
   return (
-    <PlanView
-      planName="Growth"
-      features={[
-        "Home",
-        "Meta (all five)",
-        "Creative Intelligence",
-        "Google Ads",
-        "Analytics",
-        "Landing Pages",
-        "Reports",
-      ]}
-    />
+    <SurfaceStateBoundary state={surface}>
+      <PlanView
+        planName={billing?.planName ?? null}
+        planId={billing?.planId ?? null}
+        monthlyPrice={typeof billing?.monthlyPrice === "number" ? billing.monthlyPrice : null}
+        status={billing?.status ?? null}
+        storeName={billing?.storeName ?? null}
+        source={billing?.source ?? null}
+        managedPricingUrl={billing?.managedPricingUrl ?? null}
+        features={[
+          "Home",
+          "Meta",
+          "Creative Intelligence",
+          "Google Ads",
+          "Analytics",
+          "Reports",
+        ]}
+      />
+    </SurfaceStateBoundary>
   );
 }

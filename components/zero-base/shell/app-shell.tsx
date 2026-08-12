@@ -179,6 +179,7 @@ export function AppShell({
               pathname={pathname}
               workspaceMode={workspaceMode}
               workspaceName={workspaceName}
+              onSwitchBusiness={scopePickers?.onSwitchBusiness}
               footer={
                 <>
                   {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}

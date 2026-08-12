@@ -73,7 +73,7 @@ describe("WP-23 the OAuth return path is real end to end", () => {
   it("the return path names the provider so the page knows what to re-read", () => {
     const returnTo = reconnectReturnPath({ businessId: BIZ, provider: "meta" });
     const url = new URL(returnTo, "https://example.test");
-    expect(url.pathname).toBe(`/c/${BIZ}/manage/integrations`);
+    expect(url.pathname).toBe("/app/manage/integrations");
     expect(url.searchParams.get("reconnected")).toBe("meta");
   });
 
@@ -247,14 +247,14 @@ describe("WP-23 assignment reuses the proven endpoints", () => {
   });
 });
 
-describe("WP-23 Plan stays static", () => {
-  it("no manage surface calls the billing API or gates on a plan", () => {
-    for (const file of [
-      "components/zero-base/manage/manage-clients.tsx",
-      "components/zero-base/manage/manage-views.tsx",
-    ]) {
-      expect(source(file), file).not.toContain("/api/billing");
-    }
+describe("WP-23 Plan reads the billing authority", () => {
+  it("binds the plan client to the real business-scoped billing API", () => {
+    expect(source("components/zero-base/manage/manage-clients.tsx")).toContain(
+      "/api/billing?businessId=",
+    );
+    expect(source("components/zero-base/manage/manage-views.tsx")).not.toContain(
+      "const CURRENT_PLAN",
+    );
   });
 });
 

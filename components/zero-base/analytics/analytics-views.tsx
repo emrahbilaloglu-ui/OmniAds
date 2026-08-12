@@ -25,6 +25,7 @@ import {
 } from "@/lib/zero-base/analytics/analytics-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { useState } from "react";
+import Link from "next/link";
 
 export function SourcePanels({ panels, compact = false }: { panels: readonly SourcePanel[]; compact?: boolean }) {
   const copy = useCopy();
@@ -56,6 +57,14 @@ export function SourcePanels({ panels, compact = false }: { panels: readonly Sou
         <p data-source-degraded="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {state.reason}
         </p>
+      ) : null}
+      {panels.some((panel) => !panel.connected) ? (
+        <Link
+          href="/app/manage/integrations"
+          style={{ display: "inline-flex", alignItems: "center", minHeight: 36, marginTop: 8, color: "var(--ledger-accent-action)", fontSize: 12, fontWeight: 600 }}
+        >
+          Connect or configure data sources
+        </Link>
       ) : null}
     </section>
   );

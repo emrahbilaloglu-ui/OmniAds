@@ -101,7 +101,7 @@ export function serializeDecisionsUrlState(state: DecisionsUrlState): string {
 
 export function decisionsHref(businessId: string, state: DecisionsUrlState): string {
   const query = serializeDecisionsUrlState(state);
-  return `/c/${businessId}/meta/decisions${query ? `?${query}` : ""}`;
+  return `/app/meta/decisions${query ? `?${query}` : ""}`;
 }
 
 /**

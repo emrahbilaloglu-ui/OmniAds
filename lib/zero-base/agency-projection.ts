@@ -122,7 +122,7 @@ export function buildAgencyDirectoryPage(
     selectedMetaAccountCount: Math.max(0, business.selectedMetaAccountCount ?? 0),
     configuredCurrency: business.currency ?? null,
     sourceUpdatedAt: business.sourceUpdatedAt ?? null,
-    href: `/c/${business.id}/home`,
+    href: `/switch-business/${encodeURIComponent(business.id)}?next=${encodeURIComponent("/app/home")}`,
   }));
 
   rows.sort(compareAgencyRows);

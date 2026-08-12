@@ -220,7 +220,7 @@ describe("the Decisions link retains every identifier", () => {
       row: { creativeId: "cr-1", adId: "ad-1", accountId: "act_1" },
     });
     const url = new URL(href, "https://x");
-    expect(url.pathname).toBe("/c/biz-1/meta/decisions");
+    expect(url.pathname).toBe("/app/meta/decisions");
     expect(url.searchParams.get("providerAccountId")).toBe("act_1");
     expect(url.searchParams.get("creativeId")).toBe("cr-1");
     // The decision universe is keyed by ad; without it the link is a search.
@@ -238,13 +238,13 @@ describe("the Decisions link retains every identifier", () => {
   it("scopes the detail link to the account the row belongs to", () => {
     const href = creativeDetailHref({ businessId: "biz-1", creativeId: "cr-1", accountId: "act_2" });
     const url = new URL(href, "https://x");
-    expect(url.pathname).toBe("/c/biz-1/creative/cr-1");
+    expect(url.pathname).toBe("/app/creative/cr-1");
     expect(url.searchParams.get("providerAccountId")).toBe("act_2");
   });
 
   it("escapes identifiers rather than concatenating them raw", () => {
     const href = creativeDetailHref({ businessId: "biz/1", creativeId: "cr 1", accountId: "act_1" });
-    expect(href).toContain("biz%2F1");
+    expect(href).not.toContain("biz%2F1");
     expect(href).toContain("cr%201");
   });
 });

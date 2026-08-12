@@ -36,7 +36,7 @@ export default async function ClientHomePage({
       contract={model.contract}
       scopeLine={access.context.demo ? "Demo business" : businessId}
       businessId={businessId}
-      connectHref={`/c/${businessId}/manage/integrations`}
+      connectHref="/app/manage/integrations"
       trend={model.trend}
       economics={model.economics}
     />

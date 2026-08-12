@@ -280,7 +280,7 @@ export function oauthStartPermission(role: string | null): { ok: true } | { ok: 
  * because the real flow carried it, not because the UI hoped for it.
  */
 export function reconnectReturnPath(input: { businessId: string; provider: string }): string {
-  return `/c/${encodeURIComponent(input.businessId)}/manage/integrations?reconnected=${encodeURIComponent(
+  return `/app/manage/integrations?reconnected=${encodeURIComponent(
     input.provider,
   )}`;
 }

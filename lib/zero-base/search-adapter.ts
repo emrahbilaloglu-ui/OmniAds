@@ -53,18 +53,26 @@ export function canonicalHrefFor(result: {
   businessId: string;
 }): string | null {
   if (!result.businessId) return null;
+  let destination: string;
   switch (result.entityType) {
     case "business":
-      return `/c/${result.businessId}/home`;
+      destination = "/app/home";
+      break;
     case "report":
-      return `/c/${result.businessId}/reports/${result.entityId}`;
+      destination = `/app/reports/${encodeURIComponent(result.entityId)}`;
+      break;
     case "campaign":
     case "adset":
     case "ad":
-      return `/c/${result.businessId}/meta/decisions`;
+      destination = "/app/meta/decisions";
+      break;
     default:
       return null;
   }
+  // Search is cross-business. The public URL deliberately has no tenant UUID,
+  // so the transition must first bind the result's authorized business to the
+  // session and then land on the clean /app destination.
+  return `/switch-business/${encodeURIComponent(result.businessId)}?next=${encodeURIComponent(destination)}`;
 }
 
 export function toZeroBaseSearchEnvelope(

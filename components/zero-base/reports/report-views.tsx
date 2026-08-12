@@ -106,7 +106,7 @@ export function ReportLibraryView({
                 header: "Report",
                 render: (row) => (
                   <a
-                    href={`/c/${businessId ?? "b"}/reports/${row.id}`}
+                    href={`/app/reports/${row.id}`}
                     data-ctl="live:REPORT-08 open"
                     style={{ color: "var(--ledger-accent-action)" }}
                   >
@@ -121,7 +121,7 @@ export function ReportLibraryView({
                 render: (row) => (
                   <span style={{ display: "inline-flex", gap: 6 }}>
                     <a
-                      href={`/c/${businessId ?? "b"}/reports/${row.id}/edit`}
+                      href={`/app/reports/${row.id}/edit`}
                       data-ctl="live:REPORT-02 edit"
                       style={{ color: "var(--ledger-accent-action)", alignSelf: "center" }}
                     >

@@ -125,7 +125,8 @@ describe("Flow A — honest agency entry", () => {
     // The link carries a sanitized returnTo: "honest agency entry" means the
     // operator can get back to the desk row they came from.
     const href = screen.getByRole("link", { name: /Client 000/ }).getAttribute("href") ?? "";
-    expect(href.startsWith("/c/biz_000/home")).toBe(true);
+    expect(href.startsWith("/switch-business/biz_000?")).toBe(true);
+    expect(decodeURIComponent(href)).toContain("next=/app/home");
     expect(href).toContain("returnTo=");
   });
 

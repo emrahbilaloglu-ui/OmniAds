@@ -166,6 +166,6 @@ describe("no fan-out", () => {
     // parallel provider reads.
     expect(buildAgencyDirectoryPage.length).toBeLessThanOrEqual(2);
     const page = buildAgencyDirectoryPage([business()]);
-    expect(page.items[0].href).toBe("/c/biz_1/home");
+    expect(page.items[0].href).toBe("/switch-business/biz_1?next=%2Fapp%2Fhome");
   });
 });

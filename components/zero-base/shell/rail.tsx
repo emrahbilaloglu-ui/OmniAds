@@ -13,7 +13,7 @@
  */
 import Link from "next/link";
 
-import { navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
+import { isNavHrefActive, navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const RAIL_WIDTH = 232;
@@ -25,6 +25,7 @@ export interface RailProps {
   /** Workspace chrome drawn above navigation. */
   workspaceMode?: "agency" | "client" | "account";
   workspaceName?: string;
+  onSwitchBusiness?: () => void;
   /** Footer identity row — must remain visible at any viewport height. */
   footer: React.ReactNode;
 }
@@ -51,7 +52,7 @@ const GROUP_ICON: Record<string, string> = {
 function groupActive(group: NavGroup, pathname: string, businessId: string | null): boolean {
   return group.items.some((item) => {
     const href = navHref(item.url, businessId);
-    return pathname === href || pathname.startsWith(`${href}/`);
+    return isNavHrefActive(href, pathname);
   });
 }
 
@@ -61,6 +62,7 @@ export function Rail({
   pathname,
   workspaceMode = businessId ? "client" : "agency",
   workspaceName = "Workspace",
+  onSwitchBusiness,
   footer,
 }: RailProps) {
   const copy = useCopy();
@@ -94,7 +96,7 @@ export function Rail({
         }}
       >
         <a
-          href={isClient && businessId ? `/c/${businessId}/home` : "/a/desk"}
+          href={isClient && businessId ? "/app/home" : "/a/desk"}
           data-ctl="live:nav"
           style={{
             display: "flex",
@@ -155,7 +157,7 @@ export function Rail({
               {copy.agency}
             </a>
             <a
-              href={businessId ? `/c/${businessId}/home` : "/select-business"}
+              href={businessId ? "/app/home" : "/select-business"}
               data-ctl="live:AUTH-10 scope-switch"
               data-current-scope={workspaceMode === "client" ? "true" : undefined}
               style={{
@@ -175,8 +177,9 @@ export function Rail({
         ) : null}
 
         {isClient ? (
-          <a
-            href="/select-business"
+          <button
+            type="button"
+            onClick={onSwitchBusiness}
             data-ctl="live:AUTH-10 business-switcher"
             style={{
               display: "grid",
@@ -189,7 +192,9 @@ export function Rail({
               border: "1px solid var(--ledger-border-control)",
               borderRadius: "var(--ledger-radius-button)",
               color: "var(--ledger-ink-primary)",
-              textDecoration: "none",
+              background: "var(--ledger-bg-surface)",
+              cursor: onSwitchBusiness ? "pointer" : "default",
+              width: "100%",
             }}
           >
             <span
@@ -207,7 +212,7 @@ export function Rail({
               </span>
             </span>
             <span aria-hidden="true" style={{ fontSize: 12 }}>▾</span>
-          </a>
+          </button>
         ) : null}
       </div>
 

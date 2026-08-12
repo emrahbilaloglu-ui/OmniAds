@@ -264,7 +264,7 @@ export async function readAgencyDirectoryPage(input: {
     selectedMetaAccountCount: Number(metaFacts.get(row.id)?.selected_account_count ?? 0),
     configuredCurrency: row.currency ?? null,
     sourceUpdatedAt: totals.get(row.id)?.lastSourceUpdatedAt ?? null,
-    href: `/c/${row.id}/home`,
+    href: `/switch-business/${encodeURIComponent(row.id)}?next=${encodeURIComponent("/app/home")}`,
   }));
 
   let totalCount: number | null = null;

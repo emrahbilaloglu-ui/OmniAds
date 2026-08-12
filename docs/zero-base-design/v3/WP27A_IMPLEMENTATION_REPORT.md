@@ -10,12 +10,12 @@ does not perform.
 | | |
 |---|---|
 | Base accepted at | `a9f598dae534` |
-| Last implementation commit | `fb60061a7` — the last commit that changes shipped code |
-| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline fb60061a7..HEAD` shows they touch `docs/` only |
+| Last implementation commit | `9493feb2a` — the last commit that changes shipped code or evidence |
+| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline 9493feb2a..HEAD` shows they touch `docs/` only |
 | Master plan | `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`, SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613` (re-verified) |
 | Design archive | `0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d` |
-| Evidence set | `playwright/artifacts/zero-base/d8bcf0adc4/wp27a-final` (92 frames) |
-| Render fingerprint | `f3be4a4e30569697ec5069ecaa74f2d96f2ddf52e92225066d5beffbcbca6193` |
+| Evidence set | `playwright/artifacts/zero-base/32b5b1686e/wp27a-deterministic` (92 frames) |
+| Render fingerprint | `14b740daf3f101858bfd0b32e488d526ed3adc889641caac39c761d18f0c4c3b` |
 | Original repo | `/Users/harmelek/Adsecute` untouched at `c46d91c2ac94` |
 
 ## Owner amendment, recorded
@@ -43,7 +43,8 @@ Nothing after `fb60061a7` changes shipped code.
 | `f000e0a08` | Puts the compatibility tests inside `test:zero-base:release`; adds the flag-on preview commands |
 | `d8bcf0adc` | Recaptures the 92-frame evidence for the changed render tree |
 | `fb60061a7` | Routes the chooser's copy through the EN/TR catalogue, as the locale gate demanded |
-| *(correction, below)* | Makes the production-owner coverage deterministic under the full aggregate |
+| `32b5b1686` | Makes the production-owner coverage deterministic under the full aggregate (below) |
+| `9493feb2a` | Recaptures the 92-frame evidence after that correction touched a render-affecting file |
 
 ## Correction after the first phase-boundary review
 
@@ -239,9 +240,9 @@ Exit statuses read directly, never through a pipe.
 
 | Command | Exit | Result |
 |---|---|---|
-| `npm run test:zero-base:release` | **0** | 21 stages |
-| `npm run test:zero-base:compatibility` | 0 | 46 + 10 tests |
-| `npm run test` | 0 | **9376 passed**, 61 skipped, 63 todo |
+| `npm run test:zero-base:release` | **0** | 21 stages, run **twice** from the final tree |
+| `npm run test:zero-base:compatibility` | 0 | 59 tests (48 shim cases + 11 rollout) |
+| `npm run test` | 0 | **9378 passed**, 61 skipped, 63 todo |
 | `npm run typecheck` | 0 | clean |
 | `npm run lint` | 0 | clean |
 | `npm run build` | 0 | compiled; all 46 shims are `ƒ` dynamic server routes |
@@ -258,9 +259,10 @@ Exit statuses read directly, never through a pipe.
 | `npm run test:cutover-runner-package` | 0 | every check |
 | `bash scripts/verify-database-seams.sh` | **0** | **34 of 34 stages** |
 
-The provenance gate refused the previous evidence set by name after
-`lib/zero-base/compatibility.ts` was added and again after the chooser changed;
-both were resolved by recapturing, never by loosening the check.
+The provenance gate refused the previous evidence set by name three times — when
+`lib/zero-base/compatibility.ts` was added, when the chooser changed, and when
+the assignment panel's stray lint suppression was removed. Each was resolved by
+recapturing, never by loosening the check.
 
 ## Gate status
 

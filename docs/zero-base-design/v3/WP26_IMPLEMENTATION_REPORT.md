@@ -1472,7 +1472,7 @@ status read directly, not through a pipe.
 | `npm run test:zero-base:contract` | 0 | 17 tests |
 | `npm run typecheck` | 0 | clean |
 | `npm run lint` | 0 | clean |
-| `npm run test` | 0 | 9323 passed, 61 skipped, 63 todo |
+| `npm run test` | 0 | 9324 passed, 61 skipped, 63 todo |
 | `npm run test:migrations-from-zero` | 0 | schema from zero, idempotent |
 | `npm run test:selection-race-seam` | 0 | S1–S7 |
 | `npm run test:zero-base:routes` | 0 | route matrix sound |
@@ -1498,17 +1498,42 @@ both times.
 ### Final evidence fingerprint
 
 ```
-final commit            fe0f80e3dd701c62ce4a83a0c82d1301824969a6
+final commit            1d223f6754bfed2d1abbad591db758530aa175a4
 design archive sha256   0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d
 master plan sha256      79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613 (verified)
-evidence set            playwright/artifacts/zero-base/a02d86c601/wp26-g10-release
-evidence commit         a02d86c601
-render fingerprint      0adee4b4a6ad3fc9ae55a96e2a4ae9a9da758a20fd8a0fdc1343920a4dfc1fc7
+evidence set            playwright/artifacts/zero-base/869bd73e6f/wp26-release-gate
+evidence commit         869bd73e6f
+render fingerprint      02e935dde6a4ab83eac779ace817b456dd09604fab8ce7156dfdb49de6a15184
 frames                  92
 ```
 
 No render-affecting file changed after that capture, so the recorded fingerprint
 still describes the tree; stage 14 re-verified this on the final run.
+
+### The rebuilt gate immediately earned its keep
+
+The first run of the 20-stage aggregate failed at stage 4 — the full unit suite
+the old 13-stage version did not run — on `manage-flows.test.tsx`, and it was
+not a flake. `AssignmentPanel` re-seeded its draft from the served set every
+time that set changed:
+
+```tsx
+useEffect(() => { setDraft(servedKey ? servedKey.split(",") : []); }, [servedKey]);
+```
+
+So an operator who ticked an account while a read was still in flight had their
+selection silently replaced by the old one, and **Save then sent the set they
+had just changed away from** — with nothing on screen to say anything had been
+discarded. The draft now belongs to the operator from the first tick until they
+save or cancel, and re-seeds only while untouched; changing provider is a
+different question, so it starts over. A regression test renders the panel
+directly, ticks an account, re-renders with the stale served set, and asserts
+both the tick and the saved payload survive. It fails against the old effect.
+
+That defect had been in the tree throughout, invisible because the release gate
+did not run the suite that catches it. It is the clearest argument for the
+correction above: the aggregate's value is precisely the stages it does not
+skip.
 
 ### G1–G11 status
 

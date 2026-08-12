@@ -512,7 +512,6 @@ function AssignmentPanel({
     setBaseKey(servedKey);
     // Deliberately keyed on the provider alone: this is the reset, and it must
     // not re-run every time the served set moves underneath it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
 
   // The end of a save, judged by the read-back and never by the write.

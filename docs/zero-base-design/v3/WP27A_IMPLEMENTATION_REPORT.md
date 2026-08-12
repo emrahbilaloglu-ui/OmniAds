@@ -10,7 +10,8 @@ does not perform.
 | | |
 |---|---|
 | Base accepted at | `a9f598dae534` |
-| Final commit | `fb60061a761b4dc14b44a3fa3cd66418c84fbac0` |
+| Last implementation commit | `fb60061a7` — the last commit that changes shipped code |
+| Documentation commits | this report and `EXECUTION_LEDGER.md` land after it; `git log --oneline fb60061a7..HEAD` shows they touch `docs/` only |
 | Master plan | `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`, SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613` (re-verified) |
 | Design archive | `0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d` |
 | Evidence set | `playwright/artifacts/zero-base/d8bcf0adc4/wp27a-final` (92 frames) |
@@ -30,7 +31,11 @@ green. `docs/zero-base-design/v3/G9_MANUAL_AT_EVIDENCE.md` remains committed
 historical record of G9 blocking earlier passes is left exactly as written; this
 is an amendment, not a rewrite.
 
-## The four commits
+## The commits
+
+A report cannot name the commit that contains it, so this table names the
+implementation commits and states plainly that the documentation follows them.
+Nothing after `fb60061a7` changes shipped code.
 
 | Commit | What it does |
 |---|---|
@@ -38,6 +43,47 @@ is an amendment, not a rewrite.
 | `f000e0a08` | Puts the compatibility tests inside `test:zero-base:release`; adds the flag-on preview commands |
 | `d8bcf0adc` | Recaptures the 92-frame evidence for the changed render tree |
 | `fb60061a7` | Routes the chooser's copy through the EN/TR catalogue, as the locale gate demanded |
+| *(correction, below)* | Makes the production-owner coverage deterministic under the full aggregate |
+
+## Correction after the first phase-boundary review
+
+The first review reproduced a **release-blocking failure I had not seen**:
+`npm run test:zero-base:release` exited 1 because
+`every unique path has a shim and a preserved legacy body on disk` timed out at
+15000ms under the full 832-file Vitest run. My own runs passed, which made it a
+timing flake rather than a non-issue — the worse kind of green.
+
+Measured cause, not guessed: that assertion imported all 46 shims **and** their
+46 legacy bodies sequentially, cold. These are real Next pages, so each import
+pulls in a whole legacy composition. It cost **2741ms on an idle machine**,
+while every test after it ran in 1–30ms on the warm graph. The entire cold cost
+sat inside whichever assertion happened to run first, and under a full suite —
+where workers compete for CPU — it exceeded the per-test budget.
+
+Fixed by removing the redundancy rather than by raising a number:
+
+- **Loaded once.** A module-level cache replaced ~12 tests × 46 routes of
+  repeated dynamic imports.
+- **Warmed in setup, bounded parallel.** All 46 load in `beforeAll` with a
+  concurrency of 8. Setup is where setup cost belongs, and no assertion can now
+  pass or fail because of it.
+- **The disk assertion asks the disk.** "Is there a shim and a preserved body"
+  is a question about files; it uses `existsSync` and evaluates nothing. It went
+  from 2741ms to **1ms**.
+- **Coverage got stronger, not weaker.** The removed import-based check split
+  into three: files exist; every shim delegates to `compatibilityPage` naming
+  its own route; and every warmed module is a callable server page over its
+  body. 46 tests became **48**.
+
+The one raised budget in the file is `beforeAll`'s 60s, and it is justified by
+measurement: warming now costs ~1.3s idle, so 60s leaves roughly 45× headroom
+for a contended worker. It guards setup, never an assertion.
+
+Two smaller corrections from the same review: the duplicated inline
+`params`/`searchParams` construction is now one `pageProps()` helper used
+everywhere, and the four unused `eslint-disable no-fallthrough` directives in
+`compatibility-page.tsx` are gone — `redirect()` and `notFound()` are typed
+`never`, so nothing could fall through and the suppressions said otherwise.
 
 ## Denominators, read from the registry rather than typed
 

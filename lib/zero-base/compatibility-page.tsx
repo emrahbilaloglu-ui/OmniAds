@@ -135,17 +135,15 @@ function applyDecision(
     case "redirect":
       // Next's `redirect` is a 307 by default in a server component: temporary,
       // method-preserving and never cached by the browser as permanent.
+      // `redirect` and `notFound` are typed `never`, so none of these cases
+      // can fall through and none needs a `break`.
       redirect(decision.destination);
-    // eslint-disable-next-line no-fallthrough
     case "login":
       redirect(decision.destination);
-    // eslint-disable-next-line no-fallthrough
     case "select-business":
       redirect("/select-business");
-    // eslint-disable-next-line no-fallthrough
     case "not-found":
       notFound();
-    // eslint-disable-next-line no-fallthrough
     case "forbidden":
     case "unavailable":
       return legacy();

@@ -14,7 +14,7 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHANGED_MAPPINGS,
@@ -88,21 +88,81 @@ function signedOut() {
   session.current = null;
 }
 
-/** The real page module for a legacy path, and its preserved body. */
-async function shimFor(route: string) {
+/**
+ * Where a legacy path's shim and preserved body live on disk.
+ *
+ * Pure path resolution — no module is evaluated — so the coverage assertions
+ * that only need to know a file exists cost nothing.
+ */
+const SEGMENT_ROOTS = ["app", "app/(dashboard)", "app/(marketing)", "app/(auth)"] as const;
+
+function dirFor(route: string): string {
   const rel = route.replace(/^\//, "");
-  for (const base of ["app", "app/(dashboard)", "app/(marketing)", "app/(auth)"]) {
+  for (const base of SEGMENT_ROOTS) {
     const dir = path.join(base, rel);
-    if (!existsSync(path.join(dir, "legacy-page.tsx"))) continue;
-    const page = (await import(/* @vite-ignore */ `@/${dir}/page`)) as {
-      default: (props: unknown) => Promise<unknown>;
-    };
-    const legacy = (await import(/* @vite-ignore */ `@/${dir}/legacy-page`)) as {
-      default: unknown;
-    };
-    return { page: page.default, legacy: legacy.default, dir };
+    if (existsSync(path.join(dir, "legacy-page.tsx"))) return dir;
   }
   throw new Error(`no compatibility shim on disk for ${route}`);
+}
+
+interface LoadedShim {
+  page: (props: unknown) => Promise<unknown>;
+  legacy: unknown;
+  dir: string;
+}
+
+/**
+ * Each shim's module graph is loaded once for the whole file.
+ *
+ * These are real Next pages, so importing one pulls in its entire legacy body —
+ * charts, tables, providers. Loading all 46 took **2.7s sequentially on an idle
+ * machine**, and every test after the first ran in 1–30ms because the graph was
+ * already warm. That put the whole cold cost inside whichever assertion
+ * happened to run first, and under the full 832-file suite — where workers
+ * compete for CPU — it exceeded the per-test budget and failed the release
+ * aggregate. The cost is setup, so it is paid in setup: once, in parallel,
+ * measured, and never again.
+ */
+const loaded = new Map<string, LoadedShim>();
+
+async function loadShim(route: string): Promise<LoadedShim> {
+  const cached = loaded.get(route);
+  if (cached) return cached;
+  const dir = dirFor(route);
+  const [page, legacy] = await Promise.all([
+    import(/* @vite-ignore */ `@/${dir}/page`) as Promise<{
+      default: (props: unknown) => Promise<unknown>;
+    }>,
+    import(/* @vite-ignore */ `@/${dir}/legacy-page`) as Promise<{ default: unknown }>,
+  ]);
+  const shim: LoadedShim = { page: page.default, legacy: legacy.default, dir };
+  loaded.set(route, shim);
+  return shim;
+}
+
+/** Bounded, so 46 module graphs do not all transform at once. */
+async function warmAllShims(concurrency = 8): Promise<void> {
+  const queue = [...UNIQUE_CHANGED_PATHS];
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    for (let route = queue.pop(); route !== undefined; route = queue.pop()) {
+      await loadShim(route);
+    }
+  });
+  await Promise.all(workers);
+}
+
+function shimFor(route: string): LoadedShim {
+  const shim = loaded.get(route);
+  if (!shim) throw new Error(`shim for ${route} was not warmed; beforeAll did not run`);
+  return shim;
+}
+
+/** One place builds the props Next would pass. */
+function pageProps(route: string, search: Record<string, string | string[]> = {}) {
+  return {
+    params: Promise.resolve(PARAMS[route] ?? {}),
+    searchParams: Promise.resolve(search),
+  };
 }
 
 /** Dynamic segments a route needs, so a real id can be checked end to end. */
@@ -126,11 +186,8 @@ async function run(
   route: string,
   options: { search?: Record<string, string | string[]> } = {},
 ): Promise<Outcome> {
-  const { page, legacy } = await shimFor(route);
-  const props = {
-    params: Promise.resolve(PARAMS[route] ?? {}),
-    searchParams: Promise.resolve(options.search ?? {}),
-  };
+  const { page, legacy } = shimFor(route);
+  const props = pageProps(route, options.search);
   try {
     const result = (await page(props)) as { type?: unknown } | null;
     if (result && typeof result === "object" && result.type === legacy) return { kind: "legacy" };
@@ -141,6 +198,19 @@ async function run(
     throw error;
   }
 }
+
+/**
+ * Warmed once, with a budget set from measurement rather than taste.
+ *
+ * 2.7s for all 46 sequentially on an idle machine; bounded parallelism brings
+ * that down, and 60s leaves an order of magnitude of headroom for a worker
+ * competing with 831 other test files. This is the only place in the file with
+ * a raised budget, and it guards setup, not an assertion — no expectation here
+ * can pass because something was slow.
+ */
+beforeAll(async () => {
+  await warmAllShims();
+}, 60_000);
 
 beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
@@ -180,9 +250,37 @@ describe("WP-27A · the compatibility table covers the mapping authority", () =>
     }
   });
 
-  it("every unique path has a shim and a preserved legacy body on disk", async () => {
+  it("every unique path has a shim and a preserved legacy body on disk", () => {
+    // A question about files, answered from files. Evaluating 46 Next page
+    // graphs to learn that two of them exist was what made this assertion the
+    // slowest thing in the suite.
     for (const route of UNIQUE_CHANGED_PATHS) {
-      const { page, legacy } = await shimFor(route);
+      const dir = dirFor(route);
+      expect(existsSync(path.join(dir, "page.tsx")), `${route} has no shim`).toBe(true);
+      expect(
+        existsSync(path.join(dir, "legacy-page.tsx")),
+        `${route} lost its legacy body`,
+      ).toBe(true);
+    }
+  });
+
+  it("every shim delegates to the shared decision, naming its own route", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const route of UNIQUE_CHANGED_PATHS) {
+      const source = readFileSync(path.join(dirFor(route), "page.tsx"), "utf8");
+      expect(source, `${route} does not use the shared page`).toContain(
+        'from "@/lib/zero-base/compatibility-page"',
+      );
+      expect(source, `${route} names the wrong route`).toContain(
+        `compatibilityPage("${route}"`,
+      );
+    }
+  });
+
+  it("every warmed shim is a callable server page over its preserved body", () => {
+    // The behavioural counterpart: the modules really do export what Next needs.
+    for (const route of UNIQUE_CHANGED_PATHS) {
+      const { page, legacy } = shimFor(route);
       expect(typeof page, `${route} has no server page`).toBe("function");
       expect(legacy, `${route} lost its legacy body`).toBeTruthy();
     }
@@ -231,7 +329,7 @@ describe("WP-27A · the redirect is temporary, server-side, and the only mechani
     // for anyone who had already visited. Only `redirect()` — a 307 — is used.
     const { readFileSync } = await import("node:fs");
     for (const route of UNIQUE_CHANGED_PATHS) {
-      const { dir } = await shimFor(route);
+      const dir = dirFor(route);
       const source = readFileSync(path.join(dir, "page.tsx"), "utf8");
       expect(source, `${route} does its own navigation`).not.toContain("permanentRedirect");
       expect(source, `${route} redirects outside the shared decision`).not.toContain(
@@ -245,7 +343,7 @@ describe("WP-27A · the redirect is temporary, server-side, and the only mechani
   it("REGRESSION: no shim reaches for a client-side navigation", async () => {
     const { readFileSync } = await import("node:fs");
     for (const route of UNIQUE_CHANGED_PATHS) {
-      const { dir } = await shimFor(route);
+      const dir = dirFor(route);
       const source = readFileSync(path.join(dir, "page.tsx"), "utf8");
       expect(source, `${route} became a client component`).not.toContain("use client");
       expect(source, `${route} navigates in the browser`).not.toContain("useRouter");
@@ -386,11 +484,12 @@ describe("WP-27A · ZERO_BASE_UI_MODE=on redirects, once, after authorization", 
   });
 
   it("REGRESSION: a dynamic id that resolves to nothing refuses instead of redirecting", async () => {
-    const { page } = await shimFor("/reports/[reportId]");
+    const { page } = shimFor("/reports/[reportId]");
     await expect(
       (async () => {
         try {
-          await page({ params: Promise.resolve({}), searchParams: Promise.resolve({}) });
+          // Deliberately no params: the id cannot be resolved.
+          await page({ ...pageProps("/reports/[reportId]"), params: Promise.resolve({}) });
         } catch (error) {
           if (error instanceof NotFoundSignal) return "not-found";
           if (error instanceof RedirectSignal) return `redirect:${error.destination}`;
@@ -614,11 +713,10 @@ describe("WP-27A · /settings asks instead of choosing", () => {
   it("both canonical destinations are named, with the business id resolved", async () => {
     process.env.ZERO_BASE_UI_MODE = "on";
     signedIn();
-    const { page } = await shimFor("/settings");
-    const element = (await page({
-      params: Promise.resolve({}),
-      searchParams: Promise.resolve({}),
-    })) as { props: { destinations: string[] } };
+    const { page } = shimFor("/settings");
+    const element = (await page(pageProps("/settings"))) as {
+      props: { destinations: string[] };
+    };
     expect(element.props.destinations).toEqual([
       "/me/account-security",
       `/c/${BUSINESS}/manage/business`,

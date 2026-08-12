@@ -1,0 +1,346 @@
+name: Zero-base Production Rollout (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit SHA currently deployed to production
+        required: true
+        type: string
+      action:
+        description: Inspect eligible businesses, enable one-business allowlist, or turn the UI off
+        required: true
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - allowlist
+          - off
+      owner_email:
+        description: Account email used to prove active access to the allowlisted business
+        required: true
+        default: emrahbilaloglu@gmail.com
+        type: string
+      business_id:
+        description: Exact business UUID; required for allowlist
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: deploy-production-main
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate request
+        id: request
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_OWNER_EMAIL: ${{ inputs.owner_email }}
+          INPUT_BUSINESS_ID: ${{ inputs.business_id }}
+        run: |
+          set -euo pipefail
+
+          case "${INPUT_SHA}" in
+            *[!0123456789abcdef]*)
+              echo "sha must be a lowercase hexadecimal commit SHA."
+              exit 1
+              ;;
+          esac
+          if [ "${#INPUT_SHA}" -ne 40 ]; then
+            echo "sha must be the full 40-character commit SHA."
+            exit 1
+          fi
+
+          case "${INPUT_ACTION}" in
+            inspect|allowlist|off) ;;
+            *)
+              echo "action must be inspect, allowlist, or off."
+              exit 1
+              ;;
+          esac
+
+          if ! [[ "${INPUT_OWNER_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+            echo "owner_email is not a valid email address."
+            exit 1
+          fi
+
+          if [ "${INPUT_ACTION}" = "allowlist" ]; then
+            if ! [[ "${INPUT_BUSINESS_ID}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+              echo "business_id must be an exact UUID for action=allowlist."
+              exit 1
+            fi
+          elif [ -n "${INPUT_BUSINESS_ID}" ]; then
+            echo "business_id must be empty unless action=allowlist."
+            exit 1
+          fi
+
+          {
+            echo "sha=${INPUT_SHA}"
+            echo "action=${INPUT_ACTION}"
+            echo "owner_email=${INPUT_OWNER_EMAIL,,}"
+            echo "business_id=${INPUT_BUSINESS_ID,,}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare SSH access
+        shell: bash
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          resolve_host() {
+            local host="$1"
+            if [ -z "${host}" ]; then
+              return 0
+            fi
+            python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "${host}" 2>/dev/null || printf '%s\n' "${host}"
+          }
+
+          primary_deploy_host="${HETZNER_HOST}"
+          public_deploy_host="$(resolve_host adsecute.com)"
+          public_deploy_host_ip="$(resolve_host "${public_deploy_host}")"
+          if [ -z "${primary_deploy_host}" ]; then
+            primary_deploy_host="${public_deploy_host}"
+          fi
+
+          if [ -z "${primary_deploy_host}" ] || [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+            echo "Missing required Hetzner rollout secrets."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${primary_deploy_host}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          if [ -n "${public_deploy_host}" ]; then
+            ssh-keyscan -H "${public_deploy_host}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          if [ -n "${public_deploy_host_ip}" ]; then
+            ssh-keyscan -H "${public_deploy_host_ip}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+          {
+            echo "PRIMARY_DEPLOY_HOST=${primary_deploy_host}"
+            echo "HETZNER_SSH_USER=${HETZNER_USER}"
+            echo "HETZNER_SSH_PORT=${HETZNER_PORT:-22}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Inspect or update zero-base rollout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.request.outputs.sha }}
+          ROLLOUT_ACTION: ${{ steps.request.outputs.action }}
+          OWNER_EMAIL: ${{ steps.request.outputs.owner_email }}
+          BUSINESS_ID: ${{ steps.request.outputs.business_id }}
+        run: |
+          set -euo pipefail
+
+          SSH_OPTS=(
+            -i ~/.ssh/id_ed25519
+            -p "${HETZNER_SSH_PORT}"
+            -o BatchMode=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o TCPKeepAlive=yes
+          )
+
+          expected_sha_q="$(printf '%q' "${EXPECTED_SHA}")"
+          rollout_action_q="$(printf '%q' "${ROLLOUT_ACTION}")"
+          owner_email_q="$(printf '%q' "${OWNER_EMAIL}")"
+          business_id_q="$(printf '%q' "${BUSINESS_ID}")"
+
+          ssh "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seuo pipefail" <<'REMOTE'
+            cd /var/www/adsecute
+
+            current_build_id() {
+              curl -fsS http://127.0.0.1:3000/api/build-info \
+                | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+            }
+
+            wait_for_expected_build() {
+              local attempt build_id
+              for attempt in $(seq 1 40); do
+                build_id="$(current_build_id 2>/dev/null || true)"
+                if [ "${build_id}" = "${EXPECTED_SHA}" ]; then
+                  return 0
+                fi
+                sleep 3
+              done
+              return 1
+            }
+
+            live_sha="$(current_build_id)"
+            if [ "${live_sha}" != "${EXPECTED_SHA}" ]; then
+              echo "Refusing rollout: live build ${live_sha:-unknown} does not equal ${EXPECTED_SHA}."
+              exit 1
+            fi
+
+            membership_json="$({
+              docker compose exec -T web node -e '
+                const { Client } = require("pg");
+                const email = process.argv[1];
+                const client = new Client({ connectionString: process.env.DATABASE_URL });
+                (async () => {
+                  await client.connect();
+                  const result = await client.query(`
+                    SELECT
+                      b.id::text AS id,
+                      b.name,
+                      m.role,
+                      m.status,
+                      (b.owner_id = u.id) AS owned
+                    FROM users u
+                    JOIN memberships m ON m.user_id = u.id
+                    JOIN businesses b ON b.id = m.business_id
+                    WHERE lower(u.email) = lower($1)
+                      AND m.status = $2
+                    ORDER BY (b.owner_id = u.id) DESC, b.name COLLATE "C", b.id
+                  `, [email, "active"]);
+                  process.stdout.write(JSON.stringify(result.rows));
+                })().finally(() => client.end()).catch((error) => {
+                  console.error(error.message);
+                  process.exit(1);
+                });
+              ' "${OWNER_EMAIL}"
+            } 2>/dev/null)"
+
+            MEMBERSHIP_JSON="${membership_json}" python3 - <<'PY'
+          import json
+          import os
+
+          rows = json.loads(os.environ["MEMBERSHIP_JSON"])
+          print(f"active_business_count={len(rows)}")
+          for row in rows:
+              print(
+                  "business_id={id} owned={owned} role={role} name={name}".format(
+                      id=row["id"],
+                      owned=str(bool(row["owned"])).lower(),
+                      role=row["role"],
+                      name=row["name"],
+                  )
+              )
+          PY
+
+            if [ "${ROLLOUT_ACTION}" = "inspect" ]; then
+              echo "Inspection only; production configuration is unchanged."
+              exit 0
+            fi
+
+            if [ "${ROLLOUT_ACTION}" = "allowlist" ]; then
+              MEMBERSHIP_JSON="${membership_json}" BUSINESS_ID="${BUSINESS_ID}" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          target = os.environ["BUSINESS_ID"].lower()
+          rows = json.loads(os.environ["MEMBERSHIP_JSON"])
+          matched = [row for row in rows if row["id"].lower() == target]
+          if len(matched) != 1:
+              print("Refusing rollout: the account has no active membership for the requested business.")
+              sys.exit(1)
+          PY
+              target_mode="allowlist"
+              target_ids="${BUSINESS_ID}"
+            else
+              target_mode="off"
+              target_ids=""
+            fi
+
+            env_file=.env.production
+            if [ ! -f "${env_file}" ]; then
+              echo "Refusing rollout: ${env_file} is missing."
+              exit 1
+            fi
+
+            original_image="$(docker inspect "$(docker compose ps -q web)" --format '{{.Config.Image}}')"
+            backup="${env_file}.zero-base-backup-$(date -u +%Y%m%dT%H%M%SZ)"
+            cp -p "${env_file}" "${backup}"
+            tmp="$(mktemp "${env_file}.zero-base.XXXXXX")"
+            cp -p "${env_file}" "${tmp}"
+
+            restore_environment() {
+              cp -p "${backup}" "${env_file}"
+              docker compose up -d --force-recreate web
+              wait_for_expected_build
+            }
+
+            ENV_PATH="${tmp}" TARGET_MODE="${target_mode}" TARGET_IDS="${target_ids}" python3 - <<'PY'
+          import os
+
+          path = os.environ["ENV_PATH"]
+          managed = {
+              "ZERO_BASE_UI_MODE": os.environ["TARGET_MODE"],
+              "ZERO_BASE_UI_BUSINESS_IDS": os.environ["TARGET_IDS"],
+              "ZERO_BASE_MUTATION_UI_ENABLED": "false",
+              "ZERO_BASE_REPORT_SHARE_FAIL_CLOSED": "false",
+          }
+          with open(path, encoding="utf-8") as handle:
+              lines = handle.read().splitlines()
+          kept = [line for line in lines if line.split("=", 1)[0] not in managed]
+          if kept and kept[-1] != "":
+              kept.append("")
+          kept.extend(f"{key}={value}" for key, value in managed.items())
+          with open(path, "w", encoding="utf-8") as handle:
+              handle.write("\n".join(kept) + "\n")
+          PY
+            mv "${tmp}" "${env_file}"
+
+            rollout_failed=0
+            docker compose up -d --force-recreate web || rollout_failed=1
+            if [ "${rollout_failed}" -eq 0 ] && ! wait_for_expected_build; then
+              rollout_failed=1
+            fi
+
+            if [ "${rollout_failed}" -ne 0 ]; then
+              echo "Rollout failed; restoring ${backup}."
+              restore_environment
+              exit 1
+            fi
+
+            current_image="$(docker inspect "$(docker compose ps -q web)" --format '{{.Config.Image}}')"
+            if [ "${current_image}" != "${original_image}" ]; then
+              echo "Image identity changed during rollout; restoring previous environment."
+              restore_environment
+              exit 1
+            fi
+
+            if ! docker compose exec -T web node -e '
+              const expected = {
+                ZERO_BASE_UI_MODE: process.argv[1],
+                ZERO_BASE_UI_BUSINESS_IDS: process.argv[2],
+                ZERO_BASE_MUTATION_UI_ENABLED: "false",
+                ZERO_BASE_REPORT_SHARE_FAIL_CLOSED: "false",
+              };
+              for (const [key, value] of Object.entries(expected)) {
+                if ((process.env[key] ?? "") !== value) {
+                  console.error(`${key} read-back mismatch`);
+                  process.exit(1);
+                }
+                console.log(`${key}=${value}`);
+              }
+            ' "${target_mode}" "${target_ids}"; then
+              echo "Environment read-back failed; restoring previous environment."
+              restore_environment
+              exit 1
+            fi
+
+            echo "live_build_id=$(current_build_id)"
+            echo "web_image=${current_image}"
+            echo "rollback_env_backup=${backup}"
+          REMOTE

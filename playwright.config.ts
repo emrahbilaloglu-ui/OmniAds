@@ -1,6 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+// Which env file the local server boots with.
+//
+// Defaults to `.env.local`, so every existing smoke behaves exactly as before.
+// The zero-base local production smoke points this at a committed,
+// credential-free file: it proves the production build boots and serves, which
+// needs no secrets, and a gate that cannot run without a developer's personal
+// `.env.local` is a gate CI can never hold.
+const serverEnvFile = process.env.PLAYWRIGHT_SERVER_ENV_FILE ?? ".env.local";
 const useWebServer = process.env.PLAYWRIGHT_USE_WEBSERVER !== "0";
 const reuseExistingServer =
   process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"
@@ -83,6 +91,14 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // The only stage that runs the real standalone server. Deliberately has
+      // no auth-setup dependency: it must hold on a machine with no
+      // credentials at all, which is the whole point of it.
+      name: "zero-base-local-production-chromium",
+      testMatch: /zero-base-local-production\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       // Vitals need the built server, so this project is run explicitly
       // against a running instance rather than as part of the harness sweep.
       name: "zero-base-perf-chromium",
@@ -101,8 +117,7 @@ export default defineConfig({
   ],
   webServer: useWebServer
     ? {
-        command:
-          "node --env-file=.env.local scripts/start-local-smoke-server.mjs",
+        command: `node --env-file=${serverEnvFile} scripts/start-local-smoke-server.mjs`,
         url: baseURL,
         reuseExistingServer,
         timeout: 180_000,

@@ -173,7 +173,7 @@
     "test:zero-base:a11y": "npm run zero-base:shell:harness && npm run zero-base:legibility && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-a11y-chromium",
     "zero-base:visual": "node --import tsx scripts/zero-base/visual-regression.ts",
     "test:zero-base:visual": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-visual-chromium",
-    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:locale && npm run test:zero-base:flows && npm run test:zero-base:states && npm run test:zero-base:reference && npm run test:zero-base:fidelity && npm run zero-base:reconcile:frames && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive",
+    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test && npm run test:migrations-from-zero && npm run test:selection-race-seam && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:locale && npm run test:zero-base:flows && npm run test:zero-base:states && npm run test:zero-base:reference && npm run test:zero-base:fidelity && npm run zero-base:reconcile:frames && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive && npm run test:zero-base:visual && npm run test:zero-base:smoke:local && npm run test:zero-base:perf:local",
     "zero-base:locale": "node --import tsx scripts/zero-base/verify-locale-coverage.ts",
     "test:zero-base:routes:http": "node --import tsx scripts/zero-base/route-http-smoke.ts",
     "zero-base:perf:bundles": "node --import tsx scripts/zero-base/measure-performance.ts",
@@ -190,6 +190,8 @@
     "zero-base:reference:extract": "node --import tsx scripts/zero-base/extract-design-reference.ts",
     "test:zero-base:reference": "npm run zero-base:reference:extract && npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-anatomy.ts",
     "zero-base:reference:render": "node --import tsx scripts/zero-base/render-reference.ts",
+    "test:zero-base:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_SERVER_ENV_FILE=playwright/fixtures/zero-base-local-production.env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 playwright test --project=zero-base-local-production-chromium",
+    "test:zero-base:perf:local": "PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_SERVER_ENV_FILE=playwright/fixtures/zero-base-local-production.env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 ZERO_BASE_SMOKE_URL=http://127.0.0.1:3100 playwright test --project=zero-base-perf-chromium && npm run zero-base:perf:bundles",
     "test:zero-base:fidelity": "npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-fidelity.ts"
   },
   "dependencies": {

@@ -11,32 +11,28 @@
  * what lives behind each, because "Account" and "Business" alone do not tell
  * someone where the thing they were looking for went.
  */
+"use client";
+
 import Link from "next/link";
 
-const DESTINATION_COPY: Record<string, { title: string; detail: string }> = {
-  "/me/account-security": {
-    title: "Account & security",
-    detail: "Your name, email, password and the sessions you are signed in on.",
-  },
-  business: {
-    title: "Business settings",
-    detail: "Workspace name, currency, economics, operating mode and deletion.",
-  },
-};
-
-function copyFor(destination: string) {
-  if (destination.startsWith("/me/")) return DESTINATION_COPY["/me/account-security"]!;
-  return DESTINATION_COPY.business!;
-}
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function SettingsChooser({ destinations }: { destinations: readonly string[] }) {
+  const copy = useCopy();
+  const copyFor = (destination: string) =>
+    destination.startsWith("/me/")
+      ? { title: copy.accountAndSecurity, detail: copy.accountAndSecurityDetail }
+      : { title: copy.businessSettings, detail: copy.businessSettingsDetail };
+
   return (
     <main
       data-settings-chooser=""
       data-el="settings-split"
       style={{ maxWidth: 560, margin: "0 auto", padding: 24 }}
     >
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Settings</h1>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
+        {copy.settings}
+      </h1>
       <p
         style={{
           margin: "4px 0 16px",
@@ -46,12 +42,11 @@ export function SettingsChooser({ destinations }: { destinations: readonly strin
         }}
       >
         {/* States the change rather than pretending nothing moved. */}
-        Settings is now two places, because your account and this business are
-        two different things. Both are below.
+        {copy.settingsSplitNote}
       </p>
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
         {destinations.map((destination) => {
-          const copy = copyFor(destination);
+          const entry = copyFor(destination);
           return (
             <li key={destination}>
               <Link
@@ -70,7 +65,7 @@ export function SettingsChooser({ destinations }: { destinations: readonly strin
                 }}
               >
                 <span style={{ display: "block", fontSize: 13, fontWeight: 600 }}>
-                  {copy.title}
+                  {entry.title}
                 </span>
                 <span
                   style={{
@@ -81,7 +76,7 @@ export function SettingsChooser({ destinations }: { destinations: readonly strin
                     color: "var(--ledger-ink-secondary)",
                   }}
                 >
-                  {copy.detail}
+                  {entry.detail}
                 </span>
               </Link>
             </li>

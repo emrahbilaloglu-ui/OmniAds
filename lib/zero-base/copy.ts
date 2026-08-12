@@ -32,6 +32,15 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    settings: "Settings",
+    settingsSplitNote:
+      "Settings is now two places, because your account and this business are two different things. Both are below.",
+    accountAndSecurity: "Account & security",
+    accountAndSecurityDetail:
+      "Your name, email, password and the sessions you are signed in on.",
+    businessSettings: "Business settings",
+    businessSettingsDetail:
+      "Workspace name, currency, economics, operating mode and deletion.",
     clientsAlphabeticalWithheld: "Clients are listed alphabetically, and totals across them are withheld.",
     whatsWithheldAndWhy: "What's withheld and why",
     action: "Action",
@@ -405,6 +414,15 @@ export const ZERO_BASE_COPY = {
     cancel: "Vazgeç",
     save: "Kaydet",
     close: "Kapat",
+    settings: "Ayarlar",
+    settingsSplitNote:
+      "Ayarlar artık iki ayrı yerde, çünkü hesabınız ile bu işletme iki farklı şey. İkisi de aşağıda.",
+    accountAndSecurity: "Hesap ve güvenlik",
+    accountAndSecurityDetail:
+      "Adınız, e-postanız, parolanız ve oturum açtığınız cihazlar.",
+    businessSettings: "İşletme ayarları",
+    businessSettingsDetail:
+      "Çalışma alanı adı, para birimi, ekonomi, çalışma modu ve silme.",
     clientsAlphabeticalWithheld: "Müşteriler alfabetik sıralanır; aralarındaki toplamlar paylaşılmaz.",
     whatsWithheldAndWhy: "Neyin paylaşılmadığı ve nedeni",
     action: "Eylem",

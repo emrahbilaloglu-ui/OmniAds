@@ -226,12 +226,17 @@ jobs:
             changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
             printf 'Changed files:\n%s\n' "${changed_files}"
 
-            if printf '%s\n' "${changed_files}" | grep -Eq "${runtime_regex}"; then
+            # Do not pipe a large file list into `grep -q` under pipefail.
+            # Once grep finds its first match it closes the pipe; printf then
+            # gets EPIPE and the successful match is reported as a failed
+            # pipeline. The zero-base merge was large enough to expose that
+            # false negative and incorrectly skipped both image publishes.
+            if grep -Eq "${runtime_regex}" <<< "${changed_files}"; then
               runtime_changed="true"
               echo "Runtime-affecting change detected."
             fi
 
-            if printf '%s\n' "${changed_files}" | grep -Eq "${schema_regex}"; then
+            if grep -Eq "${schema_regex}" <<< "${changed_files}"; then
               schema_changed="true"
               echo "Schema-affecting change detected."
             fi
@@ -241,7 +246,7 @@ jobs:
             echo "Live build SHA resolved from public build-info: ${live_build_sha}"
             if git cat-file -e "${live_build_sha}^{commit}" 2>/dev/null; then
               live_changed_files="$(git diff --name-only "${live_build_sha}" "${CURRENT_SHA}")"
-              if printf '%s\n' "${live_changed_files}" | grep -Eq "${schema_regex}"; then
+              if grep -Eq "${schema_regex}" <<< "${live_changed_files}"; then
                 schema_changed="true"
                 echo "Schema-affecting change detected between:"
                 echo "live build ${live_build_sha}"
@@ -255,7 +260,7 @@ jobs:
               # The condition that actually matters is this one — production
               # differs from main in a runtime path, so an image for main must
               # exist.
-              if printf '%s\n' "${live_changed_files}" | grep -Eq "${runtime_regex}"; then
+              if grep -Eq "${runtime_regex}" <<< "${live_changed_files}"; then
                 runtime_changed="true"
                 echo "Runtime-affecting change detected between:"
                 echo "live build ${live_build_sha}"

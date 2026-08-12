@@ -194,6 +194,17 @@ jobs:
               exit 1
             fi
 
+            # Pin every compose operation in this workflow to the exact live
+            # release. The deploy workflow injects these values into its own
+            # process, but intentionally does not rewrite .env.production. A
+            # later rollout/recovery must therefore not let a stale image tag
+            # from that file replace the already-verified live image during a
+            # force-recreate.
+            export APP_IMAGE_TAG="${EXPECTED_SHA}"
+            export APP_BUILD_ID="${EXPECTED_SHA}"
+            export WEB_IMAGE_REPO="ghcr.io/emrahbilaloglu-ui/omniads-web"
+            export WORKER_IMAGE_REPO="ghcr.io/emrahbilaloglu-ui/omniads-worker"
+
             membership_json="$({
               docker compose exec -T web node -e '
                 const { Client } = require("pg");

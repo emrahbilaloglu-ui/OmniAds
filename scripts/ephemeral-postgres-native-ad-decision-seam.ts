@@ -775,10 +775,18 @@ async function verifyMetaAdDailyWriteOwnershipAuthority(
       );
     },
     (error) => {
+      // The refusal names the boundary, the owner and the mode it turned away.
+      //
+      // This used to compare against "Unsupported Meta Ad daily write mode:
+      // creative_enrichment" — the wording before D066 gave meta_ad_daily a
+      // single owner and made the refusal say so. The boundary still holds; the
+      // literal here had simply gone stale, and it is the one thing this seam
+      // is for, so it is matched on what the refusal must state rather than on
+      // one exact sentence.
       assert(
         error instanceof Error &&
-          error.message ===
-            "Unsupported Meta Ad daily write mode: creative_enrichment",
+          error.message.startsWith("meta_ad_daily_write_mode_unauthorized") &&
+          error.message.includes("creative_enrichment"),
         `Creative enrichment did not fail closed at the ownership boundary: ${String(error)}`,
       );
     },

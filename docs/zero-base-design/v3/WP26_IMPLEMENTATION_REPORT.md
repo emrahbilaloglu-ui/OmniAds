@@ -1274,23 +1274,145 @@ the gate is not merely strict.
 8. Two controls existed **twice** — added by an earlier pass without removing.
 9. Several ordering inversions against the reference.
 
-### Current state — G10 is RED
+### Closing the 98 findings
+
+The gate opened at **98 findings across 38 artboards**. Every one is now closed,
+and none by relaxing a check that was right. Two classes came up:
+
+**Real product defects the design named and the product lacked.** A connected
+provider row rendered an em dash — the one state where the reader has something
+to do (move the account, change the property or site, disconnect) and the row
+offered nothing. A pending invitation could only be withdrawn, never re-sent, so
+the common case of a mail lost to spam meant withdrawing and starting over. The
+source-readiness table answered "unavailable" the same way for a source never
+connected, one connected with nothing selected to read from, and one merely
+stale. The scope-switch empty state stated a problem and gave no way to act on
+it. A banner named a source as unavailable and left the reader to find the
+remedy. Below 480px every table was as wide as its longest column heading,
+because `white-space: nowrap` was inline and could not be overridden; the plan's
+per-step Copy and CSV controls were off the side of the screen at 320 and 390.
+Inputs overflowed their container by exactly their padding, for want of
+`box-sizing: border-box`. Grid and flex items could not shrink below their own
+content, so a six-column table made the whole surface as wide as itself.
+
+**Composition the design fixes and the implementation had drifted from.** The
+report builder drew its export controls above the canvas they export; the
+automation surface put the mode selector before the guardrails that bound it;
+the nav drawer listed destinations above the scope that decides where they lead;
+login buried the forgotten-password link below the button that rejects you;
+history stated its gap before the filters that produce the list; the agency desk
+put the withheld explainer after the rows at desk width, where the design puts it
+before. Twenty-six surfaces in total.
+
+### Corrections to the gate itself
+
+Four checks were wrong in the direction of false accusation, and each was fixed
+by making it state the design's claim more exactly rather than more loosely.
+Every one is covered by a mutation control that still fails when the claim is
+actually violated:
+
+- **Containment, not parentage.** Requiring the reference's owner to be the
+  *nearest* marker ancestor forbade putting a real table inside a region the
+  design itself draws a table in. The chain is now checked, so nesting deeper
+  passes and nesting elsewhere still fails.
+- **Which occurrence.** A repeated marker was judged by whichever came first in
+  document order, so a frame that *did* place the control inside the named
+  region failed because an unrelated second occurrence was found first. The
+  occurrence that satisfies the containment is now the one compared; when none
+  does, it still fails.
+- **Order across layers.** An overlay covers the surface rather than following
+  it, so "above" and "below" do not apply across that boundary.
+- **Order across a collection boundary.** A row's height on screen is decided by
+  how many rows precede it in the data. The design fixes where the collection
+  goes, not which row lands beside what.
+
+One check was added, because a real defect had no way to surface: **a surface
+that scrolls sideways**. No single marker's geometry reveals it — the controls
+pushed off the edge are reachable, by a gesture nobody knows is available. It is
+judged against the width the artboard declares, not against whether the mock's
+own page scrolls (the reference is one long document holding every artboard, so
+it scrolls sideways on 77 of the 83 — reading that as permission made the first
+version of this check inert). A container that declares itself a horizontal
+scroller is exempt, so a six-column plan table may scroll inside its own frame
+while the surface stays put. This check alone found three more defects: the
+search overlay and the mutation ceremony at 1440, and the Google plan at 320.
+
+**Verified against a real regression, not only synthetic ones.** Reverting the
+table-wrapping fix and rebuilding made the gate fail on 14 frames; restoring it
+returned to green. The mutation controls cover the comparator; this covers the
+whole chain from extractor to verdict.
+
+### Current state — G10 is GREEN
 
 ```
+archive sha256      0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d
 artboards compared  83/83
-frames matching     45/83
-placement 64 · wrong-owner 18 · missing 10 · clipped 4 · invisible 2
+frames matching     83/83
 ```
 
-**98 findings across 38 artboards**, each naming its artboard, marker and the
-specific difference. G10 must not be called green until these reach zero.
+```
+evidence set: playwright/artifacts/zero-base/a02d86c601/wp26-g10-release
+RECONCILED: 92/92 (100.0%)
+frames rendering a substituted fragment   0
+reference comparison                     83/83 artboards
+```
 
-### Not done
+The evidence is bound to the tree that produced it. Two candidate sets were
+correctly refused as ambiguous during this work, and a set was correctly refused
+as stale after three files changed post-capture — the gate named the three files.
+Both refusals were resolved by recapturing, never by loosening the check.
 
-- **No recapture.** The existing set is correctly rejected as unverifiable, so
-  nothing stale is passing. Recapturing against a tree whose fidelity gate fails
-  would repeat the original defect in a new form.
-- Release aggregate, full Vitest twice and the production build have not been
-  run since the last fixes.
+### Gates run on the final tree
 
-G7 remains 142/142 and G6 38/38, untouched. G9 stays red. WP-27A not started.
+| Gate | Result |
+| --- | --- |
+| `test:zero-base:release` (13 stages) | PASS |
+| G6 state cases | 38/38 |
+| G7 interaction keys | 142/142 |
+| Flow cases | 71/71 across 13 flows |
+| G10 fidelity | 83/83 artboards |
+| G10 reconciliation | 92/92, 0 substitutions |
+| a11y / responsive Playwright | 85 + 84 passed |
+| Full Vitest, run 1 | 9323 passed, 61 skipped, 63 todo |
+| Full Vitest, run 2 | 9323 passed, 61 skipped, 63 todo |
+| `typecheck` | clean |
+| `eslint .` | clean |
+| `next build --webpack` | succeeded |
+| `verify-database-seams.sh` | 25 of 34 stages pass; stage 26 fails (pre-existing, below) |
+
+`test:zero-base:fidelity` is now part of `test:zero-base:release`, so a future
+change cannot pass the release gate while the design fidelity gate is red.
+
+### Two flaky assertions repaired
+
+The full suite failed intermittently — roughly one run in three — on two tests
+neither of which this work touches, both brittle rather than wrong:
+
+- `lib/sync/worker-retirement.test.ts` asserted the refusal said `after 0ms`. The
+  figure is measured, not configured: a loaded machine reports 1ms. It now
+  matches `after \d+ms`, still requiring the refusal to name the lease and the
+  wait.
+- `components/zero-base/ops/ops.test.tsx` first-compiles two API route module
+  graphs inside the default 5s budget. It now has an explicit 30s budget; the
+  assertions are unchanged.
+
+With these repaired the full suite ran clean twice in succession.
+
+### Pre-existing failures, reported not hidden
+
+1. **Native ad decision seam (stage 5) — repaired.** The seam asserted the exact
+   sentence `Unsupported Meta Ad daily write mode: creative_enrichment`, but
+   commit `480ff988d` ("Give meta_ad_daily exactly one owner") changed the
+   refusal to `meta_ad_daily_write_mode_unauthorized: …`. The boundary still
+   failed closed — only the literal had gone stale, and it predates this phase's
+   starting commit. The assertion now matches what the refusal must state.
+2. **Cutover runner package (stage 26) — reported, not touched.** `R1c an
+   UPPERCASE-hex digest is refused` fails because the wrapper refuses it for the
+   wrong reason: the presence check runs before the digest-format check, so the
+   refusal says "is not present on this host" instead of "is not
+   sha256:<64 lowercase hex>". `scripts/cutover-runner-package-check.sh` and the
+   wrapper are untouched by this phase. Reordering refusals in a cutover wrapper
+   is a deployment-safety change outside WP-26, so it is left for its owner.
+
+G7 remains 142/142 and G6 38/38, independently rerun on the final tree. G9 stays
+red. WP-27A not started. `/Users/harmelek/Adsecute` is untouched at `c46d91c2a`.

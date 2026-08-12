@@ -328,10 +328,12 @@ jobs:
                 exit 1
               fi
 
-              original_worker_image="$(docker inspect "$(docker compose ps -q worker)" --format '{{.Config.Image}}' 2>/dev/null || true)"
+              original_worker_id="$(docker compose ps -q worker)"
+              original_worker_image="$(docker inspect "${original_worker_id}" --format '{{.Config.Image}}' 2>/dev/null || true)"
+              original_worker_image_id="$(docker inspect "${original_worker_id}" --format '{{.Image}}' 2>/dev/null || true)"
               expected_worker_image="ghcr.io/emrahbilaloglu-ui/omniads-worker:${EXPECTED_SHA}"
-              if [ "${original_worker_image}" != "${expected_worker_image}" ]; then
-                echo "Refusing recovery: worker image ${original_worker_image:-unknown} is not ${expected_worker_image}."
+              if [ "${original_worker_image}" != "${expected_worker_image}" ] || [ -z "${original_worker_image_id}" ]; then
+                echo "Refusing recovery: worker image ${original_worker_image:-unknown} (${original_worker_image_id:-unknown}) is not ${expected_worker_image}."
                 exit 1
               fi
 
@@ -361,7 +363,7 @@ jobs:
           PY
               mv "${tmp}" "${env_file}"
 
-              if ! docker compose up -d --force-recreate worker; then
+              if ! docker compose up -d --force-recreate --no-deps worker; then
                 cp -p "${backup}" "${env_file}"
                 exit 1
               fi
@@ -381,15 +383,17 @@ jobs:
               if [ "${worker_healthy}" != "true" ]; then
                 echo "Bounded override did not restore worker; restoring previous environment."
                 cp -p "${backup}" "${env_file}"
-                docker compose up -d --force-recreate worker || true
+                docker compose up -d --force-recreate --no-deps worker || true
                 exit 1
               fi
 
-              current_worker_image="$(docker inspect "$(docker compose ps -q worker)" --format '{{.Config.Image}}')"
-              if [ "${current_worker_image}" != "${expected_worker_image}" ]; then
-                echo "Worker image identity changed during recovery."
+              current_worker_id="$(docker compose ps -q worker)"
+              current_worker_image="$(docker inspect "${current_worker_id}" --format '{{.Config.Image}}')"
+              current_worker_image_id="$(docker inspect "${current_worker_id}" --format '{{.Image}}')"
+              if [ "${current_worker_image}" != "${expected_worker_image}" ] || [ "${current_worker_image_id}" != "${original_worker_image_id}" ]; then
+                echo "Worker image identity changed during recovery: before=${original_worker_image} (${original_worker_image_id}) after=${current_worker_image} (${current_worker_image_id})."
                 cp -p "${backup}" "${env_file}"
-                docker compose up -d --force-recreate worker || true
+                docker compose up -d --force-recreate --no-deps worker || true
                 exit 1
               fi
 
@@ -407,6 +411,7 @@ jobs:
 
               echo "worker_recovered=true"
               echo "worker_image=${current_worker_image}"
+              echo "worker_image_id=${current_worker_image_id}"
               echo "override_expires_at=${override_expires_at}"
               echo "rollback_env_backup=${backup}"
               exit 0

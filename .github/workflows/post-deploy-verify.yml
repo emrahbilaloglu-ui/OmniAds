@@ -64,7 +64,7 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Verify public document styles
+      - name: Verify public and workspace documents
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
@@ -72,12 +72,18 @@ jobs:
           set -euo pipefail
 
           mkdir -p .artifacts
-          curl -sS --retry 4 --retry-all-errors \
+          login_status="$(curl -sS --retry 4 --retry-all-errors \
+            -w '%{http_code}' \
             "https://adsecute.com/login?post_deploy_style=${EXPECTED_SHA}" \
-            -o .artifacts/public-login.html
+            -o .artifacts/public-login.html)"
+
+          if [ "${login_status}" != "200" ]; then
+            echo "Public login did not render successfully (HTTP ${login_status})."
+            exit 1
+          fi
 
           if ! grep -q '<link rel="stylesheet"' .artifacts/public-login.html; then
-            echo "Public workspace response has no stylesheet entry."
+            echo "Public login has no stylesheet entry."
             exit 1
           fi
 
@@ -89,14 +95,31 @@ jobs:
             exit 1
           fi
 
-          : > .artifacts/public-workspace.css
+          : > .artifacts/public-login.css
           for stylesheet_path in "${stylesheet_paths[@]}"; do
             curl -fsS --retry 4 --retry-all-errors \
               "https://adsecute.com${stylesheet_path}" \
-              >> .artifacts/public-workspace.css
+              >> .artifacts/public-login.css
           done
-          if ! grep -q -- '--font-adc-sans' .artifacts/public-workspace.css; then
-            echo "The emitted stylesheet does not contain the canonical workspace design contract."
+          if ! grep -q -- '--font-adc-sans' .artifacts/public-login.css; then
+            echo "The emitted login stylesheet does not contain the canonical design contract."
+            exit 1
+          fi
+
+          workspace_status="$(curl -sS --retry 4 --retry-all-errors \
+            -D .artifacts/workspace-redirect.headers \
+            -w '%{http_code}' \
+            "https://adsecute.com/app/home?post_deploy_style=${EXPECTED_SHA}" \
+            -o .artifacts/workspace-redirect.html)"
+
+          if [ "${workspace_status}" != "307" ]; then
+            echo "Anonymous workspace request did not return the expected auth redirect (HTTP ${workspace_status})."
+            exit 1
+          fi
+
+          if ! tr -d '\r' < .artifacts/workspace-redirect.headers \
+            | grep -Eq '^location: /login\?next=%2Fapp%2Fhome$'; then
+            echo "Anonymous workspace redirect does not point to the clean login URL."
             exit 1
           fi
 
@@ -166,6 +189,8 @@ jobs:
           path: |
             .artifacts/post-deploy-release-authority.json
             .artifacts/public-login.html
-            .artifacts/public-workspace.css
+            .artifacts/public-login.css
+            .artifacts/workspace-redirect.headers
+            .artifacts/workspace-redirect.html
           if-no-files-found: error
           include-hidden-files: true

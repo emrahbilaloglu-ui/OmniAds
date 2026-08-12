@@ -1534,7 +1534,7 @@ regression added below.)
 ### Final evidence fingerprint
 
 ```
-final commit            1d223f6754bfed2d1abbad591db758530aa175a4
+gates last run at       7d8c144e463f7921422109bdf1f4b2115792a803
 design archive sha256   0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d
 master plan sha256      79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613 (verified)
 evidence set            playwright/artifacts/zero-base/869bd73e6f/wp26-release-gate
@@ -1545,6 +1545,11 @@ frames                  92
 
 No render-affecting file changed after that capture, so the recorded fingerprint
 still describes the tree; stage 14 re-verified this on the final run.
+
+Any commit after `7d8c144e46` is documentation only — this file and
+`EXECUTION_LEDGER.md` — which `git diff --stat 7d8c144e46..HEAD` shows directly.
+None of them is on the render-source list, so the fingerprint above stands
+without a recapture, and the provenance gate would say so if it did not.
 
 ### The rebuilt gate immediately earned its keep
 

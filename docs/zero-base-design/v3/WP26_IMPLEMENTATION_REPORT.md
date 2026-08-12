@@ -1429,12 +1429,23 @@ fixed the same deletion fails the smoke by name.
 
 ### A locale-dependent digest validator, found by a seam
 
-The previous report said the cutover runner package check (seam stage 26) was
-failing. Review reported it now passes. **It did not** — on this tree
-`npm run test:cutover-runner-package` exited **1** with
-`FAIL R1c an UPPERCASE-hex digest is refused`. The likely reason for the
-disagreement is that the command's output was read through a pipe, so the exit
-status observed was the pipe's and not the command's.
+**Status now: PASS.** `npm run test:cutover-runner-package` exits **0**, every
+check including R1c, and `verify-database-seams.sh` completes all 34 stages.
+The earlier statement that seam stage 26 was failing is **retracted as a
+description of the current tree** — it is fixed, at cause, below.
+
+The timeline matters, because two readings of the same command disagreed:
+
+- At `b0afec2b0`, the tree the previous report described, the check genuinely
+  **exited 1** with `FAIL R1c an UPPERCASE-hex digest is refused`. That
+  statement was accurate for that tree.
+- Review then reported it passing. It was not: re-run on that same tree it
+  still exited 1. The most likely reason for the disagreement is that the
+  output was read through a pipe, so the status observed was the pipe's and not
+  the command's — the same trap caught the first attempt at re-checking it here,
+  which is why the exit codes in the table below are all read directly.
+- It now passes because the defect was found and fixed, not because it was
+  re-examined more favourably.
 
 The cause was worth the trouble of finding:
 
@@ -1491,6 +1502,7 @@ status read directly, not through a pipe.
 | `npm run creative:decision:native-ad-frozen-acceptance` | 0 | 22 tests |
 | `npm run test:cutover-runner-package` | **0** | every check incl. R1c |
 | `bash scripts/verify-database-seams.sh` | **0** | **34 of 34 stages** |
+| `npx vitest run lib/zero-base/render-provenance.test.ts scripts/zero-base/verify-reference-fidelity.test.ts` | 0 | **40 provenance/fidelity mutation controls** |
 
 Full Vitest was additionally run twice back to back before this: 9323 passed
 both times.

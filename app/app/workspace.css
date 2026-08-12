@@ -1,0 +1,34 @@
+/*
+ * Route-owned style entry for the canonical authenticated workspace.
+ *
+ * Keep this as an import of the single global source rather than a copied
+ * bundle. Next emits it on the /app layout boundary, so a recovery document
+ * cannot silently drop the design system while data and navigation still work.
+ */
+@import "../globals.css";
+
+@font-face {
+  font-family: "Adsecute Sans";
+  src: url("/fonts/zero-base/schibsted-grotesk-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Adsecute Mono";
+  src: url("/fonts/zero-base/fragment-mono-400.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --font-adc-sans: "Adsecute Sans";
+  --font-adc-mono: "Adsecute Mono";
+}
+
+body {
+  font-family: var(--font-adc-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}

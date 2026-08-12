@@ -496,4 +496,4 @@ jobs:
 
           remote_payload="$(base64 < "${remote_script}" | tr -d '\n')"
           ssh -T "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "printf '%s' '${remote_payload}' | EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seuo pipefail"
+            "printf '%s' '${remote_payload}' | base64 -d | EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -seuo pipefail"

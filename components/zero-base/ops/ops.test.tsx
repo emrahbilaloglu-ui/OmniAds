@@ -235,11 +235,14 @@ describe("the two admin repair semantics stay apart", () => {
     expect(outcome.detail).toMatch(/did not complete/);
   });
 
+  // Generous, because the work is a first compile of two API route module
+  // graphs rather than anything the assertions do. Under a full-suite run
+  // those graphs land on a busy worker and exceed the default budget.
   it("verifies the real routes exist with the methods named", async () => {
     const shopify = (await import("@/app/api/admin/integrations/health/shopify/route")) as Record<string, unknown>;
     const sync = (await import("@/app/api/admin/sync-health/route")) as Record<string, unknown>;
     expect(typeof shopify.PATCH).toBe("function");
     expect(typeof sync.POST).toBe("function");
     expect(typeof sync.GET).toBe("function");
-  });
+  }, 30_000);
 });

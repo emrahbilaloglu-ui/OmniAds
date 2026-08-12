@@ -27,7 +27,62 @@ The authoritative current state is the last three sections only:
   directly and not through a pipe
 - **`### Final evidence fingerprint`** — the commit, the archive digest, the
   evidence set and its render fingerprint
-- **`### G1–G11 status`** — the gate table that holds now
+- **`### Three defects found at the final phase boundary
+
+Independent review accepted the aggregate's structure and found three things
+still wrong. All three were real.
+
+**1. The assignment draft had no way to give ownership back.** The previous fix
+stopped a late read from discarding an operator's tick, but only by setting a
+flag on the first tick that nothing ever cleared except a provider change. The
+comment claimed ownership lasted "until they save or cancel"; the code did
+neither. Save called `onSave(draft)` and left the flag set, so the read-back of
+that very save was ignored — and so was every later change anyone else made,
+for the life of the panel. Cancel called `onCancel()` without putting the served
+set back, leaving the discarded tick on screen.
+
+Ownership now begins at the first tick and ends in exactly three ways, each one
+something the operator did: a save the server **confirmed by re-reading**
+(`state.confirmed` — the write returning is not evidence anything was stored), a
+Cancel that restores the served set *before* the caller is told, or a provider
+change, which is a different question about a different account list. A save
+that failed or has not been confirmed keeps the draft, so the operator can
+correct and retry instead of retyping.
+
+The race is closed by recording *which* served set the draft corresponds to
+rather than by a flag alone: on a confirmed save that record becomes what was
+saved, so the fresh read arriving a moment later is recognised as agreement and
+does not flicker the selection back through the old value.
+
+Six tests cover it through the production owner. **Two fail against the previous
+code** — confirmed-save rebase and Cancel restore/resync. The other four are
+guards, and the report says so rather than implying they caught something:
+failed-save preservation, unconfirmed-save preservation, and provider reset both
+with a different served set and with an identical one.
+
+**2. The production smoke's public set was a sample, not a denominator.** It
+said "every surface reachable without an account" while listing nine routes and
+omitting `/about`, `/security` and `/ai-transparency`. It now reads the set from
+`MARKETING_PAGES` — the same list the copy snapshot and the marketing tests use,
+whose exact ids `marketing.test.ts` already pins — plus `/login` and `/signup`,
+and asserts the count so a silently dropped surface fails instead of shrinking
+the run. Each exclusion is now stated with its reason: `/reset` and
+`/select-language` redirect rather than render; the tokenized share routes need
+a valid fixture and an invalid token exercises the refusal path, not the render
+path; `/shopify/connect` depends on Shopify-supplied parameters. Each marketing
+entry gained its served `url`, because route groups make deriving it from the
+file path wrong.
+
+**3. A dead refusal arm, introduced by my own earlier patch.** The
+`artifact_sha` case in `hetzner-sync-cutover.sh` ended with two consecutive
+catch-all `*)` arms; the second was unreachable. Removed. The two remaining arms
+still cover everything — empty or non-hex is malformed, and whatever survives
+must be exactly 64 characters — verified directly: empty, `zz`, `AAAA` and a
+3-character digest are all refused under a UTF-8 locale, and a valid 64-hex
+digest is accepted. `bash -n` clean, the wrapper manifest re-emitted, and all 34
+seam stages pass.
+
+### G1–G11 status`** — the gate table that holds now
 
 If an earlier passage disagrees with those three, those three are correct.
 
@@ -1505,7 +1560,7 @@ status read directly, not through a pipe.
 | `npm run test:zero-base:contract` | 0 | 17 tests |
 | `npm run typecheck` | 0 | clean |
 | `npm run lint` | 0 | clean |
-| `npm run test` | 0 | 9324 passed, 61 skipped, 63 todo |
+| `npm run test` | 0 | 9330 passed, 61 skipped, 63 todo |
 | `npm run test:migrations-from-zero` | 0 | schema from zero, idempotent |
 | `npm run test:selection-race-seam` | 0 | S1–S7 |
 | `npm run test:zero-base:routes` | 0 | route matrix sound |
@@ -1526,28 +1581,27 @@ status read directly, not through a pipe.
 | `bash scripts/verify-database-seams.sh` | **0** | **34 of 34 stages** |
 | `npx vitest run lib/zero-base/render-provenance.test.ts scripts/zero-base/verify-reference-fidelity.test.ts` | 0 | **40 provenance/fidelity mutation controls** |
 
-`npx vitest run` was additionally run twice back to back on this tree, outside
-the aggregate: exit 0 both times, **9324 passed / 61 skipped / 63 todo** both
-times. (An earlier pass recorded 9323 twice; the extra test is the assignment
-regression added below.)
+`npx vitest run` was additionally run twice back to back at `7d8c144e46`: exit 0
+both times, 9324 passed. The final tree carries six more assignment-lifecycle
+tests, so the aggregate's stage 4 reports **9330 passed / 61 skipped / 63 todo**.
 
 ### Final evidence fingerprint
 
 ```
-gates last run at       7d8c144e463f7921422109bdf1f4b2115792a803
+gates last run at       2237e2cfee3ede448fad3ad9f9cea251bd034077
 design archive sha256   0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d
 master plan sha256      79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613 (verified)
-evidence set            playwright/artifacts/zero-base/869bd73e6f/wp26-release-gate
-evidence commit         869bd73e6f
-render fingerprint      02e935dde6a4ab83eac779ace817b456dd09604fab8ce7156dfdb49de6a15184
+evidence set            playwright/artifacts/zero-base/743380cc3c/wp26-lifecycle
+evidence commit         743380cc3c
+render fingerprint      5cb0e84bb4323956b4e6b97b013b36d5131a5310f792b9b86c5071f3b245468f
 frames                  92
 ```
 
 No render-affecting file changed after that capture, so the recorded fingerprint
 still describes the tree; stage 14 re-verified this on the final run.
 
-Any commit after `7d8c144e46` is documentation only — this file and
-`EXECUTION_LEDGER.md` — which `git diff --stat 7d8c144e46..HEAD` shows directly.
+Any commit after `2237e2cfee` is documentation only — this file and
+`EXECUTION_LEDGER.md` — which `git diff --stat 2237e2cfee..HEAD` shows directly.
 None of them is on the render-source list, so the fingerprint above stands
 without a recapture, and the provenance gate would say so if it did not.
 

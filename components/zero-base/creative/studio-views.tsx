@@ -30,7 +30,7 @@ import legacyStyles from "@/components/zero-base/legacy-workspace-interior.modul
 function Surface({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className={legacyStyles.workspace}>
-      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{title}</h1>
       <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Business-scoped creative workflow and source-backed records.</p>
       <div style={{ marginTop: 16 }}>{children}</div>

@@ -114,7 +114,7 @@ export function CreativePerformanceView({
 
   return (
     <div data-creative-performance="" className={legacyStyles.workspace}>
-      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.creativeIntelligence}

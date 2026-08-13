@@ -155,6 +155,21 @@ describe("Sparkline has a real alternative", () => {
     expect(cells.map((cell) => cell.textContent)).toEqual(["10", "—", "30"]);
   });
 
+  it("shows the exact date and value on hover and focus", async () => {
+    const user = userEvent.setup();
+    render(<Sparkline title="Revenue" points={points} unit="currency" currency="USD" />);
+
+    const point = screen.getByRole("button", { name: "Revenue, 2026-08-03: USD 30" });
+    await user.hover(point);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Aug 03, 2026");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("USD 30");
+    await user.unhover(point);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    await user.click(point);
+    expect(screen.getByRole("tooltip")).toBeVisible();
+  });
+
   it("breaks the line at a gap instead of dropping to zero", () => {
     const { container } = render(<Sparkline title="Revenue" points={points} unit="count" />);
     expect(container.querySelectorAll("polyline")).toHaveLength(2);

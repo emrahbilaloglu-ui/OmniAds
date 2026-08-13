@@ -286,6 +286,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     businessId: resolvedBusinessId,
     providerAccountId,
     asOfDate: asOf,
+    creativeIds: creativeIds ? [...creativeIds] : undefined,
   });
   if (inventory.status === "unavailable") {
     return NextResponse.json(
@@ -346,7 +347,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     dataSource: "native_persisted_generation",
     generation: inventory.generation,
     inventory: {
-      preFilterCount: inventory.items.length,
+      preFilterCount: inventory.generation.expectedAdCount,
       selectedCount: selectedItems.length,
       identityGrain: "ad",
       items: selectedItems,

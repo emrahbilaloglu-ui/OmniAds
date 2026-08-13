@@ -20,6 +20,7 @@
  *   so their absence is visible rather than silent.
  */
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaOsAdDecision } from "@/lib/meta/decisions-os-contract";
 import type { EnginePosture } from "@/lib/zero-base/creative/engine-posture";
 
 /** The subset of the served creative row this surface reads. */
@@ -73,10 +74,18 @@ export interface PerformanceRow {
    * verdict from the metrics beside it.
    */
   decision: {
+    kind: "single" | "multiple";
     buyerAction: string | null;
     buyerLabel: string;
     decisionState: string;
     effectiveTargetRoas: number | null;
+    items: Array<{
+      adId: string;
+      buyerAction: string | null;
+      buyerLabel: string;
+      decisionState: string;
+      effectiveTargetRoas: number | null;
+    }>;
   } | null;
 }
 
@@ -164,6 +173,8 @@ export function hasUsableIdentity(row: ServedCreativeRow): boolean {
 export function buildPerformanceViewModel(input: {
   rows: readonly ServedCreativeRow[];
   canonicalDecisions?: readonly MetaCanonicalDecision[];
+  /** Server-owned OS fallback used when the native canonical endpoint is unavailable. */
+  servedOsDecisions?: readonly MetaOsAdDecision[];
   /** The server's own total when it supplies one. */
   totalAvailable?: number | null;
   posture: EnginePosture;
@@ -174,25 +185,111 @@ export function buildPerformanceViewModel(input: {
   const total = input.totalAvailable ?? null;
   const capped = total !== null && total > usable.length;
 
+  type JoinedDecision = {
+    providerAccountId: string;
+    adId: string;
+    creativeId: string;
+    buyerAction: string | null;
+    buyerLabel: string;
+    decisionState: string;
+    effectiveTargetRoas: number | null;
+  };
+  const canonical = (input.canonicalDecisions ?? []).flatMap((decision): JoinedDecision[] => {
+    const adId = decision.parentChain.ad?.id?.trim();
+    const creativeId = decision.parentChain.creative?.id?.trim();
+    if (!adId || !creativeId || !decision.providerAccountId) return [];
+    return [{
+      providerAccountId: decision.providerAccountId,
+      adId,
+      creativeId,
+      buyerAction: decision.classification.buyerAction,
+      buyerLabel: decision.classification.buyerLabel,
+      decisionState: decision.classification.decisionState,
+      effectiveTargetRoas: Number.isFinite(decision.metrics.effectiveTargetRoas)
+        ? decision.metrics.effectiveTargetRoas
+        : null,
+    }];
+  });
+  // The OS projection is already a server decision contract. It is used only
+  // when native canonical inventory could not be served; the client never
+  // promotes its review-only action into provider-write authority.
+  const joined = canonical.length > 0
+    ? canonical
+    : (input.servedOsDecisions ?? []).flatMap((decision): JoinedDecision[] => {
+        const adId = decision.adId?.trim();
+        const creativeId = decision.creativeId?.trim();
+        if (!adId || !creativeId || !decision.providerAccountId) return [];
+        return [{
+          providerAccountId: decision.providerAccountId,
+          adId,
+          creativeId,
+          buyerAction: decision.action.code,
+          buyerLabel: decision.action.label,
+          decisionState: decision.lane,
+          effectiveTargetRoas: Number.isFinite(decision.metrics.effectiveTargetRoas)
+            ? decision.metrics.effectiveTargetRoas
+            : null,
+        }];
+      });
   const decisionsByExactAd = new Map(
-    (input.canonicalDecisions ?? []).flatMap((decision) => {
-      const adId = decision.parentChain.ad?.id?.trim();
-      return adId && decision.providerAccountId
-        ? [[`${decision.providerAccountId}\u0000${adId}`, decision] as const]
-        : [];
-    }),
+    joined.map((decision) => [
+      `${decision.providerAccountId}\u0000${decision.adId}`,
+      decision,
+    ] as const),
   );
+  const decisionsByCreative = new Map<string, JoinedDecision[]>();
+  for (const decision of joined) {
+    const key = `${decision.providerAccountId}\u0000${decision.creativeId}`;
+    decisionsByCreative.set(key, [
+      ...(decisionsByCreative.get(key) ?? []),
+      decision,
+    ]);
+  }
+
+  const summarize = (decision: JoinedDecision) => ({
+    adId: decision.adId,
+    buyerAction: decision.buyerAction,
+    buyerLabel: decision.buyerLabel,
+    decisionState: decision.decisionState,
+    effectiveTargetRoas: decision.effectiveTargetRoas,
+  });
 
   const rows = usable.map((row) => {
     const currency = row.currency?.trim() || input.defaultCurrency?.trim() || null;
     const fmt = money(currency);
-    const canonicalDecision = row.real_ad_id
+    const exactDecision = row.real_ad_id
       ? decisionsByExactAd.get(`${row.account_id}\u0000${row.real_ad_id}`) ?? null
       : null;
+    const creativeDecisions = decisionsByCreative.get(
+      `${row.account_id}\u0000${row.creative_id}`,
+    ) ?? [];
+    const singleDecision = exactDecision ?? (creativeDecisions.length === 1 ? creativeDecisions[0]! : null);
+    const summaries = singleDecision
+      ? [summarize(singleDecision)]
+      : creativeDecisions.map(summarize).filter((item) => item.adId);
+    const decision = singleDecision
+      ? {
+          kind: "single" as const,
+          ...summaries[0]!,
+          items: summaries,
+        }
+      : summaries.length > 1
+        ? {
+            kind: "multiple" as const,
+            buyerAction: null,
+            buyerLabel: `${summaries.length} Ad decisions`,
+            decisionState: "Review each Ad separately",
+            effectiveTargetRoas: null,
+            items: summaries,
+          }
+        : null;
     return {
       id: row.id || row.creative_id,
       creativeId: row.creative_id,
-      adId: row.real_ad_id?.trim() || null,
+      // A synthetic warehouse row id is never allowed into an exact-Ad link.
+      // Single canonical matches supply the real Ad id; ambiguous creatives
+      // deliberately keep this null and expose every Ad in the drawer.
+      adId: decision?.kind === "single" ? decision.items[0]?.adId ?? null : null,
       accountId: row.account_id,
       name: row.name,
       campaignName: row.campaign_name?.trim() || null,
@@ -204,16 +301,7 @@ export function buildPerformanceViewModel(input: {
       cpa: toMetric(row.cpa, fmt),
       purchases: toMetric(row.purchases, whole),
       media: mediaStateFor(row),
-      decision: canonicalDecision
-        ? {
-            buyerAction: canonicalDecision.classification.buyerAction,
-            buyerLabel: canonicalDecision.classification.buyerLabel,
-            decisionState: canonicalDecision.classification.decisionState,
-            effectiveTargetRoas: Number.isFinite(canonicalDecision.metrics.effectiveTargetRoas)
-              ? canonicalDecision.metrics.effectiveTargetRoas
-              : null,
-          }
-        : null,
+      decision,
     } satisfies PerformanceRow;
   });
 

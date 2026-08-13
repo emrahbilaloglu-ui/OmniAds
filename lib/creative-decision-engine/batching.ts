@@ -1,4 +1,8 @@
-export const NATIVE_AD_DB_BATCH_SIZE = 500;
+// Native-ad hydration joins metrics, hierarchy history, dimensions and
+// lifecycle evidence. A 500-identity batch exceeds the production 30-second
+// statement budget on large accounts; 100 keeps each query bounded while the
+// caller still reconciles the complete manifest before publishing.
+export const NATIVE_AD_DB_BATCH_SIZE = 100;
 
 export function chunkDecisionRows<T>(
   rows: readonly T[],

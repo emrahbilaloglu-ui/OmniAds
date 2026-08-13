@@ -26,6 +26,12 @@ import type {
   MetaDecisionsWorkspaceViewer,
   MetaLanePayload,
 } from "@/components/meta/redesign/types";
+import type {
+  MetaOsAdDecision,
+  MetaOsDecisionLane,
+  MetaOsDecisionsPresentation,
+  MetaOsStructureNode,
+} from "@/lib/meta/decisions-os-contract";
 import {
   DECISION_LEVELS,
   type DecisionLane,
@@ -163,6 +169,125 @@ export function buildDecisionsViewModel(input: {
     truncated,
     disclosure: truncated
       ? `Showing the first ${served.length} of ${filtered.length} decisions in this lane. Narrow by level or search to see the rest.`
+      : null,
+  };
+}
+
+const OS_LANE: Record<DecisionLane, MetaOsDecisionLane> = {
+  act: "act",
+  test: "blocked",
+  watch: "monitor",
+};
+
+function osDecisionState(lane: MetaOsDecisionLane): DecisionRow["decisionState"] {
+  return lane === "act" ? "act" : lane === "blocked" ? "test" : "watch";
+}
+
+function structureRow(node: MetaOsStructureNode): DecisionRow {
+  const held = node.lane !== "act" || node.action.intent === "review" || node.action.intent === "none";
+  return {
+    id: node.id,
+    level: node.level,
+    title: node.name,
+    decision: node.assessment,
+    why: node.whyNow,
+    recommendedAction: node.action.label,
+    confidence: node.confidence === "unknown" ? "low" : node.confidence,
+    confidenceReason: null,
+    decisionState: osDecisionState(node.lane),
+    campaignName: node.campaignName,
+    adsetName: node.level === "adset" ? node.name : null,
+    held,
+    heldReason: held ? node.action.scopeNote : null,
+    evidence: node.evidence,
+    rowPresentation: { thumbLabel: node.level === "campaign" ? "C" : "A" },
+  };
+}
+
+function adRow(decision: MetaOsAdDecision): DecisionRow {
+  const held =
+    decision.lane !== "act" ||
+    decision.action.intent === "review" ||
+    decision.action.intent === "none";
+  return {
+    id: decision.id,
+    level: "ad",
+    title: decision.adName,
+    decision: decision.assessment,
+    why: decision.whyNow,
+    recommendedAction: decision.action.label,
+    confidence: decision.confidence,
+    confidenceReason: null,
+    decisionState: osDecisionState(decision.lane),
+    campaignName: decision.campaignName,
+    adsetName: decision.adsetName,
+    held,
+    heldReason: held
+      ? decision.resolution?.nextStep ?? decision.action.scopeNote
+      : null,
+    evidence: [],
+    rowPresentation: { thumbLabel: "Ad" },
+  };
+}
+
+/**
+ * Route-owned Decisions consumes the canonical OS projection, not the legacy
+ * recommendation arrays. Every row below is copied from the server-owned OS
+ * contract; this adapter only filters and searches it.
+ */
+export function buildOsDecisionsViewModel(input: {
+  os: MetaOsDecisionsPresentation;
+  banners: MetaDecisionsWorkspaceBanner[];
+  viewer: MetaDecisionsWorkspaceViewer | null;
+  state: DecisionsUrlState;
+  evidenceWindow: { startDate: string; endDate: string };
+  cap?: number;
+}): DecisionsViewModel {
+  const cap = input.cap ?? 100;
+  const structure = input.os.structure.groups.flatMap((group) => [
+    structureRow(group.campaign),
+    ...group.adsets.map(structureRow),
+  ]);
+  const ads = input.os.ads.items.map(adRow);
+  const all = [...structure, ...ads];
+  const requestedLane = OS_LANE[input.state.lane];
+  const laneRows = all.filter((row) => {
+    const lane = row.decisionState === "act" ? "act" : row.decisionState === "test" ? "blocked" : "monitor";
+    return lane === requestedLane;
+  });
+  const byLevel =
+    input.state.levels.length === 0
+      ? laneRows
+      : laneRows.filter((row) => input.state.levels.includes(row.level));
+  const needle = input.state.search.trim().toLowerCase();
+  const filtered = needle
+    ? byLevel.filter((row) =>
+        [row.title, row.campaignName, row.adsetName]
+          .filter(Boolean)
+          .some((text) => (text as string).toLowerCase().includes(needle)),
+      )
+    : byLevel;
+  const rows = filtered.slice(0, cap);
+  const counts = {
+    act: input.os.ads.statePreCapCounts.act + input.os.structure.actCount,
+    test: input.os.ads.statePreCapCounts.blocked + input.os.structure.blockedCount,
+    watch: input.os.ads.statePreCapCounts.monitor + input.os.structure.monitorCount,
+  };
+  const sourceCount =
+    counts[input.state.lane];
+  const truncated = filtered.length > rows.length || sourceCount > laneRows.length;
+  return {
+    rows,
+    servedIds: rows.map((row) => row.id),
+    counts,
+    banners: input.banners,
+    viewer: input.viewer,
+    evidenceWindow: input.evidenceWindow,
+    snapshotAt: input.os.generatedAt,
+    snapshotDate: input.os.source.snapshotAsOf,
+    truncated,
+    disclosure: truncated
+      ? `Showing ${rows.length} served decisions. ${Math.max(sourceCount, filtered.length)} matched before presentation limits.`
       : null,
   };
 }

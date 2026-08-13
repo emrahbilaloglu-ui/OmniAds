@@ -28,6 +28,8 @@ export interface TableColumn<Row> {
   header: string;
   /** Right-aligned mono, for money and counts. */
   numeric?: boolean;
+  width?: number | string;
+  minWidth?: number | string;
   render: (row: Row) => ReactNode;
 }
 
@@ -48,6 +50,8 @@ export interface DataTableProps<Row> {
    * and guessing would put the wrong name on the wrong data.
    */
   collection?: string;
+  /** A dense multi-column decision table may scroll, but must never overlap. */
+  minWidth?: number | string;
 }
 
 const ROW_HEIGHT: Record<TableDensity, number> = { comfortable: 48, dense: 40 };
@@ -60,6 +64,7 @@ export function DataTable<Row>({
   rowHeaderColumnId,
   density = "comfortable",
   collection,
+  minWidth,
 }: DataTableProps<Row>) {
   const headerColumnId = rowHeaderColumnId ?? columns[0]?.id;
   const padding = density === "dense" ? "8px 12px" : "12px 14px";
@@ -74,6 +79,7 @@ export function DataTable<Row>({
       data-collection={collection}
       style={{
         width: "100%",
+        minWidth,
         borderCollapse: "collapse",
         fontSize: 13,
         lineHeight: "19px",
@@ -106,6 +112,8 @@ export function DataTable<Row>({
                 lineHeight: "16px",
                 color: "var(--ledger-ink-secondary)",
                 borderBottom: "1px solid var(--ledger-border-subtle)",
+                width: column.width,
+                minWidth: column.minWidth,
               }}
             >
               {column.header}
@@ -134,6 +142,9 @@ export function DataTable<Row>({
                       ? "var(--font-adc-mono), ui-monospace, monospace"
                       : "inherit",
                     borderBottom: "1px solid var(--ledger-border-subtle)",
+                    width: column.width,
+                    minWidth: column.minWidth,
+                    overflowWrap: "anywhere",
                   }}
                 >
                   {column.render(row)}

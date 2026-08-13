@@ -725,9 +725,28 @@ describe("GET /api/meta/decisions-workspace", () => {
       created_at: "2026-07-01T00:00:00.000Z",
       updated_at: "2026-07-01T00:00:00.000Z",
     });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "complete",
+      rows: [
+        {
+          id: "ad_1",
+          name: "Active Ad",
+          campaign_id: "campaign_1",
+          adset_id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          creative: { id: "creative_1" },
+        },
+      ],
+    });
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
       const requestUrl = new URL(String(url));
-      expect(requestUrl.searchParams.get("status_filter")).toBe("all");
+      expect(requestUrl.searchParams.get("status_filter")).toBe("active");
       expect(requestUrl.searchParams.get("workspace_surface")).toBe("os");
       if (requestUrl.pathname === "/api/meta/account-pulse") {
         return jsonResponse(
@@ -758,6 +777,32 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload).not.toHaveProperty("lanes");
     expect(payload).not.toHaveProperty("queue");
     expect(payload).not.toHaveProperty("digest");
+  });
+
+  it("does not substitute stale snapshots when compact active inventory is unavailable", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&surface=os",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionReadModel.status).toBe("unavailable");
+    expect(payload.decisionReadModel.unavailable).toMatchObject({
+      code: "source_read_failed",
+    });
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
   });
 
   it("surfaces missing-data, tracking, snapshot, and kill-switch banners without fabricating zeros", async () => {

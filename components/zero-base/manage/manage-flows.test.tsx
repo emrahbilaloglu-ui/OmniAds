@@ -9,7 +9,7 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, configure, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 /**
  * These flows are two round trips deep — a write, then an independent re-read —
@@ -294,6 +294,63 @@ describe("WP-23 business settings", () => {
       expect(document.querySelector("[data-settings-error]")!.textContent).toMatch(/two characters/);
     });
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  it("saves the economics cost model and confirms the stored values by a fresh read", async () => {
+    let costModel = {
+      cogsPercent: 0.2,
+      shippingPercent: 0.05,
+      feePercent: 0.03,
+      fixedCost: 2,
+    };
+    stub((call) => {
+      if (call.url === "/api/businesses") {
+        return { body: { businesses: [{ id: BIZ, name: "Grandmix", currency: "TRY" }] } };
+      }
+      if (call.url.includes("business-cost-model") && call.method === "PUT") {
+        const body = call.body as typeof costModel & { businessId: string };
+        costModel = {
+          cogsPercent: body.cogsPercent,
+          shippingPercent: body.shippingPercent,
+          feePercent: body.feePercent,
+          fixedCost: body.fixedCost,
+        };
+        return { body: { costModel } };
+      }
+      if (call.url.includes("business-cost-model")) return { body: { costModel } };
+      if (call.url.includes("business-commercial-settings")) {
+        return { ok: false, body: { message: "Not part of this cost-model test." } };
+      }
+      if (call.url.includes("business-operating-mode")) return { body: { recommendedMode: "profit_first" } };
+      return { body: {} };
+    });
+
+    render(<BusinessClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-cost-field="cogsPercent"]')).not.toBeNull());
+    type('[data-cost-field="cogsPercent"]', "35");
+    type('[data-cost-field="shippingPercent"]', "8");
+    type('[data-cost-field="feePercent"]', "4");
+    type('[data-cost-field="fixedCost"]', "3.5");
+    click("[data-cost-model-save]");
+
+    await waitFor(() => {
+      expect(screen.getByText(/Cost model saved and confirmed by a fresh read/)).toBeVisible();
+    });
+    const put = calls.find(
+      (call) => call.method === "PUT" && call.url === "/api/business-cost-model",
+    );
+    expect(put?.body).toEqual({
+      businessId: BIZ,
+      cogsPercent: 0.35,
+      shippingPercent: 0.08,
+      feePercent: 0.04,
+      fixedCost: 3.5,
+    });
+    expect(
+      calls.filter(
+        (call) => call.method === "GET" && call.url.includes("business-cost-model"),
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("a non-admin sees the values read-only with the reason", async () => {

@@ -228,6 +228,7 @@ describe("GET /api/creatives/decision-engine-v3", () => {
       businessId: "biz-1",
       providerAccountId: "act_1",
       asOfDate: "2026-07-16",
+      creativeIds: ["creative-1"],
     });
   });
 

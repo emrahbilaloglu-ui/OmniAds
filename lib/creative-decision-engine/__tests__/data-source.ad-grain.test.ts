@@ -513,6 +513,103 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     expect(stateBatchSizes).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
   });
 
+  it("hydrates every metricless ad in a cutoff-strict historical complete manifest", async () => {
+    const adIds = ["paused-no-metrics", "active-no-metrics"];
+    mocks.query.mockImplementation(
+      async (query: string, params?: unknown[]) => {
+        if (query.includes("ad-decision-hydration-receipts")) {
+          return [receiptRow(adIds)];
+        }
+        if (query.includes("ad-decision-state-asof")) {
+          const batch = (params?.[3] ?? []) as string[];
+          return batch.map((adId) => ({
+            event_kind: "state",
+            id: `state-${adId}`,
+            provider_account_ref_id:
+              "00000000-0000-4000-8000-000000000711",
+            provider_account_id: "act_account_1",
+            entity_id: adId,
+            campaign_id: "campaign-1",
+            adset_id: "adset-1",
+            creative_id: `creative-${adId}`,
+            configured_status: adId.startsWith("paused")
+              ? "PAUSED"
+              : "ACTIVE",
+            effective_status: adId.startsWith("paused")
+              ? "PAUSED"
+              : "ACTIVE",
+            observed_at: "2026-07-10T02:30:00.000Z",
+            captured_at: "2026-07-10T02:31:00.000Z",
+          }));
+        }
+        if (query.includes("ad-decision-hydration")) {
+          const seeds = JSON.parse(String(params?.[12] ?? "[]")) as Array<{
+            ad_id: string;
+          }>;
+          return seeds.map((seed) =>
+            hydrationRow({
+              ad_id: seed.ad_id,
+              creative_id: `creative-${seed.ad_id}`,
+              campaign_count: 0,
+              adset_count: 0,
+              optimization_context_count: 0,
+              objective_count: 0,
+              context_identity_unknown: true,
+              metric_row_count: 0,
+              event_metrics_observed: false,
+              spend: null,
+              conversions: null,
+              revenue: null,
+              impressions: null,
+              link_clicks: null,
+              current_dimension_id: null,
+              current_ad_status: null,
+            }),
+          );
+        }
+        if (query.includes("ad-decision-present-state-seeds")) {
+          throw new Error("complete manifests must use cutoff-strict state rows");
+        }
+        throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+      },
+    );
+    const warehouse = new WarehouseDataSource();
+    vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+    const result = await warehouse.hydrateAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result.inputs.map((row) => row.adId)).toEqual(adIds.sort());
+    expect(result.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adId: "paused-no-metrics",
+          effectiveStatus: "PAUSED",
+          spend: 0,
+          metricEvidence: expect.objectContaining({
+            sourceRowCount: 0,
+            performanceMetricsObserved: false,
+          }),
+        }),
+        expect.objectContaining({
+          adId: "active-no-metrics",
+          effectiveStatus: "ACTIVE",
+        }),
+      ]),
+    );
+    expect(result.accountCoverageComplete).toBe(true);
+    expect(result.receipts[0]).toMatchObject({
+      expectedAdCount: 2,
+      hydratedAdCount: 2,
+      hydrationComplete: true,
+      authoritativeForPrune: true,
+      reason: null,
+    });
+  });
+
   it("marks partial or count-mismatched source proof as non-authoritative", async () => {
     mocks.query.mockImplementation(async (query: string) => {
       if (query.includes("ad-decision-hydration-receipts")) {

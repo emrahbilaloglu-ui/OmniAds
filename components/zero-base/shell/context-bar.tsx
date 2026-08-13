@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * The context bar — present on every scoped surface (INV-06).
+ * The context bar — present on scoped provider surfaces (INV-06).
  *
- * It never disappears. At narrow widths it compresses to a sticky two-line
+ * On a provider surface it never disappears. At narrow widths it compresses to a sticky two-line
  * header whose whole accessible name is the six facts, opening the scope sheet
  * for the full values; it does not collapse to nothing, because a surface
  * without visible scope is a surface where the user cannot tell which client's
@@ -12,16 +12,22 @@
  * Timezone disagreement and staleness are the two states that change colour,
  * and both carry their word as well, so meaning survives without colour.
  */
-import { scopeFactRows, type ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
+import {
+  scopeFactRows,
+  type ScopeFacts,
+  type ScopePickers,
+} from "@/components/zero-base/primitives/scope-sheet";
 
 export function ContextBar({
   facts,
   compact,
   onOpenScopeSheet,
+  pickers,
 }: {
   facts: ScopeFacts;
   compact: boolean;
   onOpenScopeSheet: () => void;
+  pickers?: ScopePickers;
 }) {
   const rows = scopeFactRows(facts);
   const summary = rows.map((row) => `${row.label}: ${row.value}`).join(" · ");
@@ -66,7 +72,25 @@ export function ContextBar({
     );
   }
 
-  const visible = rows.filter((row) => ["account", "window", "currency", "timezone", "freshness"].includes(row.id));
+  // Desktop shows only facts this surface can actually prove or change. An
+  // unknown value remains available in the full mobile scope sheet, but it no
+  // longer consumes permanent horizontal space on every provider page.
+  const visible = rows.filter((row) => {
+    if (row.id === "account") {
+      return Boolean(facts.providerAccountLabel || pickers?.onPickAccount);
+    }
+    if (row.id === "window") {
+      return Boolean(facts.evidenceWindowLabel || pickers?.onPickWindow);
+    }
+    if (row.id === "currency") return Boolean(facts.configuredCurrency);
+    if (row.id === "timezone") return Boolean(facts.businessTimezone);
+    if (row.id === "freshness") {
+      return Boolean(facts.snapshotAt || facts.freshness !== "unknown");
+    }
+    return false;
+  });
+
+  if (visible.length === 0) return null;
 
   return (
     <div
@@ -85,12 +109,19 @@ export function ContextBar({
         borderBottom: "1px solid var(--ledger-border-subtle)",
       }}
     >
-      {visible.map((row) => (
-        <button
+      {visible.map((row) => {
+        const handler =
+          row.id === "account"
+            ? pickers?.onPickAccount
+            : row.id === "window"
+              ? pickers?.onPickWindow
+              : undefined;
+        const Tag = handler ? "button" : "span";
+        return (
+        <Tag
           key={row.id}
-          type="button"
+          {...(handler ? { type: "button" as const, onClick: handler } : {})}
           data-context-fact={row.id}
-          onClick={onOpenScopeSheet}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -102,16 +133,17 @@ export function ContextBar({
             borderRadius: "var(--ledger-radius-button)",
             background: "var(--ledger-bg-surface)",
             color: row.id === "freshness" ? tone : "var(--ledger-ink-secondary)",
-            cursor: "pointer",
+            cursor: handler ? "pointer" : "default",
             whiteSpace: "nowrap",
             fontSize: 12,
           }}
         >
           <span style={{ color: "var(--ledger-ink-tertiary)" }}>{row.label}</span>
           <strong style={{ fontWeight: 500, color: "var(--ledger-ink-primary)" }}>{row.value}</strong>
-          {row.id === "account" || row.id === "window" ? <span aria-hidden="true">▾</span> : null}
-        </button>
-      ))}
+          {handler ? <span aria-hidden="true">▾</span> : null}
+        </Tag>
+        );
+      })}
     </div>
   );
 }

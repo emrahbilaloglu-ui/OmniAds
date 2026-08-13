@@ -54,6 +54,22 @@ function stateCase(matrix: string, branch: StateBranch, body: () => void | Promi
 const DENIED = { ok: false, reason: "This needs the admin role. Your role on this workspace is guest." };
 const NO_WRITE = { pending: null, error: null, confirmed: null };
 
+function servingDecision(creativeId: string, adId: string, accountId: string) {
+  return {
+    providerAccountId: accountId,
+    parentChain: {
+      ad: { id: adId, name: adId },
+      creative: { id: creativeId, name: creativeId },
+    },
+    classification: {
+      buyerAction: "scale",
+      buyerLabel: "Scale",
+      decisionState: "act",
+    },
+    metrics: { effectiveTargetRoas: 3 },
+  };
+}
+
 /* ------------------------------------------------- M1 identity ---------- */
 
 describe("M1 authentication & identity", () => {
@@ -241,6 +257,7 @@ describe("M5 Meta decision & workflow", () => {
           rows: [{ id: "r", creative_id: "c", account_id: "a", name: "One" }] as never,
           posture: "serving",
           totalAvailable: 1,
+          canonicalDecisions: [servingDecision("c", "ad-1", "a")] as never,
         })}
         businessId="b"
       />,

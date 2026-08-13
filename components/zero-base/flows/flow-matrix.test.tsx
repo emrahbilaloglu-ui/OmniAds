@@ -65,6 +65,22 @@ function caseAtWidths(flow: string, branch: Branch, body: (width: number) => voi
   }
 }
 
+function servingDecision(creativeId: string, adId: string, accountId: string) {
+  return {
+    providerAccountId: accountId,
+    parentChain: {
+      ad: { id: adId, name: adId },
+      creative: { id: creativeId, name: creativeId },
+    },
+    classification: {
+      buyerAction: "scale",
+      buyerLabel: "Scale",
+      decisionState: "act",
+    },
+    metrics: { effectiveTargetRoas: 3 },
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -156,6 +172,7 @@ describe("Flow B — Meta decision to supported action", () => {
           rows: [creativeRow()] as never,
           posture: "serving",
           totalAvailable: 1,
+          canonicalDecisions: [servingDecision("c1", "ad1", "act_1")] as never,
         })}
         businessId="biz-1"
       />,

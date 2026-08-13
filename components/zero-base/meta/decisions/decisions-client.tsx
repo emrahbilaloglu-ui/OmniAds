@@ -32,7 +32,7 @@ import type {
 } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import type { WorkflowSubmit, WorkflowSubmitResult } from "@/components/zero-base/meta/decisions/workflow-overlay";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
-import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
+import { buildOsDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import {
   decisionsHref,
   type DecisionsUrlState,
@@ -43,7 +43,7 @@ import type { WorkflowEvent } from "@/lib/decision-workflow-store";
 import type { MutationAction, TerminalOutcome } from "@/lib/zero-base/meta/mutation-ceremony";
 import type { DispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
-import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
+import type { MetaDecisionsOsWorkspacePayload } from "@/components/meta/redesign/types";
 
 function newMutationId(): string {
   return crypto.randomUUID();
@@ -52,18 +52,20 @@ function newMutationId(): string {
 export function DecisionsClient({
   businessId,
   initialState,
+  providerAccountId,
   demo,
   mutationUiEnabled,
 }: {
   businessId: string;
   initialState: DecisionsUrlState;
+  providerAccountId: string | null;
   demo: boolean;
   /** Server-read. Absent or false means the ceremony is never constructed. */
   mutationUiEnabled?: boolean;
 }) {
   const router = useRouter();
   const [state, setState] = useState(initialState);
-  const [payload, setPayload] = useState<MetaDecisionsWorkspacePayload | null>(null);
+  const [payload, setPayload] = useState<MetaDecisionsOsWorkspacePayload | null>(null);
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading decisions" });
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [events, setEvents] = useState<WorkflowEvent[]>([]);
@@ -74,10 +76,15 @@ export function DecisionsClient({
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(
-          `/api/meta/decisions-workspace?businessId=${encodeURIComponent(businessId)}`,
-          { cache: "no-store" },
-        );
+        const query = new URLSearchParams({
+          businessId,
+          surface: "os",
+          status_filter: "active",
+        });
+        if (providerAccountId) query.set("providerAccountId", providerAccountId);
+        const response = await fetch(`/api/meta/decisions-workspace?${query.toString()}`, {
+          cache: "no-store",
+        });
         if (!response.ok) {
           // A failed read is a failure, not an empty lane — otherwise the
           // operator concludes there is nothing to do today.
@@ -91,7 +98,7 @@ export function DecisionsClient({
           }
           return;
         }
-        const json = (await response.json()) as MetaDecisionsWorkspacePayload;
+        const json = (await response.json()) as MetaDecisionsOsWorkspacePayload;
         if (cancelled) return;
         setPayload(json);
         setSurface({ kind: "ready" });
@@ -108,16 +115,20 @@ export function DecisionsClient({
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, providerAccountId]);
 
   const model = useMemo(
     () =>
       payload
-        ? buildDecisionsViewModel({
-            lane: payload.lanes,
+        ? buildOsDecisionsViewModel({
+            os: payload.os,
             banners: payload.banners ?? [],
             viewer: payload.viewer ?? null,
             state,
+            evidenceWindow: {
+              startDate: payload.startDate,
+              endDate: payload.endDate,
+            },
           })
         : null,
     [payload, state],
@@ -180,9 +191,9 @@ export function DecisionsClient({
       setState(next);
       // Every filter and the selection live in the URL, so the view is
       // linkable and survives a reload.
-      router.replace(decisionsHref(businessId, next), { scroll: false });
+      router.replace(decisionsHref(businessId, next, providerAccountId), { scroll: false });
     },
-    [businessId, router],
+    [businessId, providerAccountId, router],
   );
 
   const submitWorkflow = useCallback(

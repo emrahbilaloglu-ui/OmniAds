@@ -303,12 +303,15 @@ export function DecisionsView({
                   <DataTable
                     collection={collection}
                     caption={`${LANE_LABEL[lane]} decisions`}
+                    minWidth={1180}
                     rows={model.rows}
                     rowKey={(row) => row.id}
                     columns={[
                       {
                         id: "title",
                         header: "Entity",
+                        width: "25%",
+                        minWidth: 260,
                         render: (row) => (
                           <span style={{ display: "grid", gridTemplateColumns: "42px minmax(0,1fr)", gap: 10, alignItems: "center", minWidth: 0 }}>
                             <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 42, height: 42, borderRadius: 8, background: "var(--ledger-bg-inset)", border: "1px solid var(--ledger-border-subtle)", color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
@@ -335,6 +338,8 @@ export function DecisionsView({
                       {
                         id: "verdict",
                         header: "Verdict (served)",
+                        width: "21%",
+                        minWidth: 235,
                         // Printed exactly as served. No formatting, no mapping.
                         render: (row) => {
                           const count = actionCountFor({ row, viewer: model.viewer, demo });
@@ -358,6 +363,8 @@ export function DecisionsView({
                       {
                         id: "why",
                         header: "Why now",
+                        width: "28%",
+                        minWidth: 290,
                         render: (row) => (
                           <span data-confidence={row.id}>
                             {row.why}
@@ -382,6 +389,7 @@ export function DecisionsView({
                       {
                         id: "evidence",
                         header: "Evidence",
+                        minWidth: 140,
                         numeric: true,
                         render: (row) => (row.evidence?.length ?? 0) > 0 ? (
                           <span>{row.evidence!.slice(0, 2).map((item) => <span key={`${item.label}:${item.value}`} style={{ display: "block", color: item.tone === "warning" ? "var(--ledger-semantic-warn)" : item.tone === "positive" ? "var(--ledger-semantic-ok)" : undefined }}>{item.value}<small style={{ display: "block", color: "var(--ledger-ink-tertiary)", fontFamily: "inherit" }}>{item.label}</small></span>)}</span>
@@ -392,6 +400,7 @@ export function DecisionsView({
                             {
                               id: "workflow",
                               header: "Workflow",
+                              minWidth: 105,
                               render: (row: DecisionRow) => (
                                 <WorkflowChip
                                   record={workflow.records.get(row.id) ?? null}
@@ -401,7 +410,7 @@ export function DecisionsView({
                             },
                           ]
                         : []),
-                      { id: "fresh", header: "Fresh", numeric: true, render: () => model.snapshotAt ? "snapshot" : "unknown" },
+                      { id: "fresh", header: "Fresh", numeric: true, minWidth: 85, render: () => model.snapshotAt ? "snapshot" : "unknown" },
                     ]}
                   />
                 </Collection>

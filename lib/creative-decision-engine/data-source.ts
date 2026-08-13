@@ -4856,7 +4856,17 @@ export class WarehouseDataSource
         decisionCutoff,
       }),
     );
-    const presentStateHydration = allowCurrentDimensionFallback
+    // A complete source receipt is cutoff-strict historical evidence, not a
+    // current-dimension fallback. Seed every identity from that manifest even
+    // when the scheduled decision date is yesterday; otherwise metricless or
+    // paused ads disappear from hydration and the authoritative manifest can
+    // never reconcile. Current SCD0 dimensions remain gated separately by
+    // allowCurrentDimensionFallback below.
+    const hasCompleteSourceManifest = sourceReceipts.some(
+      (receipt) => receipt.sourceComplete,
+    );
+    const presentStateHydration =
+      allowCurrentDimensionFallback || hasCompleteSourceManifest
       ? await readPresentAdStateSeedsForHydration({
           businessId: input.businessId,
           decisionCutoff,

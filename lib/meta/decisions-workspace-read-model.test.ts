@@ -326,12 +326,21 @@ function workspaceReadQuery(input: {
   nativeRows?: MetaNativeDecisionSnapshotSourceRow[];
   legacyRows?: MetaDecisionSnapshotSourceRow[];
 }) {
-  return vi.fn(async (sql: string, _params?: unknown[]) => {
+  return vi.fn(async (sql: string, params?: unknown[]) => {
     if (sql.includes("WITH candidate_runs AS")) {
       return input.generationRows ?? [];
     }
+    if (sql.includes("native-ad-serving-manifest")) {
+      return (input.nativeRows ?? []).map((row) => ({ ad_id: row.ad_id }));
+    }
     if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
-      return input.nativeRows ?? [];
+      const creativeIds = new Set((params?.[7] ?? []) as string[]);
+      const adIds = new Set((params?.[9] ?? []) as string[]);
+      return (input.nativeRows ?? []).filter(
+        (row) =>
+          (params?.[6] !== true || creativeIds.has(row.creative_id ?? "")) &&
+          (params?.[8] !== true || adIds.has(row.ad_id)),
+      );
     }
     if (sql.includes("scoped_history")) {
       return input.legacyRows ?? [snapshot("creative_1")];
@@ -2153,6 +2162,144 @@ describe("Meta Decisions workspace canonical read model", () => {
       eligiblePreCapCount: 305,
       selectedCount: 300,
     });
+  });
+
+  it("proves the full native manifest before reading only requested creatives", async () => {
+    const rows = [
+      nativeSnapshot("120000000000000101", {
+        creative_id: "creative-shared",
+      }),
+      nativeSnapshot("120000000000000102", {
+        creative_id: "creative-shared",
+      }),
+      nativeSnapshot("120000000000000103", {
+        creative_id: "creative-other",
+      }),
+    ];
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      creativeIds: ["creative-shared"],
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.generation.expectedAdCount).toBe(3);
+    expect(
+      inventory.items.map((item) => item.parentChain.ad?.id).sort(),
+    ).toEqual(["120000000000000101", "120000000000000102"]);
+    const manifestCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("native-ad-serving-manifest"),
+    );
+    const subsetCall = query.mock.calls.find(
+      ([sql]) =>
+        String(sql).includes(
+          "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+        ) && !String(sql).includes("native-ad-serving-manifest"),
+    );
+    expect(manifestCall).toBeTruthy();
+    expect(subsetCall?.[1]?.[6]).toBe(true);
+    expect(subsetCall?.[1]?.[7]).toEqual(["creative-shared"]);
+  });
+
+  it("serves only verified current Ads without falling back to stale creative rows", async () => {
+    const rows = [
+      nativeSnapshot("120000000000000111"),
+      nativeSnapshot("120000000000000112"),
+      nativeSnapshot("120000000000000113"),
+    ];
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: ["120000000000000112"],
+      currentAdSourceComplete: true,
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000112",
+          adName: "Active Ad",
+          campaignId: "campaign_1",
+          campaignName: "Campaign",
+          adsetId: "adset_1",
+          creativeId: "creative_shared",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-16T12:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(model.source).toMatchObject({
+      authority: "native_ad",
+      generation: { expectedAdCount: 3 },
+    });
+    const servedActiveIds = new Set([
+      ...Object.values(model.queue.sections).flatMap((section) =>
+        section.items.map((item) => item.parentChain.ad?.id),
+      ),
+      ...(model.queue.adCandidates?.items.map(
+        (item) => item.parentChain.ad?.id,
+      ) ?? []),
+    ]);
+    expect([...servedActiveIds]).toEqual(["120000000000000112"]);
+    expect(model.queue.inactiveAssets?.items ?? []).toHaveLength(0);
+    const subsetCall = query.mock.calls.find(
+      ([sql]) =>
+        String(sql).includes(
+          "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+        ) && !String(sql).includes("native-ad-serving-manifest"),
+    );
+    expect(subsetCall?.[1]?.[8]).toBe(true);
+    expect(subsetCall?.[1]?.[9]).toEqual(["120000000000000112"]);
+  });
+
+  it("fails closed when a current active Ad is absent from the proven generation", async () => {
+    const rows = [nativeSnapshot("120000000000000121")];
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: ["120000000000000999"],
+      currentAdSourceComplete: true,
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000999",
+          adName: "New active Ad",
+          campaignId: "campaign_1",
+          campaignName: "Campaign",
+          adsetId: "adset_1",
+          creativeId: "creative_new",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-16T12:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(model.status).toBe("unavailable");
+    expect(model.source.fallbackReason).toBe(
+      "native_serving_subset_incomplete",
+    );
   });
 
   it("keeps invalid bundles unavailable without querying legacy snapshots", async () => {

@@ -96,6 +96,7 @@ interface SuccessfulJobRow extends Record<string, unknown> {
   started_at: unknown;
   finished_at: unknown;
   row_count: unknown;
+  error_json: unknown;
 }
 
 interface CurrentHydrationReceiptRow extends Record<string, unknown> {
@@ -382,7 +383,8 @@ export async function readSuccessfulNativeJobs(
       dependency_run_id::text AS dependency_run_id,
       started_at,
       finished_at,
-      row_count
+      row_count,
+      error_json
     FROM effective_runs
     ORDER BY business_ref_id, job_name, started_at DESC, id DESC
     `,
@@ -433,7 +435,8 @@ export async function readSuccessfulNativeJobs(
     if (
       decisions?.status !== "success" ||
       jobRunId(decisions) === null ||
-      String(decisions.dependency_run_id ?? "") !== calibrationId
+      String(decisions.dependency_run_id ?? "") !== calibrationId ||
+      !hasAuthoritativeDecisionHydrationReceipts(decisions.error_json)
     ) {
       result.set(businessId, jobs);
       continue;
@@ -467,6 +470,44 @@ export async function readSuccessfulNativeJobs(
     result.set(businessId, jobs);
   }
   return closeNativeJobDependencies(result);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/**
+ * A successful process exit is not a reusable native decision generation.
+ * Every selected Meta account must also carry a complete, authoritative
+ * hydration receipt. Otherwise a pre-sync 03:00 run can permanently suppress
+ * the later same-day rerun that finally has the complete Ad manifest.
+ */
+export function hasAuthoritativeDecisionHydrationReceipts(
+  errorJson: unknown,
+): boolean {
+  if (!isRecord(errorJson) || !isRecord(errorJson.metadata)) return false;
+  const receipts = errorJson.metadata.hydration_receipts;
+  if (!Array.isArray(receipts) || receipts.length === 0) return false;
+  return receipts.every((receipt) => {
+    if (!isRecord(receipt)) return false;
+    const expected = exactNonNegativeInteger(receipt.expected_ad_count);
+    const hydrated = exactNonNegativeInteger(receipt.hydrated_ad_count);
+    const expectedHash = String(receipt.expected_manifest_hash ?? "");
+    const hydratedHash = String(receipt.hydrated_manifest_hash ?? "");
+    return Boolean(
+      String(receipt.provider_account_ref_id ?? "").trim() &&
+        String(receipt.provider_account_id ?? "").trim() &&
+        expected !== null &&
+        hydrated === expected &&
+        /^[a-f0-9]{64}$/.test(expectedHash) &&
+        hydratedHash === expectedHash &&
+        (receipt.source_complete === true || receipt.source_complete === "true") &&
+        (receipt.hydration_complete === true || receipt.hydration_complete === "true") &&
+        (receipt.authoritative_for_prune === true ||
+          receipt.authoritative_for_prune === "true") &&
+        (receipt.reason === null || receipt.reason === undefined)
+    );
+  });
 }
 
 export async function hasReusableNativeCalibration(

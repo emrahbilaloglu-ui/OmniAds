@@ -22,6 +22,8 @@ import {
   resolveDetail,
 } from "@/lib/zero-base/creative/detail-adapter";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaOsAdDecision } from "@/lib/meta/decisions-os-contract";
 
 function row(overrides: Partial<ServedCreativeRow> = {}): ServedCreativeRow {
   return {
@@ -47,6 +49,41 @@ function row(overrides: Partial<ServedCreativeRow> = {}): ServedCreativeRow {
     cached_thumbnail_url: "https://cdn.example/x.jpg",
     ...overrides,
   };
+}
+
+function canonicalDecision(input: {
+  adId: string;
+  creativeId?: string;
+  buyerLabel?: string;
+}): MetaCanonicalDecision {
+  return {
+    providerAccountId: "act_1",
+    parentChain: {
+      ad: { id: input.adId, name: input.adId },
+      creative: { id: input.creativeId ?? "cr-1", name: "Creative One" },
+    },
+    classification: {
+      buyerAction: "scale",
+      buyerLabel: input.buyerLabel ?? "Scale",
+      decisionState: "act",
+    },
+    metrics: { effectiveTargetRoas: 3.2 },
+  } as unknown as MetaCanonicalDecision;
+}
+
+function osDecision(input: {
+  adId: string;
+  creativeId?: string;
+  label?: string;
+}): MetaOsAdDecision {
+  return {
+    providerAccountId: "act_1",
+    adId: input.adId,
+    creativeId: input.creativeId ?? "cr-1",
+    action: { code: "review", label: input.label ?? "Review served evidence" },
+    lane: "monitor",
+    metrics: { effectiveTargetRoas: 3.2 },
+  } as unknown as MetaOsAdDecision;
 }
 
 /* ------------------------------------------------------- the five postures */
@@ -146,6 +183,66 @@ describe("a missing metric is never a zero", () => {
   it("formats money in the account's own currency", () => {
     const model = buildPerformanceViewModel({ rows: [row({ currency: "try" })], posture: "serving" });
     expect(model.rows[0].spend.available && model.rows[0].spend.display).toContain("TRY");
+  });
+});
+
+describe("canonical creative decisions keep Ad identity intact", () => {
+  it("uses a one-to-one creative fallback when the warehouse Ad id is synthetic", () => {
+    const model = buildPerformanceViewModel({
+      rows: [row({ real_ad_id: "creative_cr-1" })],
+      canonicalDecisions: [canonicalDecision({ adId: "real-ad-7" })],
+      posture: "serving",
+    });
+
+    expect(model.rows[0].adId).toBe("real-ad-7");
+    expect(model.rows[0].decision?.kind).toBe("single");
+    expect(model.rows[0].decision?.buyerLabel).toBe("Scale");
+  });
+
+  it("does not pick an arbitrary Ad when one creative maps to several", () => {
+    const model = buildPerformanceViewModel({
+      rows: [row({ real_ad_id: "creative_cr-1" })],
+      canonicalDecisions: [
+        canonicalDecision({ adId: "real-ad-7", buyerLabel: "Scale" }),
+        canonicalDecision({ adId: "real-ad-8", buyerLabel: "Refresh" }),
+      ],
+      posture: "serving",
+    });
+
+    expect(model.rows[0].adId).toBeNull();
+    expect(model.rows[0].decision?.kind).toBe("multiple");
+    expect(model.rows[0].decision?.items.map((item) => item.adId)).toEqual([
+      "real-ad-7",
+      "real-ad-8",
+    ]);
+  });
+
+  it("prefers an exact real-Ad match even when the creative has several Ads", () => {
+    const model = buildPerformanceViewModel({
+      rows: [row({ real_ad_id: "real-ad-8" })],
+      canonicalDecisions: [
+        canonicalDecision({ adId: "real-ad-7", buyerLabel: "Scale" }),
+        canonicalDecision({ adId: "real-ad-8", buyerLabel: "Refresh" }),
+      ],
+      posture: "serving",
+    });
+
+    expect(model.rows[0].adId).toBe("real-ad-8");
+    expect(model.rows[0].decision?.kind).toBe("single");
+    expect(model.rows[0].decision?.buyerLabel).toBe("Refresh");
+  });
+
+  it("keeps the server OS decision visible as review-only fallback when native inventory is unavailable", () => {
+    const model = buildPerformanceViewModel({
+      rows: [row({ real_ad_id: "creative_cr-1" })],
+      canonicalDecisions: [],
+      servedOsDecisions: [osDecision({ adId: "real-ad-9" })],
+      posture: "shadow_only",
+    });
+
+    expect(model.rows[0].adId).toBe("real-ad-9");
+    expect(model.rows[0].decision?.buyerLabel).toBe("Review served evidence");
+    expect(model.rows[0].decision?.decisionState).toBe("monitor");
   });
 });
 

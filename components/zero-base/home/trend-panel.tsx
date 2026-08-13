@@ -31,6 +31,25 @@ export interface TrendPoint {
 
 const STORAGE_PREFIX = "zero-base:trend-view:";
 
+function formatSpend(value: number, currency: string | null): string {
+  if (!currency) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
+
+function shortDate(value: string): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
+
 /** Read the persisted preference. Absent storage is not an error. */
 function readPreference(surface: string): boolean {
   if (typeof window === "undefined") return false;
@@ -67,6 +86,7 @@ export function TrendPanel({
   surface: string;
 }) {
   const [showTable, setShowTable] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const copy = useCopy();
   const regionId = useId();
 
@@ -88,6 +108,8 @@ export function TrendPanel({
     .map((point) => point.spend)
     .filter((value): value is number => value !== null);
   const max = spends.length ? Math.max(...spends) : 0;
+  const roasValues = points.map((point) => point.roas).filter((value): value is number => value !== null);
+  const maxRoas = Math.max(...roasValues, targetRoas ?? 0, 1) * 1.1;
   const first = points.at(0)?.date ?? null;
   const last = points.at(-1)?.date ?? null;
 
@@ -216,54 +238,145 @@ export function TrendPanel({
             </tbody>
           </table>
         ) : (
-          <div data-trend-chart="">
+          <div data-trend-chart="" aria-label={`${title}: spend bars and ROAS line`}>
+            <div
+              aria-hidden="true"
+              style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", marginBottom: 10, fontSize: 12, color: "var(--ledger-ink-secondary)" }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 12, height: 8, borderRadius: 1, background: "var(--ledger-accent-action)" }} />
+                Spend ({currency ?? "currency unknown"})
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 14, height: 2, background: "var(--ledger-semantic-warn)" }} />
+                ROAS
+              </span>
+              {targetRoas !== null ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 14, borderTop: "1px dashed var(--ledger-ink-tertiary)" }} />
+                  Target {targetRoas.toFixed(1)}x
+                </span>
+              ) : null}
+            </div>
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 2,
-                height: 96,
+                position: "relative",
+                height: 184,
+                padding: "0 42px 24px 54px",
               }}
             >
-              {points.map((point) => {
-                const height = point.spend === null || max === 0 ? 0 : (point.spend / max) * 96;
-                const atTarget =
-                  targetRoas !== null && point.roas !== null && point.roas >= targetRoas;
-                return (
-                  <div
-                    key={point.date}
-                    data-trend-bar={point.date}
-                    data-at-target={atTarget ? "true" : "false"}
-                    title={`${point.date}: ${point.spend === null ? "no data" : point.spend.toFixed(2)}`}
-                    style={{
-                      flex: 1,
-                      height: Math.max(height, point.spend === null ? 0 : 1),
-                      background: atTarget
-                        ? "var(--ledger-accent-action)"
-                        : "var(--ledger-border-control)",
-                      borderRadius: 1,
-                    }}
-                  />
-                );
-              })}
+              {[0, 0.5, 1].map((ratio) => (
+                <div
+                  key={ratio}
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: 54,
+                    right: 42,
+                    bottom: 24 + ratio * 160,
+                    borderTop: "1px solid var(--ledger-border-subtle)",
+                  }}
+                >
+                  <span style={{ position: "absolute", right: "calc(100% + 8px)", top: -8, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                    {max === 0 ? "0" : formatSpend(max * ratio, currency)}
+                  </span>
+                  <span style={{ position: "absolute", left: "calc(100% + 8px)", top: -8, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                    {(maxRoas * ratio).toFixed(1)}x
+                  </span>
+                </div>
+              ))}
+
+              <div style={{ position: "absolute", inset: "0 42px 24px 54px", display: "flex", alignItems: "flex-end", gap: 3 }}>
+                {points.map((point, index) => {
+                  const height = point.spend === null || max === 0 ? 0 : (point.spend / max) * 160;
+                  const label = `${point.date}; spend ${point.spend === null ? "no data" : formatSpend(point.spend, currency)}; ROAS ${point.roas === null ? "no data" : `${point.roas.toFixed(2)}x`}`;
+                  return (
+                    <button
+                      type="button"
+                      key={point.date}
+                      data-trend-bar={point.date}
+                      aria-label={label}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onMouseLeave={() => setActiveIndex(null)}
+                      onFocus={() => setActiveIndex(index)}
+                      onBlur={() => setActiveIndex(null)}
+                      style={{
+                        position: "relative",
+                        zIndex: 2,
+                        flex: 1,
+                        height: Math.max(height, point.spend === null ? 0 : 2),
+                        minWidth: 2,
+                        padding: 0,
+                        border: 0,
+                        background: point.spend === null ? "transparent" : "var(--ledger-accent-action)",
+                        borderRadius: "2px 2px 0 0",
+                        cursor: "crosshair",
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              <svg
+                aria-hidden="true"
+                viewBox={`0 0 ${Math.max(points.length, 1)} 160`}
+                preserveAspectRatio="none"
+                style={{ position: "absolute", zIndex: 3, pointerEvents: "none", inset: "0 42px 24px 54px", width: "calc(100% - 96px)", height: 160, overflow: "visible" }}
+              >
+                {points.slice(1).map((point, index) => {
+                  const previous = points[index];
+                  if (previous.roas === null || point.roas === null) return null;
+                  return (
+                    <line
+                      key={`${previous.date}-${point.date}`}
+                      x1={index + 0.5}
+                      y1={160 - (previous.roas / maxRoas) * 160}
+                      x2={index + 1.5}
+                      y2={160 - (point.roas / maxRoas) * 160}
+                      stroke="var(--ledger-semantic-warn)"
+                      strokeWidth="2"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                })}
+                {points.map((point, index) => point.roas === null ? null : (
+                  <circle key={point.date} cx={index + 0.5} cy={160 - (point.roas / maxRoas) * 160} r="3" fill="var(--ledger-semantic-warn)" vectorEffect="non-scaling-stroke" />
+                ))}
+                {targetRoas !== null ? (
+                  <line x1="0" x2={Math.max(points.length, 1)} y1={160 - (targetRoas / maxRoas) * 160} y2={160 - (targetRoas / maxRoas) * 160} stroke="var(--ledger-ink-tertiary)" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+                ) : null}
+              </svg>
+
+              {activeIndex !== null && points[activeIndex] ? (
+                <div
+                  role="tooltip"
+                  data-trend-tooltip=""
+                  style={{
+                    position: "absolute",
+                    zIndex: 5,
+                    left: `clamp(92px, calc(54px + (100% - 96px) * ${(activeIndex + 0.5) / Math.max(points.length, 1)}), calc(100% - 92px))`,
+                    top: 4,
+                    transform: "translateX(-50%)",
+                    width: 176,
+                    padding: "8px 10px",
+                    border: "1px solid var(--ledger-border-control)",
+                    borderRadius: "var(--ledger-radius-button)",
+                    background: "var(--ledger-bg-surface)",
+                    boxShadow: "var(--ledger-elevation-2)",
+                    fontSize: 12,
+                    lineHeight: "18px",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <strong style={{ display: "block" }}>{points[activeIndex].date}</strong>
+                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>Spend</span><strong>{points[activeIndex].spend === null ? "No data" : formatSpend(points[activeIndex].spend, currency)}</strong></span>
+                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>ROAS</span><strong>{points[activeIndex].roas === null ? "No data" : `${points[activeIndex].roas.toFixed(2)}x`}</strong></span>
+                </div>
+              ) : null}
+
+              <span aria-hidden="true" style={{ position: "absolute", left: 54, bottom: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>{first ? shortDate(first) : "—"}</span>
+              <span aria-hidden="true" style={{ position: "absolute", right: 42, bottom: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>{last ? shortDate(last) : "—"}</span>
             </div>
-            <p
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 8,
-                margin: "8px 0 0",
-                fontSize: 12,
-                lineHeight: "16px",
-                color: "var(--ledger-ink-tertiary)",
-              }}
-            >
-              <span>{first ?? "—"}</span>
-              <span>
-                {unitLabel} · {targetLabel}
-              </span>
-              <span>{last ?? "—"}</span>
-            </p>
           </div>
         )}
       </div>

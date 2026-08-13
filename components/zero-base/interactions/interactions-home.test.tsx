@@ -111,6 +111,24 @@ afterEach(() => {
 afterAll(() => flushInteractionResults("home"));
 
 describe("G7 — Home composition contracts", () => {
+  it("shows spend and ROAS values on hover and keyboard focus", async () => {
+    const user = userEvent.setup();
+    renderHome();
+
+    const point = screen.getByRole("button", {
+      name: /2026-08-08; spend \$540\.00; ROAS 2\.80x/i,
+    });
+    await user.hover(point);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("2026-08-08");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("$540");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("2.80x");
+
+    await user.unhover(point);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    await user.click(point);
+    expect(screen.getByRole("tooltip")).toBeVisible();
+  });
+
   interactionCase("live:chart-table-toggle", async () => {
     const user = userEvent.setup();
     const { unmount } = renderHome();

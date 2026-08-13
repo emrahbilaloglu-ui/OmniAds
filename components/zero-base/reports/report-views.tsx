@@ -37,7 +37,7 @@ import {
   type GridState,
   type Widget,
 } from "@/lib/zero-base/reports/builder-model";
-import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import { useCopy, useZeroBaseLanguage } from "@/components/zero-base/i18n/copy-provider";
 
 /* --------------------------------------------------------------- library */
 
@@ -72,6 +72,7 @@ export function ReportLibraryView({
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<"recent" | "name">("recent");
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -103,8 +104,7 @@ export function ReportLibraryView({
     <div data-reports-surface="library" data-el="reports-lib">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
-          <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ledger-ink-tertiary)" }}>Reports</p>
-          <h1 style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
           <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Save report formats, export tables as CSV, or start from a reusable template.</p>
         </div>
         <Button
@@ -118,7 +118,7 @@ export function ReportLibraryView({
       </div>
       <div data-report-library-columns="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 1.25fr)", gap: 12, alignItems: "start" }}>
         <section style={{ padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
-          <h2 style={{ margin: 0, fontSize: 15 }}>Saved Reports</h2>
+          <h2 style={{ margin: 0, fontSize: 15 }}>{language === "tr" ? "Kayıtlı Raporlar" : "Saved Reports"}</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Every saved report belongs to the active business.</p>
           {reports.length > 5 ? <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
             <input aria-label="Search reports" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search reports..." style={{ minHeight: 34, minWidth: 220, padding: "6px 9px", border: "1px solid var(--ledger-border-control)", borderRadius: 6, background: "var(--ledger-bg-surface)" }} />

@@ -13,6 +13,7 @@ import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
 export interface IntelligenceSource {
   key: string;
@@ -54,7 +55,7 @@ export function IntelligenceView({
   const copy = useCopy();
   if (unavailableReason) {
     return (
-      <div data-intelligence-surface="">
+      <div data-intelligence-surface="" className={legacyStyles.workspace}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.accountIntelligence}
         </h1>
@@ -70,10 +71,12 @@ export function IntelligenceView({
   ).slice(0, 4);
 
   return (
-    <div data-intelligence-surface="">
+    <div data-intelligence-surface="" className={legacyStyles.workspace}>
       <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
+          <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.accountIntelligence}</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Account-level signals, source health and recommendations.</p>
       {window ? (
         <p data-intelligence-window="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Every windowed source below covers {window.startDate} to {window.endDate}.

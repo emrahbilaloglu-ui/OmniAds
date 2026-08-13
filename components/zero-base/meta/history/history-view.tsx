@@ -20,6 +20,7 @@ import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
 import type { HistoryRow } from "@/lib/zero-base/meta/history-adapter";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
 export type { HistoryRow };
 
@@ -67,7 +68,7 @@ export function HistoryView({
 
   if (unavailableReason) {
     return (
-      <div data-history-surface="">
+      <div data-history-surface="" className={legacyStyles.workspace}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -80,11 +81,12 @@ export function HistoryView({
     <div
       data-history-surface=""
       data-history-layout=""
+      className={legacyStyles.workspace}
       style={{ display: "grid", gridTemplateColumns: replayRow ? "minmax(0, 1fr) 360px" : "1fr", gap: 16, alignItems: "start" }}
     >
       <div style={{ minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
+        <div><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Decision, workflow and provider-action journal.</p></div>
         {onClose ? (
           <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
             {copy.close}

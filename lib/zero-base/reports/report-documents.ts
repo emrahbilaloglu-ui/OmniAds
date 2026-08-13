@@ -25,7 +25,17 @@ import type {
   RenderedReportWidget,
 } from "@/lib/custom-reports";
 import { REPORT_GRID_COLUMNS, getDefaultWidgetSpan } from "@/lib/custom-reports";
-import type { Widget } from "@/lib/zero-base/reports/builder-model";
+import { GRID_COLUMNS, type Widget } from "@/lib/zero-base/reports/builder-model";
+
+const BUILDER_COLUMNS_PER_STORED_COLUMN = GRID_COLUMNS / REPORT_GRID_COLUMNS;
+
+function toStoredColumn(value: number): number {
+  return Math.floor(value / BUILDER_COLUMNS_PER_STORED_COLUMN);
+}
+
+function toStoredSpan(value: number): number {
+  return Math.ceil(value / BUILDER_COLUMNS_PER_STORED_COLUMN);
+}
 
 /**
  * A complete, renderable widget definition per catalog source.
@@ -123,10 +133,14 @@ export function toReportDocument(input: {
   );
 
   const widgets = input.widgets.flatMap((widget) => {
-    const slot = widget.y * REPORT_GRID_COLUMNS + Math.min(widget.x, REPORT_GRID_COLUMNS - 1);
+    const storedX = Math.min(toStoredColumn(widget.x), REPORT_GRID_COLUMNS - 1);
+    const slot = widget.y * REPORT_GRID_COLUMNS + storedX;
     const geometry = {
       slot,
-      colSpan: Math.max(1, Math.min(widget.w, REPORT_GRID_COLUMNS)),
+      colSpan: Math.max(
+        1,
+        Math.min(toStoredSpan(widget.w), REPORT_GRID_COLUMNS - storedX),
+      ),
       rowSpan: Math.max(1, widget.h),
     };
     const existing = stored.get(widget.id);
@@ -165,9 +179,9 @@ export function fromReportDocument(document: unknown): Widget[] {
       id: widget.id,
       sourceId: String(widget.dataSource ?? ""),
       label: widget.title,
-      x: (widget.slot ?? 0) % REPORT_GRID_COLUMNS,
+      x: ((widget.slot ?? 0) % REPORT_GRID_COLUMNS) * BUILDER_COLUMNS_PER_STORED_COLUMN,
       y: Math.floor((widget.slot ?? 0) / REPORT_GRID_COLUMNS),
-      w: widget.colSpan ?? 1,
+      w: (widget.colSpan ?? 1) * BUILDER_COLUMNS_PER_STORED_COLUMN,
       h: widget.rowSpan ?? 1,
     }));
   // No filter: `text` and `section` widgets legitimately carry no dataSource,

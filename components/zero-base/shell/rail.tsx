@@ -12,6 +12,7 @@
  * Modules the actor cannot reach are absent, never disabled teasers.
  */
 import Link from "next/link";
+import Image from "next/image";
 
 import { isNavHrefActive, navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
@@ -42,12 +43,46 @@ const GROUP_META: Record<string, { label: string; section: string; badge?: strin
 
 const GROUP_ICON: Record<string, string> = {
   home: "⌂",
-  meta: "◎",
-  creative: "✦",
-  google: "G",
-  analytics: "⌁",
   reports: "▤",
 };
+
+const GROUP_PLATFORM_LOGO: Partial<Record<string, { src: string; alt: string }>> = {
+  meta: { src: "/platform-logos/Meta.png", alt: "Meta" },
+  creative: { src: "/platform-logos/Meta.png", alt: "Meta" },
+  google: { src: "/platform-logos/googleAds.svg", alt: "Google Ads" },
+  analytics: { src: "/platform-logos/GA4.svg", alt: "Google Analytics 4" },
+};
+
+function GroupIcon({ groupId }: { groupId: string }) {
+  const logo = GROUP_PLATFORM_LOGO[groupId];
+
+  return (
+    <span
+      aria-hidden="true"
+      data-platform-logo={logo ? groupId : undefined}
+      style={{
+        width: 18,
+        height: 18,
+        flex: "0 0 18px",
+        display: "grid",
+        placeItems: "center",
+        color: "var(--ledger-ink-secondary)",
+      }}
+    >
+      {logo ? (
+        <Image
+          src={logo.src}
+          alt={logo.alt}
+          width={18}
+          height={18}
+          style={{ width: 18, height: 18, objectFit: "contain" }}
+        />
+      ) : (
+        GROUP_ICON[groupId] ?? "·"
+      )}
+    </span>
+  );
+}
 
 function groupActive(group: NavGroup, pathname: string, businessId: string | null): boolean {
   return group.items.some((item) => {
@@ -236,9 +271,7 @@ export function Rail({
                     fontWeight: active ? 600 : 500,
                   }}
                 >
-                  <span aria-hidden="true" style={{ width: 18, textAlign: "center", color: "var(--ledger-ink-secondary)" }}>
-                    {GROUP_ICON[group.id] ?? "·"}
-                  </span>
+                  <GroupIcon groupId={group.id} />
                   <span style={{ flex: 1 }}>{meta.label}</span>
                   {meta.badge ? (
                     <span

@@ -293,6 +293,28 @@ export function IntegrationsView({
   searchConsoleSelection?: SelectionPanelProps;
 }) {
   const copy = useCopy();
+  const connectedCount = providers.filter((row) => row.state.kind === "connected").length;
+  const needsSetupCount = providers.filter((row) => row.state.kind !== "connected").length;
+  const providerAction = (row: ProviderHealth) => {
+    const supported = connectSupported ? connectSupported(row.provider) : true;
+    const needsAction = row.state.kind === "needs_reconnect" || row.state.kind === "not_connected";
+    if (needsAction && authorizePermission && !authorizePermission.ok) {
+      return <span data-authorize-blocked={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>{authorizePermission.reason}</span>;
+    }
+    if (row.provider === "shopify" && shopifyEntry && needsAction) {
+      return <span data-shopify-entry={shopifyEntry.kind} style={{ display: "grid", gap: 2 }}><a data-shopify-action="" href={shopifyEntry.href} style={{ color: "var(--ledger-accent-action)", fontWeight: 600, minHeight: 44, display: "inline-flex", alignItems: "center" }}>{shopifyEntry.label}</a>{shopifyEntry.note ? <span data-shopify-note="" style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{shopifyEntry.note}</span> : null}</span>;
+    }
+    if (row.state.kind === "needs_reconnect") {
+      return supported ? <Button variant="secondary" data-reconnect={row.provider} data-ctl="live:INTEGRATION-02" onClick={() => onReconnect?.(row.provider)}>{copy.reconnect}</Button> : <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>{CONNECT_UNSUPPORTED}</span>;
+    }
+    if (row.state.kind === "not_connected") {
+      return supported ? <Button variant="secondary" data-connect={row.provider} data-ctl="live:INTEGRATION-03 connect" onClick={() => onConnect?.(row.provider)}>{copy.connect}</Button> : <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>{CONNECT_UNSUPPORTED}</span>;
+    }
+    if (row.state.kind === "connected") {
+      return <ProviderRowActions provider={row.provider} disconnectPermission={authorizePermission} onReassign={onReassignProvider} onDetails={onProviderDetails} onDisconnect={onDisconnectProvider} />;
+    }
+    return <span style={{ color: "var(--ledger-ink-tertiary)" }}>—</span>;
+  };
   return (
     <Shell title={copy.integrations}>
       {unavailableReason ? (
@@ -302,132 +324,24 @@ export function IntegrationsView({
       ) : (
         <>
           <div data-el="provider-states">
-          <p data-no-universal-health="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            {NO_UNIVERSAL_HEALTH}
-          </p>
-          <div style={{ marginTop: 12 }}>
-            <DataTable
-              collection="providers"
-              caption={copy.providerConnections}
-              rows={[...providers]}
-              rowKey={(row) => row.provider}
-              columns={[
-                { id: "provider", header: "Provider", render: (row) => row.label },
-                {
-                  id: "state",
-                  header: "Connection",
-                  render: (row) => (
-                    <span data-provider-state={row.provider}>
-                      {row.state.kind === "connected"
-                        ? `Connected${row.state.accountLabel ? ` · ${row.state.accountLabel}` : ""}`
-                        : row.state.kind === "not_connected"
-                          ? "Not connected"
-                          : row.state.kind === "needs_reconnect"
-                            ? row.state.reason
-                            : row.state.reason}
-                    </span>
-                  ),
-                },
-                {
-                  id: "action",
-                  header: "Action",
-                  render: (row) => {
-                    const supported = connectSupported ? connectSupported(row.provider) : true;
-                    const needsAction =
-                      row.state.kind === "needs_reconnect" || row.state.kind === "not_connected";
-
-                    // Role first, for every provider.
-                    //
-                    // Shopify's own start route is session-authenticated, but
-                    // its callback and finalize handlers both require
-                    // collaborator — so a guest sent into the install would be
-                    // refused at the end of a long external round trip. The
-                    // refusal belongs here, before anything leaves the product.
-                    if (needsAction && authorizePermission && !authorizePermission.ok) {
-                      return (
-                        <span data-authorize-blocked={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                          {authorizePermission.reason}
-                        </span>
-                      );
-                    }
-
-                    // Shopify is entered through Shopify, not through a generic
-                    // OAuth start this product can begin.
-                    if (row.provider === "shopify" && shopifyEntry && needsAction) {
-                      return (
-                        <span data-shopify-entry={shopifyEntry.kind} style={{ display: "grid", gap: 2 }}>
-                          <a
-                            data-shopify-action=""
-                            href={shopifyEntry.href}
-                            style={{ color: "var(--ledger-accent-action)", fontWeight: 600, minHeight: 44, display: "inline-flex", alignItems: "center" }}
-                          >
-                            {shopifyEntry.label}
-                          </a>
-                          {shopifyEntry.note ? (
-                            <span data-shopify-note="" style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                              {shopifyEntry.note}
-                            </span>
-                          ) : null}
-                        </span>
-                      );
-                    }
-
-                    if (row.state.kind === "needs_reconnect") {
-                      return supported ? (
-                        <Button
-                          variant="secondary"
-                          data-reconnect={row.provider}
-                          data-ctl="live:INTEGRATION-02"
-                          onClick={() => onReconnect?.(row.provider)}
-                        >
-                          {copy.reconnect}
-                        </Button>
-                      ) : (
-                        <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                          {CONNECT_UNSUPPORTED}
-                        </span>
-                      );
-                    }
-                    // First-time connection. Without this the only path to a
-                    // never-connected provider was a dash: Flow H had no entry
-                    // point at all on the canonical surface.
-                    if (row.state.kind === "not_connected") {
-                      return supported ? (
-                        <Button
-                          variant="secondary"
-                          data-connect={row.provider}
-                          data-ctl="live:INTEGRATION-03 connect"
-                          onClick={() => onConnect?.(row.provider)}
-                        >
-                          {copy.connect}
-                        </Button>
-                      ) : (
-                        <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                          {CONNECT_UNSUPPORTED}
-                        </span>
-                      );
-                    }
-                    // A connected provider used to render an em dash — the
-                    // one state where the reader has something to do (move the
-                    // account, change the property or site, take it off) and
-                    // the row offered nothing at all.
-                    if (row.state.kind === "connected") {
-                      return (
-                        <ProviderRowActions
-                          provider={row.provider}
-                          disconnectPermission={authorizePermission}
-                          onReassign={onReassignProvider}
-                          onDetails={onProviderDetails}
-                          onDisconnect={onDisconnectProvider}
-                        />
-                      );
-                    }
-                    return <span style={{ color: "var(--ledger-ink-tertiary)" }}>—</span>;
-                  },
-                },
-              ]}
-            />
-          </div>
+            <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Connect ad platforms, analytics tools and storefronts, then choose which account Adsecute should use.</p>
+            <div data-integration-summary="" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, marginTop: 14 }}>
+              {[{ label: "Connected", value: connectedCount }, { label: "Needs setup", value: needsSetupCount }, { label: "Providers", value: providers.length }].map((item) => <div key={item.label} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: 8, background: "var(--ledger-bg-surface)" }}><span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{item.label}</span><strong style={{ display: "block", marginTop: 4, fontSize: 20 }}>{item.value}</strong></div>)}
+            </div>
+            <p data-no-universal-health="" style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{NO_UNIVERSAL_HEALTH}</p>
+            {[
+              { title: "Advertising platforms", description: "Campaign delivery, spend and account-level performance.", ids: ["meta", "google"] },
+              { title: "Commerce", description: "Storefront revenue, orders and product economics.", ids: ["shopify"] },
+              { title: "Analytics & discovery", description: "On-site behaviour, attribution context and organic search demand.", ids: ["ga4", "search_console"] },
+              { title: "Email & lifecycle", description: "Customer lifecycle, campaign and automation signals.", ids: ["klaviyo"] },
+            ].map((group) => {
+              const rows = providers.filter((row) => group.ids.includes(row.provider));
+              if (!rows.length) return null;
+              return <section key={group.title} style={{ marginTop: 14, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}><h2 style={{ margin: 0, fontSize: 15 }}>{group.title}</h2><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{group.description}</p><div data-provider-card-grid="" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10, marginTop: 14 }}>{rows.map((row) => {
+                const status = row.state.kind === "connected" ? `Connected${row.state.accountLabel ? ` · ${row.state.accountLabel}` : ""}` : row.state.kind === "not_connected" ? "Not connected" : row.state.reason;
+                return <article key={row.provider} data-provider-card={row.provider} style={{ display: "grid", alignContent: "space-between", minHeight: 176, padding: 14, border: "1px solid var(--ledger-border-control)", borderRadius: 9, background: "var(--ledger-bg-surface)" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}><h3 style={{ margin: 0, fontSize: 14 }}>{row.label}</h3><span style={{ padding: "2px 6px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 999, fontSize: 11, color: row.state.kind === "connected" ? "var(--ledger-semantic-ok)" : "var(--ledger-ink-tertiary)" }}>{row.state.kind === "connected" ? "Ready" : "Setup"}</span></div><p data-provider-state={row.provider} style={{ margin: "12px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>{status}</p></div><div style={{ marginTop: 16 }}>{providerAction(row)}</div></article>;
+              })}</div></section>;
+            })}
           </div>
           <CeremonyResult outcome={outcome} name="reconnect" />
           {assignment ? <AssignmentPanel {...assignment} /> : null}
@@ -439,6 +353,7 @@ export function IntegrationsView({
           ) : null}
         </>
       )}
+      <style>{`@media(max-width:900px){[data-provider-card-grid]{grid-template-columns:repeat(2,minmax(0,1fr))!important}}@media(max-width:620px){[data-integration-summary],[data-provider-card-grid]{grid-template-columns:1fr!important}}`}</style>
     </Shell>
   );
 }
@@ -694,6 +609,7 @@ export function TeamView({
   const copy = useCopy();
   const [emails, setEmails] = useState("");
   const [inviteRole, setInviteRole] = useState("collaborator");
+  const [teamTab, setTeamTab] = useState<"members" | "invites">("members");
 
   if (unavailableReason) {
     return (
@@ -707,6 +623,10 @@ export function TeamView({
 
   return (
     <Shell title={copy.teamTitle}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start", flexWrap: "wrap", marginTop: 5 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Manage members, invitations, roles and workspace access.</p>
+        {permissions.invitesWrite.ok ? <Button variant="secondary" data-team-open-invite="" onClick={() => setTeamTab("invites")}>{copy.sendInvitations}</Button> : null}
+      </div>
       {/* One live region for every write on this surface. */}
       <p role="status" aria-live="polite" data-team-progress={write.pending ?? ""} style={{ margin: "8px 0 0", fontSize: 12, minHeight: 16 }}>
         {write.pending ? "Working\u2026" : write.confirmed ? write.confirmed : ""}
@@ -723,9 +643,14 @@ export function TeamView({
         </p>
       )}
 
-      <div data-team-layout="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(260px, 1fr)", gap: 14, alignItems: "start" }}>
-      <section data-team-invite="" aria-label={copy.invitations} style={{ marginTop: 20, gridColumn: 2, gridRow: 1 }}>
+      <div role="tablist" aria-label="Team views" style={{ display: "flex", gap: 4, marginTop: 14, borderBottom: "1px solid var(--ledger-border-subtle)" }}>
+        {(["members", "invites"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={teamTab === tab} onClick={() => setTeamTab(tab)} style={{ padding: "9px 12px", border: 0, borderBottom: teamTab === tab ? "2px solid var(--ledger-ink-primary)" : "2px solid transparent", background: "transparent", color: teamTab === tab ? "var(--ledger-ink-primary)" : "var(--ledger-ink-secondary)", fontWeight: teamTab === tab ? 600 : 400, textTransform: "capitalize", cursor: "pointer" }}>{tab}</button>)}
+      </div>
+
+      <div data-team-layout="" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14, alignItems: "start" }}>
+      <section data-team-invite="" aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Invite teammates by email and choose their initial role.</p>
         {permissions.invitesWrite.ok ? (
           <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
             <TextInput
@@ -766,8 +691,9 @@ export function TeamView({
         )}
       </section>
 
-      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16, gridColumn: 1, gridRow: "1 / span 2" }}>
+      <section aria-label={copy.members} data-el="role-permission-state" style={{ display: teamTab === "members" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>People with access to the selected workspace.</p>
         <div style={{ marginTop: 8 }}>
           <DataTable
             collection="members"
@@ -852,7 +778,9 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label={copy.invitations} style={{ marginTop: 20, gridColumn: 2, gridRow: 2 }}>
+      <section aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.pendingInvitations}</h2>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Generated invitations and their current delivery status.</p>
         <div style={{ marginTop: 12 }}>
           <DataTable
             density="dense"
@@ -907,7 +835,7 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label={copy.accessRequests} style={{ marginTop: 20, gridColumn: 2, gridRow: 3 }}>
+      <section aria-label={copy.accessRequests} style={{ marginTop: 2, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.accessRequests}</h2>
         {permissions.accessRequests.ok ? (
           <div style={{ marginTop: 8 }}>
@@ -953,7 +881,6 @@ export function TeamView({
         )}
       </section>
       </div>
-      <style>{`@media(max-width:980px){[data-team-layout]{grid-template-columns:1fr!important}[data-team-layout]>section{grid-column:1!important;grid-row:auto!important}}`}</style>
     </Shell>
   );
 }

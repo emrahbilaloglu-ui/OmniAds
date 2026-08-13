@@ -22,6 +22,7 @@ import {
 } from "@/lib/zero-base/creative/performance-adapter";
 import { CreativeMedia } from "@/components/zero-base/creative/creative-media";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
 function Metric({ value, name, compact = false }: { value: MetricValue; name: string; compact?: boolean }) {
   const t = useCopy();
@@ -100,7 +101,7 @@ export function CreativePerformanceView({
 
   if (unavailableReason) {
     return (
-      <div data-creative-performance="">
+      <div data-creative-performance="" className={legacyStyles.workspace}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.creativePerformance}
         </h1>
@@ -112,7 +113,8 @@ export function CreativePerformanceView({
   }
 
   return (
-    <div data-creative-performance="">
+    <div data-creative-performance="" className={legacyStyles.workspace}>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.creativeIntelligence}
@@ -133,6 +135,7 @@ export function CreativePerformanceView({
           {copy.metaScoped}
         </span>
       </div>
+      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Compare creative performance, evidence and served decision context.</p>
 
       {onPresetChange || onSortChange || onActionStateChange ? (
         <div

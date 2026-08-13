@@ -1,0 +1,113 @@
+.workspace {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  color: var(--ledger-ink-primary);
+}
+
+.workspace > h1,
+.workspace > header h1,
+.workspace > div:first-child h1 {
+  font-size: 22px !important;
+  line-height: 30px !important;
+  letter-spacing: -0.02em;
+}
+
+.workspace > header,
+.workspace > div:first-child {
+  margin-bottom: 16px;
+}
+
+.workspace :global(section) {
+  border-radius: 10px !important;
+}
+
+.workspace :global([data-collection]),
+.workspace :global(table) {
+  font-size: 12.5px;
+}
+
+.workspace :global(table) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--ledger-border-subtle);
+  border-radius: 10px;
+  background: var(--ledger-bg-surface);
+}
+
+.workspace :global(thead) {
+  background: var(--ledger-bg-app);
+  font-family: var(--font-adc-mono), monospace;
+  color: var(--ledger-ink-tertiary);
+  text-transform: uppercase;
+}
+
+.workspace :global(th) {
+  padding: 11px 13px !important;
+  font-size: 12px !important;
+  letter-spacing: 0.035em;
+}
+
+.workspace :global(td) {
+  padding: 12px 13px !important;
+  border-top-color: var(--ledger-border-subtle) !important;
+  vertical-align: top;
+}
+
+.workspace :global(tbody tr) {
+  transition: background-color 140ms ease;
+}
+
+.workspace :global(tbody tr:hover) {
+  background: var(--ledger-bg-app);
+}
+
+.workspace :global(button),
+.workspace :global(select),
+.workspace :global(input) {
+  border-radius: 6px !important;
+}
+
+.workspace :global([role="tablist"]) {
+  border-bottom: 1px solid var(--ledger-border-subtle);
+}
+
+.workspace :global([role="tab"]) {
+  min-height: 40px;
+  padding-inline: 12px;
+}
+
+.workspace :global([data-banner-stack]),
+.workspace :global([data-replay-banner]),
+.workspace :global([data-meta-stop-engaged]) {
+  box-shadow: none !important;
+}
+
+.workspace :global([data-decision-row]),
+.workspace :global([data-creative-row]),
+.workspace :global([data-brief-detail] > article),
+.workspace :global([data-brief-detail] > aside) {
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.workspace :global([data-decision-row]:hover),
+.workspace :global([data-creative-row]:hover) {
+  border-color: var(--ledger-border-control) !important;
+  background: var(--ledger-bg-app) !important;
+}
+
+@media (max-width: 760px) {
+  .workspace > h1,
+  .workspace > header h1,
+  .workspace > div:first-child h1 {
+    font-size: 20px !important;
+    line-height: 27px !important;
+  }
+
+  .workspace :global(th),
+  .workspace :global(td) {
+    padding-inline: 10px !important;
+  }
+}

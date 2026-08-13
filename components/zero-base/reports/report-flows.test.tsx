@@ -96,6 +96,12 @@ afterEach(() => {
 });
 
 describe("WP-22 builder edit route", () => {
+  it("hydrates a selected gallery template into the new-report builder", () => {
+    render(<ReportBuilderClient businessId={BUSINESS} templateId="one-click-paid-media" />);
+    expect(screen.getByDisplayValue("One Click Paid Media")).toBeTruthy();
+    expect(document.querySelectorAll("[data-widget]").length).toBeGreaterThan(0);
+  });
+
   it("REGRESSION: a mounted edit route renders its stored widgets and name", async () => {
     stubFetch((url) => {
       if (url.startsWith(`/api/reports/${REPORT}`)) {

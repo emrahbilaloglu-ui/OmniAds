@@ -28,6 +28,7 @@ import {
   type StopCeremonyInput,
 } from "@/lib/zero-base/meta/automation-posture";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
 const STATE_WORD: Record<ProviderPosture["state"], string> = {
   serving: "Serving",
@@ -61,7 +62,8 @@ export function AutomationView({
   const rows: GuardrailRow[] = buildGuardrailRows(guardrails);
 
   return (
-    <div data-automation-surface="">
+    <div data-automation-surface="" className={legacyStyles.workspace}>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         Automation &amp; Meta Stop
       </h1>

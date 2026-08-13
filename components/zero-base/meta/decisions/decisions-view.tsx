@@ -40,6 +40,7 @@ import {
   type DecisionLevel,
   type DecisionsUrlState,
 } from "@/lib/zero-base/meta/decisions-url-state";
+import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 import {
   WorkflowChip,
   WorkflowPanel,
@@ -140,11 +141,13 @@ export function DecisionsView({
   const banners = orderedBanners(model.banners);
 
   return (
-    <div data-decisions-surface="">
+    <div data-decisions-surface="" className={legacyStyles.workspace}>
       <header style={{ marginBottom: 12 }}>
+        <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.metaDecisions}
         </h1>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Review prioritized actions, supporting evidence and workflow state.</p>
         {/* Two separate facts, drawn separately and labelled. */}
         <p style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
           <span data-evidence-window="">

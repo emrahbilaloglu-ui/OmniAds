@@ -57,7 +57,7 @@ describe("the builder grid becomes a real CustomReportDocument", () => {
     expect(document.dateRangePreset).toBe("30");
     expect(document.compareMode).toBe("none");
     // Slot, not x/y: the stored document is slot-based.
-    expect(document.widgets[0].slot).toBe(1);
+    expect(document.widgets[0].slot).toBe(0);
     expect(document.widgets[1].slot).toBe(REPORT_GRID_COLUMNS);
   });
 
@@ -70,8 +70,43 @@ describe("the builder grid becomes a real CustomReportDocument", () => {
   it("round-trips through fromReportDocument", () => {
     const restored = fromReportDocument(toReportDocument({ widgets: WIDGETS }));
     expect(restored.map((w) => w.sourceId)).toEqual(["meta_campaigns", "overview_trend"]);
-    expect(restored[0].x).toBe(1);
+    expect(restored[0].x).toBe(0);
     expect(restored[1].y).toBe(1);
+  });
+
+  it("scales persisted four-column geometry across the 12-column builder", () => {
+    const stored: CustomReportDocument = {
+      version: 1,
+      dateRangePreset: "30",
+      compareMode: "none",
+      widgets: [
+        {
+          id: "full",
+          type: "table",
+          title: "Full width",
+          dataSource: "meta_campaigns",
+          slot: 0,
+          colSpan: REPORT_GRID_COLUMNS,
+          rowSpan: 2,
+          columns: ["name"],
+        },
+        {
+          id: "right",
+          type: "metric",
+          title: "Right edge",
+          dataSource: "overview_summary",
+          metricKey: "spend",
+          slot: 3,
+          colSpan: 1,
+          rowSpan: 1,
+        },
+      ],
+    };
+
+    const builder = fromReportDocument(stored);
+    expect(builder[0]).toMatchObject({ x: 0, w: 12 });
+    expect(builder[1]).toMatchObject({ x: 9, w: 3 });
+    expect(toReportDocument({ widgets: builder, base: stored }).widgets).toEqual(stored.widgets);
   });
 
   it("REGRESSION: a raw GridState is not a document", () => {
@@ -284,7 +319,7 @@ describe("editing preserves the whole stored document", () => {
 
   it("REGRESSION: moving one widget does not destroy another's configuration", () => {
     const widgets = fromReportDocument(STORED).map((widget) =>
-      widget.id === "w1" ? { ...widget, x: 2, y: 1 } : widget,
+      widget.id === "w1" ? { ...widget, x: 6, y: 1 } : widget,
     );
     const saved = toReportDocument({ widgets, base: STORED });
     const trend = saved.widgets.find((widget) => widget.id === "w2");

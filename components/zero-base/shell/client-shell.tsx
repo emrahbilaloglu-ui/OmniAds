@@ -79,8 +79,10 @@ export function ClientShell({
     start: searchParams.get("start"),
     end: searchParams.get("end"),
   };
-  const accountPickerEnabled =
-    pathname.startsWith("/app/creative/") || pathname === "/app/meta/launchpad";
+  // Every provider surface is account-scoped. Restricting the picker to two
+  // routes left Decisions, Intelligence and the Google workspace showing an
+  // account-shaped chip that could not actually change account.
+  const accountPickerEnabled = providerId !== null;
   const windowPickerEnabled = pathname.startsWith("/app/creative/");
   const evidenceWindowLabel =
     windowPickerEnabled && routeWindow.start && routeWindow.end
@@ -179,7 +181,11 @@ export function ClientShell({
         workspaceMode="client"
         workspaceName={effectiveEnvelope.business?.name ?? "Client"}
         title={currentItem ? railLabel(currentItem.label) : `Client · ${effectiveEnvelope.business?.name ?? "Client"}`}
-        scope={scope}
+        // Business/Team/Billing/Home are not evidence surfaces. Showing an
+        // account, evidence window and freshness strip there fabricated five
+        // unknown facts and made static copy look like controls. The rail
+        // already carries the authorised business scope on those routes.
+        scope={providerId ? scope : null}
         scopePickers={{
           onSwitchBusiness: () => setPicker("business"),
           ...(accountPickerEnabled && catalog?.accounts.length ? { onPickAccount: () => setPicker("account") } : {}),

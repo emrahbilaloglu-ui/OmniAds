@@ -6,6 +6,7 @@ import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { DecisionsClient } from "@/components/zero-base/meta/decisions/decisions-client";
 import { parseDecisionsUrlState } from "@/lib/zero-base/meta/decisions-url-state";
 import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
+import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +47,17 @@ export default async function MetaDecisionsPage({
   // says, so the flag can only ever narrow what is offered.
   const mutationUiEnabled =
     isMutationUiEnabled() && !access.context.reviewerReadOnly && !access.context.demo;
+  const providerAccountId = await resolveProviderAccountId({
+    businessId,
+    provider: "meta",
+    requestedAccountId: query.get("providerAccountId"),
+  });
 
   return (
     <DecisionsClient
       businessId={businessId}
       initialState={parseDecisionsUrlState(query)}
+      providerAccountId={providerAccountId}
       demo={access.context.demo}
       mutationUiEnabled={mutationUiEnabled}
     />

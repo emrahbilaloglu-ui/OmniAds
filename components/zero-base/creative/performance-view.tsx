@@ -78,6 +78,7 @@ export function CreativePerformanceView({
   actionState = "any",
   onActionStateChange,
   onLoadMore,
+  onOpenCreative,
 }: {
   model: PerformanceViewModel;
   businessId: string;
@@ -90,6 +91,8 @@ export function CreativePerformanceView({
   actionState?: string;
   onActionStateChange?: (value: string) => void;
   onLoadMore?: () => void;
+  /** Opens the route-owned inspector without replacing the collection page. */
+  onOpenCreative?: (creativeId: string) => void;
 }) {
   const t = useCopy();
   const copy = useCopy();
@@ -237,14 +240,26 @@ export function CreativePerformanceView({
               >
                 <span role="cell"><CreativeMedia state={row.media} label={row.name} /></span>
                 <span role="cell" data-creative-cell={row.creativeId} style={{ minWidth: 0 }}>
-                  <Link
-                    href={creativeDetailHref({ businessId, creativeId: row.creativeId, accountId: row.accountId })}
-                    data-creative-detail-link={row.creativeId}
-                    data-ctl="live:CREATIVE-02 open"
-                    style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ledger-ink-primary)", fontSize: 13, fontWeight: 600, textDecoration: "none" }}
-                  >
-                    {row.name}
-                  </Link>
+                  {onOpenCreative ? (
+                    <button
+                      type="button"
+                      data-creative-detail-link={row.creativeId}
+                      data-ctl="live:CREATIVE-02 open"
+                      onClick={() => onOpenCreative(row.creativeId)}
+                      style={{ display: "block", width: "100%", padding: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ledger-ink-primary)", background: "none", border: 0, cursor: "pointer", textAlign: "left", fontSize: 13, fontWeight: 600 }}
+                    >
+                      {row.name}
+                    </button>
+                  ) : (
+                    <Link
+                      href={creativeDetailHref({ businessId, creativeId: row.creativeId, accountId: row.accountId })}
+                      data-creative-detail-link={row.creativeId}
+                      data-ctl="live:CREATIVE-02 open"
+                      style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ledger-ink-primary)", fontSize: 13, fontWeight: 600, textDecoration: "none" }}
+                    >
+                      {row.name}
+                    </Link>
+                  )}
                   <span style={{ display: "block", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {row.campaignName ?? copy.campaignNotServed}{row.adsetName ? ` · ${row.adsetName}` : ""}
                   </span>
@@ -271,7 +286,7 @@ export function CreativePerformanceView({
                 </span>
                 <span role="cell" style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
                   {row.decision?.decisionState ?? posture.label}
-                  {model.posture === "serving" ? (
+                  {model.posture === "serving" && row.decision?.kind === "single" ? (
                     <Link
                       href={decisionsHrefForCreative({ businessId, row })}
                       data-decision-link={row.creativeId}
@@ -279,6 +294,15 @@ export function CreativePerformanceView({
                     >
                       {t.openInDecisions}
                     </Link>
+                  ) : model.posture === "serving" && row.decision?.kind === "multiple" && onOpenCreative ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenCreative(row.creativeId)}
+                      data-multiple-decision-link={row.creativeId}
+                      style={{ display: "block", marginTop: 3, padding: 0, border: 0, background: "none", color: "var(--ledger-accent-action)", fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Review {row.decision.items.length} Ad decisions
+                    </button>
                   ) : (
                     <span data-decision-withheld={row.creativeId} style={{ display: "block", marginTop: 3, color: "var(--ledger-ink-tertiary)" }}>
                       {posture.label}

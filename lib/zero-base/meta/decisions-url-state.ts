@@ -16,7 +16,7 @@
 export const DECISION_LANES = ["act", "test", "watch"] as const;
 export type DecisionLane = (typeof DECISION_LANES)[number];
 
-export const DECISION_LEVELS = ["account", "campaign", "adset"] as const;
+export const DECISION_LEVELS = ["account", "campaign", "adset", "ad"] as const;
 export type DecisionLevel = (typeof DECISION_LEVELS)[number];
 
 export const DEFAULT_LANE: DecisionLane = "act";
@@ -99,8 +99,14 @@ export function serializeDecisionsUrlState(state: DecisionsUrlState): string {
   return params.toString();
 }
 
-export function decisionsHref(businessId: string, state: DecisionsUrlState): string {
-  const query = serializeDecisionsUrlState(state);
+export function decisionsHref(
+  businessId: string,
+  state: DecisionsUrlState,
+  providerAccountId?: string | null,
+): string {
+  const params = new URLSearchParams(serializeDecisionsUrlState(state));
+  if (providerAccountId) params.set("providerAccountId", providerAccountId);
+  const query = params.toString();
   return `/app/meta/decisions${query ? `?${query}` : ""}`;
 }
 

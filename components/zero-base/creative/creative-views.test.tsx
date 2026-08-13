@@ -8,8 +8,9 @@
  * different surface pretending to be the same one.
  */
 import React from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
 import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/zero-base/creative/performance-adapter";
 import { buildEvidence, buildHistory, decisionBand } from "@/lib/zero-base/creative/detail-adapter";
 import { ENGINE_POSTURES, postureView, type EnginePosture } from "@/lib/zero-base/creative/engine-posture";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 
 afterEach(cleanup);
 
@@ -44,10 +46,28 @@ function row(overrides: Partial<ServedCreativeRow> = {}): ServedCreativeRow {
 }
 
 function performance(posture: EnginePosture, rows: ServedCreativeRow[] = [row()]) {
+  const decision = {
+    providerAccountId: "act_1",
+    parentChain: {
+      ad: { id: "ad-1", name: "Creative One" },
+      creative: { id: "cr-1", name: "Creative One" },
+    },
+    classification: {
+      buyerAction: "scale",
+      buyerLabel: "Scale",
+      decisionState: "act",
+    },
+    metrics: { effectiveTargetRoas: 3.2 },
+  } as unknown as MetaCanonicalDecision;
   render(
     <ZeroBasePortalHost>
       <CreativePerformanceView
-        model={buildPerformanceViewModel({ rows, posture, totalAvailable: rows.length })}
+        model={buildPerformanceViewModel({
+          rows,
+          posture,
+          totalAvailable: rows.length,
+          canonicalDecisions: [decision],
+        })}
         businessId="biz-1"
       />
     </ZeroBasePortalHost>,
@@ -75,6 +95,30 @@ describe("posture is stated on the surface", () => {
         expect(document.querySelector("[data-decision-withheld]"), posture).not.toBeNull();
       }
     }
+  });
+});
+
+describe("collection detail stays in a drawer flow", () => {
+  it("emits the selected creative instead of navigating the collection link", async () => {
+    const onOpenCreative = vi.fn();
+    const model = buildPerformanceViewModel({
+      rows: [row()],
+      posture: "serving",
+      totalAvailable: 1,
+    });
+    render(
+      <CreativePerformanceView
+        model={model}
+        businessId="biz-1"
+        onOpenCreative={onOpenCreative}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Creative One" });
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.closest("a")).toBeNull();
+    await userEvent.click(trigger);
+    expect(onOpenCreative).toHaveBeenCalledWith("cr-1");
   });
 });
 

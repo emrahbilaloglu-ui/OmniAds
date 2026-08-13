@@ -284,6 +284,7 @@ export function AppShell({
                 facts={scope}
                 compact={narrow}
                 onOpenScopeSheet={() => setScopeOpen(true)}
+                pickers={scopePickers}
               />
             ) : null}
 

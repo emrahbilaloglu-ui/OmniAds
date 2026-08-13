@@ -23,6 +23,8 @@ import {
   type ProviderHealth,
 } from "@/lib/zero-base/manage/manage-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import { CommercialTruthSettingsSection } from "@/components/settings/commercial-truth-settings";
+import type { AdaptedCostModel } from "@/lib/zero-base/manage/manage-contract";
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -959,7 +961,12 @@ export function TeamView({
 /* ------------------------------------------------------------- business */
 
 export function BusinessView({
+  businessId,
   economics,
+  costModel,
+  costPermission,
+  costState,
+  onSaveCostModel,
   recommendedMode,
   deleteOutcome,
   onDelete,
@@ -969,7 +976,17 @@ export function BusinessView({
   settingsState,
   onSaveSettings,
 }: {
+  businessId?: string;
   economics: readonly EconomicsField[];
+  costModel?: AdaptedCostModel | null;
+  costPermission?: { ok: boolean; reason?: string };
+  costState?: { pending: boolean; error: string | null; confirmed: string | null };
+  onSaveCostModel?: (next: {
+    cogsPercent: number;
+    shippingPercent: number;
+    feePercent: number;
+    fixedCost: number;
+  }) => void;
   recommendedMode: string | null;
   deleteOutcome: CeremonyOutcome;
   onDelete?: () => void;
@@ -984,12 +1001,48 @@ export function BusinessView({
   const divergence = economicsDivergence(economics);
   const [name, setName] = useState(settings?.name ?? "");
   const [currency, setCurrency] = useState(settings?.currency ?? "");
+  const [costDraft, setCostDraft] = useState({
+    cogsPercent: String((costModel?.cogsPercent ?? 0) * 100),
+    shippingPercent: String((costModel?.shippingPercent ?? 0) * 100),
+    feePercent: String((costModel?.feePercent ?? 0) * 100),
+    fixedCost: String(costModel?.fixedCost ?? 0),
+  });
 
   // The stored values arrive after the read; adopt them once they do.
   useEffect(() => {
     setName(settings?.name ?? "");
     setCurrency(settings?.currency ?? "");
   }, [settings]);
+  useEffect(() => {
+    if (!costModel) return;
+    setCostDraft({
+      cogsPercent: String(costModel.cogsPercent === null ? 0 : costModel.cogsPercent * 100),
+      shippingPercent: String(costModel.shippingPercent === null ? 0 : costModel.shippingPercent * 100),
+      feePercent: String(costModel.feePercent === null ? 0 : costModel.feePercent * 100),
+      fixedCost: String(costModel.fixedCost ?? 0),
+    });
+  }, [costModel]);
+
+  const parsedCostDraft = {
+    cogsPercent: Number(costDraft.cogsPercent) / 100,
+    shippingPercent: Number(costDraft.shippingPercent) / 100,
+    feePercent: Number(costDraft.feePercent) / 100,
+    fixedCost: Number(costDraft.fixedCost),
+  };
+  const costDraftValid =
+    [
+      parsedCostDraft.cogsPercent,
+      parsedCostDraft.shippingPercent,
+      parsedCostDraft.feePercent,
+      parsedCostDraft.fixedCost,
+    ].every(Number.isFinite) &&
+    parsedCostDraft.cogsPercent >= 0 &&
+    parsedCostDraft.cogsPercent <= 1 &&
+    parsedCostDraft.shippingPercent >= 0 &&
+    parsedCostDraft.shippingPercent <= 1 &&
+    parsedCostDraft.feePercent >= 0 &&
+    parsedCostDraft.feePercent <= 1 &&
+    parsedCostDraft.fixedCost >= 0;
 
   return (
     <Shell title={copy.business}>
@@ -1066,6 +1119,65 @@ export function BusinessView({
             {copy.economicsAgree}
           </p>
         )}
+        {businessId ? (
+          <>
+            <section data-cost-model-editor="" style={{ marginTop: 12, padding: 14, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+              <h3 style={{ margin: 0, fontSize: 14 }}>Overview cost model</h3>
+              <p style={{ margin: "4px 0 10px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+                Used by overview profit estimates and reports. Percentages are stored as ratios and confirmed by a fresh read.
+              </p>
+              {costModel === null ? (
+                <p data-cost-model-unavailable="" style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>The current cost model could not be read.</p>
+              ) : (
+                <div data-cost-model-grid="" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(120px,1fr))", gap: 10 }}>
+                  {([
+                    ["cogsPercent", "COGS %"],
+                    ["shippingPercent", "Shipping %"],
+                    ["feePercent", "Fees %"],
+                    ["fixedCost", `Fixed cost (${settings?.currency || "currency"})`],
+                  ] as const).map(([key, label]) => (
+                    <TextInput
+                      key={key}
+                      label={label}
+                      data-cost-field={key}
+                      inputMode="decimal"
+                      value={costDraft[key]}
+                      disabled={costPermission?.ok === false}
+                      onChange={(event) => setCostDraft((current) => ({ ...current, [key]: event.target.value }))}
+                    />
+                  ))}
+                </div>
+              )}
+              {costPermission?.ok === false ? <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{costPermission.reason}</p> : null}
+              {costState?.error ? <p role="alert" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>{costState.error}</p> : null}
+              <p role="status" style={{ margin: "8px 0 0", minHeight: 16, fontSize: 12 }}>{costState?.pending ? "Saving…" : costState?.confirmed ?? ""}</p>
+              {costModel !== null && costPermission?.ok !== false ? (
+                <Button
+                  variant="secondary"
+                  data-cost-model-save=""
+                  state={
+                    costState?.pending
+                      ? { kind: "busy", label: "Saving…" }
+                      : !costDraftValid
+                        ? {
+                            kind: "disabled",
+                            reason: "Percentages must be between 0 and 100. Fixed cost must be 0 or higher.",
+                          }
+                        : { kind: "enabled" }
+                  }
+                  onClick={() => {
+                    if (costDraftValid) onSaveCostModel?.(parsedCostDraft);
+                  }}
+                >
+                  Save cost model
+                </Button>
+              ) : null}
+            </section>
+            <div style={{ marginTop: 16 }} data-commercial-truth-editor="">
+              <CommercialTruthSettingsSection businessId={businessId} />
+            </div>
+          </>
+        ) : (
         <div data-collection="economics" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, marginTop: 10 }}>
           {[...new Set(economics.map((row) => row.source))].map((source) => {
             const rows = economics.filter((row) => row.source === source);
@@ -1087,8 +1199,9 @@ export function BusinessView({
             );
           })}
         </div>
+        )}
       </section>
-      <style>{`@media(max-width:760px){[data-collection="economics"]{grid-template-columns:1fr!important}}`}</style>
+      <style>{`@media(max-width:900px){[data-cost-model-grid]{grid-template-columns:repeat(2,minmax(0,1fr))!important}}@media(max-width:560px){[data-cost-model-grid],[data-collection="economics"]{grid-template-columns:1fr!important}}`}</style>
 
       <section aria-label={copy.operatingMode} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.recommendedMode}</h2>

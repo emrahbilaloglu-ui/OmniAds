@@ -190,7 +190,9 @@ function nativeJobRow(input: {
   dependencyRunId?: string | null;
   rowCount?: number;
   errorMessage?: string | null;
+  authoritativeReceipt?: boolean;
 }) {
+  const manifestHash = "a".repeat(64);
   return {
     id: input.id,
     business_ref_id: BUSINESSES[0].id,
@@ -201,6 +203,40 @@ function nativeJobRow(input: {
     finished_at: input.finishedAt ?? input.startedAt,
     row_count: input.rowCount ?? 1,
     error_message: input.errorMessage ?? null,
+    error_json:
+      input.jobName === AD_DECISIONS_JOB_NAME
+        ? {
+            metadata: {
+              hydration_receipts: [
+                input.authoritativeReceipt === false
+                  ? {
+                      provider_account_ref_id: "ref-1",
+                      provider_account_id: "act_1",
+                      expected_ad_count: 0,
+                      hydrated_ad_count: 1,
+                      expected_manifest_hash: manifestHash,
+                      hydrated_manifest_hash: "b".repeat(64),
+                      source_complete: false,
+                      hydration_complete: false,
+                      authoritative_for_prune: false,
+                      reason: "complete_source_run_missing",
+                    }
+                  : {
+                      provider_account_ref_id: "ref-1",
+                      provider_account_id: "act_1",
+                      expected_ad_count: input.rowCount ?? 1,
+                      hydrated_ad_count: input.rowCount ?? 1,
+                      expected_manifest_hash: manifestHash,
+                      hydrated_manifest_hash: manifestHash,
+                      source_complete: true,
+                      hydration_complete: true,
+                      authoritative_for_prune: true,
+                      reason: null,
+                    },
+              ],
+            },
+          }
+        : null,
   };
 }
 
@@ -681,6 +717,43 @@ describe("native ad shadow scheduled chain", () => {
     ]);
     const historyQuery = db.query.mock.calls[0]?.[0] as string;
     expect(historyQuery).toContain("ILIKE 'Advisory lock not acquired%'");
+  });
+
+  it("does not reuse a successful decision job whose Ad manifest was non-authoritative", async () => {
+    const calibrationId = "00000000-0000-4000-8000-000000000241";
+    const db = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+        finishedAt: "2026-07-13T03:20:30.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000242",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:21:00.000Z",
+        finishedAt: "2026-07-13T03:21:30.000Z",
+        rowCount: 1027,
+        authoritativeReceipt: false,
+      }),
+    ]);
+
+    const jobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      db as never,
+    );
+
+    expect(Array.from(jobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+    ]);
+    expect(db.query.mock.calls[0]?.[0]).toContain("error_json");
   });
 
   it("keeps an unresolved advisory-lock skip authoritative", async () => {

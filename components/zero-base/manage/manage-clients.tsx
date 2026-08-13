@@ -23,6 +23,7 @@ import {
   shopifyEntry,
   businessSettingsBody,
   type BusinessSettings,
+  type AdaptedCostModel,
   adaptProviderHealth,
   adaptRecommendedMode,
   confirmDeletionFromList,
@@ -706,6 +707,12 @@ export function TeamClient({ businessId, role }: { businessId: string; role: str
 
 export function BusinessClient({ businessId, role }: { businessId: string; role: string | null }) {
   const [economics, setEconomics] = useState<EconomicsField[]>([]);
+  const [costModel, setCostModel] = useState<AdaptedCostModel | null>(null);
+  const [costState, setCostState] = useState<{ pending: boolean; error: string | null; confirmed: string | null }>({
+    pending: false,
+    error: null,
+    confirmed: null,
+  });
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [settingsState, setSettingsState] = useState<{ pending: boolean; error: string | null; confirmed: string | null }>({
     pending: false,
@@ -739,6 +746,7 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
       if (cancelled) return;
 
       const cost = adaptCostModel(costRaw);
+      setCostModel(cost);
       const commercial = adaptCommercialTarget(commercialRaw);
       const fields: EconomicsField[] = [];
 
@@ -774,6 +782,48 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
       cancelled = true;
     };
   }, [businessId]);
+
+  const saveCostModel = useCallback(
+    async (next: {
+      cogsPercent: number;
+      shippingPercent: number;
+      feePercent: number;
+      fixedCost: number;
+    }) => {
+      setCostState({ pending: true, error: null, confirmed: null });
+      const response = await fetch("/api/business-cost-model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, ...next }),
+      }).catch(() => null);
+      if (!response?.ok) {
+        const body = (await response?.json().catch(() => null)) as { message?: string } | null;
+        setCostState({ pending: false, error: body?.message ?? "The cost model was not saved.", confirmed: null });
+        return;
+      }
+      const observed = adaptCostModel(
+        await getJson(`/api/business-cost-model?businessId=${encodeURIComponent(businessId)}`),
+      );
+      const observedModel = observed;
+      const same =
+        observedModel !== null &&
+        (Object.keys(next) as Array<keyof AdaptedCostModel>).every((key) => {
+          const observedValue = observedModel[key];
+          return observedValue !== null && Math.abs(observedValue - next[key]) < 0.000001;
+        });
+      if (!same || observed === null) {
+        setCostState({
+          pending: false,
+          error: "The save was accepted, but a fresh read did not confirm the stored cost model.",
+          confirmed: null,
+        });
+        return;
+      }
+      setCostModel(observed);
+      setCostState({ pending: false, error: null, confirmed: "Cost model saved and confirmed by a fresh read." });
+    },
+    [businessId],
+  );
 
   const remove = useCallback(async () => {
     setOutcome({ kind: "submitted" });
@@ -860,7 +910,16 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
   return (
     <SurfaceStateBoundary state={surface}>
       <BusinessView
+        businessId={businessId}
         economics={economics}
+        costModel={costModel}
+        costPermission={
+          role === "admin" || role === "collaborator"
+            ? { ok: true }
+            : { ok: false, reason: `Editing economics needs the collaborator role. Your role is ${role ?? "not reported"}.` }
+        }
+        costState={costState}
+        onSaveCostModel={(next) => void saveCostModel(next)}
         recommendedMode={recommendedMode}
         deleteOutcome={outcome}
         canDelete={role === "admin"}

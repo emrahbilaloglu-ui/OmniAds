@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type {
   MetaDecisionsOsWorkspacePayload,
@@ -70,6 +71,14 @@ interface CurrentMetaAdsResult {
   rows: MetaCurrentAdStatusSourceRow[];
   complete: boolean;
   unavailableReason: string | null;
+}
+
+function inputAdScopeKey(input: CurrentMetaAdsResult) {
+  if (!input.complete) return "unavailable";
+  const ids = [...new Set(input.rows.map((row) => row.adId.trim()).filter(Boolean))].sort();
+  return ids.length > 0
+    ? createHash("sha256").update(ids.join("\n"), "utf8").digest("hex")
+    : "empty";
 }
 
 async function loadCurrentMetaAds(input: {
@@ -234,7 +243,10 @@ function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
   }
   // Structure is an account inventory. Action authority is still restricted
   // to live recommendations by the server presentation layer.
-  params.set("status_filter", source.get("status_filter") ?? "all");
+  params.set(
+    "status_filter",
+    source.get("status_filter") ?? (source.get("surface") === "os" ? "active" : "all"),
+  );
   if (!params.has("endDate")) params.set("endDate", resolvedEndDate);
   params.set("decision_workspace", "1");
   if (source.get("surface") === "os") params.set("workspace_surface", "os");
@@ -373,6 +385,7 @@ async function canonicalDecisionReadModel(input: {
   adCandidateLimit: number;
   asOfDate: string;
   currentAds: CurrentMetaAdsResult;
+  activeOnly: boolean;
 }): Promise<
   | { ok: true; model: MetaDecisionsWorkspaceReadModel }
   | { ok: false; status: 403; payload: Record<string, unknown> }
@@ -419,6 +432,23 @@ async function canonicalDecisionReadModel(input: {
     };
   }
 
+  if (input.activeOnly && !input.currentAds.complete) {
+    const model = buildUnavailableMetaDecisionsWorkspaceReadModel({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      code: "source_read_failed",
+      message:
+        "The current active-Ad inventory could not be verified, so stale or closed Ads were not substituted into Act now.",
+      adCandidateLimit: input.adCandidateLimit,
+    });
+    if (model.source) {
+      model.source.fallbackReason =
+        input.currentAds.unavailableReason ??
+        "current_active_ad_inventory_unavailable";
+    }
+    return { ok: true, model };
+  }
+
   try {
     return {
       ok: true,
@@ -429,6 +459,9 @@ async function canonicalDecisionReadModel(input: {
         asOfDate: input.asOfDate,
         currentAds: input.currentAds.rows,
         currentAdSourceComplete: input.currentAds.complete,
+        adIds: input.activeOnly
+          ? input.currentAds.rows.map((row) => row.adId)
+          : undefined,
       }),
     };
   } catch {
@@ -1121,6 +1154,7 @@ export async function GET(request: NextRequest) {
             adCandidateLimit,
             asOfDate: resolvedEndDate,
             currentAds,
+            activeOnly: compactOsSurface,
           }),
           readCurrentCampaignContexts({
             businessId,
@@ -1136,7 +1170,7 @@ export async function GET(request: NextRequest) {
       }
       return (
         await getCachedValue({
-          key: `meta-decisions-bundle-v4:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
+          key: `meta-decisions-bundle-v5:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadDecisionBundle,

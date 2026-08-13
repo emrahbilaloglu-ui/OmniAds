@@ -329,9 +329,10 @@ export function adaptCostModel(raw: unknown): AdaptedCostModel | null {
 export function adaptCommercialTarget(raw: unknown): { targetRoas: number | null; canEdit: boolean } | null {
   if (!isRecord(raw) || !isRecord(raw.snapshot)) return null;
   const snapshot = raw.snapshot as Record<string, unknown>;
+  const targetPack = isRecord(snapshot.targetPack) ? snapshot.targetPack : snapshot;
   const permissions = isRecord(raw.permissions) ? raw.permissions : {};
   return {
-    targetRoas: nullableNumber(snapshot.targetRoas) ?? nullableNumber(snapshot.target_roas),
+    targetRoas: nullableNumber(targetPack.targetRoas) ?? nullableNumber(targetPack.target_roas),
     canEdit: permissions.canEdit === true,
   };
 }

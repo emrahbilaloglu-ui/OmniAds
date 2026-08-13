@@ -256,6 +256,15 @@ describe("AppShell", () => {
     }
   });
 
+  it("does not present read-only scope facts as fake dropdown controls", () => {
+    renderShell(1280);
+    const full = document.querySelector('[data-context-bar="full"]') as HTMLElement;
+    expect(full).not.toBeNull();
+    expect(within(full).queryAllByRole("button")).toHaveLength(0);
+    expect(full.querySelector('[data-context-fact="account"]')?.tagName).toBe("SPAN");
+    expect(full.textContent).not.toContain("source unknown");
+  });
+
   it("names the compact context bar with all eight facts", () => {
     renderShell(320);
     const compact = document.querySelector('[data-context-bar="compact"]')!;

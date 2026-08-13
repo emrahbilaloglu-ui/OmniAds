@@ -79,6 +79,11 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("integration_credentials");
     expect(queries.join("\n")).toContain("provider_accounts");
     expect(queries.join("\n")).toContain("business_provider_accounts");
+    expect(queries.join("\n")).toContain("INSERT INTO memberships");
+    expect(queries.join("\n")).toContain("business.owner_id");
+    expect(queries.join("\n")).toContain(
+      "ON CONFLICT (user_id, business_id) DO NOTHING",
+    );
     expect(queries.join("\n")).toContain("provider_account_snapshot_runs");
     expect(queries.join("\n")).toContain("provider_account_snapshot_items");
     expect(queries.join("\n")).toContain("platform_overview_summary_range_accounts");

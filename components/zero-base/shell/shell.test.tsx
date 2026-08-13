@@ -161,6 +161,27 @@ describe("Rail — B02", () => {
     expect(nav.style.width).toBe("232px");
     expect(screen.getByRole("link", { current: "page" })).toHaveAttribute("href", "/app/home");
   });
+
+  it("uses the existing platform logo assets instead of placeholder glyphs", () => {
+    render(
+      <Rail
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/c/biz_1/home"
+        footer={null}
+      />,
+    );
+
+    const logoSrc = (groupId: string) =>
+      decodeURIComponent(
+        document.querySelector(`[data-platform-logo="${groupId}"] img`)?.getAttribute("src") ?? "",
+      );
+
+    expect(logoSrc("meta")).toContain("/platform-logos/Meta.png");
+    expect(logoSrc("creative")).toContain("/platform-logos/Meta.png");
+    expect(logoSrc("google")).toContain("/platform-logos/googleAds.svg");
+    expect(logoSrc("analytics")).toContain("/platform-logos/GA4.svg");
+  });
 });
 
 describe("AppShell", () => {

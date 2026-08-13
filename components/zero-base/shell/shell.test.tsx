@@ -254,6 +254,32 @@ describe("AppShell", () => {
     expect(screen.getByText("Legacy Decisions interior")).toBeVisible();
   });
 
+  it("keeps only module tabs above Creative interiors and gives them the full canvas", () => {
+    setViewport(1280);
+    render(
+      <AppShell
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/app/creative/performance"
+        workspaceMode="client"
+        title="Performance"
+        scope={scope}
+        railFooter={null}
+        topBarActions={<button type="button">Grandmix · Switch business</button>}
+      >
+        <p>Legacy Creative Studio interior</p>
+      </AppShell>,
+    );
+
+    expect(document.querySelector("[data-top-bar]")).toBeNull();
+    expect(document.querySelector('[data-context-bar="full"]')).toBeNull();
+    expect(document.querySelector('[data-module-navigation="creative"]')).not.toBeNull();
+    const main = screen.getByRole("main");
+    expect(main).toHaveAttribute("data-module-only-frame", "true");
+    expect(main.style.padding).toBe("0px");
+    expect(screen.getByText("Legacy Creative Studio interior")).toBeVisible();
+  });
+
   it("collapses a nested route shell to its page body", () => {
     setViewport(1280);
     render(

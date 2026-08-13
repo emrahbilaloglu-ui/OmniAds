@@ -58,6 +58,8 @@ describe("LegacyInteriorBridge", () => {
       expect(useAppStore.getState()).toMatchObject({
         workspaceOwnerId: "user_1",
         selectedBusinessId: "business_1",
+        hasHydrated: true,
+        authBootstrapStatus: "ready",
         workspaceResolved: true,
         businesses: [
           {

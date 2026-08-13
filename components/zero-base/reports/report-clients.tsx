@@ -29,7 +29,7 @@ import {
   fromReportDocument,
   toReportDocument,
 } from "@/lib/zero-base/reports/report-documents";
-import type { CustomReportDocument, CustomReportRecord, RenderedReportWidget } from "@/lib/custom-reports";
+import { getTemplateById, type CustomReportDocument, type CustomReportRecord, type RenderedReportWidget } from "@/lib/custom-reports";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 function useReports(businessId: string) {
@@ -157,13 +157,16 @@ export function ReportLibraryClient({ businessId, role }: { businessId: string; 
 export function ReportBuilderClient({
   businessId,
   reportId,
+  templateId,
 }: {
   businessId: string;
   reportId?: string;
+  templateId?: string;
 }) {
   const router = useRouter();
-  const [initial, setInitial] = useState<GridState>({ widgets: [] });
-  const [name, setName] = useState("Untitled report");
+  const template = reportId ? null : getTemplateById(templateId);
+  const [initial, setInitial] = useState<GridState>(() => ({ widgets: template ? fromReportDocument(template.definition) : [] }));
+  const [name, setName] = useState(template?.name ?? "Untitled report");
   const [error, setError] = useState<string | null>(null);
   /**
    * The stored document this edit started from.
@@ -173,7 +176,7 @@ export function ReportBuilderClient({
    * `subtitle` and the document-level settings. Rebuilding from the grid alone
    * destroyed all of them on every save.
    */
-  const [stored, setStored] = useState<CustomReportDocument | null>(null);
+  const [stored, setStored] = useState<CustomReportDocument | null>(template?.definition ?? null);
   // A new report is ready immediately; an edit is not ready until it loads.
   const [loaded, setLoaded] = useState(!reportId);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -220,7 +223,7 @@ export function ReportBuilderClient({
           body: JSON.stringify(
             reportId
               ? buildPatchBody({ name, document })
-              : buildCreateBody({ businessId, name, document }),
+              : buildCreateBody({ businessId, name, templateId: template?.id ?? null, document }),
           ),
         },
       ).catch(() => null);
@@ -231,7 +234,7 @@ export function ReportBuilderClient({
       }
       router.push("/app/reports");
     },
-    [businessId, name, reportId, router, stored],
+    [businessId, name, reportId, router, stored, template?.id],
   );
 
   if (loadError) {

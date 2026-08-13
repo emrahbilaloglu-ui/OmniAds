@@ -187,6 +187,7 @@ export function buildCreateBody(input: {
   businessId: string;
   name: string;
   description?: string | null;
+  templateId?: string | null;
   document?: CustomReportDocument;
 }): CreateReportBody {
   return {
@@ -194,7 +195,7 @@ export function buildCreateBody(input: {
     // Required by the route. Sending none was a guaranteed 400.
     name: input.name.trim(),
     description: input.description ?? null,
-    templateId: null,
+    templateId: input.templateId ?? null,
     ...(input.document ? { definition: input.document } : {}),
   };
 }

@@ -617,6 +617,8 @@ describe("G7 — reports", () => {
     const onDelete = vi.fn();
     library({ onDelete });
     await user.click(expectOperable(ctl("gated:REPORT-01 delete"), "delete report"));
+    expect(onDelete).not.toHaveBeenCalled();
+    await user.click(expectOperable(ctl("gated:REPORT-01 delete-confirm"), "confirm report deletion"));
     expect(onDelete).toHaveBeenCalledWith("r1");
   });
 

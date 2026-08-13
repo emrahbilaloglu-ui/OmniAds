@@ -18,6 +18,7 @@ import { TemplateMiniPreview, TemplateProviders } from "@/components/reports/tem
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
+import { ZeroBaseDialog } from "@/components/zero-base/primitives/overlays";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { widgetIsExportable } from "@/lib/zero-base/reports/report-documents";
@@ -75,6 +76,7 @@ export function ReportLibraryView({
   const language = useZeroBaseLanguage();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<"recent" | "name">("recent");
+  const [deleteCandidate, setDeleteCandidate] = useState<ReportSummary | null>(null);
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleReports = [...reports]
     .filter((report) => {
@@ -130,7 +132,7 @@ export function ReportLibraryView({
                 <a href={`/app/reports/${report.id}`} data-ctl="live:REPORT-08 open" style={{ color: "inherit", textDecoration: "none" }}><h3 style={{ margin: 0, fontSize: 13 }}>{report.name}</h3><p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{report.description || "No description yet."}</p><p style={{ margin: "8px 0 0", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Updated {new Date(report.updatedAt).toLocaleString()}</p></a>
                 {report.definition ? <a href={`/app/reports/${report.id}`} aria-label={`Open ${report.name}`}><TemplateMiniPreview definition={report.definition} /></a> : null}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}><span style={{ padding: "3px 7px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 5, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}>{report.definition?.widgets.length ?? 0} widgets</span><span style={{ display: "flex", gap: 6 }}><a href={`/app/reports/${report.id}/edit`} data-ctl="live:REPORT-02 edit" style={{ alignSelf: "center", color: "var(--ledger-accent-action)", fontSize: 12 }}>{copy.edit}</a><Button variant="secondary" data-report-duplicate={report.id} data-ctl="live:REPORT-01 duplicate" onClick={() => onDuplicate?.(report.id)}>{copy.duplicate}</Button><Button variant="danger" data-report-delete={report.id} data-ctl="gated:REPORT-01 delete" state={onDelete ? { kind: "enabled" } : { kind: "disabled", reason: "Deleting a report needs an admin role on this business." }} onClick={() => onDelete?.(report.id)}>{copy.delete}</Button></span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}><span style={{ padding: "3px 7px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 5, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}>{report.definition?.widgets.length ?? 0} widgets</span><span style={{ display: "flex", gap: 6 }}><a href={`/app/reports/${report.id}/edit`} data-ctl="live:REPORT-02 edit" style={{ alignSelf: "center", color: "var(--ledger-accent-action)", fontSize: 12 }}>{copy.edit}</a><Button variant="secondary" data-report-duplicate={report.id} data-ctl="live:REPORT-01 duplicate" onClick={() => onDuplicate?.(report.id)}>{copy.duplicate}</Button><Button variant="danger" data-report-delete={report.id} data-ctl="gated:REPORT-01 delete" state={onDelete ? { kind: "enabled" } : { kind: "disabled", reason: "Deleting a report needs an admin role on this business." }} onClick={() => setDeleteCandidate(report)}>{copy.delete}</Button></span></div>
             </article>)}
           </div>}
           <p data-reports-disclosure="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{totalCount == null ? `Showing ${reports.length} reports.` : `Showing ${reports.length} of ${totalCount} reports.`}</p>
@@ -141,6 +143,7 @@ export function ReportLibraryView({
           <div data-template-gallery="" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 16 }}>{CUSTOM_REPORT_TEMPLATES.map((template) => <a key={template.id} href={`/app/reports/new?template=${template.id}`} style={{ padding: 14, border: "1px dashed var(--ledger-border-control)", borderRadius: 10, color: "inherit", textDecoration: "none" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span style={{ padding: "2px 6px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 4, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase" }}>{template.category}</span><TemplateProviders template={template} /></div><TemplateMiniPreview definition={template.definition} className="mt-6" /><h3 style={{ margin: "14px 0 0", fontSize: 13 }}>{template.name}</h3><p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>{template.description}</p><p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{template.definition.widgets.length} widgets · CSV · print</p></a>)}</div>
         </section>
       </div>
+      <ZeroBaseDialog open={deleteCandidate !== null} onOpenChange={(open) => { if (!open) setDeleteCandidate(null); }} title="Delete saved report?" description={deleteCandidate ? `This permanently deletes “${deleteCandidate.name}”. This action cannot be undone.` : null} confirmLabel="Delete report" confirmCtl="gated:REPORT-01 delete-confirm" destructive onConfirm={() => { if (!deleteCandidate) return; onDelete?.(deleteCandidate.id); setDeleteCandidate(null); }} />
       <style>{`@media (max-width: 1040px) { [data-report-library-columns] { grid-template-columns: 1fr !important; } } @media (max-width: 620px) { [data-template-gallery] { grid-template-columns: 1fr !important; } }`}</style>
     </div>
   );

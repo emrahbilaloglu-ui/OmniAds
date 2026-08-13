@@ -7,8 +7,16 @@ import { ReportBuilderClient } from "@/components/zero-base/reports/report-clien
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ businessId: string }> }) {
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ businessId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { businessId } = await params;
+  const rawTemplate = (await searchParams)?.template;
+  const templateId = typeof rawTemplate === "string" ? rawTemplate : rawTemplate?.[0];
 
   const session = await getSessionFromCookies();
   if (!session) redirect(loginUrlFor(`/c/${businessId}/reports`));
@@ -16,5 +24,5 @@ export default async function Page({ params }: { params: Promise<{ businessId: s
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  return <ReportBuilderClient businessId={businessId} />;
+  return <ReportBuilderClient businessId={businessId} templateId={templateId} />;
 }

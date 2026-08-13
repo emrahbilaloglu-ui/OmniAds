@@ -343,6 +343,8 @@ describe("library", () => {
     await user.click(document.querySelector("[data-report-create]") as HTMLElement);
     await user.click(document.querySelector('[data-report-duplicate="r1"]') as HTMLElement);
     await user.click(document.querySelector('[data-report-delete="r1"]') as HTMLElement);
+    expect(onDelete).not.toHaveBeenCalled();
+    await user.click(document.querySelector('[data-ctl="gated:REPORT-01 delete-confirm"]') as HTMLElement);
     expect(onCreate).toHaveBeenCalled();
     expect(onDuplicate).toHaveBeenCalledWith("r1");
     expect(onDelete).toHaveBeenCalledWith("r1");

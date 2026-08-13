@@ -132,7 +132,7 @@ export function MetricCard({ metric }: { metric: HomeMetric }) {
       ) : null}
 
       {metric.sparkline.length > 0 ? (
-        <Sparkline title={metric.title} points={metric.sparkline} unit={metric.unit} />
+        <Sparkline title={metric.title} points={metric.sparkline} unit={metric.unit} currency={metric.money?.currency ?? null} />
       ) : null}
 
       <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>

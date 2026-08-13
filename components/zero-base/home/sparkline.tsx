@@ -25,24 +25,30 @@ export function Sparkline({
   title,
   points,
   unit,
+  currency = null,
 }: {
   title: string;
   points: ReadonlyArray<SparklinePoint>;
   unit: OverviewMetricUnit;
+  currency?: string | null;
 }) {
   const copy = useCopy();
   const [showTable, setShowTable] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const tableId = useId();
+  const gradientId = useId().replace(/:/g, "");
 
   const values = points.map((point) => point.value).filter((value): value is number => value !== null);
   const max = values.length ? Math.max(...values) : 0;
   const min = values.length ? Math.min(...values) : 0;
   const span = max - min || 1;
 
-  const width = 160;
-  const height = 32;
+  const width = 320;
+  const height = 72;
+  const plotTop = 6;
+  const plotBottom = 62;
   const x = (index: number) => (points.length <= 1 ? width / 2 : (index / (points.length - 1)) * width);
-  const y = (value: number) => height - ((value - min) / span) * height;
+  const y = (value: number) => plotBottom - ((value - min) / span) * (plotBottom - plotTop);
 
   // Each run of consecutive present points is its own path.
   const runs: Array<Array<{ index: number; value: number }>> = [];
@@ -59,8 +65,10 @@ export function Sparkline({
     unit === "percent"
       ? `${value.toFixed(1)}%`
       : unit === "ratio"
-        ? value.toFixed(2)
-        : new Intl.NumberFormat("en-US").format(value);
+        ? `${value.toFixed(2)}x`
+        : unit === "currency" && currency
+          ? `${currency} ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)}`
+          : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 
   const first = points[0]?.date ?? "";
   const last = points[points.length - 1]?.date ?? "";
@@ -71,25 +79,88 @@ export function Sparkline({
 
   return (
     <div>
-      {/* The summary is the accessible content; the drawing is decorative. */}
-      <svg
-        role="img"
-        aria-label={summary}
-        viewBox={`0 0 ${width} ${height}`}
-        style={{ width: "100%", height, display: "block" }}
-      >
-        {runs
-          .filter((run) => run.length > 0)
-          .map((run, runIndex) => (
-            <polyline
-              key={runIndex}
-              fill="none"
-              stroke="var(--ledger-accent-action)"
-              strokeWidth={1.5}
-              points={run.map((point) => `${x(point.index)},${y(point.value)}`).join(" ")}
+      <div data-sparkline-chart="" style={{ position: "relative", marginTop: 4 }}>
+        {/* Exact values are exposed by the focusable point targets below. */}
+        <svg
+          role="img"
+          aria-label={summary}
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          style={{ width: "100%", height, display: "block", overflow: "visible" }}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stopColor="var(--ledger-accent-action)" />
+              <stop offset="100%" stopColor="var(--ledger-semantic-ok)" />
+            </linearGradient>
+          </defs>
+          <line x1="0" x2={width} y1={plotBottom} y2={plotBottom} stroke="var(--ledger-border-subtle)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          {runs
+            .filter((run) => run.length > 0)
+            .map((run, runIndex) => (
+              <polyline
+                key={runIndex}
+                fill="none"
+                stroke={`url(#${gradientId})`}
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+                points={run.map((point) => `${x(point.index)},${y(point.value)}`).join(" ")}
+              />
+            ))}
+          {activeIndex !== null && points[activeIndex]?.value != null ? (
+            <>
+              <line x1={x(activeIndex)} x2={x(activeIndex)} y1={plotTop} y2={plotBottom} stroke="var(--ledger-border-control)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+              <circle cx={x(activeIndex)} cy={y(points[activeIndex].value)} r="4" fill="var(--ledger-bg-surface)" stroke="var(--ledger-accent-action)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            </>
+          ) : null}
+        </svg>
+
+        <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: `repeat(${Math.max(points.length, 1)}, 1fr)` }}>
+          {points.map((point, index) => (
+            <button
+              type="button"
+              key={point.date}
+              data-sparkline-point={point.date}
+              aria-label={`${title}, ${point.date}: ${point.value === null ? "No data" : format(point.value)}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseLeave={() => setActiveIndex(null)}
+              onFocus={() => setActiveIndex(index)}
+              onBlur={() => setActiveIndex(null)}
+              style={{ minWidth: 0, padding: 0, border: 0, background: "transparent", cursor: "crosshair" }}
             />
           ))}
-      </svg>
+        </div>
+
+        {activeIndex !== null && points[activeIndex] ? (
+          <div
+            role="tooltip"
+            data-sparkline-tooltip=""
+            style={{
+              position: "absolute",
+              zIndex: 4,
+              left: `clamp(64px, ${(x(activeIndex) / width) * 100}%, calc(100% - 64px))`,
+              top: -8,
+              transform: "translate(-50%, -100%)",
+              minWidth: 128,
+              padding: "7px 9px",
+              border: "1px solid var(--ledger-border-control)",
+              borderRadius: "var(--ledger-radius-button)",
+              background: "var(--ledger-bg-surface)",
+              boxShadow: "var(--ledger-elevation-2)",
+              fontSize: 12,
+              lineHeight: "17px",
+              pointerEvents: "none",
+            }}
+          >
+            <strong style={{ display: "block" }}>{pointDateLabel(points[activeIndex].date)}</strong>
+            <span style={{ display: "block", fontFamily: "var(--font-adc-mono), ui-monospace, monospace" }}>
+              {points[activeIndex].value === null ? "No data" : format(points[activeIndex].value)}
+            </span>
+          </div>
+        ) : null}
+      </div>
 
       <button
         type="button"
@@ -153,4 +224,10 @@ export function Sparkline({
       ) : null}
     </div>
   );
+}
+
+function pointDateLabel(value: string): string {
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric", timeZone: "UTC" }).format(parsed);
 }

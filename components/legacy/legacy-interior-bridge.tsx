@@ -13,6 +13,8 @@ import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-co
 export function LegacyInteriorBridge({ children }: { children: React.ReactNode }) {
   const workspace = useOptionalWorkspaceContext();
   const setWorkspaceSnapshot = useAppStore((state) => state.setWorkspaceSnapshot);
+  const setHasHydrated = useAppStore((state) => state.setHasHydrated);
+  const setAuthBootstrapStatus = useAppStore((state) => state.setAuthBootstrapStatus);
 
   useEffect(() => {
     if (!workspace?.business) return;
@@ -28,7 +30,9 @@ export function LegacyInteriorBridge({ children }: { children: React.ReactNode }
       ],
       workspace.business.id,
     );
-  }, [setWorkspaceSnapshot, workspace]);
+    setHasHydrated(true);
+    setAuthBootstrapStatus("ready");
+  }, [setAuthBootstrapStatus, setHasHydrated, setWorkspaceSnapshot, workspace]);
 
   return <QueryProvider>{children}</QueryProvider>;
 }

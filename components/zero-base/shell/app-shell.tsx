@@ -167,6 +167,12 @@ export function AppShell({
   const copy = useCopy();
   const narrow = useIsNarrow(initialNarrow);
   const [scopeOpen, setScopeOpen] = useState(initialScopeOpen);
+  // Meta interiors already carry their own account/window controls. Repeating
+  // the generic title and scope strips above the module tabs wastes vertical
+  // space and produces the three stacked headers visible in the old rollout.
+  // Keep the rail and the module navigation, then give the interior the full
+  // remaining canvas.
+  const moduleOnlyFrame = workspaceMode === "client" && /\/(?:app\/)?meta\//.test(pathname);
 
   if (nested) return <>{children}</>;
 
@@ -208,7 +214,7 @@ export function AppShell({
           ) : null}
 
           <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minWidth: 0 }}>
-            <header
+            {!moduleOnlyFrame ? <header
               data-top-bar=""
               style={{
                 display: "flex",
@@ -280,9 +286,9 @@ export function AppShell({
               <div style={{ flex: "1 1 auto" }} />
               {showGlobalSearch ? <GlobalSearchControl compact={narrow} /> : null}
               {topBarActions}
-            </header>
+            </header> : null}
 
-            {scope ? (
+            {scope && !moduleOnlyFrame ? (
               <ContextBar
                 facts={scope}
                 compact={narrow}
@@ -314,7 +320,7 @@ export function AppShell({
                 flex: "1 1 auto",
                 minWidth: 0,
                 minHeight: 0,
-                padding: narrow ? 16 : 40,
+                padding: moduleOnlyFrame ? 0 : narrow ? 16 : 40,
                 // The page no longer scrolls, so main owns both axes: wide
                 // content scrolls sideways here rather than widening the page,
                 // and long content scrolls vertically here rather than
@@ -322,6 +328,7 @@ export function AppShell({
                 overflowX: "auto",
                 overflowY: "auto",
               }}
+              data-module-only-frame={moduleOnlyFrame ? "true" : undefined}
             >
               {children}
             </main>

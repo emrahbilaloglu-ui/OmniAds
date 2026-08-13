@@ -228,6 +228,32 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: /Switch business/ })).toBeVisible();
   });
 
+  it("keeps only module tabs above Meta interiors and gives them the full canvas", () => {
+    setViewport(1280);
+    render(
+      <AppShell
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/app/meta/decisions"
+        workspaceMode="client"
+        title="Decisions"
+        scope={scope}
+        railFooter={null}
+        topBarActions={<button type="button">Grandmix · Switch business</button>}
+      >
+        <p>Legacy Decisions interior</p>
+      </AppShell>,
+    );
+
+    expect(document.querySelector("[data-top-bar]")).toBeNull();
+    expect(document.querySelector('[data-context-bar="full"]')).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Meta pages" })).toBeVisible();
+    const main = screen.getByRole("main");
+    expect(main).toHaveAttribute("data-module-only-frame", "true");
+    expect(main.style.padding).toBe("0px");
+    expect(screen.getByText("Legacy Decisions interior")).toBeVisible();
+  });
+
   it("collapses a nested route shell to its page body", () => {
     setViewport(1280);
     render(

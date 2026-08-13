@@ -440,6 +440,46 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(status.getShopifyStatus).not.toHaveBeenCalled();
   });
 
+  it("uses a fresh trusted superset reconciliation for a contained summary range", async () => {
+    const now = new Date().toISOString();
+    vi.mocked(warehouseState.listShopifyReconciliationRuns)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([
+        {
+          startDate: "2026-03-01",
+          endDate: "2026-03-30",
+          recordedAt: now,
+          canServeWarehouse: true,
+          preferredSource: "warehouse",
+          divergence: { withinThreshold: true },
+        },
+      ] as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 700,
+      grossRevenue: 720,
+      refundedRevenue: 20,
+      purchases: 7,
+      returnEvents: 0,
+      averageOrderValue: 100,
+      daily: [],
+    } as never);
+
+    const result = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-24",
+      endDate: "2026-03-30",
+    });
+
+    expect(result.preferredSource).toBe("warehouse");
+    expect(result.warehouse?.revenue).toBe(700);
+    expect(result.servingMetadata.trustState).toBe("trusted");
+    expect(warehouse.getShopifyWarehouseOverviewAggregate).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      startDate: "2026-03-24",
+      endDate: "2026-03-30",
+    });
+  });
+
   it("allows warehouse canary when status is ready and divergence is within threshold", async () => {
     process.env.SHOPIFY_WAREHOUSE_READ_CANARY = "true";
     vi.mocked(status.getShopifyStatus).mockResolvedValue({

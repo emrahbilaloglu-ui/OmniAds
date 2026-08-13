@@ -4322,6 +4322,29 @@ export async function runMigrations(options?: {
           created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (user_id, business_id)
         )`,
+        // Legacy businesses predate the membership authority. Without this
+        // idempotent bridge an owner can still hold an unexpired session whose
+        // active business is valid, while every canonical /app/** route fails
+        // closed as a 404 because no membership row exists. Preserve any
+        // explicit role/status already assigned; only seed genuinely missing
+        // owner relationships.
+        sql`INSERT INTO memberships (
+          user_id,
+          business_id,
+          role,
+          status,
+          joined_at,
+          created_at
+        )
+        SELECT
+          business.owner_id,
+          business.id,
+          'admin',
+          'active',
+          business.created_at,
+          business.created_at
+        FROM businesses AS business
+        ON CONFLICT (user_id, business_id) DO NOTHING`,
         sql`CREATE TABLE IF NOT EXISTS invites (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           email              TEXT NOT NULL,

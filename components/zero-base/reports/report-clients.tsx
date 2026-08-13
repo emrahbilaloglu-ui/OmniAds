@@ -85,7 +85,7 @@ function useReports(businessId: string) {
   return { reports, reason, surface, refresh: () => setNonce((v) => v + 1) };
 }
 
-export function ReportLibraryClient({ businessId }: { businessId: string }) {
+export function ReportLibraryClient({ businessId, role }: { businessId: string; role?: string | null }) {
   const router = useRouter();
   const { reports, reason, surface, refresh } = useReports(businessId);
 
@@ -148,7 +148,7 @@ export function ReportLibraryClient({ businessId }: { businessId: string }) {
         unavailableReason={reason ?? error}
         onCreate={() => router.push("/app/reports/new")}
         onDuplicate={(id) => void duplicate(id)}
-        onDelete={(id) => void remove(id)}
+        onDelete={role === "admin" || role === "collaborator" ? (id) => void remove(id) : undefined}
       />
     </SurfaceStateBoundary>
   );

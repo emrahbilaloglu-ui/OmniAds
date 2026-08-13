@@ -319,6 +319,28 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
           limit: 5,
         }).catch(() => [])
       : [];
+  // A trusted reconciliation for a wider window also proves the projection
+  // semantics for a contained range. Without this bounded fallback, changing
+  // Home from the trusted 30-day window to 7/14/28 days makes Shopify revenue
+  // disappear even though every requested day is inside the reconciled range.
+  const containingReconciliationRuns =
+    providerAccountId && reconciliationRuns.length === 0
+      ? await listShopifyReconciliationRuns({
+          businessId: input.businessId,
+          providerAccountId,
+          limit: 20,
+        })
+          .then((runs) =>
+            runs.filter(
+              (run) =>
+                Boolean(run.startDate) &&
+                Boolean(run.endDate) &&
+                run.startDate! <= input.startDate &&
+                run.endDate! >= input.endDate,
+            ),
+          )
+          .catch(() => [])
+      : [];
 
   let live = null;
   let warehouse = null;
@@ -333,7 +355,10 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
       ? (persistedServing.preferredSource as ShopifyPreferredOverviewSource)
       : "live";
   const persistedTrusted = persistedServing?.trustState === "trusted";
-  const trustedReconciliationRun = pickLatestTrustedReconciliationRun(reconciliationRuns);
+  const trustedReconciliationRun = pickLatestTrustedReconciliationRun([
+    ...reconciliationRuns,
+    ...containingReconciliationRuns,
+  ]);
   const trustedProjectionSource =
     persistedTrusted && persistedPreferredSource !== "live"
       ? persistedPreferredSource

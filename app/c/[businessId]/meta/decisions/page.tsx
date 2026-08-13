@@ -7,6 +7,7 @@ import { parseDecisionsUrlState } from "@/lib/zero-base/meta/decisions-url-state
 import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
+import { LegacyInteriorBridge } from "@/components/legacy/legacy-interior-bridge";
 
 export const dynamic = "force-dynamic";
 
@@ -56,5 +57,9 @@ export default async function MetaDecisionsPage({
   void providerAccountId;
   void mutationUiEnabled;
   void parseDecisionsUrlState(query);
-  return <LegacyMetaPage />;
+  return (
+    <LegacyInteriorBridge>
+      <LegacyMetaPage />
+    </LegacyInteriorBridge>
+  );
 }

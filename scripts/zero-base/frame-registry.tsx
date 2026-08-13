@@ -215,13 +215,11 @@ const homeFrame = (ready: boolean, narrow = false, narrowest = false) => {
   return (
     <HomeView
       contract={contract}
-      scopeLine="Halcyon Supply Co."
       businessId="biz"
       connectHref="/c/biz/manage/integrations"
       triageHref={narrow ? "/c/biz/meta/decisions?order=tier0" : null}
       trend={{ points, currency: "USD" }}
       economics={economics}
-      narrowest={narrowest}
     />
   );
 };

@@ -219,35 +219,50 @@ describe("HomeView refresh keeps the last truthful content", () => {
   };
 
   it("keeps the figures visible while refreshing", () => {
-    render(<HomeView contract={contract} scopeLine="Grandmix" refreshState="refreshing" />);
+    render(<HomeView contract={contract} refreshState="refreshing" />);
     // Blanking to skeletons replaces known-good numbers with nothing.
     expect(document.querySelectorAll("[data-metric-card]")).toHaveLength(2);
     expect(screen.getByRole("status")).toHaveTextContent("the last ones we served");
   });
 
   it("keeps them visible and says so when a refresh fails", () => {
-    render(<HomeView contract={contract} scopeLine="Grandmix" refreshState="failed" />);
+    render(<HomeView contract={contract} refreshState="failed" />);
     expect(document.querySelectorAll("[data-metric-card]")).toHaveLength(2);
     expect(screen.getByRole("status")).toHaveTextContent("Refresh failed");
     expect(screen.getByRole("status")).toHaveTextContent("unchanged");
   });
 
   it("shows no refresh notice when idle", () => {
-    render(<HomeView contract={contract} scopeLine="Grandmix" />);
+    render(<HomeView contract={contract} />);
     expect(document.querySelector("[data-refresh-notice]")).toBeNull();
   });
 
-  it("states the scope and window", () => {
-    render(<HomeView contract={contract} scopeLine="Grandmix" />);
-    expect(document.querySelector("[data-scope-line]")).toHaveTextContent(
-      "Grandmix · 2026-08-01 to 2026-08-11",
+  it("does not repeat the technical scope and window under the title", () => {
+    render(<HomeView contract={contract} />);
+    expect(document.querySelector("[data-scope-line]")).toBeNull();
+    expect(screen.queryByText(/decision-oriented view/i)).toBeNull();
+    expect(screen.queryByText(/Grandmix · 2026-08-01/)).toBeNull();
+  });
+
+  it("keeps source problems in Source readiness instead of duplicating a page banner", () => {
+    render(
+      <HomeView
+        contract={{
+          ...contract,
+          sources: [
+            { key: "ga4", label: "GA4", state: "unavailable", reason: "Not connected.", freshness: "unknown", lastUpdatedAt: null },
+          ],
+        }}
+      />,
     );
+    expect(document.querySelector("[data-banner]")).toBeNull();
+    expect(within(document.querySelector("[data-source-health]")!).getByText("GA4")).toBeVisible();
   });
 
   it("does not disable refresh into a dead control", async () => {
     const user = userEvent.setup();
     const onRefresh = vi.fn();
-    render(<HomeView contract={contract} scopeLine="G" onRefresh={onRefresh} />);
+    render(<HomeView contract={contract} onRefresh={onRefresh} />);
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     expect(onRefresh).toHaveBeenCalled();
   });

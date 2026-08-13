@@ -582,7 +582,7 @@ function homeMarkup(width: number): string {
   };
 
   const body = renderToStaticMarkup(
-    <HomeView contract={contract} scopeLine="Grandmix · act_298410771" refreshState="failed" />,
+    <HomeView contract={contract} refreshState="failed" />,
   );
 
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">

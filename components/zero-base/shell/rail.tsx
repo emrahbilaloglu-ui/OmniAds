@@ -61,8 +61,6 @@ export function Rail({
   businessId,
   pathname,
   workspaceMode = businessId ? "client" : "agency",
-  workspaceName = "Workspace",
-  onSwitchBusiness,
   footer,
 }: RailProps) {
   const copy = useCopy();
@@ -176,44 +174,6 @@ export function Rail({
           </div>
         ) : null}
 
-        {isClient ? (
-          <button
-            type="button"
-            onClick={onSwitchBusiness}
-            data-ctl="live:AUTH-10 business-switcher"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "28px minmax(0,1fr) auto",
-              alignItems: "center",
-              gap: 8,
-              minHeight: 44,
-              marginTop: 8,
-              padding: "5px 8px",
-              border: "1px solid var(--ledger-border-control)",
-              borderRadius: "var(--ledger-radius-button)",
-              color: "var(--ledger-ink-primary)",
-              background: "var(--ledger-bg-surface)",
-              cursor: onSwitchBusiness ? "pointer" : "default",
-              width: "100%",
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{ width: 22, height: 22, borderRadius: 6, background: "var(--ledger-accent-action)" }}
-            />
-            <span style={{ minWidth: 0 }}>
-              <strong
-                style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}
-              >
-                {workspaceName}
-              </strong>
-              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                {copy.switchBusiness}
-              </span>
-            </span>
-            <span aria-hidden="true" style={{ fontSize: 12 }}>▾</span>
-          </button>
-        ) : null}
       </div>
 
       <div

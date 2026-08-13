@@ -109,6 +109,21 @@ describe("navigation is derived from the leaf registry", () => {
 });
 
 describe("Rail — B02", () => {
+  it("keeps business switching out of the client rail", () => {
+    render(
+      <Rail
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/c/biz_1/home"
+        workspaceMode="client"
+        workspaceName="Grandmix"
+        onSwitchBusiness={() => {}}
+        footer={null}
+      />,
+    );
+    expect(document.querySelector('[data-ctl="live:AUTH-10 business-switcher"]')).toBeNull();
+  });
+
   it("scrolls the nav area only, so the footer identity row cannot be pushed off", () => {
     render(
       <Rail
@@ -169,6 +184,27 @@ describe("AppShell", () => {
     renderShell(1280);
     expect(document.querySelector("[data-rail]")).not.toBeNull();
     expect(document.querySelector("[data-nav-drawer-trigger]")).toBeNull();
+  });
+
+  it("can replace global search with a top-bar business action", () => {
+    setViewport(1280);
+    render(
+      <AppShell
+        groups={navGroupsFor("Client")}
+        businessId="biz_1"
+        pathname="/c/biz_1/home"
+        title="Grandmix"
+        scope={scope}
+        railFooter={null}
+        showGlobalSearch={false}
+        topBarActions={<button type="button">Grandmix · Switch business</button>}
+      >
+        <p>Surface body</p>
+      </AppShell>,
+    );
+
+    expect(document.querySelector("[data-global-search-trigger]")).toBeNull();
+    expect(screen.getByRole("button", { name: /Switch business/ })).toBeVisible();
   });
 
   it("collapses a nested route shell to its page body", () => {

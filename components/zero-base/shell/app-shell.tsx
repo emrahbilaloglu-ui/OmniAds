@@ -67,6 +67,8 @@ export interface AppShellProps {
   scope: ScopeFacts | null;
   railFooter: ReactNode;
   topBarActions?: ReactNode;
+  /** Client scope can replace global entity search with a direct scope action. */
+  showGlobalSearch?: boolean;
   /**
    * Viewport class to render before the client can measure one.
    *
@@ -153,6 +155,7 @@ export function AppShell({
   scope,
   railFooter,
   topBarActions,
+  showGlobalSearch = true,
   initialNarrow = false,
   initialDrawerOpen = false,
   initialScopeOpen = false,
@@ -275,7 +278,7 @@ export function AppShell({
                 {title}
               </h1>
               <div style={{ flex: "1 1 auto" }} />
-              <GlobalSearchControl compact={narrow} />
+              {showGlobalSearch ? <GlobalSearchControl compact={narrow} /> : null}
               {topBarActions}
             </header>
 

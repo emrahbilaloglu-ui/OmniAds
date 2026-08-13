@@ -328,6 +328,7 @@ export function ZeroBaseSheet({
   regionEl,
   side = "right",
   description,
+  compact = false,
   closeCtl = "live:cancel",
   children,
 }: {
@@ -361,6 +362,8 @@ export function ZeroBaseSheet({
    * than leaving `aria-describedby` dangling at a missing element.
    */
   description?: string;
+  /** Use the narrower inspector width for short selection lists. */
+  compact?: boolean;
   children: ReactNode;
 }) {
   const copy = useCopy();
@@ -389,7 +392,13 @@ export function ZeroBaseSheet({
             right: fromRight ? 0 : "auto",
             bottom: 0,
             left: fromLeft || !fromSide ? 0 : "auto",
-            width: fromRight ? "min(480px, 100vw)" : fromLeft ? "min(302px, 100vw)" : "100vw",
+            width: fromRight
+              ? compact
+                ? "min(360px, calc(100vw - 16px))"
+                : "min(480px, 100vw)"
+              : fromLeft
+                ? "min(302px, 100vw)"
+                : "100vw",
             maxHeight: fromSide ? "100vh" : "85vh",
             overflowY: "auto",
             borderRadius: fromRight

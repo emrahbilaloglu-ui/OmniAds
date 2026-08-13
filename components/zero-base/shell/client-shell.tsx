@@ -191,6 +191,37 @@ export function ClientShell({
           ...(accountPickerEnabled && catalog?.accounts.length ? { onPickAccount: () => setPicker("account") } : {}),
           ...(windowPickerEnabled ? { onPickWindow: () => setPicker("window") } : {}),
         }}
+        showGlobalSearch={false}
+        topBarActions={
+          <button
+            type="button"
+            data-ctl="live:AUTH-10 business-switcher"
+            aria-haspopup="dialog"
+            aria-expanded={picker === "business"}
+            onClick={() => setPicker("business")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 34,
+              maxWidth: "min(360px, 48vw)",
+              padding: "0 10px",
+              border: "1px solid var(--ledger-border-control)",
+              borderRadius: "var(--ledger-radius-button)",
+              background: "var(--ledger-bg-inset)",
+              color: "var(--ledger-ink-primary)",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            <span aria-hidden="true">▣</span>
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <strong>{effectiveEnvelope.business?.name ?? "Client"}</strong>
+              <span style={{ color: "var(--ledger-ink-secondary)" }}> · Switch business</span>
+            </span>
+            <span aria-hidden="true">▾</span>
+          </button>
+        }
         railFooter={
           <UserMenu
             name={envelope.actor.name}
@@ -215,7 +246,9 @@ export function ClientShell({
         onOpenChange={(open) => setPicker(open ? "business" : null)}
         title="Switch business"
         regionEl="business-picker"
-        side="bottom"
+        side="right"
+        compact
+        description="Choose the business you want to work in."
       >
         <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
           {switchError ? <p role="alert">{switchError}</p> : null}

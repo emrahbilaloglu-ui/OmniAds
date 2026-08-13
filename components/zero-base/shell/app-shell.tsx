@@ -172,7 +172,8 @@ export function AppShell({
   // space and produces the three stacked headers visible in the old rollout.
   // Keep the rail and the module navigation, then give the interior the full
   // remaining canvas.
-  const moduleOnlyFrame = workspaceMode === "client" && /\/(?:app\/)?meta\//.test(pathname);
+  const moduleOnlyFrame =
+    workspaceMode === "client" && /\/(?:app\/)?(?:meta|creative)\//.test(pathname);
 
   if (nested) return <>{children}</>;
 

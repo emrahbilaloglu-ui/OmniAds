@@ -319,7 +319,7 @@ export function TrendPanel({
 
               <svg
                 aria-hidden="true"
-                viewBox={`0 0 ${Math.max(points.length, 1)} 160`}
+                viewBox="0 0 1000 160"
                 preserveAspectRatio="none"
                 style={{ position: "absolute", zIndex: 3, pointerEvents: "none", inset: "0 42px 24px 54px", width: "calc(100% - 96px)", height: 160, overflow: "visible" }}
               >
@@ -329,9 +329,9 @@ export function TrendPanel({
                   return (
                     <line
                       key={`${previous.date}-${point.date}`}
-                      x1={index + 0.5}
+                      x1={((index + 0.5) / Math.max(points.length, 1)) * 1000}
                       y1={160 - (previous.roas / maxRoas) * 160}
-                      x2={index + 1.5}
+                      x2={((index + 1.5) / Math.max(points.length, 1)) * 1000}
                       y2={160 - (point.roas / maxRoas) * 160}
                       stroke="var(--ledger-semantic-warn)"
                       strokeWidth="2"
@@ -340,10 +340,10 @@ export function TrendPanel({
                   );
                 })}
                 {points.map((point, index) => point.roas === null ? null : (
-                  <circle key={point.date} cx={index + 0.5} cy={160 - (point.roas / maxRoas) * 160} r="3" fill="var(--ledger-semantic-warn)" vectorEffect="non-scaling-stroke" />
+                  <circle key={point.date} cx={((index + 0.5) / Math.max(points.length, 1)) * 1000} cy={160 - (point.roas / maxRoas) * 160} r="3" fill="var(--ledger-semantic-warn)" vectorEffect="non-scaling-stroke" />
                 ))}
                 {targetRoas !== null ? (
-                  <line x1="0" x2={Math.max(points.length, 1)} y1={160 - (targetRoas / maxRoas) * 160} y2={160 - (targetRoas / maxRoas) * 160} stroke="var(--ledger-ink-tertiary)" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+                  <line x1="0" x2="1000" y1={160 - (targetRoas / maxRoas) * 160} y2={160 - (targetRoas / maxRoas) * 160} stroke="var(--ledger-ink-tertiary)" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
                 ) : null}
               </svg>
 

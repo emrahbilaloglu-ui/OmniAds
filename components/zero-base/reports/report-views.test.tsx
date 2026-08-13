@@ -313,23 +313,44 @@ describe("the canonical report UI has no mint or share control", () => {
 });
 
 describe("library", () => {
-  it("offers create and duplicate but never share", async () => {
+  it("restores the saved-report cards and template gallery without adding share", async () => {
     const onCreate = vi.fn();
     const onDuplicate = vi.fn();
+    const onDelete = vi.fn();
     render(
       <ZeroBasePortalHost>
         <ReportLibraryView
-          reports={[{ id: "r1", name: "Weekly", updatedAt: "2026-08-01" }]}
+          reports={[{
+            id: "r1",
+            name: "Weekly",
+            description: "Client performance review",
+            templateId: "paid-media-weekly",
+            updatedAt: "2026-08-01",
+            definition: {
+              version: 1,
+              dateRangePreset: "30",
+              compareMode: "previous_period",
+              widgets: [{ id: "w1", type: "metric", slot: 0, colSpan: 1, rowSpan: 1, title: "Spend" }],
+            },
+          }]}
           onCreate={onCreate}
           onDuplicate={onDuplicate}
+          onDelete={onDelete}
         />
       </ZeroBasePortalHost>,
     );
     const user = userEvent.setup();
     await user.click(document.querySelector("[data-report-create]") as HTMLElement);
     await user.click(document.querySelector('[data-report-duplicate="r1"]') as HTMLElement);
+    await user.click(document.querySelector('[data-report-delete="r1"]') as HTMLElement);
     expect(onCreate).toHaveBeenCalled();
     expect(onDuplicate).toHaveBeenCalledWith("r1");
+    expect(onDelete).toHaveBeenCalledWith("r1");
+    expect(screen.getByText("Saved Reports")).toBeTruthy();
+    expect(screen.getByText("Template Gallery")).toBeTruthy();
+    expect(screen.getByText("Client performance review")).toBeTruthy();
+    expect(screen.getByText("1 widgets")).toBeTruthy();
+    expect(document.querySelector('[data-template-gallery] a[href^="/app/reports/new?template="]')).not.toBeNull();
     expect(document.body.textContent).not.toMatch(/share/i);
   });
 

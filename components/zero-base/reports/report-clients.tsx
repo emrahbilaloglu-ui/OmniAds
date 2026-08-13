@@ -29,7 +29,7 @@ import {
   fromReportDocument,
   toReportDocument,
 } from "@/lib/zero-base/reports/report-documents";
-import type { CustomReportDocument, RenderedReportWidget } from "@/lib/custom-reports";
+import type { CustomReportDocument, CustomReportRecord, RenderedReportWidget } from "@/lib/custom-reports";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 function useReports(businessId: string) {
@@ -64,6 +64,9 @@ function useReports(businessId: string) {
           json.reports.map((report, index) => ({
             id: String(report.id ?? index),
             name: String(report.name ?? "(untitled)"),
+            description: typeof report.description === "string" ? report.description : null,
+            templateId: typeof report.templateId === "string" ? report.templateId : null,
+            definition: report.definition as CustomReportRecord["definition"],
             updatedAt: String(report.updatedAt ?? report.updated_at ?? "Not reported"),
           })),
         );
@@ -122,6 +125,22 @@ export function ReportLibraryClient({ businessId }: { businessId: string }) {
     [businessId, refresh],
   );
 
+  const remove = useCallback(
+    async (id: string) => {
+      setError(null);
+      const response = await fetch(`/api/reports/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }).catch(() => null);
+      if (!response?.ok) {
+        const json = (await response?.json().catch(() => null)) as { message?: string } | null;
+        setError(json?.message ?? "The report could not be deleted.");
+        return;
+      }
+      refresh();
+    },
+    [refresh],
+  );
+
   return (
     <SurfaceStateBoundary state={surface}>
       <ReportLibraryView
@@ -129,6 +148,7 @@ export function ReportLibraryClient({ businessId }: { businessId: string }) {
         unavailableReason={reason ?? error}
         onCreate={() => router.push("/app/reports/new")}
         onDuplicate={(id) => void duplicate(id)}
+        onDelete={(id) => void remove(id)}
       />
     </SurfaceStateBoundary>
   );

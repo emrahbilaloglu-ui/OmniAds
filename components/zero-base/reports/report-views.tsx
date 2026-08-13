@@ -9,7 +9,12 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { RenderedReportWidget } from "@/lib/custom-reports";
+import {
+  CUSTOM_REPORT_TEMPLATES,
+  type CustomReportDocument,
+  type RenderedReportWidget,
+} from "@/lib/custom-reports";
+import { TemplateMiniPreview, TemplateProviders } from "@/components/reports/template-mini-preview";
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
@@ -39,6 +44,9 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 export interface ReportSummary {
   id: string;
   name: string;
+  description?: string | null;
+  templateId?: string | null;
+  definition?: CustomReportDocument;
   updatedAt: string;
 }
 
@@ -64,6 +72,23 @@ export function ReportLibraryView({
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortMode, setSortMode] = useState<"recent" | "name">("recent");
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleReports = [...reports]
+    .filter((report) => {
+      if (!normalizedQuery) return true;
+      const category = CUSTOM_REPORT_TEMPLATES.find((template) => template.id === report.templateId)?.category ?? "";
+      return [report.name, report.description ?? "", category]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    })
+    .sort((left, right) =>
+      sortMode === "name"
+        ? left.name.localeCompare(right.name)
+        : new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    );
   if (unavailableReason) {
     return (
       <div data-reports-surface="library">
@@ -76,9 +101,12 @@ export function ReportLibraryView({
   }
   return (
     <div data-reports-surface="library" data-el="reports-lib">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
-      <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div>
+          <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ledger-ink-tertiary)" }}>Reports</p>
+          <h1 style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
+          <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Save report formats, export tables as CSV, or start from a reusable template.</p>
+        </div>
         <Button
           variant="secondary"
           data-report-create=""
@@ -88,94 +116,32 @@ export function ReportLibraryView({
           {copy.newReport}
         </Button>
       </div>
+      <div data-report-library-columns="" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 1.25fr)", gap: 12, alignItems: "start" }}>
+        <section style={{ padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+          <h2 style={{ margin: 0, fontSize: 15 }}>Saved Reports</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Every saved report belongs to the active business.</p>
+          {reports.length > 5 ? <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+            <input aria-label="Search reports" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search reports..." style={{ minHeight: 34, minWidth: 220, padding: "6px 9px", border: "1px solid var(--ledger-border-control)", borderRadius: 6, background: "var(--ledger-bg-surface)" }} />
+            <select aria-label="Sort reports" value={sortMode} onChange={(event) => setSortMode(event.target.value as "recent" | "name")} style={{ minHeight: 34, padding: "6px 9px", border: "1px solid var(--ledger-border-control)", borderRadius: 6, background: "var(--ledger-bg-surface)" }}><option value="recent">Sort: Recently updated</option><option value="name">Sort: Name</option></select>
+          </div> : null}
+          {reports.length === 0 ? <p data-reports="empty" style={{ marginTop: 16, padding: 20, border: "1px dashed var(--ledger-border-control)", borderRadius: 8, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.noReports}</p> : visibleReports.length === 0 ? <p style={{ marginTop: 16, fontSize: 12 }}>No reports match this search.</p> : <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+            {visibleReports.map((report) => <article key={report.id} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: 8, background: "var(--ledger-bg-surface)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 150px", gap: 12 }}>
+                <a href={`/app/reports/${report.id}`} data-ctl="live:REPORT-08 open" style={{ color: "inherit", textDecoration: "none" }}><h3 style={{ margin: 0, fontSize: 13 }}>{report.name}</h3><p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{report.description || "No description yet."}</p><p style={{ margin: "8px 0 0", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Updated {new Date(report.updatedAt).toLocaleString()}</p></a>
+                {report.definition ? <a href={`/app/reports/${report.id}`} aria-label={`Open ${report.name}`}><TemplateMiniPreview definition={report.definition} /></a> : null}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}><span style={{ padding: "3px 7px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 5, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12 }}>{report.definition?.widgets.length ?? 0} widgets</span><span style={{ display: "flex", gap: 6 }}><a href={`/app/reports/${report.id}/edit`} style={{ alignSelf: "center", color: "var(--ledger-accent-action)", fontSize: 12 }}>{copy.edit}</a><Button variant="secondary" data-report-duplicate={report.id} onClick={() => onDuplicate?.(report.id)}>{copy.duplicate}</Button><Button variant="danger" data-report-delete={report.id} state={onDelete ? { kind: "enabled" } : { kind: "disabled", reason: "Deleting a report needs an admin role on this business." }} onClick={() => onDelete?.(report.id)}>{copy.delete}</Button></span></div>
+            </article>)}
+          </div>}
+          <p data-reports-disclosure="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{totalCount == null ? `Showing ${reports.length} reports.` : `Showing ${reports.length} of ${totalCount} reports.`}</p>
+          {onLoadMore ? <Button variant="secondary" data-report-load-more="" onClick={onLoadMore} style={{ marginTop: 8 }}>{copy.loadMore}</Button> : null}
+        </section>
+        <section style={{ padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+          <h2 style={{ margin: 0, fontSize: 15 }}>Template Gallery</h2><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Start with a one-click structure, then customize every widget and slot.</p>
+          <div data-template-gallery="" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 16 }}>{CUSTOM_REPORT_TEMPLATES.map((template) => <a key={template.id} href={`/app/reports/new?template=${template.id}`} style={{ padding: 14, border: "1px dashed var(--ledger-border-control)", borderRadius: 10, color: "inherit", textDecoration: "none" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span style={{ padding: "2px 6px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 4, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase" }}>{template.category}</span><TemplateProviders template={template} /></div><TemplateMiniPreview definition={template.definition} className="mt-6" /><h3 style={{ margin: "14px 0 0", fontSize: 13 }}>{template.name}</h3><p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>{template.description}</p><p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{template.definition.widgets.length} widgets · CSV · print</p></a>)}</div>
+        </section>
       </div>
-      {reports.length === 0 ? (
-        <p data-reports="empty" style={{ marginTop: 12, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          {copy.noReports}
-        </p>
-      ) : (
-        <div style={{ marginTop: 16 }}>
-          <DataTable
-            collection="reports"
-            caption={copy.reportsTitle}
-            rows={[...reports]}
-            rowKey={(row) => row.id}
-            columns={[
-              {
-                id: "name",
-                header: "Report",
-                render: (row) => (
-                  <a
-                    href={`/app/reports/${row.id}`}
-                    data-ctl="live:REPORT-08 open"
-                    style={{ color: "var(--ledger-accent-action)" }}
-                  >
-                    {row.name}
-                  </a>
-                ),
-              },
-              { id: "updated", header: "Updated", render: (row) => row.updatedAt },
-              {
-                id: "actions",
-                header: "Actions",
-                render: (row) => (
-                  <span style={{ display: "inline-flex", gap: 6 }}>
-                    <a
-                      href={`/app/reports/${row.id}/edit`}
-                      data-ctl="live:REPORT-02 edit"
-                      style={{ color: "var(--ledger-accent-action)", alignSelf: "center" }}
-                    >
-                      {copy.edit}
-                    </a>
-                    <Button
-                      variant="secondary"
-                      data-report-duplicate={row.id}
-                      data-ctl="live:REPORT-01 duplicate"
-                      onClick={() => onDuplicate?.(row.id)}
-                    >
-                      {copy.duplicate}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      data-report-delete={row.id}
-                      data-ctl="gated:REPORT-01 delete"
-                      state={
-                        onDelete
-                          ? { kind: "enabled" }
-                          : {
-                              kind: "disabled",
-                              reason: "Deleting a report needs an admin role on this business.",
-                            }
-                      }
-                      onClick={() => onDelete?.(row.id)}
-                    >
-                      {copy.delete}
-                    </Button>
-                  </span>
-                ),
-              },
-            ]}
-          />
-          {onLoadMore ? (
-            <Button
-              variant="secondary"
-              data-report-load-more=""
-              data-ctl="live:REPORT-01 load-more"
-              onClick={onLoadMore}
-              style={{ marginTop: 8 }}
-            >
-              {copy.loadMore}
-            </Button>
-          ) : null}
-          {/* Restated after paging, so "how much is left" never has to be
-              inferred from the row count. */}
-          <p data-reports-disclosure="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            {totalCount === null || totalCount === undefined
-              ? `Showing ${reports.length} reports.`
-              : `Showing ${reports.length} of ${totalCount} reports.`}
-          </p>
-        </div>
-      )}
+      <style>{`@media (max-width: 1040px) { [data-report-library-columns] { grid-template-columns: 1fr !important; } } @media (max-width: 620px) { [data-template-gallery] { grid-template-columns: 1fr !important; } }`}</style>
     </div>
   );
 }

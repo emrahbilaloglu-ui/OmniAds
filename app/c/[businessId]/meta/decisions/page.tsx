@@ -3,10 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
-import { DecisionsClient } from "@/components/zero-base/meta/decisions/decisions-client";
 import { parseDecisionsUrlState } from "@/lib/zero-base/meta/decisions-url-state";
 import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
+import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
 
 export const dynamic = "force-dynamic";
 
@@ -53,13 +53,8 @@ export default async function MetaDecisionsPage({
     requestedAccountId: query.get("providerAccountId"),
   });
 
-  return (
-    <DecisionsClient
-      businessId={businessId}
-      initialState={parseDecisionsUrlState(query)}
-      providerAccountId={providerAccountId}
-      demo={access.context.demo}
-      mutationUiEnabled={mutationUiEnabled}
-    />
-  );
+  void providerAccountId;
+  void mutationUiEnabled;
+  void parseDecisionsUrlState(query);
+  return <LegacyMetaPage />;
 }

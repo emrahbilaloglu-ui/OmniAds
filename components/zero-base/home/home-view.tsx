@@ -11,14 +11,14 @@
  * the refresh then fails the operator is left worse off than before they asked.
  * The stale content stays, labelled stale, until something better arrives.
  */
-import { useState } from "react";
-
 import { MetricCard } from "@/components/zero-base/home/metric-card";
-import { BannerStack, SourceHealthPanel } from "@/components/zero-base/home/source-health";
+import { SourceHealthPanel } from "@/components/zero-base/home/source-health";
 import { EconomicsContext } from "@/components/zero-base/home/economics-context";
+import { HomeDateRangeControl } from "@/components/zero-base/home/home-date-range-control";
 import { TrendPanel, type TrendPoint } from "@/components/zero-base/home/trend-panel";
 import { Button } from "@/components/zero-base/primitives/button";
-import { buildBannerStack, type HomeContract } from "@/lib/zero-base/home/metric-contract";
+import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
+import type { HomeContract } from "@/lib/zero-base/home/metric-contract";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
@@ -26,19 +26,18 @@ export type HomeRefreshState = "idle" | "refreshing" | "failed";
 
 export function HomeView({
   contract,
-  scopeLine,
   businessId = null,
   connectHref = null,
   triageHref = null,
   trend,
   economics,
+  dateRange,
+  referenceDate,
+  timeZone,
   refreshState = "idle",
   onRefresh,
-  narrowest = false,
 }: {
   contract: HomeContract;
-  /** Business · account · window, supplied by the shell's resolved scope. */
-  scopeLine: string;
   businessId?: string | null;
   /** Where an unconfigured source is connected. */
   connectHref?: string | null;
@@ -48,44 +47,30 @@ export function HomeView({
   trend?: { points: readonly TrendPoint[]; currency: string | null } | null;
   /** Absent when no economics source has been configured for this business. */
   economics?: EconomicsContextModel | null;
+  /** The legacy Overview picker value, now URL-backed on canonical Home. */
+  dateRange?: DateRangeValue;
+  referenceDate?: string;
+  timeZone?: string;
   refreshState?: HomeRefreshState;
   onRefresh?: () => void;
-  /** True at the narrowest supported width, where the scope line wraps. */
-  narrowest?: boolean;
 }) {
   const copy = useCopy();
-  const [banners] = useState(() =>
-    // Keep hard and partial problems visible together. Suppressing connector
-    // banners makes a metric card look authoritative while one of its sources
-    // is disconnected or incomplete.
-    buildBannerStack(contract.sources),
-  );
-
   return (
     <div data-home-surface="" data-refresh-state={refreshState}>
-      <header style={{ marginBottom: 16 }}>
+      <header
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.home}</h1>
-        <p style={{ margin: "5px 0 0", fontSize: 13, color: "var(--ledger-ink-secondary)" }}>
-          {copy.homeDecisionOrientation}
-        </p>
-        <p
-          data-scope-line=""
-          data-el="mobile-scope"
-          style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}
-        >
-          {narrowest ? (
-            // At 320 the scope is the line under pressure: it is what has to
-            // stay readable when everything else has already given up its
-            // width, so the constraint is marked where it applies.
-            <span data-el="win-320">
-              {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
-            </span>
-          ) : (
-            <>
-              {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
-            </>
-          )}
-        </p>
+        {dateRange && referenceDate && timeZone ? (
+          <HomeDateRangeControl value={dateRange} referenceDate={referenceDate} timeZone={timeZone} />
+        ) : null}
         {triageHref ? (
           // The mobile entry into Tier-0 triage: on a phone the operator is
           // usually here to act on the worst thing first, not to browse.
@@ -105,8 +90,6 @@ export function HomeView({
           </p>
         ) : null}
       </header>
-
-      <BannerStack banners={banners} connectHref={connectHref} />
 
       {/* Refresh never blanks the surface. While it runs, and if it fails, the
           previous numbers stay visible and are labelled for what they are. */}
@@ -137,7 +120,7 @@ export function HomeView({
         data-el="home-kpis"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(170px, 1fr))",
+          gridTemplateColumns: "repeat(5, minmax(170px, 1fr))",
           gap: 12,
           marginBottom: 24,
         }}

@@ -95,7 +95,6 @@ function renderHome() {
     <ZeroBaseCopyProvider language="en">
       <HomeView
         contract={CONTRACT}
-        scopeLine="Halcyon Supply Co."
         businessId="biz"
         trend={{ points: POINTS, currency: "USD" }}
         economics={ECONOMICS}

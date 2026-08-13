@@ -35,7 +35,16 @@ const HOME_KPIS: ReadonlyArray<{
   read: (overview: OverviewResponse) => number;
   sourceField?: keyof OverviewResponse["kpis"];
   source?: { source: string; label: string };
+  sourceMustBeShopify?: boolean;
 }> = [
+  {
+    key: "revenue",
+    title: "Total sales",
+    unit: "currency",
+    read: (o) => o.kpis.revenue,
+    sourceField: "revenue",
+    sourceMustBeShopify: true,
+  },
   { key: "spend", title: "Spend", unit: "currency", read: (o) => o.kpis.spend, sourceField: "spend" },
   { key: "orders", title: "Purchases", unit: "count", read: (o) => o.kpis.purchases, sourceField: "purchases" },
   {
@@ -51,6 +60,7 @@ const HOME_KPIS: ReadonlyArray<{
 /** KPI key → the `kpiSources` field that carries its provenance. */
 const KPI_SOURCE_FIELD: Record<string, string> = {
   spend: "spend",
+  revenue: "revenue",
   blended_roas: "roas",
   orders: "purchases",
   mer: "roas",
@@ -182,7 +192,9 @@ export async function readHomePageModel(input: {
     const provenance = kpi.source ?? (
       overview.kpiSources as unknown as Record<string, { source: string; label: string } | undefined>
     )[sourceField];
-    const served = isServed(provenance?.source);
+    const served =
+      isServed(provenance?.source) &&
+      (!kpi.sourceMustBeShopify || Boolean(provenance?.source.startsWith("shopify_")));
     const raw = kpi.read(overview);
 
     const card: OverviewMetricCardData | undefined = served
@@ -199,6 +211,8 @@ export async function readHomePageModel(input: {
                 value:
                   kpi.key === "spend"
                     ? Number(row.spend ?? Number.NaN)
+                    : kpi.key === "revenue"
+                      ? Number(row.revenue ?? Number.NaN)
                     : kpi.key === "orders"
                       ? Number(row.purchases ?? Number.NaN)
                       : Number(row.spend) > 0

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { BusinessGuard } from "@/components/layout/business-guard";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { AppTopbar } from "@/components/layout/v2/app-topbar";
@@ -149,6 +150,11 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           search={<GlobalSearch />}
           notifications={<NotificationBell />}
         />
+        {/* Every Tier-0 route reports its data age through one shared bar; a
+            frame without it lets silence read as "current". */}
+        <div className="ad-legacy-freshness border-b border-[var(--adv-hairline)] bg-[var(--adv-surface)] px-4 py-1">
+          <TierZeroFreshnessBar />
+        </div>
         <main
           className="adv-main"
           data-mobile-surface={mobileSurface ?? "none"}

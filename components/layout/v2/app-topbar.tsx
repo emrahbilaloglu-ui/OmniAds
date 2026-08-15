@@ -189,7 +189,12 @@ export function AppTopbar({
           <Menu className="h-[15px] w-[15px]" aria-hidden="true" />
         </button>
 
-        <BusinessControl />
+        {/* The shell contract asks every frame to expose brand, business and
+            platform regions by name; the v2 chrome has all three, so it carries
+            the same hooks rather than renaming the contract. */}
+        <span className="ad-console-business contents">
+          <BusinessControl />
+        </span>
 
         <span className="adv-topbar-divider hidden sm:block" />
 

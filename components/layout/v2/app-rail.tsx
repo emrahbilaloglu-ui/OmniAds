@@ -231,7 +231,7 @@ export function AppRail({
 
   return (
     <aside className="adv-rail" data-open={open} data-shell-sidebar="v2">
-      <div className="adv-rail-head">
+      <div className="adv-rail-head ad-console-brand">
         <span className="adv-rail-mark">
           <Image
             src="/adsecute-mark.svg"
@@ -257,7 +257,7 @@ export function AppRail({
           />
         ))}
 
-        <div className="adv-rail-group">{model.labels.platforms}</div>
+        <div className="adv-rail-group ad-console-platform">{model.labels.platforms}</div>
         {model.platforms.map((platform) => (
           <PlatformBlock
             key={platform.id}

@@ -93,7 +93,7 @@
   margin-bottom: 4px;
   color: var(--auto-ink-3);
   font-family: var(--adv-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -155,7 +155,7 @@
   background: var(--auto-surface);
   padding: 4px 8px;
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .accountSelect select {
@@ -296,7 +296,7 @@
 }
 
 .alertCopy span {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .alertAction {
@@ -311,7 +311,7 @@
   gap: 8px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 1px 9px;
 }
 
@@ -355,7 +355,7 @@
 .sectionHeader p,
 .panelHeader p {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .panelHeader > svg {
@@ -372,7 +372,7 @@
   border-radius: 999px;
   background: var(--auto-subtle);
   color: var(--auto-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   padding: 3px 7px;
@@ -461,7 +461,7 @@
 .summaryLabel {
   color: var(--auto-ink-3);
   font-family: var(--adv-font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -479,7 +479,7 @@
 
 .summaryDetail {
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -490,7 +490,7 @@
   gap: 6px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
   padding: 8px 14px;
 }
 
@@ -540,7 +540,7 @@
 
 .actionClassHeading p {
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .actionClassFacts {
@@ -556,7 +556,7 @@
 
 .actionClassFacts dt {
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -572,14 +572,14 @@
 .actionClassFacts strong,
 .promotionTransition code {
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .actionClassFacts dd span {
   overflow-wrap: anywhere;
   color: var(--auto-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .rowFootnotes {
@@ -588,7 +588,7 @@
   flex-wrap: wrap;
   gap: 4px 14px;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .evidenceTable {
@@ -614,7 +614,7 @@
   min-height: 34px;
   background: var(--auto-subtle);
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -628,7 +628,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--auto-ink-2);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .evidenceRow > span:first-child {
@@ -638,7 +638,7 @@
 
 .evidenceRow strong {
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .evidenceRow small {
@@ -669,17 +669,17 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-danger-fg);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .gateRequirement {
   color: var(--auto-ink-2);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .gateMissing {
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .controlGrid,
@@ -727,13 +727,13 @@
 }
 
 .switchIdentity strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .switchIdentity small {
   overflow: hidden;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
 
@@ -802,7 +802,7 @@
   border-radius: 5px;
   background: var(--auto-warning-bg);
   color: var(--auto-warning-fg);
-  font-size: 10px;
+  font-size: 12px;
   padding: 7px 8px;
 }
 
@@ -823,13 +823,13 @@
 
 .guardrailRow > span:first-child {
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .guardrailRow > strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 10.5px;
+  font-size: 12px;
   text-align: right;
 }
 
@@ -888,7 +888,7 @@
 .promotionTopline strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ledgerMeta {
@@ -897,7 +897,7 @@
   gap: 3px 10px;
   margin-top: 4px;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .ledgerMeta code {
@@ -920,12 +920,12 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .promotionRow p,
 .promotionRow time {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .promotionRow time {
@@ -937,7 +937,7 @@
   border-radius: 5px;
   margin: 10px 12px;
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
   padding: 11px;
 }
 
@@ -1008,7 +1008,7 @@
 
   .mobileFacts dt {
     color: var(--auto-ink-3);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .mobileFacts dd {
@@ -1016,7 +1016,7 @@
     margin: 0;
     overflow-wrap: anywhere;
     color: var(--auto-ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 650;
     text-align: right;
   }
@@ -1029,7 +1029,7 @@
     border-radius: 6px;
     background: var(--auto-danger-bg);
     color: var(--auto-danger-fg);
-    font-size: 11px;
+    font-size: 12px;
     padding: 9px 10px;
   }
 

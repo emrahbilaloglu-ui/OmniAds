@@ -2,7 +2,7 @@ import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import CreativesPage from "./page";
+import CreativesPage from "./legacy-page";
 
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>

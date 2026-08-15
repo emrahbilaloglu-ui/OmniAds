@@ -62,8 +62,8 @@ describe("shell navigation items", () => {
       activeHrefs: ["/platforms/meta/history"],
     });
     expect(googleItems[0]).toMatchObject({
-      id: "google-overview",
-      label: "Overview",
+      id: "pulse",
+      label: "Decisions",
       href: "/platforms/google",
     });
     expect(
@@ -79,25 +79,12 @@ describe("shell navigation items", () => {
     expect(platformsRegistry.google.status).toBe("live");
   });
 
-  it("routes the Google Layer-2 nav to the six v2 workspace surfaces", () => {
+  it("collapses the Google Layer-2 nav to the single self-contained dashboard entry", () => {
     const googleItems = getPlatformLayer2Items("google", "en");
-    expect(googleItems.map((item) => item.href)).toEqual([
-      "/platforms/google",
-      "/platforms/google/advisor",
-      "/platforms/google/search",
-      "/platforms/google/products",
-      "/platforms/google/assets",
-      "/platforms/google/plan",
-    ]);
-    expect(googleItems.map((item) => item.label)).toEqual([
-      "Overview",
-      "Advisor",
-      "Search",
-      "Products",
-      "Assets & Audiences",
-      "Plan & Activity",
-    ]);
-    // The root entry stays exact so the child routes do not light it up too.
-    expect(googleItems[0]).toMatchObject({ id: "google-overview", exact: true });
+    expect(googleItems).toHaveLength(1);
+    expect(googleItems[0]).toMatchObject({
+      id: "pulse",
+      href: "/platforms/google",
+    });
   });
 });

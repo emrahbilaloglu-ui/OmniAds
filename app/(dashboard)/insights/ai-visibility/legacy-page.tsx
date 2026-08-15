@@ -151,10 +151,11 @@ export default function AiVisibilityPage() {
       <div className="space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <h2 className="font-[family-name:var(--adv-font-display)] text-[19px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
-              AI Visibility
-            </h2>
-            <p className="max-w-xl text-sm leading-5 text-[var(--adv-ink-3)]">
+            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+              Insights
+            </p>
+            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">AI Visibility</h1>
+            <p className="max-w-xl text-sm leading-5 text-neutral-500">
               Generative Engine · how your brand surfaces in AI tools.
             </p>
           </div>
@@ -169,10 +170,11 @@ export default function AiVisibilityPage() {
       {/* Page header */}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h2 className="font-[family-name:var(--adv-font-display)] text-[19px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
-            AI Visibility
-          </h2>
-          <p className="max-w-xl text-sm leading-5 text-[var(--adv-ink-3)]">
+          <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            Insights
+          </p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">AI Visibility</h1>
+          <p className="max-w-xl text-sm leading-5 text-neutral-500">
             Generative Engine · how your brand surfaces in AI tools.
           </p>
         </div>
@@ -184,10 +186,10 @@ export default function AiVisibilityPage() {
       </header>
 
       {/* AI Visibility explainer band */}
-      <div className="rounded-xl border border-[var(--adv-border)] bg-white px-5 py-3.5">
+      <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
         <p className="text-sm">
-          <span className="font-semibold text-[var(--adv-ink)]">What is AI Visibility?</span>
-          <span className="ml-2 text-[var(--adv-ink-3)]">
+          <span className="font-semibold text-neutral-950">What is AI Visibility?</span>
+          <span className="ml-2 text-neutral-500">
             Understand how AI-driven surfaces like
             ChatGPT, Perplexity, Gemini, and Copilot expose your brand and content, and what to
             improve next to win more AI-sourced discovery.
@@ -197,9 +199,9 @@ export default function AiVisibilityPage() {
 
       {/* No connections state */}
       {!anyConnected && (
-        <div className="rounded-xl border border-dashed border-[var(--adv-scroll-thumb)] bg-white p-8 text-center">
+        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
           <h3 className="text-base font-semibold">Unlock AI Visibility</h3>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-5 text-[var(--adv-ink-3)]">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-5 text-neutral-500">
             Connect <strong>GA4</strong> to detect AI-source traffic and measure commercial
             impact. Connect <strong>Search Console</strong> to surface query and topic
             authority signals.
@@ -215,9 +217,19 @@ export default function AiVisibilityPage() {
 
       {/* Controls */}
       {anyConnected && (
-        <section className="rounded-xl border border-[var(--adv-border)] bg-white p-3">
+        <section className="rounded-xl border border-neutral-200 bg-white p-3">
           <div className="flex flex-wrap items-center gap-3">
-            <DateRangePicker value={dateRange} onChange={setDateRange} />
+            {/*
+            This surface reads no comparison, so it does not offer one. The
+            Compare control was rendered here and never read: an operator could
+            pick "Previous year", watch the chip turn active and print the
+            year-ago dates, and change nothing at all.
+          */}
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            showComparisonTrigger={false}
+          />
           </div>
         </section>
       )}
@@ -248,7 +260,7 @@ export default function AiVisibilityPage() {
 
       {/* Tab bar */}
       {anyConnected && (
-        <div className="flex gap-1 overflow-x-auto border-b border-[var(--adv-border)]">
+        <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -256,8 +268,8 @@ export default function AiVisibilityPage() {
               className={cn(
                 "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
                 activeTab === tab.id
-                  ? "border-[var(--adv-ink)] text-[var(--adv-ink)]"
-                  : "border-transparent text-[var(--adv-ink-3)] hover:text-[var(--adv-ink)]"
+                  ? "border-neutral-950 text-neutral-950"
+                  : "border-transparent text-neutral-500 hover:text-neutral-900"
               )}
             >
               {tab.label}
@@ -268,11 +280,11 @@ export default function AiVisibilityPage() {
 
       {/* Tab content */}
       {anyConnected && (
-        <section className="rounded-xl border border-[var(--adv-border)] bg-white p-5">
+        <section className="rounded-xl border border-neutral-200 bg-white p-5">
           {activeTab === "overview" && (
             <>
               <SectionHeader
-                title="Search intelligence"
+                title="Executive Overview"
                 description="AI-source traffic KPIs, AI visibility opportunity score, and intelligence callouts."
               />
               <GeoOverviewSection
@@ -288,8 +300,8 @@ export default function AiVisibilityPage() {
           {activeTab === "ai-sources" && (
             <>
               <SectionHeader
-                title="AI traffic sources"
-                description="sessions from known AI engines · value vs site average · momentum vs previous period"
+                title="AI Traffic Sources"
+                description="Sessions, engagement, and commercial performance broken down by AI discovery engine."
               />
               {!ga4Connected ? (
                 <RequiresIntegration name="GA4" reason="to detect AI referral traffic" />
@@ -310,8 +322,8 @@ export default function AiVisibilityPage() {
           {activeTab === "pages" && (
             <>
               <SectionHeader
-                title="AI content winners"
-                description="pages receiving AI-sourced traffic, ranked by AI Visibility Score — your strongest AI-discovery assets"
+                title="AI Visibility Content Winners"
+                description="Pages receiving AI-sourced traffic, ranked by AI Visibility Score. These are your strongest AI-discovery assets."
               />
               {!ga4Connected ? (
                 <RequiresIntegration name="GA4" reason="to show page-level AI traffic" />
@@ -332,7 +344,7 @@ export default function AiVisibilityPage() {
           {activeTab === "queries" && (
             <>
               <SectionHeader
-                title="Query intelligence"
+                title="Query Intelligence"
                 description="Ranking queries analyzed for AI/answer-engine intent. Violet = high AI visibility relevance."
               />
               {!scConnected ? (
@@ -354,7 +366,7 @@ export default function AiVisibilityPage() {
           {activeTab === "topics" && (
             <>
               <SectionHeader
-                title="Topic authority"
+                title="Topic Authority"
                 description="Topic clusters derived from your ranking queries. Strong clusters = authoritative answer-engine presence."
               />
               {!scConnected ? (
@@ -376,7 +388,7 @@ export default function AiVisibilityPage() {
           {activeTab === "opportunities" && (
             <>
               <SectionHeader
-                title="Opportunities and playbook"
+                title="Opportunities & Playbook"
                 description="Evidence-based, consultant-grade recommendations to improve AI-era discoverability."
               />
               {opportunitiesQuery.error ? (
@@ -397,11 +409,11 @@ export default function AiVisibilityPage() {
 
       {/* Methodology footnote */}
       {anyConnected && (
-        <details className="rounded-xl border border-[var(--adv-border)] bg-white px-4 py-3">
-          <summary className="cursor-pointer select-none text-xs font-medium text-[var(--adv-ink-3)]">
+        <details className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <summary className="cursor-pointer select-none text-xs font-medium text-neutral-500">
             Methodology & data assumptions
           </summary>
-          <div className="mt-3 space-y-2 text-xs leading-5 text-[var(--adv-ink-3)]">
+          <div className="mt-3 space-y-2 text-xs leading-5 text-neutral-500">
             <p>
               <strong>AI referral traffic</strong> is detected by matching GA4 session sources
               against known AI engine domains (chat.openai.com, perplexity.ai, gemini.google.com,
@@ -444,11 +456,11 @@ export default function AiVisibilityPage() {
 
 function ConnectedChip({ label, connected }: { label: string; connected: boolean }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-lg border border-[var(--adv-border)] bg-white px-2.5 py-1.5 text-xs">
+    <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs">
       <span className="font-medium">{label}</span>
       <Badge
         variant="secondary"
-        className={connected ? "border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]" : "border border-[var(--adv-border)] bg-[var(--adv-fill-2)] text-[var(--adv-ink-2)]"}
+        className={connected ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-neutral-200 bg-neutral-100 text-neutral-600"}
       >
         {connected ? "connected" : "not connected"}
       </Badge>
@@ -459,26 +471,26 @@ function ConnectedChip({ label, connected }: { label: string; connected: boolean
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="mb-5">
-      <h2 className="text-[16px] font-semibold tracking-tight text-[var(--adv-ink)]">{title}</h2>
-      <p className="mt-0.5 text-sm leading-5 text-[var(--adv-ink-3)]">{description}</p>
+      <h2 className="text-[16px] font-semibold tracking-tight text-neutral-950">{title}</h2>
+      <p className="mt-0.5 text-sm leading-5 text-neutral-500">{description}</p>
     </div>
   );
 }
 
 function PartialDataNotice({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-4 py-2.5">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--adc-caution-fg)]" />
-      <p className="text-xs text-[var(--adc-caution-fg)]">{text}</p>
+    <div className="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+      <p className="text-xs text-amber-800">{text}</p>
     </div>
   );
 }
 
 function RequiresIntegration({ name, reason }: { name: string; reason: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-[var(--adv-scroll-thumb)] bg-white py-8 text-center">
+    <div className="rounded-xl border border-dashed border-neutral-300 bg-white py-8 text-center">
       <p className="text-sm font-medium">Requires {name}</p>
-      <p className="mt-1 text-xs text-[var(--adv-ink-3)]">
+      <p className="mt-1 text-xs text-neutral-500">
         Connect {name} {reason}.
       </p>
       <a

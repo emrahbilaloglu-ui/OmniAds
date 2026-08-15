@@ -3,6 +3,9 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BusinessGuard } from "@/components/layout/business-guard";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { AppTopbar } from "@/components/layout/v2/app-topbar";
 import { useAppStore } from "@/store/app-store";
@@ -36,15 +39,6 @@ function mobileSurfaceForPath(pathname: string | null) {
   }
   if (pathname?.startsWith("/platforms/meta/")) return "meta-evidence";
   return null;
-}
-
-/**
- * The read-only banner is a Meta-surface contract ("writes stay on desktop"),
- * not a shell-wide notice. Overview and the workspace screens are fully usable
- * on mobile, so they must not inherit it now that every route shares one frame.
- */
-function showsMobileReadonlyNote(pathname: string | null) {
-  return Boolean(pathname?.startsWith("/platforms/meta"));
 }
 
 function mobileReadonlyMessageForPath(pathname: string | null) {
@@ -126,6 +120,9 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const mobileSurface = mobileSurfaceForPath(pathname);
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
   const routeOwnsMobileSurface = hasRouteOwnedMetaSurface(pathname);
+  // Which routes claim mobile read-only is a capability decision, not a shell
+  // opinion — it comes from the same module the write paths consult.
+  const claimsMobileReadOnly = shouldClaimMobileReadOnly(pathname);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusiness =
@@ -146,12 +143,17 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
       ) : null}
       <AppRail userName={userName} open={navOpen} onNavigate={() => setNavOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <AppTopbar userName={userName} onOpenNav={() => setNavOpen(true)} />
+        <AppTopbar
+          userName={userName}
+          onOpenNav={() => setNavOpen(true)}
+          search={<GlobalSearch />}
+          notifications={<NotificationBell />}
+        />
         <main
           className="adv-main"
           data-mobile-surface={mobileSurface ?? "none"}
         >
-          {showsMobileReadonlyNote(pathname) && !routeOwnsMobileSurface ? (
+          {claimsMobileReadOnly && !routeOwnsMobileSurface ? (
             <div className="ad-console-mobile-readonly" role="note">
               <span data-mono>Adsecute · mobile read-only</span>
               <span>{mobileReadonlyMessage}</span>

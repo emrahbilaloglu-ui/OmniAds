@@ -1,33 +1,39 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  OVERVIEW_COMPARISON_PRESETS,
+  compareModeForPreset,
+} from "@/lib/comparison-preset-contract";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
+import { SummarySection } from "@/components/overview/SummarySection";
+import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
+import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
+import { PinsSection } from "@/components/overview/PinsSection";
+import { AgencyToday } from "@/components/overview/AgencyToday";
+import { FreshnessChip } from "@/components/states/FreshnessChip";
+import {
+  resolvePlatformSectionLabels,
+  type ResolvedSectionLabel,
+} from "@/lib/overview-section-labels";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
-import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
-import { AttributionCard } from "@/components/overview/v2/attribution-card";
+import { SyncStatusPill } from "@/components/sync/sync-status-pill";
 import {
-  HeroMetricCard,
-  HeroTile,
-  StatTile,
-} from "@/components/overview/v2/metric-band";
-import { PlatformMiniDashboard } from "@/components/overview/v2/platform-card";
-import { ShareSnapshotButton } from "@/components/overview/v2/share-snapshot-button";
-import {
+  DateRangePicker,
+  DateRangeValue,
   getPresetDatesForReferenceDate,
   getTodayIsoForTimeZone,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
-import { usePreferencesHydrated } from "@/hooks/persistent-date-range-support";
-import {
-  buildOverviewMetricCatalog,
-  DEFAULT_PINNED_METRICS,
-} from "@/lib/overview-metric-catalog";
+import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
-import { currencySymbolFor } from "@/lib/metric-format";
-import { cn } from "@/lib/utils";
-import { usePreferencesStore } from "@/store/preferences-store";
 import { useAppStore } from "@/store/app-store";
 import {
   buildDefaultProviderDomains,
@@ -46,12 +52,7 @@ import {
   upsertBusinessCostModel,
   type SparklineBundle,
 } from "@/src/services";
-import type {
-  BusinessCostModelData,
-  OverviewMetricCardData,
-  OverviewMetricCatalogEntry,
-  OverviewSummaryData,
-} from "@/src/types/models";
+import type { BusinessCostModelData, OverviewMetricCardData, OverviewSummaryData } from "@/src/types/models";
 
 type CurrencyCode = string;
 type CompareMode = "none" | "previous_period";
@@ -136,9 +137,6 @@ export default function OverviewPage() {
   const ga4Connected = ga4View.isConnected || isDemoBusiness;
 
   const [dateRange, setDateRange] = usePersistentDateRange();
-  // The summary fan-out is expensive, so it waits for the stored range to
-  // settle instead of firing once for the default window and again for it.
-  const dateRangeReady = usePreferencesHydrated();
   const currency: CurrencyCode = (activeBusiness?.currency as CurrencyCode) ?? "USD";
   const workspaceTimeZone = activeBusiness?.timezone ?? "UTC";
   const workspaceReferenceDate = useMemo(
@@ -168,12 +166,18 @@ export default function OverviewPage() {
           dateRange.customStart,
           dateRange.customEnd
         );
+  // The picker on this surface offers only the two the route can carry, so
+  // this is a narrowing rather than a collapse: an unrecognised preset (a
+  // stored saved view, a hand-edited URL) shows no comparison instead of a
+  // confident delta against a baseline nobody chose.
   const compareMode: CompareMode =
-    dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+    compareModeForPreset(dateRange.comparisonPreset) === "previous_period"
+      ? "previous_period"
+      : "none";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
-    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getOverviewSummary(businessId, {
         startDate,
@@ -187,7 +191,7 @@ export default function OverviewPage() {
   // charts skeleton until this slower query settles.
   const sparklineQuery = useQuery({
     queryKey: ["overview-sparklines", businessId, startDate, endDate],
-    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    enabled: Boolean(selectedBusinessId),
     queryFn: () => getOverviewSparklines(businessId, { startDate, endDate }),
     staleTime: 15 * 60 * 1000,
   });
@@ -198,11 +202,7 @@ export default function OverviewPage() {
   const compEndDate = query.data?.comparison.endDate ?? null;
   const comparisonSparklineQuery = useQuery({
     queryKey: ["overview-comparison-sparklines", businessId, compStartDate, compEndDate],
-    enabled:
-      dateRangeReady &&
-      compareMode !== "none" &&
-      Boolean(compStartDate) &&
-      Boolean(compEndDate),
+    enabled: compareMode !== "none" && Boolean(compStartDate) && Boolean(compEndDate),
     queryFn: () =>
       getOverviewSparklines(businessId, {
         startDate: compStartDate!,
@@ -213,22 +213,22 @@ export default function OverviewPage() {
 
   const aiBriefQuery = useQuery({
     queryKey: ["ai-daily-brief", businessId],
-    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    enabled: Boolean(selectedBusinessId),
     queryFn: () => getLatestAiInsight(businessId),
     staleTime: 15 * 60 * 1000,
   });
 
   const metaStatusQuery = useQuery({
-    queryKey: ["meta-status", businessId],
-    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    queryKey: ["overview-meta-status", businessId],
+    enabled: Boolean(selectedBusinessId),
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
       getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
   const googleAdsStatusQuery = useQuery({
-    queryKey: ["google-ads-status", businessId],
-    enabled: Boolean(selectedBusinessId) && dateRangeReady,
+    queryKey: ["overview-google-ads-status", businessId],
+    enabled: Boolean(selectedBusinessId),
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(
@@ -284,17 +284,46 @@ export default function OverviewPage() {
   }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
 
   // Charts show a pulsing skeleton while sparklines are loading.
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "overview",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // A provider we could not read is a hole in the totals, not a zero.
+    // Every read this surface reports on. A failing sparkline used to leave
+    // the state at "ready" while the trend charts rendered empty -- an absent
+    // series is indistinguishable from a flat one, so a chart with no data
+    // read as a real chart showing nothing happening.
+    partialReason:
+      metaStatusQuery.error || googleAdsStatusQuery.error
+        ? "Some provider health could not be read; this view is incomplete"
+        : sparklineQuery.error || comparisonSparklineQuery.error
+          ? "Trend data could not be read; the charts are incomplete"
+          : null,
+    // The data's own timestamp. `dataUpdatedAt` is when the *response landed*,
+    // which is fresh by construction: it resets on every refetch no matter how
+    // far behind the sync is.
+    asOf: measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null),
+    businessId: businessId || null,
+    // Re-runs every read the reading covers. A retry that refetches only the
+    // primary query leaves the reported hole exactly where it was, so the
+    // button appears to do nothing and the partial state never clears.
+    onRetry: () => {
+      void query.refetch();
+      if (metaStatusQuery.isError) void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (sparklineQuery.isError) void sparklineQuery.refetch();
+      if (comparisonSparklineQuery.isError) void comparisonSparklineQuery.refetch();
+    },
+  });
+
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
 
-  if (!selectedBusinessId) return <BusinessEmptyState />;
-
-  if (query.isError) {
-    const errorMessage =
-      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
-    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
-  }
-
-  const symbol = currencySymbolFor(currency);
+  const symbol = currencySymbol(currency);
   // All render data reads from effectiveSummary so sparklines are reflected
   // as soon as the secondary query resolves.
   const metricCatalog = useMemo(
@@ -309,6 +338,10 @@ export default function OverviewPage() {
   const ltvMetrics = useMemo(
     () => filterVisibleMetrics(effectiveSummary?.ltv ?? []),
     [effectiveSummary?.ltv]
+  );
+  const expenseMetrics = useMemo(
+    () => filterVisibleMetrics(effectiveSummary?.expenses ?? []),
+    [effectiveSummary?.expenses]
   );
   const customMetrics = useMemo(
     () => filterVisibleMetrics(effectiveSummary?.customMetrics ?? []),
@@ -329,130 +362,202 @@ export default function OverviewPage() {
     [effectiveSummary?.platforms]
   );
 
-  // Design decision D6: the six-card pin wall becomes one hero KPI plus four
-  // supporting tiles. The pin order still decides which metrics appear, so the
-  // pin picker keeps driving the band instead of being replaced by it.
-  const pinnedByContext = usePreferencesStore((state) => state.overviewPinsByContext);
-  const setOverviewPins = usePreferencesStore((state) => state.setOverviewPins);
-  const storedPins = pinnedByContext[pinContextKey];
-
-  useEffect(() => {
-    if (metricCatalog.length === 0) return;
-    if ((storedPins ?? []).length > 0) return;
-    const defaults = DEFAULT_PINNED_METRICS.filter((key) =>
-      metricCatalog.some((entry) => entry.key === key)
-    );
-    if (defaults.length > 0) setOverviewPins(pinContextKey, defaults);
-  }, [metricCatalog, pinContextKey, setOverviewPins, storedPins]);
-
-  const pinnedKeys = useMemo(
-    () => (storedPins ?? []).filter((key) => metricCatalog.some((entry) => entry.key === key)),
-    [metricCatalog, storedPins]
-  );
-  const pinnedMetrics = useMemo(
+  const platformSectionLabels = useMemo(
     () =>
-      pinnedKeys
-        .map((key) => metricCatalog.find((entry) => entry.key === key)?.metric)
-        .filter((metric): metric is OverviewMetricCardData => Boolean(metric)),
-    [metricCatalog, pinnedKeys]
+      resolvePlatformSectionLabels(platformSections, (provider) =>
+        resolvePlatformLabel(provider, PLATFORM_TITLE_META[provider]?.label ?? provider)
+      ),
+    [platformSections]
   );
-  const heroMetric = pinnedMetrics[0] ?? null;
-  const heroTiles = pinnedMetrics.slice(1, 5);
-  const storeAndCustomerMetrics = useMemo(
-    () => [...storeMetrics, ...ltvMetrics],
-    [ltvMetrics, storeMetrics]
-  );
-  const windowDayCount = useMemo(() => {
-    if (!startDate || !endDate) return null;
-    const start = Date.parse(`${startDate}T00:00:00Z`);
-    const end = Date.parse(`${endDate}T00:00:00Z`);
-    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-    return Math.round((end - start) / 86_400_000) + 1;
-  }, [endDate, startDate]);
 
-  // Report definitions only accept 7/30/90; snap the live window to the nearest.
-  const snapshotRangePreset: "7" | "30" | "90" =
-    windowDayCount === null || windowDayCount <= 14
-      ? "7"
-      : windowDayCount <= 60
-        ? "30"
-        : "90";
+  // The early exits sit below every hook deliberately.
+  //
+  // They used to run above seven useMemo calls, so the first render took a
+  // different number of hooks than the next one. That is not a style point:
+  // when a refetch fails after a successful render, React sees fewer hooks and
+  // throws "Rendered fewer hooks than expected", crashing the page instead of
+  // showing the error state this very branch is supposed to guarantee. The
+  // memos all tolerate an undefined summary, so running them first costs
+  // nothing and keeps the hook count invariant.
+  if (!selectedBusinessId) return <BusinessEmptyState />;
+
+  if (query.isError) {
+    const errorMessage =
+      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
+    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
+  }
 
   return (
-    <section className="flex flex-col gap-5">
-      <div className="adv-page-head">
-        <div>
-          <p className="adv-eyebrow">Home</p>
-          <h1 className="adv-h1">Overview</h1>
-          <p className="adv-sub">
-            {activeBusiness?.name ?? "Workspace"} · {currency} · All figures for the
-            selected {windowDayCount === null ? "" : `${windowDayCount}-day `}window.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="adv-btn"
-            onClick={() => setCostModelSheetOpen(true)}
-          >
-            {effectiveSummary?.costModel.configured ? "Edit cost model" : "Set cost model"}
-          </button>
-          {/* Design's primary Overview CTA — always last in the action cluster. */}
-          <ShareSnapshotButton
-            businessId={businessId}
-            businessName={activeBusiness?.name ?? null}
-            rangePreset={snapshotRangePreset}
-            compareMode={
-              dateRange.comparisonPreset === "none" ? "none" : "previous_period"
-            }
-          />
-        </div>
-      </div>
+    <div className="flex flex-col space-y-6 pb-10">
+      {/* Agency Today sits above the selected client rather than replacing it:
+          a buyer with several clients needs to know who to open before they
+          need this client's detail. With one client there is nothing to rank,
+          so the surface stays out of the way. */}
+      {businesses.length > 1 ? <AgencyToday businessCount={businesses.length} /> : null}
 
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-        {query.isLoading ? (
-          Array.from({ length: 5 }).map((_, index) => (
-            <div
-              key={index}
-              className={cn(
-                "adv-card animate-pulse",
-                index === 0 ? "sm:col-span-2" : "",
-              )}
-              style={{ minHeight: 170 }}
-            />
-          ))
-        ) : heroMetric ? (
-          <>
-            <HeroMetricCard metric={heroMetric} currencySymbol={symbol} />
-            {heroTiles.map((metric, index) => (
-              <HeroTile
-                key={metric.id}
-                metric={metric}
-                currencySymbol={symbol}
-                index={index}
-              />
-            ))}
-          </>
-        ) : (
-          <article className="adv-card p-4 sm:col-span-2">
-            <p className="adv-label">Headline metrics</p>
-            <p className="mt-2 text-[13px] text-[var(--adv-ink-2)]">
-              No pinned metric is available for this window yet.
-            </p>
-          </article>
+      <DataStatusRow
+        dataAsOf={measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null)}
+        freshnessBusinessId={businessId || null}
+        onRefresh={() => void query.refetch()}
+        refreshing={query.isFetching}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+        shopifyServing={effectiveSummary?.shopifyServing ?? null}
+        referenceDate={workspaceReferenceDate}
+        timeZoneLabel={workspaceTimeZone}
+        platformProviders={Array.from(
+          new Set([
+            ...(effectiveSummary?.platforms ?? []).map((platform) => platform.provider),
+            ...(ga4Connected ? (["ga4"] as const) : []),
+          ])
         )}
-      </div>
+      />
 
-      {/* Anchor for the "view breakdown" jump; kept out of the grid flow so it
-          does not consume a column. */}
-      <span id="attribution" className="sr-only" aria-hidden="true" />
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
-        <AttributionCard
-          rows={effectiveSummary?.attribution ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-        />
-        <AiBriefCard
+      <SummarySection
+        title="Pins"
+        description="Pinned top-line metrics for the selected business and period."
+      >
+        {query.isLoading ? (
+          <MetricGrid metrics={[]} currencySymbol={symbol} loading chartLoading={chartsLoading} businessId={businessId} />
+        ) : (
+          <PinsSection
+            businessId={businessId}
+            contextKey={pinContextKey}
+            startDate={startDate}
+            endDate={endDate}
+            currencySymbol={symbol}
+            catalog={metricCatalog}
+            comparisonMode={compareMode}
+            onViewBreakdown={() => {
+              window.location.hash = "#attribution";
+            }}
+          />
+        )}
+      </SummarySection>
+
+      {(query.isLoading || storeMetrics.length > 0) ? (
+        <SummarySection
+          title="Store Metrics"
+          description="Store health and ecommerce output sourced from connected ecommerce providers."
+        >
+          <MetricGrid
+            metrics={storeMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
+
+      <SummarySection
+        title="Attribution"
+        description="Channel-level spend and revenue attribution from synced platform data."
+      >
+        <div id="attribution" />
+        {query.isLoading ? (
+          <LoadingTablePlaceholder />
+        ) : (
+          <SummaryAttributionTable rows={effectiveSummary?.attribution ?? []} currencySymbol={symbol} />
+        )}
+      </SummarySection>
+
+      {(query.isLoading || ltvMetrics.length > 0) ? (
+        <SummarySection
+          title="LTV"
+          description="Lifecycle and value metrics estimated from GA4 purchase behavior."
+        >
+          <MetricGrid
+            metrics={ltvMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
+
+      {platformSections.map((platform, index) => (
+        <SummarySection
+          key={`${platform.id}-${platform.provider}-${platform.title}-${index}`}
+          title={renderPlatformSectionTitle(
+            platform.provider,
+            platform.title,
+            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null,
+            platformSectionLabels[index]
+          )}
+          description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
+        >
+          <MetricGrid
+            metrics={platform.metrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ))}
+
+      {(query.isLoading || expenseMetrics.length > 0) ? (
+        <SummarySection
+          title="Expenses"
+          description="Tracked expense coverage with cost-model enrichment when configured."
+          action={
+            <Button
+              variant={effectiveSummary?.costModel.configured ? "outline" : "default"}
+              className="rounded-xl"
+              onClick={() => setCostModelSheetOpen(true)}
+            >
+              {effectiveSummary?.costModel.configured ? "Edit cost model" : "Set cost model"}
+            </Button>
+          }
+        >
+          <MetricGrid
+            metrics={expenseMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
+
+      {/* Restore when the custom metrics set is finalized for the live overview experience. */}
+      {false && ((query.isLoading || customMetrics.length > 0) ? (
+        <SummarySection
+          title="Custom Metrics"
+          description="Reusable business metrics that behave like standard summary cards."
+        >
+          <MetricGrid
+            metrics={customMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null)}
+
+      {(query.isLoading || webAnalyticsMetrics.length > 0) ? (
+        <SummarySection
+          title="Web Analytics"
+          description="GA4-backed behavior metrics and ecommerce session health."
+        >
+          <MetricGrid
+            metrics={webAnalyticsMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            chartLoading={chartsLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
+
+      <SummarySection
+        title="AI Daily Brief"
+        description="Daily AI summary generated from the latest available cross-channel performance snapshot."
+      >
+        <AiDailyBrief
           insight={aiBriefQuery.data}
           loading={aiBriefQuery.isLoading}
           error={
@@ -462,41 +567,7 @@ export default function OverviewPage() {
           onRegenerate={handleRegenerateAiBrief}
           regenerating={aiBriefRegenerating}
         />
-      </div>
-
-      {platformSections.length > 0 ? (
-        <div className="grid items-stretch gap-3 md:grid-cols-2">
-          {platformSections.map((platform, index) => (
-            <PlatformMiniDashboard
-              key={`${platform.id}-${platform.provider}-${index}`}
-              provider={platform.provider}
-              title={platform.title}
-              metrics={platform.metrics}
-              currencySymbol={symbol}
-              syncPill={
-                platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null
-              }
-            />
-          ))}
-        </div>
-      ) : null}
-
-      {/* The design closes Overview on exactly two cards. Cost-model economics
-          live on Commercial Truth, not here. */}
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
-        <TileCard
-          title="Store &amp; customer value"
-          metrics={storeAndCustomerMetrics}
-          currencySymbol={symbol}
-          emptyNote="No store metrics for this window yet."
-        />
-        <TileCard
-          title="Web analytics · GA4"
-          metrics={webAnalyticsMetrics}
-          currencySymbol={symbol}
-          emptyNote="Connect Google Analytics 4 to fill this card."
-        />
-      </div>
+      </SummarySection>
 
       <CostModelSheet
         open={costModelSheetOpen}
@@ -510,35 +581,217 @@ export default function OverviewPage() {
           await query.refetch();
         }}
       />
-    </section>
+    </div>
   );
 }
 
-/** Card of compact stat tiles — the Store / Web-analytics pattern. */
-function TileCard({
-  title,
+function resolvePlatformLabel(provider: string, fallbackTitle: string) {
+  return PLATFORM_TITLE_META[provider]?.label ?? fallbackTitle;
+}
+
+function renderPlatformSectionTitle(
+  provider: string,
+  fallbackTitle: string,
+  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null,
+  sectionLabel?: ResolvedSectionLabel
+) {
+  const configured = PLATFORM_TITLE_META[provider];
+  if (!configured) return fallbackTitle;
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
+        <img
+          src={configured.logo}
+          alt={configured.label}
+          className="h-4 w-4 object-contain"
+          loading="lazy"
+        />
+      </span>
+      <span>{configured.label}</span>
+      {/* Two sections can resolve to the same provider label. Show what tells
+          them apart so their differing totals are attributable. */}
+      {sectionLabel?.qualifier ? (
+        <span className="text-[13px] font-normal text-neutral-500">· {sectionLabel.qualifier}</span>
+      ) : null}
+      {sectionLabel?.ambiguous ? (
+        <span
+          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-800"
+          title="Another section reports the same platform. These totals cover different scopes and are not comparable."
+        >
+          Scope unresolved
+        </span>
+      ) : null}
+      <SyncStatusPill pill={syncPill ?? null} />
+    </span>
+  );
+}
+
+function MetricGrid({
   metrics,
   currencySymbol,
-  emptyNote,
+  loading,
+  chartLoading = false,
+  businessId,
 }: {
-  title: string;
   metrics: OverviewMetricCardData[];
   currencySymbol: string;
-  emptyNote: string;
+  loading: boolean;
+  chartLoading?: boolean;
+  businessId: string;
 }) {
+  const visibleMetrics = filterVisibleMetrics(metrics);
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-40 animate-pulse rounded-xl border border-neutral-200 bg-white"
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <article className="adv-card p-4">
-      <h2 className="adv-card-title mb-3">{title}</h2>
-      {metrics.length === 0 ? (
-        <p className="m-0 text-[12.5px] leading-[1.55] text-[var(--adv-ink-3)]">{emptyNote}</p>
-      ) : (
-        <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
-          {metrics.map((metric) => (
-            <StatTile key={metric.id} metric={metric} currencySymbol={currencySymbol} />
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+      {visibleMetrics.map((metric) => (
+        <SummaryMetricCard
+          key={metric.id}
+          metric={metric}
+          currencySymbol={currencySymbol}
+          businessId={businessId}
+          chartLoading={chartLoading}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LoadingTablePlaceholder() {
+  return <div className="h-72 animate-pulse rounded-2xl border border-neutral-200 bg-white" />;
+}
+
+function LoadingInsightPlaceholder() {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="h-32 animate-pulse rounded-2xl border border-neutral-200 bg-white" />
+      ))}
+    </div>
+  );
+}
+
+function DataStatusRow({
+  dateRange,
+  onDateRangeChange,
+  shopifyServing,
+  referenceDate,
+  timeZoneLabel,
+  platformProviders = [],
+  dataAsOf,
+  onRefresh,
+  refreshing = false,
+  freshnessBusinessId = null,
+}: {
+  dateRange: DateRangeValue;
+  onDateRangeChange: (value: DateRangeValue) => void;
+  shopifyServing?: OverviewSummaryData["shopifyServing"];
+  referenceDate: string;
+  timeZoneLabel: string;
+  dataAsOf?: string | null;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  platformProviders?: string[];
+  freshnessBusinessId?: string | null;
+}) {
+  const shopifyBadge = shopifyServing
+    ? shopifyServing.source === "ledger"
+      ? { label: "Trusted ledger", tone: "default" as const }
+      : shopifyServing.source === "warehouse"
+      ? shopifyServing.trustState === "trusted"
+        ? { label: "Warehouse serving", tone: "default" as const }
+        : { label: "Shopify data available", tone: "secondary" as const }
+      : shopifyServing.source === "live"
+        ? { label: "Live fallback", tone: "secondary" as const }
+        : shopifyServing.trustState === "disabled"
+          ? { label: "Serving disabled", tone: "destructive" as const }
+          : { label: "No serving data", tone: "secondary" as const }
+    : null;
+  const providerChips = Array.from(new Set(platformProviders))
+    .map((provider) => PLATFORM_TITLE_META[provider])
+    .filter((provider): provider is { label: string; logo: string } => Boolean(provider));
+  return (
+    <section className="rounded-xl border border-neutral-200 bg-white p-3.5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-[12px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+            Live Status
+          </p>
+          {/* Overview previously gave no cue at all about how old these numbers
+              were, so a tab open since morning looked identical to a fresh load. */}
+          {/*
+            surface and businessId are passed explicitly. Without them the chip
+            falls back to its defaults and files Overview's stale disclosures
+            against meta_decisions with no business, so the surface that
+            actually disclosed cannot be told apart from the one that did not.
+          */}
+          <FreshnessChip
+            asOf={dataAsOf}
+            onRefresh={onRefresh}
+            refreshing={refreshing}
+            surface="overview"
+            businessId={freshnessBusinessId}
+          />
+          {providerChips.map((provider) => (
+            <div
+              key={provider.label}
+              className="inline-flex items-center rounded-xl border border-neutral-200 px-1.5 py-1 text-xs"
+            >
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
+                <img
+                  src={provider.logo}
+                  alt={provider.label}
+                  className="h-4 w-4 object-contain"
+                  loading="lazy"
+                />
+              </span>
+            </div>
           ))}
+          {shopifyServing && shopifyBadge ? (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-2.5 py-1.5 text-xs">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
+                <img
+                  src="/platform-logos/shopify_glyph.svg"
+                  alt="Shopify"
+                  className="h-4 w-4 object-contain"
+                  loading="lazy"
+                />
+              </span>
+              <Badge variant={shopifyBadge.tone}>{shopifyBadge.label}</Badge>
+            </div>
+          ) : null}
         </div>
-      )}
-    </article>
+
+        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+          {/*
+            Only the comparisons this surface's route can actually carry.
+            `lib/overview-summary-support.ts` types CompareMode as
+            "none" | "previous_period", so offering a year-over-year choice
+            here would produce a previous-period delta under a year-over-year
+            label -- the defect this narrowing exists to remove.
+          */}
+          <DateRangePicker
+            value={dateRange}
+            onChange={onDateRangeChange}
+            referenceDate={referenceDate}
+            timeZoneLabel={timeZoneLabel}
+            comparisonPresets={OVERVIEW_COMPARISON_PRESETS}
+          />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -547,6 +800,33 @@ function filterVisibleMetrics(metrics: OverviewMetricCardData[]) {
 }
 
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  TRY: "₺",
+  JPY: "¥",
+  CAD: "CA$",
+  AUD: "A$",
+  CHF: "Fr",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  RON: "lei",
+  BRL: "R$",
+  MXN: "MX$",
+  INR: "₹",
+  ZAR: "R",
+  AED: "د.إ",
+  SAR: "﷼",
+};
+
+function currencySymbol(code: CurrencyCode) {
+  return CURRENCY_SYMBOLS[code] ?? code;
+}
 
 // ---------------------------------------------------------------------------
 // Sparkline patching — runs client-side once the secondary query resolves.

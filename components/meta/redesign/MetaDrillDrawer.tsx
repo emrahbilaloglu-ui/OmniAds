@@ -29,6 +29,14 @@ interface MetaDrillDrawerProps {
   variant?: "push" | "overlay";
   onClose: () => void;
   onLaunch?: () => void;
+  /**
+   * When the evidence in this panel was computed.
+   *
+   * The inspector is where someone decides whether to act, and it used to show
+   * numbers with no date on them at all. Undated evidence reads as current, so
+   * the same snapshot date the lanes are labelled with is carried in here.
+   */
+  asOf?: string | Date | null;
   /** Accepted for call-site compatibility; the inspector no longer carries a
    * window switcher (it is a page-level control and must not mutate URL here). */
   window?: MetaWindowKey;
@@ -108,7 +116,7 @@ function SectionLabel({ number, children }: { number?: string; children: React.R
     <div
       className="mono"
       style={{
-        fontSize: 11,
+        fontSize: 12,
         letterSpacing: "0.03em",
         color: "var(--muted)",
         marginBottom: 6,
@@ -176,7 +184,7 @@ function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
         fontSize: 12,
       }}
     >
-      <span className="mono" style={{ color: "var(--muted)", fontSize: 10.5, textTransform: "uppercase" }}>
+      <span className="mono" style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase" }}>
         {label}
       </span>
       <span style={{ minWidth: 0, color: "var(--ink-2)", overflowWrap: "anywhere" }}>{value}</span>
@@ -201,7 +209,7 @@ function EvidenceCitationChips({ rec }: { rec: MetaRecommendation }) {
             background: "var(--info-bg)",
             padding: "2px 6px",
             color: "var(--info-fg)",
-            fontSize: 10.5,
+            fontSize: 12,
           }}
           title={`${evidence.label}: ${evidence.value}`}
         >
@@ -309,8 +317,10 @@ function GradientSpark({ values, target, gradientId }: { values: number[]; targe
           <stop offset="100%" stopColor="var(--ok)" />
         </linearGradient>
       </defs>
+      {/* A dashed guide rule, not text -- --border-3 is the colour this line
+          already resolved to, kept under the name that says what it is. */}
       {targetY != null ? (
-        <line x1="0" y1={targetY} x2={W} y2={targetY} stroke="var(--muted-2)" strokeWidth="1" strokeDasharray="3 3" />
+        <line x1="0" y1={targetY} x2={W} y2={targetY} stroke="var(--border-3)" strokeWidth="1" strokeDasharray="3 3" />
       ) : null}
       <polyline points={points} fill="none" stroke={`url(#${gradientId})`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -344,7 +354,7 @@ function MetricRow({
       <span style={{ color: "var(--ink-2)" }}>{k}</span>
       <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: toneColor }}>
         {v}
-        {note ? <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 11 }}> {note}</span> : null}
+        {note ? <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 12 }}> {note}</span> : null}
       </span>
     </div>
   );
@@ -432,7 +442,7 @@ function DecisionKpis({
       {series.length >= 2 ? (
         <div style={{ marginTop: 10 }}>
           <GradientSpark values={series} target={targetRoas} gradientId={gradientId} />
-          <div className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+          <div className="mono" style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
             ROAS trend{targetRoas != null && Number.isFinite(targetRoas) ? ` · dashed = ${targetRoas.toFixed(2)}× target` : ""}
           </div>
         </div>
@@ -455,7 +465,7 @@ function Kpi({
   const toneColor = tone === "ok" ? "var(--ok)" : tone === "danger" ? "var(--danger)" : "var(--ink)";
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: "var(--r)", background: "var(--surface)", padding: 10 }}>
-      <div className="mono" style={{ fontSize: 10, letterSpacing: "0.04em", color: "var(--muted)", textTransform: "uppercase" }}>
+      <div className="mono" style={{ fontSize: 12, letterSpacing: "0.04em", color: "var(--muted)", textTransform: "uppercase" }}>
         {label}
       </div>
       <div
@@ -484,7 +494,7 @@ function AdsetDepthTable({ recs, moneyCurrency }: { recs: MetaRecommendation[]; 
         <SectionLabel number="9">Ad set depth</SectionLabel>
         <span
           className="mono"
-          style={{ border: "1px solid var(--border-2)", borderRadius: 5, padding: "1px 6px", fontSize: 10.5, color: "var(--muted)" }}
+          style={{ border: "1px solid var(--border-2)", borderRadius: 5, padding: "1px 6px", fontSize: 12, color: "var(--muted)" }}
         >
           {rows.length} rows
         </span>
@@ -493,7 +503,7 @@ function AdsetDepthTable({ recs, moneyCurrency }: { recs: MetaRecommendation[]; 
         <div style={{ overflowX: "auto", borderRadius: "var(--r)", border: "1px solid var(--border)", marginTop: 4 }}>
           <table style={{ minWidth: "100%", textAlign: "left", fontSize: 12, borderCollapse: "collapse" }}>
             <thead>
-              <tr className="mono" style={{ background: "var(--surface-2)", color: "var(--muted)", fontSize: 10 }}>
+              <tr className="mono" style={{ background: "var(--surface-2)", color: "var(--muted)", fontSize: 12 }}>
                 <th style={{ padding: "6px 10px", fontWeight: 600 }}>Ad set</th>
                 <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Spend</th>
                 <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>ROAS</th>
@@ -581,6 +591,7 @@ export function MetaDrillDrawer({
   targetRoas,
   item,
   variant = "overlay",
+  asOf = null,
   onClose,
   onLaunch,
 }: MetaDrillDrawerProps) {
@@ -657,6 +668,14 @@ export function MetaDrillDrawer({
           {isAnomaly ? <MetaScopeChip level="anomaly" label={item.anomaly.scopeType} /> : <MetaScopeChip level={item.rec.level} />}
           {isInformational ? <MetaCohortChip cohort={item.rec.cohort} /> : null}
         </div>
+        <span
+          data-inspector-asof={asOf ? "known" : "unknown"}
+          className="text-[12px] text-[var(--adc-ink3,#7d838c)]"
+        >
+          {asOf
+            ? `Evidence as of ${new Date(asOf).toLocaleDateString()}`
+            : "Evidence date unknown"}
+        </span>
         <div style={{ flex: 1, minWidth: 0, marginLeft: 2 }}>
           <div style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
@@ -719,11 +738,11 @@ export function MetaDrillDrawer({
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)" }}>{decisionLabelForRec(item.rec)}</span>
                 {item.rec.actionKind ? (
-                  <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>
                     {item.rec.actionKind}
                   </span>
                 ) : null}
-                <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)" }}>{item.rec.engineVersion ?? "meta engine"}</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>{item.rec.engineVersion ?? "meta engine"}</span>
               </div>
               <div style={{ marginTop: 8 }}>
                 <FieldRow label="published" value={decisionLabelForRec(item.rec)} />
@@ -908,7 +927,7 @@ export function MetaDrillDrawer({
                     const formattedValue = formatChangeValue(change.value);
                     return (
                       <div key={`${change.type}-${change.applied_at}-${index}`} style={{ borderTop: index === 0 ? 0 : "1px solid var(--border)", paddingTop: index === 0 ? 0 : 6 }}>
-                        <div className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>{changeSummary(change)}</div>
+                        <div className="mono" style={{ fontSize: 12, color: "var(--ink)" }}>{changeSummary(change)}</div>
                         {formattedValue ? (
                           <div style={{ fontSize: 12, color: "var(--muted)", overflowWrap: "anywhere" }}>{formattedValue}</div>
                         ) : null}
@@ -932,7 +951,7 @@ export function MetaDrillDrawer({
 
             <Panel section="provenance">
               <SectionLabel number="13">Provenance</SectionLabel>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-2)", lineHeight: 1.8 }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.8 }}>
                 engine {item.rec.engineVersion ?? "—"}
                 {calibrationScopeText(item.rec) ? <><br />calibration: {calibrationScopeText(item.rec)}</> : null}
                 {signalCapText(item.rec) ? <><br />signal cap: {signalCapText(item.rec)}</> : null}
@@ -963,7 +982,7 @@ export function MetaDrillDrawer({
                         border: "1px solid var(--border)",
                         borderRadius: "var(--r-sm)",
                         padding: 10,
-                        fontSize: 11,
+                        fontSize: 12,
                         color: "var(--ink-2)",
                         overflowX: "auto",
                         whiteSpace: "pre-wrap",

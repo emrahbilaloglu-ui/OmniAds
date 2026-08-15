@@ -1,5 +1,11 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  deltaSentiment,
+  getMetricDirection,
+} from "@/lib/metric-semantics";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   useEffect,
   useMemo,
@@ -8,7 +14,6 @@ import {
   type CSSProperties,
 } from "react";
 import Link from "next/link";
-import { StudioTabRow } from "@/components/creatives/StudioTabRow";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
@@ -34,8 +39,6 @@ import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
-import { currencySymbolFor } from "@/lib/metric-format";
-import { CopyAngleCoverage } from "@/components/meta/copies/CopyAngleCoverage";
 import {
   mapApiRowToCopyRow,
   type CopyMotionRow,
@@ -47,7 +50,10 @@ interface MetaCopiesResponse {
   rows: MetaCopyApiRow[];
   meta?: {
     unresolved_filtered_count?: number;
+    /** When the route ran. Not the data's age. */
     generatedAt?: string;
+    /** When the warehouse rows behind this response were last written. */
+    warehouseObservedAt?: string | null;
     provider_account_id?: string;
   };
 }
@@ -172,6 +178,26 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
   URL.revokeObjectURL(url);
 }
 
+
+/**
+ * Colour a delta by what it means, not by its arithmetic sign.
+ *
+ * Each of these deltas used to carry its own inline rule -- ROAS up is good,
+ * CPA up is bad, CTR up is good -- correct today and three separate places for
+ * it to drift tomorrow. `getMetricDirection` already owns that knowledge for
+ * the whole product, so the surfaces defer to it and a metric added to the
+ * wrong set is wrong in exactly one place.
+ */
+function toneForDelta(
+  metricKey: string,
+  changeValue: number,
+): "pos" | "neg" | "muted" {
+  const sentiment = deltaSentiment(getMetricDirection(metricKey), changeValue);
+  if (sentiment === "positive") return "pos";
+  if (sentiment === "negative") return "neg";
+  return "muted";
+}
+
 export default function CopiesPage() {
   const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -245,8 +271,6 @@ export default function CopiesPage() {
     routeScope,
   );
   const decisionsHref = buildMetaScopedHref("/platforms/meta", routeScope);
-  // The copy drawer drafts through Launchpad, where the write stays guarded.
-  const launchpadHref = buildMetaScopedHref("/platforms/meta/launchpad", routeScope);
 
   const copiesQuery = useQuery({
     queryKey: [
@@ -269,6 +293,22 @@ export default function CopiesPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: copiesQuery.isLoading,
+    isFetching: copiesQuery.isFetching,
+    error: copiesQuery.error ?? providerAccountsQuery.error,
+    // When the warehouse rows behind this view were last written by a sync.
+    // Not the route's `generatedAt`, which records when the request ran and
+    // would restate the age of the request as the age of the data.
+    asOf: measuredAsOf(copiesQuery.data?.meta?.warehouseObservedAt ?? null),
+    businessId,
+    onRetry: () => void copiesQuery.refetch(),
   });
 
   const allRows = useMemo(() => {
@@ -370,7 +410,6 @@ export default function CopiesPage() {
         data-copies-query-status={copiesQuery.status}
         data-copies-fetch-status={copiesQuery.fetchStatus}
       >
-        <StudioTabRow active="copies" />
         {/* ===== Creative Studio header — two-layer chrome (context + mode switch) ===== */}
         <div
           style={{
@@ -455,10 +494,10 @@ export default function CopiesPage() {
               </select>
             </label>
             <div style={{ textAlign: "right", lineHeight: 1.5 }}>
-              <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
                 window {drStart} → {drEnd}
               </div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--muted-2)" }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--muted-2)" }}>
                 {generatedAtLabel ? `data as of ${generatedAtLabel}` : "as-of —"}
               </div>
             </div>
@@ -474,6 +513,21 @@ export default function CopiesPage() {
               flexWrap: "wrap",
             }}
           >
+            <Link href={libraryHref} style={modeTabStyle(false)}>
+              Assets
+            </Link>
+            <span aria-current="page" style={modeTabStyle(true)}>
+              Copy
+            </span>
+            <Link href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)} style={modeTabStyle(false)}>
+              Landing pages
+            </Link>
+            <Link href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)} style={modeTabStyle(false)}>
+              Inbox
+            </Link>
+            <Link href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)} style={modeTabStyle(false)}>
+              Audiences
+            </Link>
             <button
               type="button"
               onClick={() => setCompareOpen(true)}
@@ -489,7 +543,7 @@ export default function CopiesPage() {
               <span
                 className="tabular-nums"
                 style={{
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 600,
                   minWidth: 18,
                   padding: "1px 6px",
@@ -507,7 +561,7 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Angles
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
@@ -516,14 +570,14 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Usage Map
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
             <div style={{ flex: 1 }} />
             {unresolvedFilteredCount > 0 ? (
               <span
-                style={{ fontSize: 11, color: "var(--warn)" }}
+                style={{ fontSize: 12, color: "var(--warn)" }}
                 data-testid="copies-data-meta"
               >
                 {unresolvedFilteredCount} ad{unresolvedFilteredCount === 1 ? "" : "s"} hidden (copy
@@ -573,10 +627,6 @@ export default function CopiesPage() {
             onOpenRow={(rowId) => setDetailRowId(rowId)}
             onShareExport={() => undefined}
             onCsvExport={handleCsvExport}
-          />
-          <CopyAngleCoverage
-            rows={filteredRows as CopyMotionRow[]}
-            currencySymbol={currencySymbolFor(accountCurrency)}
           />
         </div> : null}
 
@@ -654,7 +704,6 @@ export default function CopiesPage() {
           <CopyDetailDrawer
             row={activeDetailRow as CopyMotionRow}
             defaultCurrency={accountCurrency}
-            launchpadHref={launchpadHref}
             onClose={() => setDetailRowId(null)}
           />
         ) : null}
@@ -686,7 +735,7 @@ function HeatLegendFooter({
         gap: 12,
         flexWrap: "wrap",
         marginTop: 10,
-        fontSize: 11,
+        fontSize: 12,
         color: "var(--muted)",
       }}
     >
@@ -712,80 +761,54 @@ function HeatLegendFooter({
   );
 }
 
-/**
- * The design's Copy detail window: a navy header over the served line, the
- * measured stats, a read composed from the copy's own provenance, and the
- * alternative lines Meta actually returns for this creative.
- *
- * Every alternative is a served copy variant — nothing is generated here, so a
- * creative that runs a single line shows no alternatives rather than invented
- * ones.
- */
+function DrawerField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div
+        className="mono"
+        style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4, letterSpacing: "0.03em" }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--ink-2)" }}>{children}</div>
+    </div>
+  );
+}
+
 function CopyDetailDrawer({
   row,
   defaultCurrency,
-  launchpadHref,
   onClose,
 }: {
   row: CopyMotionRow;
   defaultCurrency: string | null;
-  launchpadHref: string;
   onClose: () => void;
 }) {
   const money = (value: number) => formatMoney(value, row.currency, defaultCurrency);
+  const roas = Number.isFinite(row.roas) ? `${row.roas.toFixed(2)}x` : "—";
   const dash = (value: string | null | undefined) =>
     value && value.trim().length > 0 ? value : "—";
-  const kind = dash(row.copyAssetType);
-
-  const stats: Array<{ k: string; v: string; sub: string }> = [
-    { k: "Spend", v: money(row.spend), sub: "measured window" },
-    {
-      k: "ROAS",
-      v: Number.isFinite(row.roas) ? `${row.roas.toFixed(2)}x` : "—",
-      sub: `${money(row.purchaseValue)} value`,
-    },
-    { k: "CPA", v: money(row.cpa), sub: "per purchase" },
-    {
-      k: "Link CTR",
-      v: Number.isFinite(row.linkCtr) ? `${row.linkCtr.toFixed(2)}%` : "—",
-      sub: Number.isFinite(row.clickToPurchase)
-        ? `${row.clickToPurchase.toFixed(2)}% click→buy`
-        : "click→buy not served",
-    },
-  ];
-
-  // The alternatives Meta serves alongside this line, minus the line itself.
-  const alternatives = (row.copyVariants ?? []).filter(
-    (variant) => variant.trim().length > 0 && variant.trim() !== (row.copyText ?? "").trim(),
-  );
-
-  const read = [
-    `Served as ${kind}`,
-    row.copySource ? `from ${row.copySource}` : null,
-    row.campaignName ? `running in ${row.campaignName}` : null,
-    row.adSetName ? `· ${row.adSetName}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <button
         type="button"
         className="absolute inset-0"
-        style={{ background: "rgba(11,16,32,0.46)" }}
+        style={{ background: "rgba(16,18,22,0.4)" }}
         onClick={onClose}
         aria-label="Close drawer overlay"
       />
       <aside
+        className="ad-final"
         style={{
           position: "absolute",
           right: 0,
           top: 0,
           height: "100%",
-          width: "min(520px, 94vw)",
-          background: "var(--adv-canvas)",
-          boxShadow: "-28px 0 70px rgba(11,16,32,0.35)",
+          width: "min(380px, 92vw)",
+          background: "var(--surface)",
+          borderLeft: "1px solid var(--border-2)",
+          boxShadow: "var(--shadow-lg)",
           display: "flex",
           flexDirection: "column",
         }}
@@ -793,303 +816,97 @@ function CopyDetailDrawer({
       >
         <div
           style={{
-            padding: "14px 18px",
-            background: "var(--adv-rail)",
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            justifyContent: "space-between",
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--border)",
           }}
         >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "var(--adv-font-mono)",
-                fontSize: "9.5px",
-                textTransform: "uppercase",
-                letterSpacing: ".1em",
-                color: "var(--adv-rail-ink-2)",
-              }}
-            >
-              Copy detail · {kind}
-            </p>
-            <p
-              style={{
-                margin: "3px 0 0",
-                fontSize: 15,
-                fontWeight: 600,
-                color: "#ffffff",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={row.copyText ?? undefined}
-            >
-              “{row.copyText}”
-            </p>
-          </div>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Copy detail</span>
           <button
             type="button"
+            className="btn btn--ghost btn--sm"
             onClick={onClose}
             aria-label="Close drawer"
-            style={{
-              width: 30,
-              height: 30,
-              display: "grid",
-              placeItems: "center",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "transparent",
-              color: "#ffffff",
-            }}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
-
         <div
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "16px 18px",
+            padding: "14px 16px",
             display: "flex",
             flexDirection: "column",
-            gap: 12,
+            gap: 14,
           }}
         >
-          <div
+          <pre
             style={{
-              borderRadius: 14,
-              background: "var(--adv-surface)",
-              border: "1px solid var(--adv-border)",
-              padding: "14px 16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
+              margin: 0,
+              fontFamily: "inherit",
+              fontSize: 12.5,
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.6,
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r)",
+              padding: "11px 13px",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <p
-                style={{
-                  margin: 0,
-                  flex: 1,
-                  fontSize: 14,
-                  lineHeight: 1.55,
-                  fontWeight: 600,
-                  color: "var(--adv-ink)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                “{row.copyText}”
-              </p>
-              <span
-                style={{
-                  display: "inline-flex",
-                  flex: "none",
-                  borderRadius: 6,
-                  padding: "2px 8px",
-                  fontSize: "10.5px",
-                  fontWeight: 600,
-                  background: "var(--adv-fill-2)",
-                  color: "var(--adv-ink-2)",
-                }}
-              >
-                {kind}
+            {row.copyText}
+          </pre>
+
+          <DrawerField label="VARIANTS">
+            headline: “{dash(row.copyHeadline)}” · description: “{dash(row.copyDescription)}”
+          </DrawerField>
+
+          <DrawerField label="PROVENANCE">
+            copy_asset_type: {dash(row.copyAssetType)} · copy_source: {dash(row.copySource)}
+          </DrawerField>
+
+          <DrawerField label="USED IN">
+            <span className="tabular-nums">
+              {dash(row.campaignName)} · {dash(row.adSetName)}
+            </span>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+              {row.copyVariants?.length ?? 0} copy variant
+              {(row.copyVariants?.length ?? 0) === 1 ? "" : "s"} · {row.headlineVariants?.length ?? 0}{" "}
+              headline · {row.descriptionVariants?.length ?? 0} description
+            </div>
+          </DrawerField>
+
+          <DrawerField label="MEASURED METRICS">
+            <div className="tabular-nums" style={{ display: "grid", gap: 3 }}>
+              <span>spend {money(row.spend)} · purchase value {money(row.purchaseValue)}</span>
+              <span>
+                ROAS {roas} · CPA {money(row.cpa)} · link CTR{" "}
+                {Number.isFinite(row.linkCtr) ? `${row.linkCtr.toFixed(2)}%` : "—"}
+              </span>
+              <span>
+                click→purchase{" "}
+                {Number.isFinite(row.clickToPurchase) ? `${row.clickToPurchase.toFixed(2)}%` : "—"}
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
-              {stats.map((stat) => (
-                <div key={stat.k} style={{ borderRadius: 10, background: "var(--adv-fill)", padding: "9px 10px" }}>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontFamily: "var(--adv-font-mono)",
-                      fontSize: "8.5px",
-                      textTransform: "uppercase",
-                      letterSpacing: ".06em",
-                      color: "var(--adv-ink-4)",
-                    }}
-                  >
-                    {stat.k}
-                  </p>
-                  <p className="tabular-nums" style={{ margin: "3px 0 0", fontSize: 16, fontWeight: 700, color: "var(--adv-ink)" }}>
-                    {stat.v}
-                  </p>
-                  <p style={{ margin: "2px 0 0", fontSize: 9, color: "var(--adv-ink-4)" }}>{stat.sub}</p>
-                </div>
-              ))}
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+              per-context (prospecting / retargeting) breakdown ships when the copies payload carries
+              it — never faked.
             </div>
-          </div>
+          </DrawerField>
 
-          <div
-            style={{
-              borderRadius: 12,
-              background: "var(--adv-surface)",
-              border: "1px solid var(--adv-border)",
-              padding: "12px 14px",
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "var(--adv-font-mono)",
-                fontSize: 9,
-                textTransform: "uppercase",
-                letterSpacing: ".1em",
-                color: "var(--adv-ink-3)",
-              }}
-            >
-              Read
-            </p>
-            <p style={{ margin: "5px 0 0", fontSize: "12.5px", lineHeight: 1.6, color: "var(--adv-ink)" }}>
-              {read}. Headline “{dash(row.copyHeadline)}”, description “{dash(row.copyDescription)}”.{" "}
-              {row.headlineVariants?.length ?? 0} headline and {row.descriptionVariants?.length ?? 0}{" "}
-              description variants run alongside it.
-            </p>
-          </div>
-
-          <div
-            style={{
-              borderRadius: 14,
-              background: "var(--adv-surface)",
-              border: "1px solid var(--adv-border)",
-              padding: "14px 16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--adv-ink)" }}>
-                Alternative lines
-              </h3>
-              <span style={{ fontFamily: "var(--adv-font-mono)", fontSize: "9.5px", color: "var(--adv-ink-4)" }}>
-                served copy variants on this creative
-              </span>
-            </div>
-            {alternatives.length === 0 ? (
-              <p style={{ margin: 0, fontSize: "11.5px", lineHeight: 1.6, color: "var(--adv-ink-4)" }}>
-                Meta returns a single copy line for this creative, so there is no
-                served alternative to compare against.
-              </p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {alternatives.map((variant, index) => (
-                  <div
-                    key={`${variant.slice(0, 24)}-${index}`}
-                    style={{
-                      border: "1px solid var(--adv-hairline)",
-                      borderRadius: 11,
-                      padding: "11px 12px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          borderRadius: 5,
-                          padding: "2px 7px",
-                          fontFamily: "var(--adv-font-mono)",
-                          fontSize: 9,
-                          textTransform: "uppercase",
-                          letterSpacing: ".06em",
-                          background: "var(--adv-fill-2)",
-                          color: "var(--adv-ink-2)",
-                        }}
-                      >
-                        Variant {index + 1}
-                      </span>
-                      <span style={{ flex: 1 }} />
-                      <Link
-                        href={launchpadHref}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          height: 24,
-                          padding: "0 9px",
-                          borderRadius: 6,
-                          border: "1px solid var(--adv-border)",
-                          background: "var(--adv-surface)",
-                          fontSize: "10.5px",
-                          fontWeight: 600,
-                          color: "var(--adv-accent)",
-                          textDecoration: "none",
-                        }}
-                      >
-                        Draft →
-                      </Link>
-                    </div>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        fontWeight: 600,
-                        color: "var(--adv-ink)",
-                        whiteSpace: "pre-wrap",
-                      }}
-                    >
-                      “{variant}”
-                    </p>
-                  </div>
+          {(row.tags ?? []).length > 0 ? (
+            <DrawerField label="TAGS">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(row.tags ?? []).map((tag) => (
+                  <span key={tag} className="chip chip--ghost" style={{ textTransform: "capitalize" }}>
+                    {tag}
+                  </span>
                 ))}
               </div>
-            )}
-            <p style={{ margin: 0, fontSize: 10, lineHeight: 1.6, color: "var(--adv-ink-4)" }}>
-              Alternatives are the lines Meta already serves on this creative —
-              drafting one opens Launchpad, where the write stays guarded.
-            </p>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            padding: "12px 18px",
-            borderTop: "1px solid var(--adv-border)",
-            background: "var(--adv-surface)",
-          }}
-        >
-          <Link
-            href={launchpadHref}
-            style={{
-              flex: 1,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: 38,
-              borderRadius: 9,
-              background: "var(--adv-accent)",
-              color: "#ffffff",
-              fontSize: 13,
-              fontWeight: 700,
-              textDecoration: "none",
-            }}
-          >
-            {alternatives.length > 0
-              ? `Draft ${alternatives.length} in Launchpad`
-              : "Open Launchpad"}
-          </Link>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              height: 38,
-              padding: "0 13px",
-              borderRadius: 9,
-              border: "1px solid var(--adv-border)",
-              background: "var(--adv-surface)",
-              fontSize: "12.5px",
-              fontWeight: 600,
-              color: "var(--adv-ink-2)",
-            }}
-          >
-            Close
-          </button>
+            </DrawerField>
+          ) : null}
         </div>
       </aside>
     </div>
@@ -1117,7 +934,7 @@ function CopyCompareOverlay({
     const diff = row.roas - baseline.roas;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}x`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta("roas", diff),
     };
   };
 
@@ -1127,10 +944,9 @@ function CopyCompareOverlay({
       return { text: "", tone: "muted" as const };
     }
     const diff = row.cpa - baseline.cpa;
-    // Higher CPA is worse.
     return {
       text: `${diff >= 0 ? "+" : "−"}${money(row, Math.abs(diff))}`,
-      tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const) : ("muted" as const),
+      tone: toneForDelta("cpa", diff),
     };
   };
 
@@ -1153,7 +969,7 @@ function CopyCompareOverlay({
     const diff = value - base;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}pt`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta(key === "linkCtr" ? "ctr" : "cvr", diff),
     };
   };
 
@@ -1243,7 +1059,7 @@ function CopyCompareOverlay({
             <span style={{ fontSize: 15, fontWeight: 600 }}>
               Compare · {rows.length} {rows.length === 1 ? "copy" : "copies"}
             </span>{" "}
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>
               · review-only — deltas vs the first column · account currency per column
             </span>
           </div>
@@ -1269,7 +1085,7 @@ function CopyCompareOverlay({
               >
                 {row.copyText}
               </div>
-              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
                 {row.campaignName ?? "—"}
               </div>
             </div>
@@ -1301,7 +1117,7 @@ function CopyCompareOverlay({
                   >
                     <b style={{ fontWeight: 600 }}>{metric.value(row)}</b>{" "}
                     {delta.text ? (
-                      <span style={{ fontSize: 10.5, color: toneColor(delta.tone) }}>{delta.text}</span>
+                      <span style={{ fontSize: 12, color: toneColor(delta.tone) }}>{delta.text}</span>
                     ) : null}
                   </div>
                 );
@@ -1310,7 +1126,7 @@ function CopyCompareOverlay({
           ))}
         </div>
 
-        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
           Deltas vs the first column (baseline). Ranking omitted — not server-supplied for this set.
         </div>
       </div>

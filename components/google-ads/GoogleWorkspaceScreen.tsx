@@ -75,11 +75,7 @@ export function GoogleWorkspaceScreen({
 
   return (
     <div>
-      <GoogleAdsIntelligenceDashboard
-        businessId={selectedBusinessId}
-        panel={panel}
-        screenTitle={title}
-      />
+      <GoogleAdsIntelligenceDashboard businessId={selectedBusinessId} />
     </div>
   );
 }

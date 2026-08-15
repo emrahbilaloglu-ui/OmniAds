@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GoogleIntegrationProgress } from "@/components/integrations/google-integration-progress";
@@ -10,11 +11,13 @@ import {
   SyncStatusPillSkeleton,
 } from "@/components/sync/sync-status-pill";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import { resolveGoogleAdsFreshnessView } from "@/lib/google-ads/sync-progress-ux";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 import {
   resolveGoogleAdsSyncStatusPill,
   resolveMetaSyncStatusPill,
+  type SyncStatusPillState,
 } from "@/lib/sync/sync-status-pill";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { cn } from "@/lib/utils";
@@ -27,6 +30,15 @@ import Image from "next/image";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
+  /**
+   * The business this connection belongs to.
+   *
+   * Required for the recovery-started event. It used to be emitted with
+   * portfolio scope while its completed half is business-scoped, so the two
+   * ends of the pair could never be joined and the recovery rate was
+   * unmeasurable -- the exact thing the pair exists to measure.
+   */
+  businessId: string | null;
   language?: MetaUiLanguage;
   description: string;
   view: ProviderViewState;
@@ -51,6 +63,7 @@ interface IntegrationsCardProps {
 
 export function IntegrationsCard({
   provider,
+  businessId,
   language = "en",
   description,
   view,
@@ -87,7 +100,10 @@ export function IntegrationsCard({
     provider === "meta"
       ? resolveMetaSyncStatusPill(metaSyncStatus)
       : provider === "google"
-        ? resolveGoogleAdsSyncStatusPill(googleSyncStatus)
+        ? withGoogleFreshnessTruth(
+            resolveGoogleAdsSyncStatusPill(googleSyncStatus),
+            googleSyncStatus,
+          )
         : null;
   const showSyncSkeleton =
     (provider === "meta" && metaSyncLoading) ||
@@ -95,23 +111,23 @@ export function IntegrationsCard({
     (provider === "shopify" && shopifySyncLoading);
   const syncNoticeClasses =
     syncNoticeTone === "warning"
-      ? "border-[var(--adc-caution-bd)]/40 bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
+      ? "border-amber-300/40 bg-amber-50 text-amber-800"
       : syncNoticeTone === "error"
-        ? "border-[var(--adc-danger-bd)]/40 bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
-        : "border-[var(--adc-info-bd)]/30 bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]";
+        ? "border-rose-300/40 bg-rose-50 text-rose-800"
+        : "border-blue-300/30 bg-blue-50 text-blue-800";
 
   return (
     <div
       className={cn(
         "group flex h-full flex-col rounded-xl border bg-white p-3 transition-colors duration-200",
         syncActionRequired
-          ? "border-[var(--adc-caution-bd)]"
+          ? "border-amber-200"
           : isReady || isDegraded
-          ? "border-[var(--adc-pos-bd)]"
+          ? "border-emerald-200"
           : isLoading || isNeedsAssignment
-            ? "border-[var(--adc-info-bd)]"
+            ? "border-blue-200"
             : isActionRequired
-              ? "border-[var(--adc-caution-bd)]"
+              ? "border-amber-200"
               : "border-border",
       )}
     >
@@ -132,7 +148,7 @@ export function IntegrationsCard({
           </div>
         </div>
         {comingSoon ? (
-          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[12px] font-medium text-neutral-500">
             Coming soon
           </span>
         ) : (
@@ -148,7 +164,7 @@ export function IntegrationsCard({
       </div>
 
       {view.notice ? (
-        <p className="mt-2 rounded-lg border border-[var(--adc-info-bd)]/30 bg-[var(--adc-info-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--adc-info-fg)]">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[12px] leading-4 text-blue-800">
           {view.notice}
         </p>
       ) : null}
@@ -176,32 +192,32 @@ export function IntegrationsCard({
       ) : null}
 
       {syncNotice ? (
-        <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[11px] leading-4", syncNoticeClasses)}>
+        <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[12px] leading-4", syncNoticeClasses)}>
           {syncNotice}
         </p>
       ) : null}
 
       {isNeedsAssignment ? (
-        <p className="mt-2 rounded-lg border border-[var(--adc-info-bd)]/30 bg-[var(--adc-info-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--adc-info-fg)]">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[12px] leading-4 text-blue-800">
           {view.assignedSummary}
         </p>
       ) : null}
 
       {syncActionRequired && view.status !== "action_required" ? (
-        <p className="mt-2 rounded-lg border border-[var(--adc-caution-bd)]/40 bg-[var(--adc-caution-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--adc-caution-fg)]">
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[12px] leading-4 text-amber-800">
           {providerLabel} sync needs attention while the account connection remains active.
         </p>
       ) : null}
 
       {isActionRequired && view.errorMessage ? (
-        <p className="mt-2 rounded-lg border border-[var(--adc-caution-bd)]/40 bg-[var(--adc-caution-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--adc-caution-fg)]">
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[12px] leading-4 text-amber-800">
           {view.errorMessage}
         </p>
       ) : null}
 
       <div className="mt-3 border-t border-border/70 pt-3">
         {comingSoon ? (
-          <p className="text-[11.5px] leading-4 text-muted-foreground">
+          <p className="text-[12px] leading-4 text-muted-foreground">
             {providerLabel} isn&apos;t connectable yet — no live authorization or data sync
             exists for it. This card is a visible roadmap placeholder, not a working connector.
           </p>
@@ -236,7 +252,19 @@ export function IntegrationsCard({
               >
                 {view.primaryActionLabel}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId,
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button
@@ -255,7 +283,19 @@ export function IntegrationsCard({
               <Button size="sm" className="min-w-[108px]" onClick={() => onRetry(provider)}>
                 Retry
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId,
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button
@@ -275,27 +315,67 @@ export function IntegrationsCard({
   );
 }
 
+/**
+ * Hold the green Google Ads pill to the freshness verdict.
+ *
+ * `resolveGoogleAdsSyncStatusPill` reaches "Active" — success tone, percent 100
+ * — from a closed control plane, a passing release gate or `state === "ready"`.
+ * None of those know whether a closed day was ever re-read, and the green pill
+ * over a day captured once at 01:40 is the exact artefact this change exists to
+ * remove.
+ *
+ * The bar it must clear is `converging` or `settled`: every day in the range
+ * re-read after it closed. Not `settled` alone — with a 30-day conversion
+ * lookback a rolling range never settles, so that rule would keep the pill grey
+ * forever and teach the user to ignore it. `converging` keeps the green pill
+ * but not the 100: the percent is corrected down to the verdict's own number.
+ * Anything below the bar is demoted to an honest, non-green, still-moving pill.
+ * Attention (amber) and syncing (blue) pills are left untouched — this only
+ * ever removes a claim.
+ */
+function withGoogleFreshnessTruth(
+  pill: SyncStatusPillState | null,
+  status: GoogleAdsStatusResponse | null | undefined,
+): SyncStatusPillState | null {
+  if (!pill || pill.state !== "active") return pill;
+
+  const freshness = resolveGoogleAdsFreshnessView(status);
+  if (freshness.settled) return pill;
+  // Steady but not settled: still healthy, still not 100.
+  if (freshness.steady) return { ...pill, percent: freshness.percent };
+
+  return {
+    visible: true,
+    label: freshness.evidenceAvailable
+      ? `${freshness.percent}% ${freshness.label}`
+      : `${freshness.label} freshness`,
+    tone: "info",
+    percent: freshness.evidenceAvailable ? freshness.percent : null,
+    state: "syncing",
+  };
+}
+
 function StatusBadge({ status }: { status: ProviderViewState["status"] }) {
   if (status === "ready") {
     return (
-      <Badge className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[10px] text-[var(--adc-pos-fg)]">
+      <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">
         Connected
       </Badge>
     );
   }
   if (status === "degraded") {
-    return <Badge className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[10px] text-[var(--adc-pos-fg)]">Degraded</Badge>;
+    return <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">Degraded</Badge>;
   }
   if (status === "loading_data") {
-    return <Badge className="border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[10px] text-[var(--adc-info-fg)]">Loading</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Loading</Badge>;
   }
   if (status === "needs_assignment") {
-    return <Badge className="border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[10px] text-[var(--adc-info-fg)]">Needs setup</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Needs setup</Badge>;
   }
   if (status === "action_required") {
-    return <Badge className="border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[10px] text-[var(--adc-caution-fg)]">Action required</Badge>;
+    return <Badge className="border border-amber-200 bg-amber-50 text-[12px] text-amber-800">Action required</Badge>;
   }
-  return <Badge className="border border-border bg-muted text-[10px] text-muted-foreground">Not connected</Badge>;
+  return <Badge className="border border-border bg-muted text-[12px] text-muted-foreground">Not connected</Badge>;
 }
 
 function CompactMetaRow({
@@ -337,19 +417,19 @@ function ShopifyIntegrationStatus({
   const orderCount = status.warehouse?.orderRowCount ?? null;
 
   return (
-    <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[11px] leading-4 dark:bg-muted/30">
+    <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[12px] leading-4 dark:bg-muted/30">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="tracking-[0.18em] text-[10px] font-semibold uppercase text-muted-foreground">
+          <p className="tracking-[0.18em] text-[12px] font-semibold uppercase text-muted-foreground">
             Shopify sync
           </p>
           <p className="mt-1 text-foreground">{summary.message}</p>
         </div>
-        <Badge className={cn("shrink-0 border text-[10px]", summary.badgeClass)}>
+        <Badge className={cn("shrink-0 border text-[12px]", summary.badgeClass)}>
           {summary.label}
         </Badge>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
         {readyThrough ? <span>Ready through {readyThrough}</span> : null}
         {latestSync ? <span>Last sync {new Date(latestSync).toLocaleDateString()}</span> : null}
         {orderCount !== null ? <span>{orderCount.toLocaleString()} orders</span> : null}
@@ -362,14 +442,14 @@ function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
   if (status.state === "ready") {
     return {
       label: "Ready",
-      badgeClass: "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
       message: "Shopify commerce data and historical backfill are ready.",
     };
   }
   if (status.state === "partial") {
     return {
       label: "Backfilling",
-      badgeClass: "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
       message:
         "Recent Shopify commerce data is usable while historical coverage continues in the background.",
     };
@@ -377,20 +457,20 @@ function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
   if (status.state === "syncing") {
     return {
       label: "Syncing",
-      badgeClass: "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
       message: "Shopify commerce data is syncing.",
     };
   }
   if (status.state === "stale") {
     return {
       label: "Refreshing",
-      badgeClass: "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
       message: "Shopify data is being refreshed from the latest available sync state.",
     };
   }
   return {
     label: "Needs attention",
-    badgeClass: "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
     message: status.issues[0] ?? "Shopify sync needs attention before data can be trusted.",
   };
 }

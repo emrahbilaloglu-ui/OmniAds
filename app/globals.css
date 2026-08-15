@@ -7757,444 +7757,6 @@
   }
 }
 
-/* ============================================================================
- * Zero-base Ledger visual system — scoped, never global.
- *
- * Everything below is confined to [data-adc-ui="zero-base"]. The 308 legacy
- * components keep the :root and .dark variables defined above, unchanged, so
- * this file can add a whole design system without restyling a single existing
- * page. Deleting this block removes the canonical look and leaves legacy
- * exactly as it was — that is the WP-04 rollback.
- *
- * Token values are transcribed from lib/design/ledger-tokens.ts; a test
- * regenerates them from that module and fails if the two ever drift.
- * ==========================================================================*/
-
-[data-adc-ui="zero-base"] {
-  --ledger-accent-action: #545e96;
-  --ledger-accent-hover: #444d84;
-  --ledger-accent-tint: #e3e8fe;
-  --ledger-bg-app: #f7f6f2;
-  --ledger-bg-inset: #f1efeb;
-  --ledger-bg-surface: #fcfcf9;
-  --ledger-border-control: #8c857c;
-  --ledger-border-subtle: #dfdcd6;
-  --ledger-focus-ring: #545e96;
-  --ledger-ink-primary: #24201a;
-  --ledger-ink-quiet: #6b645c;
-  --ledger-ink-secondary: #58514a;
-  --ledger-ink-tertiary: #635c55;
-  --ledger-lane-act-now: #8d4226;
-  --ledger-lane-monitor: #3c4f62;
-  --ledger-lane-resolve: #6f4b00;
-  --ledger-semantic-danger: #96372b;
-  --ledger-semantic-ok: #33724c;
-  --ledger-semantic-warn: #6f4b00;
-  --ledger-state-withheld: #7d3c66;
-  --ledger-state-withheld-border: #e3c8d8;
-  --ledger-state-withheld-tint: #f8edf3;
-
-  /* Scale and motion, from the same table. */
-  --ledger-radius-chip: 4px;
-  --ledger-radius-input: 6px;
-  --ledger-radius-button: 7px;
-  --ledger-radius-card: 10px;
-  --ledger-radius-panel: 12px;
-  --ledger-radius-dialog: 14px;
-  --ledger-focus-width: 2px;
-  --ledger-focus-offset: 2px;
-  --ledger-motion-fast: 120ms;
-  --ledger-motion-panel: 180ms;
-  --ledger-motion-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
-  --ledger-elevation-1: 0 1px 2px rgb(36 32 26 / 4%);
-  --ledger-elevation-2: 0 8px 28px rgb(36 32 26 / 14%);
-  --ledger-scrim: rgb(36 32 26 / 35%);
-
-  /* shadcn variables are remapped HERE ONLY. Outside this root they keep the
-   * values :root gives them, so shadcn components on legacy pages are
-   * untouched while the same components inside the canonical shell adopt
-   * Ledger colours without a fork. */
-  --background: var(--ledger-bg-app);
-  --foreground: var(--ledger-ink-primary);
-  --card: var(--ledger-bg-surface);
-  --card-foreground: var(--ledger-ink-primary);
-  --popover: var(--ledger-bg-surface);
-  --popover-foreground: var(--ledger-ink-primary);
-  --primary: var(--ledger-accent-action);
-  --primary-foreground: var(--ledger-bg-surface);
-  --secondary: var(--ledger-bg-inset);
-  --secondary-foreground: var(--ledger-ink-primary);
-  --muted: var(--ledger-bg-inset);
-  --muted-foreground: var(--ledger-ink-secondary);
-  --accent: var(--ledger-accent-tint);
-  --accent-foreground: var(--ledger-accent-action);
-  --destructive: var(--ledger-semantic-danger);
-  --border: var(--ledger-border-subtle);
-  --input: var(--ledger-border-control);
-  --ring: var(--ledger-focus-ring);
-  --radius: var(--ledger-radius-card);
-
-  color: var(--ledger-ink-primary);
-  background-color: var(--ledger-bg-app);
-  font-family: var(--font-adc-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 13px;
-  line-height: 19px;
-}
-
-/* Form controls do not inherit type.
- *
- * `button`, `input`, `select` and `textarea` take the UA's own font rather than
- * their ancestor's, so every control on a zero-base surface rendered in the
- * browser default while the prose around it rendered in the Ledger face. The
- * reference draws them in one voice, and a rendered comparison against it is
- * what caught this. */
-[data-adc-ui="zero-base"] button,
-[data-adc-ui="zero-base"] input,
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea,
-[data-adc-ui="zero-base"] optgroup {
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-}
-
-/* Auth/onboarding forms share legacy structural classes, but their canonical
- * branch must use the same Ledger controls as the rest of the product. Without
- * this scoped bridge the new frame still painted black legacy buttons and pale
- * legacy inputs, which made the rollout look only partially redesigned. */
-[data-adc-ui="zero-base"] .ad-auth-form {
-  gap: 11px;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-label {
-  color: var(--ledger-ink-secondary);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-input,
-[data-adc-ui="zero-base"] .ad-auth-select {
-  min-height: 36px;
-  border-color: var(--ledger-border-control);
-  background: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary,
-[data-adc-ui="zero-base"] .ad-auth-secondary,
-[data-adc-ui="zero-base"] .ad-auth-link-button {
-  min-height: 36px;
-  border-radius: var(--ledger-radius-input);
-  font-size: 12.5px;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary {
-  border-color: var(--ledger-accent-action);
-  background: var(--ledger-accent-action);
-  color: var(--ledger-bg-surface);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-secondary,
-[data-adc-ui="zero-base"] .ad-auth-link-button {
-  border-color: var(--ledger-border-control);
-  background: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-row {
-  color: var(--ledger-ink-secondary);
-  align-items: center;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-row a,
-[data-adc-ui="zero-base"] .ad-auth-footer a {
-  color: var(--ledger-accent-action);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-secondary:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-link-button:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-input:focus,
-[data-adc-ui="zero-base"] .ad-auth-select:focus {
-  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
-  outline-offset: var(--ledger-focus-offset);
-}
-
-/* Anything carrying a control contract is a target.
- *
- * A bare inline link is 16px tall and a native checkbox is 13×13 — below the
- * 24px minimum (WCAG 2.5.8), and below what the design draws. Rather than
- * padding each site by hand and missing some, the rule is stated once against
- * the attribute that declares the element a control. */
-[data-adc-ui="zero-base"] a[data-ctl],
-[data-adc-ui="zero-base"] button[data-ctl],
-[data-adc-ui="zero-base"] label[data-ctl],
-[data-adc-ui="zero-base"] select[data-ctl] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  min-width: 24px;
-}
-
-[data-adc-ui="zero-base"] input[type="checkbox"],
-[data-adc-ui="zero-base"] input[type="radio"] {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  accent-color: var(--ledger-accent-action);
-}
-
-/* …nor colour. A native select paints the UA's own white, which is not a
- * Ledger surface and is plainly wrong in dark theme. */
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea {
-  background-color: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-  border: 1px solid var(--ledger-border-control);
-  border-radius: var(--ledger-radius-input);
-}
-
-/* Explicit choice wins everywhere. Both forms are matched so the attribute can
- * sit on <html> (the usual case) or on the canonical root itself (harnesses). */
-[data-adc-theme="dark"] [data-adc-ui="zero-base"],
-[data-adc-ui="zero-base"][data-adc-theme="dark"] {
-  --ledger-accent-action: #9ca7de;
-  --ledger-accent-hover: #b6bee8;
-  --ledger-accent-tint: #2a2e47;
-  --ledger-bg-app: #1c1915;
-  --ledger-bg-inset: #15120f;
-  --ledger-bg-surface: #24211d;
-  --ledger-border-control: #79746d;
-  --ledger-border-subtle: #3b3732;
-  --ledger-focus-ring: #9ca7de;
-  --ledger-ink-primary: #eae8e3;
-  --ledger-ink-quiet: #a29e96;
-  --ledger-ink-secondary: #b4b0aa;
-  --ledger-ink-tertiary: #a29e96;
-  --ledger-lane-act-now: #e6a37a;
-  --ledger-lane-monitor: #9fb4c8;
-  --ledger-lane-resolve: #dbb970;
-  --ledger-semantic-danger: #e6867a;
-  --ledger-semantic-ok: #75be8f;
-  --ledger-semantic-warn: #dbb970;
-  --ledger-state-withheld: #d9a3c6;
-  --ledger-state-withheld-border: #4a3541;
-  --ledger-state-withheld-tint: #2a1e27;
-
-  --primary-foreground: var(--ledger-bg-app);
-  --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
-  --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
-  --ledger-scrim: rgb(0 0 0 / 55%);
-}
-
-/* Only when no explicit preference exists. A `system` preference renders with
- * no attribute, so this is what paints before the inline script settles it —
- * which is why a dark-mode OS never sees a white flash. */
-@media (prefers-color-scheme: dark) {
-  html:not([data-adc-theme]) [data-adc-ui="zero-base"] {
-    --ledger-accent-action: #9ca7de;
-    --ledger-accent-hover: #b6bee8;
-    --ledger-accent-tint: #2a2e47;
-    --ledger-bg-app: #1c1915;
-    --ledger-bg-inset: #15120f;
-    --ledger-bg-surface: #24211d;
-    --ledger-border-control: #79746d;
-    --ledger-border-subtle: #3b3732;
-    --ledger-focus-ring: #9ca7de;
-    --ledger-ink-primary: #eae8e3;
-    --ledger-ink-quiet: #a29e96;
-    --ledger-ink-secondary: #b4b0aa;
-    --ledger-ink-tertiary: #a29e96;
-    --ledger-lane-act-now: #e6a37a;
-    --ledger-lane-monitor: #9fb4c8;
-    --ledger-lane-resolve: #dbb970;
-    --ledger-semantic-danger: #e6867a;
-    --ledger-semantic-ok: #75be8f;
-    --ledger-semantic-warn: #dbb970;
-    --ledger-state-withheld: #d9a3c6;
-    --ledger-state-withheld-border: #4a3541;
-    --ledger-state-withheld-tint: #2a1e27;
-
-    --primary-foreground: var(--ledger-bg-app);
-    --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
-    --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
-    --ledger-scrim: rgb(0 0 0 / 55%);
-  }
-}
-
-[data-adc-ui="zero-base"] code,
-[data-adc-ui="zero-base"] kbd,
-[data-adc-ui="zero-base"] samp,
-[data-adc-ui="zero-base"] .adc-data {
-  font-family: var(--font-adc-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* One visible focus treatment for everything focusable in the canonical UI.
- * Never removed and never obscured; sticky bars reserve clearance for it. */
-[data-adc-ui="zero-base"] :focus-visible {
-  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
-  outline-offset: var(--ledger-focus-offset);
-}
-
-/* Canonical portal host. Radix overlays render here instead of document.body
- * so they inherit the tokens above — a dialog portalled to an unscoped body
- * would render with legacy :root colours and silently look wrong. */
-[data-adc-ui="zero-base"] .adc-portal-host {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 50;
-}
-
-[data-adc-ui="zero-base"] .adc-portal-host > * {
-  pointer-events: auto;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-adc-ui="zero-base"] * {
-    transition-duration: 80ms !important;
-    transition-property: opacity !important;
-    animation: none !important;
-  }
-}
-
-/* Column headings hold one line where there is room for one, and wrap where
-   there is not. Inline `white-space: nowrap` on every heading made each table
-   as wide as its longest heading, so at 320 and 390 the surface itself scrolled
-   sideways and the row actions in the last column were unreachable. */
-[data-adc-ui="zero-base"] th {
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  [data-adc-ui="zero-base"] th,
-  [data-adc-ui="zero-base"] td {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}
-
-/* Agency desk reading order. The accepted design places the withheld explainer
-   above the client rows at desk width and after them on a phone; the rows and
-   the tile keep their order at both. One element, moved — not two copies with
-   one hidden. */
-[data-adc-ui="zero-base"] [data-agency-desk] > * {
-  order: 2;
-}
-
-[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="tile"] {
-  order: 3;
-}
-
-[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
-  order: 4;
-}
-
-@media (min-width: 768px) {
-  [data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
-    order: 1;
-  }
-}
-
-/* Form controls measure their own padding and border. Without this an input
-   that fills its container overflows it by exactly its padding — 6px on every
-   dialog and drawer, enough to make the surface itself scroll sideways. */
-[data-adc-ui="zero-base"] input,
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea,
-[data-adc-ui="zero-base"] button {
-  box-sizing: border-box;
-}
-
-/* Grid and flex items may shrink below their own content.
-   Their default `min-width: auto` means a six-column table can never narrow,
-   so the surface becomes as wide as the table instead of the table scrolling
-   inside it — at 320 that pushed the heading and the plan controls off the
-   side of the screen. Controls that declare a minimum target size set it
-   inline, which still wins. */
-[data-adc-ui="zero-base"] * {
-  min-width: 0;
-}
-
-/* Ops preserves the proven admin read/write handlers, but its presentation is
-   the Ledger operator product. This adapter is deliberately scoped to Ops so
-   the compatibility routes can retain their old CSS during rollback. */
-[data-ops-content] {
-  color: var(--ledger-ink-primary);
-  font-size: 13px;
-  line-height: 19px;
-}
-
-[data-ops-content] > * + *,
-[data-ops-supporting-diagnostics] {
-  margin-top: 16px;
-}
-
-[data-ops-supporting-diagnostics] {
-  padding-top: 16px;
-  border-top: 1px solid var(--ledger-border-subtle);
-}
-
-[data-ops-content] :is(.bg-white, .bg-neutral-50, .bg-gray-50, .bg-slate-50) {
-  background-color: var(--ledger-bg-surface) !important;
-}
-
-[data-ops-content] :is(.border-neutral-100, .border-neutral-200, .border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
-  border-color: var(--ledger-border-subtle) !important;
-}
-
-[data-ops-content] :is(.text-neutral-400, .text-neutral-500, .text-gray-400, .text-gray-500, .text-slate-400, .text-slate-500) {
-  color: var(--ledger-ink-tertiary) !important;
-}
-
-[data-ops-content] :is(.text-neutral-600, .text-neutral-700, .text-gray-600, .text-gray-700, .text-slate-600, .text-slate-700) {
-  color: var(--ledger-ink-secondary) !important;
-}
-
-[data-ops-content] :is(.text-neutral-800, .text-neutral-900, .text-gray-800, .text-gray-900, .text-slate-800, .text-slate-900) {
-  color: var(--ledger-ink-primary) !important;
-}
-
-[data-ops-content] :is(.rounded-lg, .rounded-xl, .rounded-2xl) {
-  border-radius: var(--ledger-radius-card) !important;
-}
-
-[data-ops-content] :is(input, select, textarea) {
-  min-height: 36px;
-  padding: 7px 10px;
-  border-color: var(--ledger-border-control) !important;
-  border-radius: var(--ledger-radius-input) !important;
-  background: var(--ledger-bg-surface) !important;
-  color: var(--ledger-ink-primary) !important;
-  font: inherit;
-}
-
-[data-ops-content] button,
-[data-ops-content] a[class*="border"] {
-  min-height: 36px;
-  border-radius: var(--ledger-radius-button) !important;
-  font-size: 12px;
-}
-
-[data-ops-content] table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-[data-ops-content] th {
-  color: var(--ledger-ink-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-[data-ops-content] :is(th, td) {
-  border-color: var(--ledger-border-subtle) !important;
-}
-
 /* ==========================================================================
    Dashboard v2 — shell chrome and shared primitives.
    Values are lifted verbatim from `Adsecute Dashboard v2.dc.html`; each class
@@ -9109,4 +8671,442 @@
   .adv-shell [class~="text-slate-400"] {
     color: var(--adv-ink-4);
   }
+}
+
+/* ============================================================================
+ * Zero-base Ledger visual system — scoped, never global.
+ *
+ * Everything below is confined to [data-adc-ui="zero-base"]. The 308 legacy
+ * components keep the :root and .dark variables defined above, unchanged, so
+ * this file can add a whole design system without restyling a single existing
+ * page. Deleting this block removes the canonical look and leaves legacy
+ * exactly as it was — that is the WP-04 rollback.
+ *
+ * Token values are transcribed from lib/design/ledger-tokens.ts; a test
+ * regenerates them from that module and fails if the two ever drift.
+ * ==========================================================================*/
+
+[data-adc-ui="zero-base"] {
+  --ledger-accent-action: #545e96;
+  --ledger-accent-hover: #444d84;
+  --ledger-accent-tint: #e3e8fe;
+  --ledger-bg-app: #f7f6f2;
+  --ledger-bg-inset: #f1efeb;
+  --ledger-bg-surface: #fcfcf9;
+  --ledger-border-control: #8c857c;
+  --ledger-border-subtle: #dfdcd6;
+  --ledger-focus-ring: #545e96;
+  --ledger-ink-primary: #24201a;
+  --ledger-ink-quiet: #6b645c;
+  --ledger-ink-secondary: #58514a;
+  --ledger-ink-tertiary: #635c55;
+  --ledger-lane-act-now: #8d4226;
+  --ledger-lane-monitor: #3c4f62;
+  --ledger-lane-resolve: #6f4b00;
+  --ledger-semantic-danger: #96372b;
+  --ledger-semantic-ok: #33724c;
+  --ledger-semantic-warn: #6f4b00;
+  --ledger-state-withheld: #7d3c66;
+  --ledger-state-withheld-border: #e3c8d8;
+  --ledger-state-withheld-tint: #f8edf3;
+
+  /* Scale and motion, from the same table. */
+  --ledger-radius-chip: 4px;
+  --ledger-radius-input: 6px;
+  --ledger-radius-button: 7px;
+  --ledger-radius-card: 10px;
+  --ledger-radius-panel: 12px;
+  --ledger-radius-dialog: 14px;
+  --ledger-focus-width: 2px;
+  --ledger-focus-offset: 2px;
+  --ledger-motion-fast: 120ms;
+  --ledger-motion-panel: 180ms;
+  --ledger-motion-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ledger-elevation-1: 0 1px 2px rgb(36 32 26 / 4%);
+  --ledger-elevation-2: 0 8px 28px rgb(36 32 26 / 14%);
+  --ledger-scrim: rgb(36 32 26 / 35%);
+
+  /* shadcn variables are remapped HERE ONLY. Outside this root they keep the
+   * values :root gives them, so shadcn components on legacy pages are
+   * untouched while the same components inside the canonical shell adopt
+   * Ledger colours without a fork. */
+  --background: var(--ledger-bg-app);
+  --foreground: var(--ledger-ink-primary);
+  --card: var(--ledger-bg-surface);
+  --card-foreground: var(--ledger-ink-primary);
+  --popover: var(--ledger-bg-surface);
+  --popover-foreground: var(--ledger-ink-primary);
+  --primary: var(--ledger-accent-action);
+  --primary-foreground: var(--ledger-bg-surface);
+  --secondary: var(--ledger-bg-inset);
+  --secondary-foreground: var(--ledger-ink-primary);
+  --muted: var(--ledger-bg-inset);
+  --muted-foreground: var(--ledger-ink-secondary);
+  --accent: var(--ledger-accent-tint);
+  --accent-foreground: var(--ledger-accent-action);
+  --destructive: var(--ledger-semantic-danger);
+  --border: var(--ledger-border-subtle);
+  --input: var(--ledger-border-control);
+  --ring: var(--ledger-focus-ring);
+  --radius: var(--ledger-radius-card);
+
+  color: var(--ledger-ink-primary);
+  background-color: var(--ledger-bg-app);
+  font-family: var(--font-adc-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 19px;
+}
+
+/* Form controls do not inherit type.
+ *
+ * `button`, `input`, `select` and `textarea` take the UA's own font rather than
+ * their ancestor's, so every control on a zero-base surface rendered in the
+ * browser default while the prose around it rendered in the Ledger face. The
+ * reference draws them in one voice, and a rendered comparison against it is
+ * what caught this. */
+[data-adc-ui="zero-base"] button,
+[data-adc-ui="zero-base"] input,
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea,
+[data-adc-ui="zero-base"] optgroup {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+
+/* Auth/onboarding forms share legacy structural classes, but their canonical
+ * branch must use the same Ledger controls as the rest of the product. Without
+ * this scoped bridge the new frame still painted black legacy buttons and pale
+ * legacy inputs, which made the rollout look only partially redesigned. */
+[data-adc-ui="zero-base"] .ad-auth-form {
+  gap: 11px;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-label {
+  color: var(--ledger-ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-input,
+[data-adc-ui="zero-base"] .ad-auth-select {
+  min-height: 36px;
+  border-color: var(--ledger-border-control);
+  background: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary,
+[data-adc-ui="zero-base"] .ad-auth-secondary,
+[data-adc-ui="zero-base"] .ad-auth-link-button {
+  min-height: 36px;
+  border-radius: var(--ledger-radius-input);
+  font-size: 12.5px;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary {
+  border-color: var(--ledger-accent-action);
+  background: var(--ledger-accent-action);
+  color: var(--ledger-bg-surface);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-secondary,
+[data-adc-ui="zero-base"] .ad-auth-link-button {
+  border-color: var(--ledger-border-control);
+  background: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-row {
+  color: var(--ledger-ink-secondary);
+  align-items: center;
+}
+
+[data-adc-ui="zero-base"] .ad-auth-row a,
+[data-adc-ui="zero-base"] .ad-auth-footer a {
+  color: var(--ledger-accent-action);
+}
+
+[data-adc-ui="zero-base"] .ad-auth-primary:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-secondary:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-link-button:focus-visible,
+[data-adc-ui="zero-base"] .ad-auth-input:focus,
+[data-adc-ui="zero-base"] .ad-auth-select:focus {
+  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
+  outline-offset: var(--ledger-focus-offset);
+}
+
+/* Anything carrying a control contract is a target.
+ *
+ * A bare inline link is 16px tall and a native checkbox is 13×13 — below the
+ * 24px minimum (WCAG 2.5.8), and below what the design draws. Rather than
+ * padding each site by hand and missing some, the rule is stated once against
+ * the attribute that declares the element a control. */
+[data-adc-ui="zero-base"] a[data-ctl],
+[data-adc-ui="zero-base"] button[data-ctl],
+[data-adc-ui="zero-base"] label[data-ctl],
+[data-adc-ui="zero-base"] select[data-ctl] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  min-width: 24px;
+}
+
+[data-adc-ui="zero-base"] input[type="checkbox"],
+[data-adc-ui="zero-base"] input[type="radio"] {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  accent-color: var(--ledger-accent-action);
+}
+
+/* …nor colour. A native select paints the UA's own white, which is not a
+ * Ledger surface and is plainly wrong in dark theme. */
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea {
+  background-color: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+  border: 1px solid var(--ledger-border-control);
+  border-radius: var(--ledger-radius-input);
+}
+
+/* Explicit choice wins everywhere. Both forms are matched so the attribute can
+ * sit on <html> (the usual case) or on the canonical root itself (harnesses). */
+[data-adc-theme="dark"] [data-adc-ui="zero-base"],
+[data-adc-ui="zero-base"][data-adc-theme="dark"] {
+  --ledger-accent-action: #9ca7de;
+  --ledger-accent-hover: #b6bee8;
+  --ledger-accent-tint: #2a2e47;
+  --ledger-bg-app: #1c1915;
+  --ledger-bg-inset: #15120f;
+  --ledger-bg-surface: #24211d;
+  --ledger-border-control: #79746d;
+  --ledger-border-subtle: #3b3732;
+  --ledger-focus-ring: #9ca7de;
+  --ledger-ink-primary: #eae8e3;
+  --ledger-ink-quiet: #a29e96;
+  --ledger-ink-secondary: #b4b0aa;
+  --ledger-ink-tertiary: #a29e96;
+  --ledger-lane-act-now: #e6a37a;
+  --ledger-lane-monitor: #9fb4c8;
+  --ledger-lane-resolve: #dbb970;
+  --ledger-semantic-danger: #e6867a;
+  --ledger-semantic-ok: #75be8f;
+  --ledger-semantic-warn: #dbb970;
+  --ledger-state-withheld: #d9a3c6;
+  --ledger-state-withheld-border: #4a3541;
+  --ledger-state-withheld-tint: #2a1e27;
+
+  --primary-foreground: var(--ledger-bg-app);
+  --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
+  --ledger-scrim: rgb(0 0 0 / 55%);
+}
+
+/* Only when no explicit preference exists. A `system` preference renders with
+ * no attribute, so this is what paints before the inline script settles it —
+ * which is why a dark-mode OS never sees a white flash. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-adc-theme]) [data-adc-ui="zero-base"] {
+    --ledger-accent-action: #9ca7de;
+    --ledger-accent-hover: #b6bee8;
+    --ledger-accent-tint: #2a2e47;
+    --ledger-bg-app: #1c1915;
+    --ledger-bg-inset: #15120f;
+    --ledger-bg-surface: #24211d;
+    --ledger-border-control: #79746d;
+    --ledger-border-subtle: #3b3732;
+    --ledger-focus-ring: #9ca7de;
+    --ledger-ink-primary: #eae8e3;
+    --ledger-ink-quiet: #a29e96;
+    --ledger-ink-secondary: #b4b0aa;
+    --ledger-ink-tertiary: #a29e96;
+    --ledger-lane-act-now: #e6a37a;
+    --ledger-lane-monitor: #9fb4c8;
+    --ledger-lane-resolve: #dbb970;
+    --ledger-semantic-danger: #e6867a;
+    --ledger-semantic-ok: #75be8f;
+    --ledger-semantic-warn: #dbb970;
+    --ledger-state-withheld: #d9a3c6;
+    --ledger-state-withheld-border: #4a3541;
+    --ledger-state-withheld-tint: #2a1e27;
+
+    --primary-foreground: var(--ledger-bg-app);
+    --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
+    --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
+    --ledger-scrim: rgb(0 0 0 / 55%);
+  }
+}
+
+[data-adc-ui="zero-base"] code,
+[data-adc-ui="zero-base"] kbd,
+[data-adc-ui="zero-base"] samp,
+[data-adc-ui="zero-base"] .adc-data {
+  font-family: var(--font-adc-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* One visible focus treatment for everything focusable in the canonical UI.
+ * Never removed and never obscured; sticky bars reserve clearance for it. */
+[data-adc-ui="zero-base"] :focus-visible {
+  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
+  outline-offset: var(--ledger-focus-offset);
+}
+
+/* Canonical portal host. Radix overlays render here instead of document.body
+ * so they inherit the tokens above — a dialog portalled to an unscoped body
+ * would render with legacy :root colours and silently look wrong. */
+[data-adc-ui="zero-base"] .adc-portal-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+[data-adc-ui="zero-base"] .adc-portal-host > * {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-adc-ui="zero-base"] * {
+    transition-duration: 80ms !important;
+    transition-property: opacity !important;
+    animation: none !important;
+  }
+}
+
+/* Column headings hold one line where there is room for one, and wrap where
+   there is not. Inline `white-space: nowrap` on every heading made each table
+   as wide as its longest heading, so at 320 and 390 the surface itself scrolled
+   sideways and the row actions in the last column were unreachable. */
+[data-adc-ui="zero-base"] th {
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  [data-adc-ui="zero-base"] th,
+  [data-adc-ui="zero-base"] td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Agency desk reading order. The accepted design places the withheld explainer
+   above the client rows at desk width and after them on a phone; the rows and
+   the tile keep their order at both. One element, moved — not two copies with
+   one hidden. */
+[data-adc-ui="zero-base"] [data-agency-desk] > * {
+  order: 2;
+}
+
+[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="tile"] {
+  order: 3;
+}
+
+[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
+  order: 4;
+}
+
+@media (min-width: 768px) {
+  [data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
+    order: 1;
+  }
+}
+
+/* Form controls measure their own padding and border. Without this an input
+   that fills its container overflows it by exactly its padding — 6px on every
+   dialog and drawer, enough to make the surface itself scroll sideways. */
+[data-adc-ui="zero-base"] input,
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea,
+[data-adc-ui="zero-base"] button {
+  box-sizing: border-box;
+}
+
+/* Grid and flex items may shrink below their own content.
+   Their default `min-width: auto` means a six-column table can never narrow,
+   so the surface becomes as wide as the table instead of the table scrolling
+   inside it — at 320 that pushed the heading and the plan controls off the
+   side of the screen. Controls that declare a minimum target size set it
+   inline, which still wins. */
+[data-adc-ui="zero-base"] * {
+  min-width: 0;
+}
+
+/* Ops preserves the proven admin read/write handlers, but its presentation is
+   the Ledger operator product. This adapter is deliberately scoped to Ops so
+   the compatibility routes can retain their old CSS during rollback. */
+[data-ops-content] {
+  color: var(--ledger-ink-primary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+[data-ops-content] > * + *,
+[data-ops-supporting-diagnostics] {
+  margin-top: 16px;
+}
+
+[data-ops-supporting-diagnostics] {
+  padding-top: 16px;
+  border-top: 1px solid var(--ledger-border-subtle);
+}
+
+[data-ops-content] :is(.bg-white, .bg-neutral-50, .bg-gray-50, .bg-slate-50) {
+  background-color: var(--ledger-bg-surface) !important;
+}
+
+[data-ops-content] :is(.border-neutral-100, .border-neutral-200, .border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
+  border-color: var(--ledger-border-subtle) !important;
+}
+
+[data-ops-content] :is(.text-neutral-400, .text-neutral-500, .text-gray-400, .text-gray-500, .text-slate-400, .text-slate-500) {
+  color: var(--ledger-ink-tertiary) !important;
+}
+
+[data-ops-content] :is(.text-neutral-600, .text-neutral-700, .text-gray-600, .text-gray-700, .text-slate-600, .text-slate-700) {
+  color: var(--ledger-ink-secondary) !important;
+}
+
+[data-ops-content] :is(.text-neutral-800, .text-neutral-900, .text-gray-800, .text-gray-900, .text-slate-800, .text-slate-900) {
+  color: var(--ledger-ink-primary) !important;
+}
+
+[data-ops-content] :is(.rounded-lg, .rounded-xl, .rounded-2xl) {
+  border-radius: var(--ledger-radius-card) !important;
+}
+
+[data-ops-content] :is(input, select, textarea) {
+  min-height: 36px;
+  padding: 7px 10px;
+  border-color: var(--ledger-border-control) !important;
+  border-radius: var(--ledger-radius-input) !important;
+  background: var(--ledger-bg-surface) !important;
+  color: var(--ledger-ink-primary) !important;
+  font: inherit;
+}
+
+[data-ops-content] button,
+[data-ops-content] a[class*="border"] {
+  min-height: 36px;
+  border-radius: var(--ledger-radius-button) !important;
+  font-size: 12px;
+}
+
+[data-ops-content] table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+[data-ops-content] th {
+  color: var(--ledger-ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+[data-ops-content] :is(th, td) {
+  border-color: var(--ledger-border-subtle) !important;
 }

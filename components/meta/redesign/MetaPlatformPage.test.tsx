@@ -353,8 +353,8 @@ describe("MetaPlatformPage", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain("Meta · ");
-    expect(html).toContain("<h1>Decision Center</h1>");
+    expect(html).toContain("Meta operating system");
+    expect(html).toContain("<h1>Decisions</h1>");
     expect(html).toContain("Policy delivery block");
     expect(html).toContain("Act Now");
     expect(html).toContain("Monitor");

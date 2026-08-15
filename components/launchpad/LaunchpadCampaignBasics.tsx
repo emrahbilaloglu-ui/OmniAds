@@ -40,7 +40,7 @@ export function LaunchpadCampaignBasics({
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Objective</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">Objective</p>
           <div className="mt-2 flex items-center gap-2">
             <span className="chip chip--info">Sales</span>
             <span className="mono text-[12px] text-[var(--muted)]">OUTCOME_SALES</span>
@@ -49,7 +49,7 @@ export function LaunchpadCampaignBasics({
         <label className="flex cursor-pointer items-center justify-between rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
           <span>
             <span className="block text-[13px] font-medium text-[var(--ink)]">Advantage+ shopping</span>
-            <span className="mono block text-[12px] text-[var(--muted)]">GUIDED_CREATION</span>
+            <span className="mono block text-[11px] text-[var(--muted)]">GUIDED_CREATION</span>
           </span>
           <input
             type="checkbox"

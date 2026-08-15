@@ -56,7 +56,7 @@
   gap: 5px 12px;
   color: var(--adc-ink3, #7d838c);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .contextWarning,
@@ -65,7 +65,7 @@
   border-bottom: 1px solid var(--adc-caution-bd, #e8d5a6);
   background: var(--adc-caution-bg, #faf2df);
   color: var(--adc-caution-fg, #86590a);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .contextNotice {
@@ -132,7 +132,7 @@
   background: var(--adc-s2, #fff);
   padding: 0 28px 0 9px;
   color: var(--adc-ink2, #4a4f56);
-  font-size: 12px;
+  font-size: 11.5px;
   outline: 0;
 }
 
@@ -179,7 +179,7 @@
   padding: 5px 12px;
   border-bottom: 1px solid var(--adc-b1, #e4e4e0);
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .selectAll {
@@ -215,7 +215,7 @@
   background: var(--adc-s2, #fff);
   padding: 0 9px;
   color: var(--adc-ink2, #4a4f56);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -255,7 +255,7 @@
   border-top: 1px solid var(--adc-b1, #e4e4e0);
   padding: 7px 12px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .galleryPager > div {
@@ -346,7 +346,7 @@
   background: var(--adc-info-bg, #ebf1fb);
   padding: 3px 6px;
   color: var(--adc-info-fg, #1d5fc4);
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 700;
   line-height: 1.1;
 }
@@ -406,7 +406,7 @@
   gap: 8px;
   margin-top: 3px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .assetContext span:first-child {
@@ -441,7 +441,7 @@
 
 .assetMetrics span {
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .assetMetrics strong {
@@ -449,7 +449,7 @@
   overflow: hidden;
   color: var(--adc-ink, #1a1c1f);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -462,7 +462,7 @@
   gap: 8px;
   margin-top: 8px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 9.5px;
   text-transform: capitalize;
 }
 
@@ -489,7 +489,7 @@
 
 .emptyState span {
   max-width: 460px;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .analysisPanel {
@@ -524,7 +524,7 @@
 
 .eyebrow {
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -540,7 +540,7 @@
   background: var(--adc-s1, #f5f5f3);
   padding: 0 7px;
   color: var(--adc-ink2, #4a4f56);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -605,7 +605,7 @@
 .fatigueRow strong {
   overflow: hidden;
   color: var(--adc-ink, #1a1c1f);
-  font-size: 12px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -615,7 +615,7 @@
 .fatigueRow span {
   margin-top: 2px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .winnerFacts {
@@ -626,7 +626,7 @@
   gap: 5px 9px;
   color: var(--adc-ink3, #7d838c);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .deepLink {
@@ -635,7 +635,7 @@
   justify-content: flex-end;
   gap: 5px;
   color: var(--adc-info-fg, #1d5fc4);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
@@ -652,7 +652,7 @@
   background: var(--adc-s1, #f5f5f3);
   padding: 11px 12px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
@@ -685,7 +685,7 @@
 .transitionHeader {
   background: var(--adc-s1, #f5f5f3);
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -694,7 +694,7 @@
   border-top: 1px solid var(--adc-b1, #e4e4e0);
   color: var(--adc-ink2, #4a4f56);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .transitionRow strong {
@@ -718,7 +718,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 9px 10px;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .eraBlock span {
@@ -736,12 +736,12 @@
   gap: 10px;
   padding: 9px 10px;
   background: var(--adc-s1, #f5f5f3);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .fatigueGroupHeader span {
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .fatigueRow {
@@ -791,7 +791,7 @@
 .briefIdentity strong {
   overflow: hidden;
   color: var(--adc-ink, #1a1c1f);
-  font-size: 12px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -801,7 +801,7 @@
   overflow: hidden;
   color: var(--adc-ink3, #7d838c);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -813,12 +813,12 @@
   gap: 8px;
   color: var(--adc-ink3, #7d838c);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .draftHandoff {
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -836,7 +836,7 @@
   min-height: 38px;
   padding: 7px 10px;
   border-top: 1px solid var(--adc-b1, #e4e4e0);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .readinessRow:first-child {
@@ -863,7 +863,7 @@
   gap: 9px;
   margin-top: 10px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .briefFooter span {
@@ -1004,62 +1004,5 @@
 @media (max-width: 440px) {
   .gallery {
     grid-template-columns: 1fr;
-  }
-
-  /*
-   * Task-priority mobile composition (320-440px).
-   *
-   * These grids are sized for desktop columns. At 390px their minmax() floors
-   * exceed the viewport, so the row either clips its last column -- which is
-   * where the assessment lives -- or forces the page to scroll sideways. Both
-   * hide the answer the buyer opened the phone for.
-   *
-   * Stacking them keeps every essential field visible in priority order:
-   * identity first, then spend and purchases/revenue, then ROAS/CPA, then the
-   * assessment. Nothing is removed; secondary detail simply falls below the
-   * fold instead of off the side of the screen.
-   */
-  .assetMetrics,
-  .winnerRow,
-  .withheldRow,
-  .fatigueRow,
-  .transitionHeader,
-  .transitionRow {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-    align-items: start;
-  }
-
-  /*
-   * A column header row cannot label stacked cells -- it would read as a
-   * heading for the first value only. Each stacked cell carries its own label
-   * instead, so the header is redundant rather than missing.
-   */
-  .transitionHeader {
-    display: none;
-  }
-
-  .transitionRow > * {
-    min-width: 0;
-  }
-
-  /* Long identifiers wrap rather than forcing the row wider than the screen. */
-  .winnerRow,
-  .withheldRow,
-  .fatigueRow,
-  .transitionRow {
-    overflow-wrap: anywhere;
-  }
-}
-
-/*
- * Nothing on a phone may scroll the page sideways. A single overflowing child
- * is enough to do it, so this is stated once for the whole workspace rather
- * than defended grid by grid.
- */
-@media (max-width: 440px) {
-  .workspace {
-    max-width: 100%;
-    overflow-x: hidden;
   }
 }

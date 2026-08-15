@@ -151,8 +151,8 @@ function diffPctText(current: number, previous?: number): string | null {
 function diffClass(current: number, previous?: number) {
   if (typeof previous !== "number") return "text-muted-foreground";
   const diff = current - previous;
-  if (diff > 0) return "text-emerald-600";
-  if (diff < 0) return "text-red-500";
+  if (diff > 0) return "text-[var(--adc-pos-fg)]";
+  if (diff < 0) return "text-[var(--adc-danger-fg)]";
   return "text-muted-foreground";
 }
 
@@ -161,7 +161,7 @@ function diffClass(current: number, previous?: number) {
 function MicroBar({
   value,
   max,
-  color = "bg-blue-500/50",
+  color = "bg-[var(--adc-info-fg)]/50",
 }: {
   value: number;
   max: number;
@@ -185,7 +185,7 @@ export function StatusBadge({ status }: { status: string }) {
   const lower = status.toLowerCase();
   if (lower === "active")
     return (
-      <Badge className="border-0 bg-emerald-500/15 font-medium text-emerald-600 hover:bg-emerald-500/20">
+      <Badge className="border-0 bg-[var(--adc-pos-fg)]/15 font-medium text-[var(--adc-pos-fg)] hover:bg-[var(--adc-pos-fg)]/20">
         {language === "tr" ? "Aktif" : "Active"}
       </Badge>
     );
@@ -201,13 +201,13 @@ export function StatusBadge({ status }: { status: string }) {
     );
   if (lower === "in_process")
     return (
-      <Badge className="border-0 bg-blue-500/15 text-blue-600">
+      <Badge className="border-0 bg-[var(--adc-info-fg)]/15 text-[var(--adc-info-fg)]">
         {language === "tr" ? "Isleniyor" : "In Process"}
       </Badge>
     );
   if (lower === "with_issues")
     return (
-      <Badge className="border-0 bg-amber-500/15 text-amber-600">{language === "tr" ? "Sorunlar" : "Issues"}</Badge>
+      <Badge className="border-0 bg-[var(--adc-caution-fg)]/15 text-[var(--adc-caution-fg)]">{language === "tr" ? "Sorunlar" : "Issues"}</Badge>
     );
   return (
     <Badge variant="outline" className="text-xs">
@@ -220,7 +220,7 @@ function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
   const language = "en" as "en" | "tr";
   if (lane === "Scaling") {
     return (
-      <Badge className="border-0 bg-blue-500/10 text-blue-700 hover:bg-blue-500/15">
+      <Badge className="border-0 bg-[var(--adc-info-fg)]/10 text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-fg)]/15">
         {language === "tr" ? "Scaling" : "Scaling"}
       </Badge>
     );
@@ -235,7 +235,7 @@ function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
   }
 
   return (
-    <Badge className="border-0 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15">
+    <Badge className="border-0 bg-[var(--adc-caution-fg)]/10 text-[var(--adc-caution-fg)] hover:bg-[var(--adc-caution-fg)]/15">
       {language === "tr" ? "Test" : "Test"}
     </Badge>
   );
@@ -246,18 +246,18 @@ function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
 export function RoasCell({ roas }: { roas: number }) {
   if (roas > 2.5)
     return (
-      <span className="font-semibold tabular-nums text-emerald-600">
+      <span className="font-semibold tabular-nums text-[var(--adc-pos-fg)]">
         {roas.toFixed(2)}
       </span>
     );
   if (roas >= 1.5)
     return (
-      <span className="font-semibold tabular-nums text-amber-500">
+      <span className="font-semibold tabular-nums text-[var(--adc-caution-fg)]">
         {roas.toFixed(2)}
       </span>
     );
   return (
-    <span className="font-semibold tabular-nums text-red-500">
+    <span className="font-semibold tabular-nums text-[var(--adc-danger-fg)]">
       {roas.toFixed(2)}
     </span>
   );
@@ -295,7 +295,7 @@ function AdSetSubTable({
   }
 
   return (
-    <div className="overflow-x-auto border-t bg-indigo-500/[0.03]">
+    <div className="overflow-x-auto border-t bg-[var(--adc-auto-fg)]/[0.03]">
       <table className="min-w-full table-fixed text-xs">
         <colgroup>
           {ADSET_COLUMN_WIDTHS.map((width, index) => (
@@ -345,7 +345,7 @@ function AdSetSubTable({
               return (
             <tr
               key={adset.id}
-              className="border-t transition-colors hover:bg-indigo-500/[0.07]"
+              className="border-t transition-colors hover:bg-[var(--adc-auto-fg)]/[0.07]"
             >
               <td className="border-l-2 border-l-indigo-400/40 px-4 py-2 pl-8 font-medium">
                 <div className="truncate" title={adset.name}>
@@ -381,7 +381,7 @@ function AdSetSubTable({
                     </div>
                     {(typeof adset.previousDailyBudget === "number" ||
                       typeof adset.previousLifetimeBudget === "number") && (
-                      <div className="truncate text-[12px] tabular-nums text-muted-foreground">
+                      <div className="truncate text-[10px] tabular-nums text-muted-foreground">
                         {language === "tr" ? "önceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
                         {formatRelativeAge(adset.previousBudgetCapturedAt)
                           ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
@@ -392,7 +392,7 @@ function AdSetSubTable({
                       typeof adset.previousLifetimeBudget === "number") &&
                       isPrevLoading &&
                       hasBudgetValue(adset.dailyBudget, adset.lifetimeBudget) && (
-                        <div className="truncate text-[12px] text-muted-foreground">
+                        <div className="truncate text-[10px] text-muted-foreground">
                           {language === "tr" ? "getiriliyor..." : "fetching..."}
                         </div>
                       )}
@@ -404,7 +404,7 @@ function AdSetSubTable({
                   {renderBidValueText(effectiveBidValue, effectiveBidValueFormat, adset.isBidValueMixed, sym)}
                 </div>
                 {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
-                  <div className="text-[12px] tabular-nums text-muted-foreground">
+                  <div className="text-[10px] tabular-nums text-muted-foreground">
                     {language === "tr" ? "önceki" : "prev"} {fmtBidValue(
                       effectivePreviousBidValue,
                       effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
@@ -419,7 +419,7 @@ function AdSetSubTable({
                   !adset.isBidValueMixed &&
                   isPrevLoading &&
                   typeof effectiveBidValue === "number" && (
-                    <div className="text-[12px] text-muted-foreground">
+                    <div className="text-[10px] text-muted-foreground">
                       {language === "tr" ? "getiriliyor..." : "fetching..."}
                     </div>
                   )}
@@ -555,7 +555,7 @@ function CampaignRow({
     <>
       <tr
         id={`meta-campaign-${campaign.id}`}
-        className={`cursor-pointer border-t transition-colors hover:bg-muted/25 ${campaign.isFocused ? "bg-blue-50/60" : ""}`}
+        className={`cursor-pointer border-t transition-colors hover:bg-muted/25 ${campaign.isFocused ? "bg-[var(--adc-info-bg)]/60" : ""}`}
         onClick={onToggle}
       >
         {/* Campaign name */}
@@ -578,14 +578,14 @@ function CampaignRow({
                     <LaneBadge lane={campaign.laneLabel} />
                   ) : null}
                   {campaign.recommendationCount ? (
-                    <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {campaign.recommendationCount} {language === "tr" ? "icgoru" : `insight${campaign.recommendationCount > 1 ? "s" : ""}`}
                     </span>
                   ) : null}
                 </div>
               ) : null}
               {campaign.topActionHint ? (
-                <div className="mt-1 truncate text-[12px] text-muted-foreground" title={campaign.topActionHint}>
+                <div className="mt-1 truncate text-[11px] text-muted-foreground" title={campaign.topActionHint}>
                   {campaign.topActionHint}
                 </div>
               ) : null}
@@ -617,7 +617,7 @@ function CampaignRow({
               </div>
               {(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") && (
-                <div className="truncate text-[12px] tabular-nums text-muted-foreground">
+                <div className="truncate text-[10px] tabular-nums text-muted-foreground">
                   {language === "tr" ? "önceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
                   {formatRelativeAge(campaign.previousBudgetCapturedAt)
                     ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
@@ -627,7 +627,7 @@ function CampaignRow({
               {!(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") &&
                 isCampaignPrevLoading && (
-                  <div className="truncate text-[12px] text-muted-foreground">
+                  <div className="truncate text-[10px] text-muted-foreground">
                     {language === "tr" ? "getiriliyor..." : "fetching..."}
                   </div>
                 )}
@@ -642,7 +642,7 @@ function CampaignRow({
           <span className="tabular-nums">{fmt$(campaign.spend, sym)}</span>
           {typeof campaign.previousSpend === "number" && (
             <div
-              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
                 campaign.spend,
                 campaign.previousSpend
               )}`}
@@ -654,7 +654,7 @@ function CampaignRow({
             <MicroBar
               value={campaign.spend}
               max={maxSpend}
-              color="bg-blue-500/50"
+              color="bg-[var(--adc-info-fg)]/50"
             />
           )}
         </td>
@@ -671,7 +671,7 @@ function CampaignRow({
           <span className="tabular-nums">{fmt$(campaign.revenue, sym)}</span>
           {typeof campaign.previousRevenue === "number" && (
             <div
-              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
                 campaign.revenue,
                 campaign.previousRevenue
               )}`}
@@ -683,7 +683,7 @@ function CampaignRow({
             <MicroBar
               value={campaign.revenue}
               max={maxRevenue}
-              color="bg-emerald-500/40"
+              color="bg-[var(--adc-pos-fg)]/40"
             />
           )}
         </td>
@@ -693,7 +693,7 @@ function CampaignRow({
           <RoasCell roas={campaign.roas} />
           {typeof campaign.previousRoas === "number" && (
             <div
-              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
                 campaign.roas,
                 campaign.previousRoas
               )}`}
@@ -708,7 +708,7 @@ function CampaignRow({
           {fmt$(campaign.cpa, sym)}
           {typeof campaign.previousCpa === "number" && (
             <div
-              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
                 campaign.previousCpa,
                 campaign.cpa
               )}`}

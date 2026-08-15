@@ -6,14 +6,7 @@
   --history-line-strong: #bcc5c5;
   --history-ink: #171b1b;
   --history-ink-2: #485252;
-  /*
-   * Raised from #6c7777, which measured 4.31:1 against the page and 4.11:1
-   * against the muted surface -- both under the 4.5:1 floor, and this token
-   * carries the History column headers: Kind, Entity, Label, Source,
-   * Persisted ID, Account scope. Those are how a reader knows what each
-   * column is, not decoration.
-   */
-  --history-ink-3: #5a6666;
+  --history-ink-3: #6c7777;
   --history-focus: #176b68;
   --history-focus-bg: #e4f2f0;
   --history-focus-line: #a9cfca;
@@ -134,7 +127,7 @@
   border-radius: 6px;
   color: var(--history-focus);
   background: var(--history-focus-bg);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -172,7 +165,7 @@
 .filterBand label > span,
 .replayControls label > span {
   color: var(--history-ink-3);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -388,14 +381,14 @@
 
 .replayCopy span {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .replayCopy small {
   margin-top: 2px;
   color: var(--history-ink-2);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .readOnlySeal {
@@ -466,7 +459,7 @@
 
 .limitations p {
   margin: 4px 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .journalSection {
@@ -493,7 +486,7 @@
 
 .resultsHeader p {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -502,7 +495,7 @@
   flex: none;
   color: var(--history-ink-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -520,7 +513,7 @@
   border-bottom: 1px solid var(--history-line);
   color: var(--history-ink-3);
   background: var(--history-surface-muted);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -545,7 +538,7 @@
   padding-top: 3px;
   color: var(--history-ink-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -559,7 +552,7 @@
   padding: 3px 7px;
   border: 1px solid var(--history-line);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -642,13 +635,13 @@
 .entryTitleLine span {
   flex: none;
   color: var(--history-ink-3);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .entryMain p {
   margin: 2px 0 0;
   color: var(--history-ink-2);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .entryMain small {
@@ -656,7 +649,7 @@
   margin-top: 2px;
   overflow: hidden;
   color: var(--history-ink-3);
-  font-size: 12px;
+  font-size: 10px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -693,7 +686,7 @@
 .iconTextButton {
   min-height: 28px;
   padding: 3px 7px;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .entryDetails {
@@ -708,7 +701,7 @@
   min-height: 28px;
   align-items: center;
   color: var(--history-focus);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
 }
 
@@ -731,7 +724,7 @@
 
 .detailGrid span {
   color: var(--history-ink-3);
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -739,7 +732,7 @@
 .detailGrid strong {
   color: var(--history-ink-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -749,7 +742,7 @@
 .notApplicable {
   display: block;
   margin: 3px 0;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .keyedJoin {
@@ -771,14 +764,14 @@
   margin-top: 8px;
   color: var(--history-ink-2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 
 .identityLimit {
   margin: 8px 0;
   color: var(--history-caution);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .rawDetail {
@@ -791,7 +784,7 @@
   color: var(--history-ink-2);
   background: var(--history-surface-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -849,7 +842,7 @@
 .errorState p,
 .emptyState p {
   margin: 3px 0 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .emptyState {
@@ -871,7 +864,7 @@
   min-width: 62px;
   color: var(--history-ink-3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   text-align: center;
 }
 

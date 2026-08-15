@@ -42,30 +42,6 @@ interface CommercialTruthSettingsResponse {
   };
 }
 
-function isRenderableCommercialSnapshot(
-  value: unknown,
-): value is BusinessCommercialTruthSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const snapshot = value as Partial<BusinessCommercialTruthSnapshot>;
-  const sectionMeta = snapshot.sectionMeta as
-    | Partial<BusinessCommercialTruthSnapshot["sectionMeta"]>
-    | undefined;
-  const isObject = (candidate: unknown) =>
-    Boolean(candidate && typeof candidate === "object");
-  return Boolean(
-    typeof snapshot.businessId === "string" &&
-      Array.isArray(snapshot.countryEconomics) &&
-      Array.isArray(snapshot.promoCalendar) &&
-      Array.isArray(snapshot.calibrationProfiles) &&
-      sectionMeta &&
-      isObject(sectionMeta.targetPack) &&
-      isObject(sectionMeta.countryEconomics) &&
-      isObject(sectionMeta.promoCalendar) &&
-      isObject(sectionMeta.operatingConstraints) &&
-      isObject(snapshot.coverage),
-  );
-}
-
 interface CommercialTruthReconfirmResponse {
   snapshot: BusinessCommercialTruthSnapshot;
   revision: string;
@@ -136,7 +112,7 @@ function CtSection({
       <div className="flex items-start justify-between gap-4 border-b border-[var(--adc-b1)] px-6 py-5">
         <div className="flex min-w-0 flex-col gap-1">
           {eyebrow && (
-            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]">
               {eyebrow}
             </p>
           )}
@@ -171,7 +147,7 @@ function CtTooltip({ content }: { content: string }) {
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2 text-[12px] font-medium leading-snug text-[var(--adc-ink2)] shadow-lg group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2 text-[11.5px] font-medium leading-snug text-[var(--adc-ink2)] shadow-lg group-hover:block group-focus-within:block"
       >
         {content}
       </span>
@@ -200,7 +176,7 @@ function CtField({
       </div>
       {children}
       {helper && (
-        <p className="text-[12px] leading-snug text-[var(--adc-ink3)]">
+        <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
           {helper}
         </p>
       )}
@@ -354,12 +330,12 @@ function CtStatCard({
     <div
       className={`flex flex-col gap-1.5 rounded-2xl p-[18px] ${
         dominant
-          ? "bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+          ? "bg-[var(--adv-accent)] text-[var(--adc-s2)]"
           : "border border-[var(--adc-b1)] bg-[var(--adc-s1)] text-[var(--adc-ink)]"
       }`}
     >
       <p
-        className={`text-[12px] font-semibold uppercase tracking-[0.14em] ${
+        className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
           dominant ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"
         }`}
       >
@@ -375,7 +351,7 @@ function CtStatCard({
         {value}
       </p>
       <p
-        className={`text-[12px] leading-snug ${
+        className={`text-[11.5px] leading-snug ${
           dominant ? "text-[var(--adc-s2)]/65" : "text-[var(--adc-ink3)]"
         }`}
       >
@@ -659,12 +635,12 @@ export function DecisionCoverageSection({
                 <p className="truncate text-[12.5px] font-semibold text-[var(--adc-ink)]">
                   {r.label}
                 </p>
-                <p className="truncate text-[12px] text-[var(--adc-ink3)]">
+                <p className="truncate text-[11.5px] text-[var(--adc-ink3)]">
                   {r.detail}
                 </p>
               </div>
               <span
-                className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[12px] font-semibold ${tone.badge}`}
+                className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}
               >
                 {tone.label}
               </span>
@@ -945,12 +921,12 @@ function RoasScenarioSection({
         <div className="overflow-hidden rounded-xl border border-[var(--adc-b1)]">
           {/* Header row: spend inputs */}
           <div
-            className="grid bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+            className="grid bg-[var(--adv-accent)] text-[var(--adc-s2)]"
             style={{
               gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
             }}
           >
-            <div className="px-4 py-3 text-[12px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
+            <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
               Spend / month
             </div>
             {spendLevels.map((s, i) => (
@@ -988,7 +964,7 @@ function RoasScenarioSection({
               <p className="text-[12px] font-bold text-[var(--adc-caution-fg)]">
                 Target ROAS
               </p>
-              <p className="text-[12px] text-[var(--adc-caution-fg)]">
+              <p className="text-[10.5px] text-[var(--adc-caution-fg)]">
                 edit per column
               </p>
             </div>
@@ -1031,7 +1007,7 @@ function RoasScenarioSection({
           {rows.map((r, ri) => (
             <div
               key={ri}
-              className={`grid border-t border-[var(--adc-b1)] ${r.highlight ? "bg-[var(--adc-ink)]" : ri % 2 === 0 ? "bg-[var(--adc-s2)]" : "bg-[var(--adc-s1)]/60"}`}
+              className={`grid border-t border-[var(--adc-b1)] ${r.highlight ? "bg-[var(--adv-accent)]" : ri % 2 === 0 ? "bg-[var(--adc-s2)]" : "bg-[var(--adc-s1)]/60"}`}
               style={{
                 gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
               }}
@@ -1304,7 +1280,7 @@ export function TargetRoasSection({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Break-even ROAS
             </p>
             <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)]">
@@ -1312,13 +1288,13 @@ export function TargetRoasSection({
                 ? `${breakEven.toFixed(2)}x`
                 : "—"}
             </p>
-            <p className="text-[12px] text-[var(--adc-ink3)]">
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
               Derived from your cost structure
             </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
             <div className="flex items-center gap-2">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
                 Break-even ROAS (manual)
               </p>
               <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
@@ -1332,14 +1308,14 @@ export function TargetRoasSection({
               disabled={disabled || costStructureActive}
               testId="commercial-break-even-roas"
             />
-            <p className="text-[12px] text-[var(--adc-ink3)]">
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
               {costStructureActive
                 ? "Cost structure is filled, so derived break-even will be saved."
                 : "Override if cost inputs are unavailable."}
             </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Target CPA
             </p>
             <CtNumberInput
@@ -1351,12 +1327,12 @@ export function TargetRoasSection({
               disabled={disabled}
               testId="commercial-target-cpa"
             />
-            <p className="text-[12px] text-[var(--adc-ink3)]">
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
               Maximum desired acquisition cost.
             </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Break-even CPA
             </p>
             <CtNumberInput
@@ -1368,7 +1344,7 @@ export function TargetRoasSection({
               disabled={disabled}
               testId="commercial-break-even-cpa"
             />
-            <p className="text-[12px] text-[var(--adc-ink3)]">
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
               Highest acquisition cost before contribution turns negative.
             </p>
           </div>
@@ -1394,7 +1370,7 @@ export function TargetRoasSection({
                 : "Decision authority unavailable"}
           </p>
           <p
-            className="text-[12px] leading-snug text-[var(--adc-ink2)]"
+            className="text-[11.5px] leading-snug text-[var(--adc-ink2)]"
             data-testid="commercial-target-pack-updated-at"
           >
             Last updated or confirmed:{" "}
@@ -1411,13 +1387,13 @@ export function TargetRoasSection({
             </p>
           ) : null}
           {freshness?.reason ? (
-            <p className="text-[12px] leading-snug text-[var(--adc-ink3)]">
+            <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
               {freshness.reason}
             </p>
           ) : null}
           {reconfirmDisabledReason ? (
             <p
-              className="text-[12px] leading-snug text-[var(--adc-ink3)]"
+              className="text-[11.5px] leading-snug text-[var(--adc-ink3)]"
               data-testid="commercial-target-pack-reconfirm-disabled-reason"
             >
               {reconfirmDisabledReason}
@@ -1481,7 +1457,7 @@ function CountryEconomicsSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1.6fr 36px" }}
           >
             <span>Country</span>
@@ -1583,7 +1559,7 @@ function PromoCalendarSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
+            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 36px" }}
           >
             <span>Name</span>
@@ -1826,7 +1802,7 @@ function CalibrationSection({
               aria-pressed={active}
               className={`flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors ${
                 active
-                  ? "border-[var(--adc-ink)] bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+                  ? "border-[var(--adc-ink)] bg-[var(--adv-accent)] text-[var(--adc-s2)]"
                   : "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink)] hover:bg-[var(--adc-s1)]"
               } disabled:cursor-not-allowed disabled:opacity-60`}
             >
@@ -2110,7 +2086,7 @@ function StickySaveBar({
           onClick={onSave}
           disabled={disabled || saving}
           data-testid="commercial-settings-save"
-          className="h-9 rounded-[10px] border border-[var(--adc-ink)] bg-[var(--adc-ink)] px-4 text-[13px] font-semibold text-[var(--adc-s2)] shadow-sm hover:bg-[var(--adc-ink2)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 rounded-[10px] border border-[var(--adc-ink)] bg-[var(--adv-accent)] px-4 text-[13px] font-semibold text-[var(--adc-s2)] shadow-sm hover:bg-[var(--adv-accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Saving..." : "Save Commercial Truth"}
         </button>
@@ -2180,11 +2156,9 @@ export function CommercialTruthSettingsSection({
         .catch(() => null)) as CommercialTruthSettingsResponse | null;
       if (
         !response.ok ||
-        !isRenderableCommercialSnapshot(payload?.snapshot) ||
-        typeof payload.revision !== "string" ||
+        !payload?.snapshot ||
         !payload.revision ||
-        !payload.permissions ||
-        typeof payload.permissions.canEdit !== "boolean"
+        !payload.permissions
       ) {
         throw new Error("Could not load commercial truth settings.");
       }

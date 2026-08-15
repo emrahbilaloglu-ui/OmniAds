@@ -25,7 +25,7 @@ const cols: ColDef<GeoRow>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : r.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -35,7 +35,7 @@ const cols: ColDef<GeoRow>[] = [
     key: "vsAvgCpa", header: "vs Avg CPA", accessor: (r) => r.vsAvgCpa ?? 0, align: "right",
     render: (r) =>
       r.vsAvgCpa == null ? "—" : (
-        <span className={cn(r.vsAvgCpa < -10 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.vsAvgCpa > 20 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground")}>
+        <span className={cn(r.vsAvgCpa < -10 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : r.vsAvgCpa > 20 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "text-muted-foreground")}>
           {r.vsAvgCpa > 0 ? "+" : ""}{r.vsAvgCpa}%
         </span>
       ),
@@ -66,7 +66,7 @@ export function GeoTab({ geoData, insights, isLoading }: GeoTabProps) {
       {insights && insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((ins, i) => (
-            <div key={i} className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 px-4 py-3">
+            <div key={i} className="rounded-xl border border-[var(--adc-info-bd)] dark:border-[var(--adc-info-bd)]/50 bg-[var(--adc-info-bg)] dark:bg-[var(--adc-info-fg)]/30 px-4 py-3">
               <p className="text-xs text-foreground">◈ {ins}</p>
             </div>
           ))}

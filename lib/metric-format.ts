@@ -96,16 +96,79 @@ export function formatPercentFromRatioSmart(value: number): string {
   return formatPercentSmart(value * 100);
 }
 
+/**
+ * How exact a metric should read. The v2 surfaces show figures the operator
+ * compares against provider UIs, so they opt out of compaction and ask for the
+ * extra percent digit; every other caller keeps the compact defaults.
+ */
+export interface MetricFormatOptions {
+  compactLarge?: boolean;
+  percentPrecision?: "smart" | "high";
+}
+
+export const EXACT_METRIC_FORMAT: MetricFormatOptions = {
+  compactLarge: false,
+  percentPrecision: "high",
+};
+
+function formatPercentPrecise(value: number): string {
+  if (!Number.isFinite(value)) return MISSING_VALUE;
+  const digits = Math.abs(value) >= 10 ? 1 : 2;
+  return `${value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}%`;
+}
+
 export function formatMetricValue(
   value: number | null,
   unit: MetricUnit,
-  currencySymbol: string
+  currencySymbol: string,
+  options: MetricFormatOptions = {}
 ): string {
   if (value === null || !Number.isFinite(value)) return MISSING_VALUE;
-  if (unit === "currency") return formatCurrencySmart(value, currencySymbol);
+  if (unit === "currency") {
+    return formatCurrencySmart(value, currencySymbol, {
+      compactLarge: options.compactLarge ?? true,
+    });
+  }
   if (unit === "count") return Math.round(value).toLocaleString();
   if (unit === "ratio") return value.toFixed(2);
-  if (unit === "percent") return formatPercentSmart(value);
+  if (unit === "percent") {
+    return options.percentPrecision === "high"
+      ? formatPercentPrecise(value)
+      : formatPercentSmart(value);
+  }
   if (unit === "duration_seconds") return `${Math.round(value)}s`;
   return String(value);
+}
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  TRY: "₺",
+  JPY: "¥",
+  CAD: "CA$",
+  AUD: "A$",
+  CHF: "Fr",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  RON: "lei",
+  BRL: "R$",
+  MXN: "MX$",
+  INR: "₹",
+  ZAR: "R",
+  AED: "د.إ",
+  SAR: "﷼",
+};
+
+/** ISO code to display symbol, falling back to the code itself. */
+export function currencySymbolFor(code: string | null | undefined): string {
+  if (!code) return "";
+  return CURRENCY_SYMBOLS[code.toUpperCase()] ?? code;
 }

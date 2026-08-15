@@ -274,38 +274,45 @@ function DetailList({
 }) {
   const values = (items ?? []).filter(Boolean);
   return (
+    /* v2 changes list: mono uppercase label, then each item as a bordered chip
+       the way the design renders the per-change values. */
     <div
       className={cn(
-        "rounded-lg border p-3",
+        "rounded-[10px] border p-3",
         tone === "danger"
-          ? "border-rose-200 bg-rose-50/50"
+          ? "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]"
           : tone === "primary"
-            ? "border-emerald-200 bg-emerald-50/60"
+            ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]"
           : tone === "muted"
-            ? "border-dashed bg-muted/10"
-            : "bg-muted/15"
+            ? "border-dashed border-[var(--adv-scroll-thumb)] bg-[var(--adv-fill)]"
+            : "border-[var(--adv-hairline)] bg-[var(--adv-fill)]"
       )}
     >
       <div
         className={cn(
-          "text-[12px] uppercase tracking-wide",
+          "font-[family-name:var(--adv-font-mono)] text-[9.5px] uppercase tracking-[0.06em]",
           tone === "danger"
-            ? "text-rose-700"
+            ? "text-[var(--adc-danger-fg)]"
             : tone === "primary"
-              ? "text-emerald-700"
-              : "text-muted-foreground"
+              ? "text-[var(--adc-pos-fg)]"
+              : "text-[var(--adv-ink-3)]"
         )}
       >
         {title}
       </div>
       {values.length > 0 ? (
-        <ul className="mt-2 space-y-1 text-sm text-slate-800">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {values.map((item, index) => (
-            <li key={`${title}-${index}`}>{item}</li>
+            <span
+              key={`${title}-${index}`}
+              className="rounded-[7px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-[9px] py-[3px] text-[12px] text-[var(--adv-ink-2)]"
+            >
+              {item}
+            </span>
           ))}
-        </ul>
+        </div>
       ) : (
-        <p className="mt-2 text-sm text-muted-foreground">{emptyLabel}</p>
+        <p className="mt-2 text-[12px] text-[var(--adv-ink-4)]">{emptyLabel}</p>
       )}
     </div>
   );
@@ -320,30 +327,32 @@ function SurfaceBlock({
   children: ReactNode;
   tone?: "default" | "primary" | "danger";
 }) {
+  // v2: mono 9px uppercase label over 12px body, matching the design's
+  // Expected effect / Why this now / Validation blocks.
   return (
     <div
       className={cn(
-        "rounded-lg border p-3",
+        "rounded-[10px] border p-3",
         tone === "primary"
-          ? "border-emerald-200 bg-emerald-50/60"
+          ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]"
           : tone === "danger"
-            ? "border-rose-200 bg-rose-50/50"
-            : "bg-muted/15"
+            ? "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]"
+            : "border-[var(--adv-hairline)] bg-[var(--adv-fill)]"
       )}
     >
       <div
         className={cn(
-          "text-[12px] uppercase tracking-wide",
+          "font-[family-name:var(--adv-font-mono)] text-[9px] uppercase tracking-[0.08em]",
           tone === "primary"
-            ? "text-emerald-700"
+            ? "text-[var(--adc-pos-fg)]"
             : tone === "danger"
-              ? "text-rose-700"
-              : "text-muted-foreground"
+              ? "text-[var(--adc-danger-fg)]"
+              : "text-[var(--adv-ink-4)]"
         )}
       >
         {title}
       </div>
-      <div className="mt-2 text-sm text-slate-800">{children}</div>
+      <div className="mt-1.5 text-[12px] leading-[1.5] text-[var(--adv-ink-2)]">{children}</div>
     </div>
   );
 }
@@ -420,7 +429,7 @@ function WorkflowSection({
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
           <div className="space-y-1">
-            <p className="text-[12px] uppercase tracking-wide text-muted-foreground">Validation due</p>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Validation due</p>
             <h3 className="text-base font-semibold">Recommendations waiting for operator outcome checks</h3>
           </div>
           {validationDue.length > 0 ? (
@@ -454,7 +463,7 @@ function WorkflowSection({
         </div>
         <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
           <div className="space-y-1">
-            <p className="text-[12px] uppercase tracking-wide text-muted-foreground">Recent outcomes</p>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recent outcomes</p>
             <h3 className="text-base font-semibold">Most recent logged operator validations</h3>
           </div>
           {recentOutcomes.length > 0 ? (
@@ -573,13 +582,17 @@ function RecommendationCard({
   }
 
   return (
-    <article className="space-y-4 rounded-xl border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+    /* v2 advisor card: the bucket/type/mode chip row sits in a tinted header band
+       above the body, per the design. */
+    <article className="overflow-hidden rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)]">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--adv-hairline)] bg-[var(--adv-fill)] px-4 py-[13px]">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge className={cn("border", laneTone(lane))} variant="outline">
             {laneLabel(lane)}
           </Badge>
-          <Badge variant="outline">{familyLabel(recommendation.decisionFamily)}</Badge>
+          <span className="font-[family-name:var(--adv-font-mono)] text-[10.5px] uppercase tracking-[0.08em] text-[var(--adv-ink-3)]">
+            {familyLabel(recommendation.decisionFamily)}
+          </span>
           <Badge variant="outline">{labelize(recommendation.strategyLayer)}</Badge>
           {executionSurface?.writebackEnabled ? null : <Badge variant="outline">Manual plan only</Badge>}
           {aiStructuredAssist ? <Badge variant="outline">AI-structured assist</Badge> : null}
@@ -607,9 +620,10 @@ function RecommendationCard({
         </div>
       </div>
 
+      <div className="space-y-4 p-4">
       <div
         className={cn(
-          "rounded-xl border p-4",
+          "rounded-[10px] border p-4",
           actionCard.blockedBecause.length > 0
             ? "border-rose-200 bg-rose-50/40"
             : "border-emerald-200 bg-emerald-50/40"
@@ -617,7 +631,7 @@ function RecommendationCard({
       >
         <div
           className={cn(
-            "text-[12px] uppercase tracking-wide",
+            "text-[10px] uppercase tracking-wide",
             actionCard.blockedBecause.length > 0 ? "text-rose-700" : "text-emerald-700"
           )}
         >
@@ -658,7 +672,7 @@ function RecommendationCard({
       </div>
 
       <div className="space-y-3">
-        <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Exact changes</div>
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Exact changes</div>
         <div className="grid gap-3 md:grid-cols-2">
           {exactChanges.map((block) => (
             <DetailList
@@ -672,7 +686,7 @@ function RecommendationCard({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
         <DetailList
           title="Evidence"
           items={evidencePoints.map((item) => `${item.label}: ${item.value}`)}
@@ -742,7 +756,7 @@ function RecommendationCard({
         <div className="rounded-lg border bg-muted/10 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Operator actions</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Operator actions</div>
               <p className="mt-1 text-sm text-slate-800">
                 Manual-plan-first workflow. These controls record operator intent and validation only.
               </p>
@@ -814,7 +828,7 @@ function RecommendationCard({
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="space-y-1">
-              <span className="text-[12px] uppercase tracking-wide text-muted-foreground">Outcome</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Outcome</span>
               <select
                 className="rounded-md border bg-background px-2 py-1 text-sm"
                 value={outcomeVerdict}
@@ -833,7 +847,7 @@ function RecommendationCard({
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-[12px] uppercase tracking-wide text-muted-foreground">Confidence</span>
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Confidence</span>
               <select
                 className="rounded-md border bg-background px-2 py-1 text-sm"
                 value={outcomeConfidence}
@@ -953,6 +967,7 @@ function RecommendationCard({
           ) : null}
         </div>
       ) : null}
+      </div>
     </article>
   );
 }
@@ -1178,26 +1193,26 @@ export function GoogleAdvisorPanel({
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Top constraint</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Top constraint</div>
               <div className="mt-1 text-sm">{advisor.summary.topConstraint}</div>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Top growth lever</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Top growth lever</div>
               <div className="mt-1 text-sm">{advisor.summary.topGrowthLever}</div>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Recommended focus</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Recommended focus</div>
               <div className="mt-1 text-sm">{advisor.summary.recommendedFocusToday}</div>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Queue load</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Queue load</div>
               <div className="mt-1 text-sm">
                 {advisor.recommendations.length} decisions · {queueByLane.review.length} review · {validationDueCount} validation due
               </div>
             </div>
           </div>
           <div className="mt-3 rounded-lg border bg-muted/15 p-3">
-            <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Watchouts</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Watchouts</div>
             <p className="mt-1 text-sm text-slate-800">
               {advisor.summary.watchouts.length > 0
                 ? advisor.summary.watchouts.join(" · ")
@@ -1216,26 +1231,26 @@ export function GoogleAdvisorPanel({
           </div>
           <div className="mt-4 grid gap-3">
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Primary decision window</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Primary decision window</div>
               <div className="mt-1 text-sm">
                 {advisor.metadata?.analysisWindows.operationalWindow.label ?? "Unavailable"}
               </div>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Query governance window</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Query governance window</div>
               <div className="mt-1 text-sm">
                 {advisor.metadata?.analysisWindows.queryGovernanceWindow.label ?? "Unavailable"}
               </div>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Baseline window</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Baseline window</div>
               <div className="mt-1 text-sm">
                 {advisor.metadata?.analysisWindows.baselineWindow.label ?? "Unavailable"}
               </div>
             </div>
             {selectedRangeContext ? (
               <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3">
-                <div className="text-[12px] uppercase tracking-wide text-sky-700">Selected-range context</div>
+                <div className="text-[10px] uppercase tracking-wide text-sky-700">Selected-range context</div>
                 <p className="mt-1 text-sm text-slate-800">{selectedRangeContext.summary}</p>
                 <p className="mt-1 text-xs text-sky-800/80">
                   Selected range stays contextual and does not replace the decision snapshot.
@@ -1243,20 +1258,20 @@ export function GoogleAdvisorPanel({
               </div>
             ) : (
               <div className="rounded-lg border border-dashed bg-muted/10 p-3">
-                <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Selected-range context</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Selected-range context</div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   No contextual selected-range note is available for this snapshot.
                 </p>
               </div>
             )}
             <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-amber-700">Operator-first mode</div>
+              <div className="text-[10px] uppercase tracking-wide text-amber-700">Operator-first mode</div>
               <p className="mt-1 text-sm text-slate-800">
                 {advisor.metadata?.executionSurface?.summary ?? "Adsecute V1 remains operator-first."}
               </p>
             </div>
             <div className="rounded-lg border bg-muted/15 p-3">
-              <div className="text-[12px] uppercase tracking-wide text-muted-foreground">Aggregate support</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Aggregate support</div>
               <p className="mt-1 text-sm text-slate-800">
                 {aggregateIntelligence?.note ?? "No aggregate-intelligence note is attached to this snapshot."}
               </p>

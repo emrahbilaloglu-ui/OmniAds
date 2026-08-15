@@ -28,8 +28,7 @@
   overflow-x: clip;
   background: var(--auto-canvas);
   color: var(--auto-ink);
-  font-family:
-    var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--adv-font-body);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -69,14 +68,15 @@
   min-width: 0;
 }
 
+/* Dashboard v2 page head: the title sits on the canvas, not in a white band. */
 .pageHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
-  border-bottom: 1px solid var(--auto-border);
-  background: var(--auto-surface);
-  padding: 17px clamp(16px, 2.2vw, 30px) 14px;
+  flex-wrap: wrap;
+  background: transparent;
+  padding: 0;
 }
 
 .titleBlock,
@@ -90,9 +90,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-family: var(--adv-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .titleBlock h1,
@@ -102,13 +105,22 @@
 .actionClassHeading h3 {
   margin: 0;
   color: var(--auto-ink);
-  font-weight: 650;
-  letter-spacing: 0;
+  font-family: var(--adv-font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.titleBlock h1 {
-  font-size: 22px;
-  line-height: 1.2;
+.titleBlock h1,
+.mobileSurface h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.sectionHeader h2,
+.panelHeader h2 {
+  font-size: 15px;
 }
 
 .titleBlock p,
@@ -139,11 +151,11 @@
   align-items: center;
   gap: 7px;
   border: 1px solid var(--auto-border-strong);
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--auto-surface);
   padding: 4px 8px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .accountSelect select {
@@ -177,7 +189,7 @@
   gap: 6px;
   min-height: 32px;
   border: 1px solid var(--auto-border-strong);
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--auto-surface);
   color: var(--auto-ink-2);
   cursor: pointer;
@@ -193,53 +205,48 @@
   color: var(--auto-ink);
 }
 
+/* v2 segment pills, matching the Creative Studio and Decision Center tab rows. */
 .tabBar {
   display: flex;
-  gap: 22px;
+  gap: 8px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--auto-border);
-  background: var(--auto-surface);
-  padding: 0 clamp(16px, 2.2vw, 30px);
+  background: transparent;
+  padding: 0 0 4px;
   scrollbar-width: none;
 }
 
 .tabButton {
-  position: relative;
   flex: none;
-  min-height: 40px;
-  border: 0;
-  background: transparent;
-  color: var(--auto-ink-3);
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid var(--auto-border);
+  border-radius: 9999px;
+  background: var(--auto-surface);
+  color: var(--auto-ink-2);
   cursor: pointer;
   font: inherit;
+  font-size: 12.5px;
   font-weight: 600;
-  padding: 0;
+  padding: 0 13px;
+  white-space: nowrap;
 }
 
-.tabButton::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  background: transparent;
-  content: "";
+.tabButton:hover {
+  background: var(--adv-fill);
 }
 
 .tabButton[data-active="true"] {
-  color: var(--auto-ink);
+  border-color: var(--adv-accent-bd);
+  background: var(--adv-accent-bg);
+  color: var(--adv-accent);
 }
 
-.tabButton[data-active="true"]::after {
-  background: var(--auto-ink);
-}
-
+/* The page frame owns the 1560px column; the surface fills it. */
 .content {
   display: grid;
-  gap: 10px;
-  width: min(100%, 1320px);
-  margin: 0 auto;
-  padding: 16px clamp(16px, 2.2vw, 30px) 36px;
+  gap: 12px;
+  padding: 0;
 }
 
 .alertBand {
@@ -249,7 +256,7 @@
   gap: 9px;
   min-width: 0;
   border: 1px solid var(--auto-border);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--auto-surface);
   color: var(--auto-ink-2);
   padding: 8px 10px;
@@ -289,7 +296,7 @@
 }
 
 .alertCopy span {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .alertAction {
@@ -304,7 +311,7 @@
   gap: 8px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 11px;
   padding: 3px 1px 9px;
 }
 
@@ -314,7 +321,7 @@
 
 .actionNotice {
   border: 1px solid var(--auto-success-border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--auto-success-bg);
   color: var(--auto-success-fg);
   padding: 8px 10px;
@@ -325,7 +332,7 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--auto-border);
-  border-radius: 6px;
+  border-radius: 14px;
   background: var(--auto-surface);
 }
 
@@ -348,7 +355,7 @@
 .sectionHeader p,
 .panelHeader p {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .panelHeader > svg {
@@ -365,7 +372,7 @@
   border-radius: 999px;
   background: var(--auto-subtle);
   color: var(--auto-ink-2);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
   padding: 3px 7px;
@@ -402,31 +409,33 @@
   color: var(--auto-agency-fg);
 }
 
+/* Dashboard v2 renders the authority trio as three standalone cards rather than
+   one banded strip; the tone rail becomes the card's left edge. */
 .summaryBand {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-bottom: 1px solid var(--auto-border);
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+  padding: 14px;
 }
 
 .summaryItem {
   position: relative;
   display: grid;
   align-content: start;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   min-height: 92px;
-  border-right: 1px solid var(--auto-border);
-  padding: 12px 14px 11px 17px;
-}
-
-.summaryItem:last-child {
-  border-right: 0;
+  overflow: hidden;
+  border: 1px solid var(--auto-border);
+  border-radius: 14px;
+  background: var(--auto-surface);
+  padding: 14px 16px 14px 19px;
 }
 
 .summaryItem::before {
   position: absolute;
-  top: 14px;
-  bottom: 14px;
+  top: 0;
+  bottom: 0;
   left: 0;
   width: 3px;
   background: var(--auto-border-strong);
@@ -451,21 +460,26 @@
 
 .summaryLabel {
   color: var(--auto-ink-3);
-  font-size: 12px;
-  font-weight: 650;
+  font-family: var(--adv-font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .summaryItem > strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 15px;
-  line-height: 1.25;
+  font-family: var(--adv-font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .summaryDetail {
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.35;
 }
 
@@ -476,7 +490,7 @@
   gap: 6px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 10.5px;
   padding: 8px 14px;
 }
 
@@ -526,7 +540,7 @@
 
 .actionClassHeading p {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .actionClassFacts {
@@ -542,7 +556,7 @@
 
 .actionClassFacts dt {
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -558,14 +572,14 @@
 .actionClassFacts strong,
 .promotionTransition code {
   color: var(--auto-ink);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
 }
 
 .actionClassFacts dd span {
   overflow-wrap: anywhere;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .rowFootnotes {
@@ -574,7 +588,7 @@
   flex-wrap: wrap;
   gap: 4px 14px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .evidenceTable {
@@ -600,7 +614,7 @@
   min-height: 34px;
   background: var(--auto-subtle);
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -614,7 +628,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--auto-ink-2);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .evidenceRow > span:first-child {
@@ -624,7 +638,7 @@
 
 .evidenceRow strong {
   color: var(--auto-ink);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .evidenceRow small {
@@ -655,17 +669,17 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-danger-fg);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .gateRequirement {
   color: var(--auto-ink-2);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .gateMissing {
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .controlGrid,
@@ -713,13 +727,13 @@
 }
 
 .switchIdentity strong {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .switchIdentity small {
   overflow: hidden;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
   text-overflow: ellipsis;
 }
 
@@ -788,7 +802,7 @@
   border-radius: 5px;
   background: var(--auto-warning-bg);
   color: var(--auto-warning-fg);
-  font-size: 12px;
+  font-size: 10px;
   padding: 7px 8px;
 }
 
@@ -809,13 +823,13 @@
 
 .guardrailRow > span:first-child {
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .guardrailRow > strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 12px;
+  font-size: 10.5px;
   text-align: right;
 }
 
@@ -874,7 +888,7 @@
 .promotionTopline strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .ledgerMeta {
@@ -883,7 +897,7 @@
   gap: 3px 10px;
   margin-top: 4px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 9.5px;
 }
 
 .ledgerMeta code {
@@ -906,12 +920,12 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .promotionRow p,
 .promotionRow time {
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .promotionRow time {
@@ -923,7 +937,7 @@
   border-radius: 5px;
   margin: 10px 12px;
   color: var(--auto-ink-3);
-  font-size: 12px;
+  font-size: 11px;
   padding: 11px;
 }
 
@@ -994,7 +1008,7 @@
 
   .mobileFacts dt {
     color: var(--auto-ink-3);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .mobileFacts dd {
@@ -1002,7 +1016,7 @@
     margin: 0;
     overflow-wrap: anywhere;
     color: var(--auto-ink);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 650;
     text-align: right;
   }
@@ -1015,7 +1029,7 @@
     border-radius: 6px;
     background: var(--auto-danger-bg);
     color: var(--auto-danger-fg);
-    font-size: 12px;
+    font-size: 11px;
     padding: 9px 10px;
   }
 

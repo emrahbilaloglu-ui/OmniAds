@@ -40,11 +40,11 @@ function fmt(n: number, type: "number" | "percent" | "currency" = "number"): str
 }
 
 function retentionColor(rate: number): string {
-  if (rate >= 0.4) return "bg-emerald-500 text-white";
-  if (rate >= 0.25) return "bg-emerald-300 text-emerald-900";
-  if (rate >= 0.15) return "bg-amber-200 text-amber-900";
-  if (rate >= 0.05) return "bg-orange-200 text-orange-900";
-  return "bg-rose-100 text-rose-800";
+  if (rate >= 0.4) return "bg-[var(--adc-pos-fg)] text-white";
+  if (rate >= 0.25) return "bg-[var(--adc-pos-fg)] text-[var(--adc-pos-fg)]";
+  if (rate >= 0.15) return "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
+  if (rate >= 0.05) return "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
+  return "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]";
 }
 
 function formatWeek(week: string): string {
@@ -126,8 +126,7 @@ export function CohortSection({
                     <td className="py-2.5 pr-4 text-right tabular-nums">{fmt(w.returningSessions)}</td>
                     <td className="py-2.5 pr-4 text-right">
                       <span
-                        className={cn(
-                          "rounded px-1.5 py-0.5 font-semibold tabular-nums",
+                        className={cn( "rounded px-1.5 py-0.5 font-semibold tabular-nums",
                           retentionColor(w.retentionRate)
                         )}
                       >
@@ -172,9 +171,8 @@ export function CohortSection({
                     <td className="py-2.5 pr-4 text-right tabular-nums">{fmt(m.sessions)}</td>
                     <td className="py-2.5 pr-4 text-right tabular-nums">{fmt(m.purchases)}</td>
                     <td className="py-2.5 pr-4 text-right tabular-nums">
-                      <span className={cn(
-                        "font-medium",
-                        m.purchaseCvr >= 0.02 ? "text-emerald-600 dark:text-emerald-400" : ""
+                      <span className={cn( "font-medium",
+                        m.purchaseCvr >= 0.02 ? "text-[var(--adc-pos-fg)] " : ""
                       )}>
                         {fmt(m.purchaseCvr, "percent")}
                       </span>

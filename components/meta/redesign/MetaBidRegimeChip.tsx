@@ -6,16 +6,16 @@ interface MetaBidRegimeChipProps {
 
 const REGIME_TONES: Record<MetaBidRegime, string> = {
   lowest_cost: "bg-slate-50 text-slate-700 border-slate-200",
-  cost_cap: "bg-blue-50 text-blue-700 border-blue-200",
-  bid_cap: "bg-violet-50 text-violet-700 border-violet-200",
-  minimum_roas: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  cost_cap: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] border-[var(--adc-info-bd)]",
+  bid_cap: "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)] border-[var(--adc-auto-bd)]",
+  minimum_roas: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] border-[var(--adc-pos-bd)]",
   unknown: "bg-slate-50 text-slate-500 border-slate-200",
 };
 
 export function MetaBidRegimeChip({ regime }: MetaBidRegimeChipProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${REGIME_TONES[regime]}`}
+      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider ${REGIME_TONES[regime]}`}
       data-bid-regime={regime}
     >
       {META_BID_REGIME_LABELS[regime]}

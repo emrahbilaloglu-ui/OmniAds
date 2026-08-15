@@ -26,10 +26,10 @@ interface Creative {
 }
 
 const STRENGTH_CONFIG: Record<string, { cls: string; icon: string }> = {
-  Best:     { cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300", icon: "✦" },
-  Good:     { cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",             icon: "●" },
-  Low:      { cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",             icon: "↓" },
-  Learning: { cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",         icon: "…" },
+  Best:     { cls: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]", icon: "✦" },
+  Good:     { cls: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",             icon: "●" },
+  Low:      { cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",             icon: "↓" },
+  Learning: { cls: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",         icon: "…" },
   Unknown:  { cls: "bg-muted text-muted-foreground",                                               icon: "?" },
 };
 
@@ -51,10 +51,10 @@ function CoverageIndicators({ assetMix }: { assetMix?: Record<string, number> })
             key={t}
             title={`${t}: ${count}`}
             className={cn(
-              "rounded px-1 py-0.5 text-[12px] font-semibold uppercase",
+              "rounded px-1 py-0.5 text-[8px] font-semibold uppercase",
               count > 0
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                : "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 opacity-60"
+                ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]"
+                : "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)] opacity-60"
             )}
           >
             {t.slice(0, 3)} {count > 0 ? count : "✕"}
@@ -73,12 +73,12 @@ const cols: ColDef<Creative>[] = [
       return (
         <div className="max-w-[200px]">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", cfg.cls)}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", cfg.cls)}>
               {cfg.icon} {r.adStrength ?? "Unknown"}
             </span>
           </div>
           <p className="text-xs font-medium truncate" title={r.name}>{r.name}</p>
-          <p className="text-[12px] text-muted-foreground">{r.type}</p>
+          <p className="text-[10px] text-muted-foreground">{r.type}</p>
           {r.assetMix && (
             <div className="mt-1">
               <CoverageIndicators assetMix={r.assetMix} />
@@ -94,7 +94,7 @@ const cols: ColDef<Creative>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn("font-semibold", r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : r.roas < 1 && r.roas > 0 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn("font-semibold", r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : r.roas < 1 && r.roas > 0 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -106,7 +106,7 @@ const cols: ColDef<Creative>[] = [
     render: (r) => {
       const score = diversityScore(r.assetMix);
       return (
-        <span className={cn("font-medium", score >= 80 ? "text-emerald-600 dark:text-emerald-400" : score < 40 ? "text-rose-600 dark:text-rose-400" : "")}>
+        <span className={cn("font-medium", score >= 80 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : score < 40 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
           {r.assetMix ? `${score}%` : "—"}
         </span>
       );
@@ -140,23 +140,23 @@ export function AssetGroupsTab({ creatives, insights, isLoading }: AssetGroupsTa
 
       {/* Strength summary */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-3">
+        <div className="rounded-xl border border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50 bg-[var(--adc-pos-bg)] dark:bg-[var(--adc-pos-fg)]/30 p-3">
           <p className="text-xs text-muted-foreground">Best Strength</p>
-          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{bestCount}</p>
+          <p className="text-2xl font-bold text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]">{bestCount}</p>
         </div>
         <div className="rounded-xl border bg-card p-3">
           <p className="text-xs text-muted-foreground">Asset Groups</p>
           <p className="text-2xl font-bold">{creatives.length}</p>
         </div>
-        <div className={cn("rounded-xl border p-3", lowCount > 0 ? "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30" : "bg-card")}>
+        <div className={cn("rounded-xl border p-3", lowCount > 0 ? "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30" : "bg-card")}>
           <p className="text-xs text-muted-foreground">Low Strength</p>
-          <p className={cn("text-2xl font-bold", lowCount > 0 ? "text-rose-600 dark:text-rose-400" : "")}>{lowCount}</p>
+          <p className={cn("text-2xl font-bold", lowCount > 0 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>{lowCount}</p>
         </div>
       </div>
 
       {/* Missing assets warning */}
       {missingAssets.length > 0 && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+        <div className="rounded-xl border border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50 bg-[var(--adc-caution-bg)] dark:bg-[var(--adc-caution-fg)]/30 px-4 py-3">
           <p className="text-xs font-semibold">△ {missingAssets.length} asset group{missingAssets.length > 1 ? "s" : ""} missing asset types</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Add missing headlines, descriptions, and images to improve ad strength and reach.
@@ -168,7 +168,7 @@ export function AssetGroupsTab({ creatives, insights, isLoading }: AssetGroupsTa
       {insights && insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((ins, i) => (
-            <div key={i} className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+            <div key={i} className="rounded-xl border border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50 bg-[var(--adc-caution-bg)] dark:bg-[var(--adc-caution-fg)]/30 px-4 py-3">
               <p className="text-xs">△ {ins}</p>
             </div>
           ))}

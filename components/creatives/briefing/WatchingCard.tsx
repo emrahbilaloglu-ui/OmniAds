@@ -127,7 +127,7 @@ export function WatchingCard({
     canLaunchFreshTest ? (
       <button
         type="button"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 text-[12px] font-medium text-blue-700 hover:bg-blue-100"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-3 text-[11.5px] font-medium text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
         data-action="primary"
         data-kind="fresh_test"
         data-id={watchingCardId}
@@ -143,7 +143,7 @@ export function WatchingCard({
     ) : (
       <button
         type="button"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 text-[11.5px] font-medium text-neutral-700 hover:bg-neutral-50"
         data-action="evidence"
         data-id={watchingCardId}
         aria-haspopup="dialog"
@@ -160,7 +160,7 @@ export function WatchingCard({
     <DeferTooltip>
       <button
         type="button"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 text-[12px] text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 text-[11.5px] text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
         data-action="defer"
         data-id={watchingCardId}
         disabled={deferred}
@@ -189,7 +189,7 @@ export function WatchingCard({
             data-lane="watching"
             checked={selected}
             onChange={(event) => onSelectChange?.(watchingCardId, event.currentTarget.checked)}
-            className="w-4 h-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            className="w-4 h-4 rounded border-neutral-300 text-[var(--adc-info-fg)] focus:ring-blue-500 cursor-pointer"
           />
         </label>
         <button
@@ -213,7 +213,7 @@ export function WatchingCard({
               </button>
             </h4>
             <CampaignKindChip card={card} />
-            <span className="text-[12px] uppercase tracking-wider text-neutral-400">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-400">
               {card.brand || "Brand"}
             </span>
             <DecisionLabelChip label={label} size="sm">
@@ -224,13 +224,13 @@ export function WatchingCard({
             ))}
             <ConfidencePill confidence={confidence} size="sm" />
           </div>
-          <div className="text-[12px] text-neutral-500 mt-0.5">
+          <div className="text-[11px] text-neutral-500 mt-0.5">
             {cardCampaign(card)} <span className="text-neutral-300">·</span> {cardAdset(card)}
           </div>
-          <div className="text-[12px] text-neutral-600 mt-1 leading-snug">
+          <div className="text-[11.5px] text-neutral-600 mt-1 leading-snug">
             {card.reason || "No engine reason supplied."}
           </div>
-          <div className="flex items-center gap-3 mt-1.5 text-[12px] text-neutral-500">
+          <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-neutral-500">
             <span className="font-mono tabular-nums">{formatOptionalCurrency(card.spend, card.currency)}</span>
             <span className="text-neutral-300">·</span>
             <span className="font-mono tabular-nums">{formatOptionalRoas(card.roas)}</span>
@@ -245,7 +245,7 @@ export function WatchingCard({
           <DeferTooltip>
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
               data-action="defer"
               data-id={watchingCardId}
               disabled={deferred}
@@ -260,7 +260,7 @@ export function WatchingCard({
           </DeferTooltip>
           <button
             type="button"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[12px]"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[11px]"
             data-action="evidence"
             data-id={watchingCardId}
             aria-haspopup="dialog"
@@ -274,7 +274,7 @@ export function WatchingCard({
           {canLaunchFreshTest ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[12px]"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)] text-[11px]"
               data-action="primary"
               data-kind="fresh_test"
               data-id={watchingCardId}

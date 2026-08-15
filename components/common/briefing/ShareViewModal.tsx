@@ -123,7 +123,7 @@ export function ShareViewModal({
             <h2 className="text-[14px] font-bold tracking-tight text-neutral-900">
               Share view
             </h2>
-            <div className="text-[12px] text-neutral-500">
+            <div className="text-[11.5px] text-neutral-500">
               preset · {presetLabel} · {itemCount} creatives
             </div>
           </div>
@@ -139,7 +139,7 @@ export function ShareViewModal({
 
         <div className="px-5 py-4 space-y-4 text-[12.5px] text-neutral-700">
           <section>
-            <div className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
               Audience
             </div>
             <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
@@ -161,12 +161,12 @@ export function ShareViewModal({
                     className={
                       "rounded-md border px-3 py-2 text-left " +
                       (active
-                        ? "border-blue-300 bg-blue-50 text-blue-700"
+                        ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
                         : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50")
                     }
                   >
                     <div className="font-semibold">{aud.label}</div>
-                    <div className="mt-0.5 text-[12px] text-neutral-500">
+                    <div className="mt-0.5 text-[11px] text-neutral-500">
                       {aud.description}
                     </div>
                   </button>
@@ -186,7 +186,7 @@ export function ShareViewModal({
                     hideDecisionLanguage: event.currentTarget.checked,
                   }))
                 }
-                className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-neutral-300 text-[var(--adc-info-fg)] focus:ring-blue-500"
               />
               <span>Hide all decision language (Cut / Scale / Promote)</span>
             </label>
@@ -200,7 +200,7 @@ export function ShareViewModal({
                     freezeSnapshot: event.currentTarget.checked,
                   }))
                 }
-                className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-neutral-300 text-[var(--adc-info-fg)] focus:ring-blue-500"
               />
               <span>Freeze data snapshot (view stays consistent for recipients)</span>
             </label>
@@ -227,7 +227,7 @@ export function ShareViewModal({
           </section>
 
           <section>
-            <div className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
               Share link
             </div>
             <div className="mt-1.5 flex items-stretch overflow-hidden rounded-md border border-neutral-200">
@@ -235,7 +235,7 @@ export function ShareViewModal({
                 type="text"
                 value={url}
                 readOnly
-                className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[12px] text-neutral-700 focus:outline-none"
+                className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[11.5px] text-neutral-700 focus:outline-none"
                 aria-label="Share URL"
               />
               <button
@@ -247,7 +247,7 @@ export function ShareViewModal({
                 {copyState === "copied" ? "Copied" : "Copy"}
               </button>
             </div>
-            <div className="mt-1.5 text-[12px] text-neutral-500">
+            <div className="mt-1.5 text-[10.5px] text-neutral-500">
               Public URL pattern · /share/creative/[token] — token is minted on
               Confirm. Backend signing is future work.
             </div>
@@ -265,7 +265,7 @@ export function ShareViewModal({
           <button
             type="button"
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-1 rounded-md bg-[var(--adc-info-fg)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--adc-info-fg)]"
           >
             Create share link
           </button>

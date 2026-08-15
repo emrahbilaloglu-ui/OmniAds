@@ -37,7 +37,7 @@ function getCols(language: "en" | "tr"): ColDef<BudgetCampaign>[] {
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : r.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -50,7 +50,7 @@ function getCols(language: "en" | "tr"): ColDef<BudgetCampaign>[] {
     key: "lostIsBudget", header: language === "tr" ? "Kayip IS (Butce)" : "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
     render: (r) =>
       r.lostIsBudget != null && r.lostIsBudget > 0
-        ? <span className="text-amber-600 dark:text-amber-400 font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
+        ? <span className="text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)] font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
         : "—",
   },
   {
@@ -60,7 +60,7 @@ function getCols(language: "en" | "tr"): ColDef<BudgetCampaign>[] {
     align: "right",
     render: (r) =>
       r.lostIsRank != null && r.lostIsRank > 0
-        ? <span className="text-rose-600 dark:text-rose-400 font-semibold">{fmtPercent(r.lostIsRank * 100)}</span>
+        ? <span className="text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] font-semibold">{fmtPercent(r.lostIsRank * 100)}</span>
         : "—",
   },
 ];
@@ -101,13 +101,13 @@ export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRo
                 className={cn(
                   "rounded-xl border p-4",
                   rec.direction === "increase"
-                    ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30"
-                    : "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30"
+                    ? "border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50 bg-[var(--adc-pos-bg)] dark:bg-[var(--adc-pos-fg)]/30"
+                    : "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30"
                 )}
               >
                 <p className="text-xs font-semibold truncate" title={rec.campaign}>{rec.campaign}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{rec.reason}</p>
-                <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+                <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]")}>
                   {rec.direction === "increase" ? "+" : "-"}{fmtCurrency(Math.abs(rec.suggestedBudgetChange))}
                   <span className="text-xs font-normal text-muted-foreground ml-1">{language === "tr" ? "önerilen kaydırma" : "suggested shift"}</span>
                 </p>

@@ -36,30 +36,30 @@ export function GoogleIntegrationProgress({
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   {stage.title}
                 </p>
-                <p className="mt-1 text-[12px] font-medium leading-4 text-foreground">
+                <p className="mt-1 text-[11px] font-medium leading-4 text-foreground">
                   {stage.detail}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {typeof stage.percent === "number" ? (
-                  <span className="text-[12px] font-semibold tabular-nums text-muted-foreground">
+                  <span className="text-[10px] font-semibold tabular-nums text-muted-foreground">
                     {stage.percent}%
                   </span>
                 ) : null}
                 <span
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[12px] font-semibold capitalize",
+                    "rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
                     stage.state === "ready" &&
-                      "border-emerald-200 bg-emerald-50 text-emerald-700",
+                      "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
                     stage.state === "working" &&
-                      "border-sky-200 bg-sky-50 text-sky-700",
+                      "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
                     stage.state === "waiting" &&
                       "border-neutral-200 bg-neutral-50 text-neutral-700",
                     stage.state === "blocked" &&
-                      "border-amber-200 bg-amber-50 text-amber-800",
+                      "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
                   )}
                 >
                   {stage.label}
@@ -67,7 +67,7 @@ export function GoogleIntegrationProgress({
               </div>
             </div>
             {stage.evidence ? (
-              <p className="text-[12px] leading-4 text-muted-foreground">
+              <p className="text-[10px] leading-4 text-muted-foreground">
                 {stage.evidence}
               </p>
             ) : null}

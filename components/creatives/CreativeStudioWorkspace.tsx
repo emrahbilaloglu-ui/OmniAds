@@ -1,6 +1,5 @@
 "use client";
 
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
@@ -195,7 +194,6 @@ export function CreativeStudioWorkspace({
   onCreateBrief,
   onEditBrief,
 }: CreativeStudioWorkspaceProps) {
-
   const cardIndex = indexCreativeStudioBriefingCards(briefingCards);
   const winnerEvidence = buildCurrentWinnerEvidence(briefingCards);
   const historicalState = buildHistoricalWinnerEraState(briefingCards);
@@ -230,21 +228,6 @@ export function CreativeStudioWorkspace({
     new Set(briefingCards.map((card) => card.engineVersion?.trim()).filter((value): value is string => Boolean(value))),
   );
   const sourceAsOf = briefingSource?.asOf ?? briefingCards.find((card) => card.sourceAsOf)?.sourceAsOf ?? null;
-
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // state this surface already has, so it cannot drift from what is on screen.
-  useTierZeroFreshness({
-    surface: "creative_studio",
-    isLoading: decisionContextState === "loading",
-    error: decisionContextState === "error" ? decisionContextError : null,
-    // Briefs failing is a hole in the workspace, not an empty workspace.
-    partialReason:
-      creativeBriefsState === "error"
-        ? "Creative briefs could not be read; this view is incomplete"
-        : null,
-    asOf: sourceAsOf,
-    businessId,
-  });
   const sourceDataSource = briefingSource?.dataSource ?? briefingCards.find((card) => card.sourceDataSource)?.sourceDataSource ?? null;
   const freshness = briefingSource?.dataHealth?.worstTier ?? null;
 

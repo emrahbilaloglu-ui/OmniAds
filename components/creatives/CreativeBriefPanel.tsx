@@ -149,7 +149,7 @@ export function CreativeBriefPanel({
             <FileCheck2 className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />
             Creative Brief
           </h3>
-          <p className="mt-1 text-[12px] leading-4 text-[var(--muted)]">
+          <p className="mt-1 text-[11px] leading-4 text-[var(--muted)]">
             A separate workflow object. It never changes the engine label or raw decision evidence.
           </p>
         </div>
@@ -159,21 +159,21 @@ export function CreativeBriefPanel({
       </div>
 
       {!currentBrief && !sourceMatched ? (
-        <div className="mt-3 flex gap-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-2.5 text-[12px] leading-4 text-[var(--warn)]">
+        <div className="mt-3 flex gap-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] p-2.5 text-[11px] leading-4 text-[var(--warn)]">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           The live card does not reconcile to an account-scoped persisted decision snapshot. Brief creation is withheld.
         </div>
       ) : null}
 
       {currentBrief && !sourceMatchesCurrentCard ? (
-        <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2.5 text-[12px] leading-4 text-[var(--muted)]">
+        <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2.5 text-[11px] leading-4 text-[var(--muted)]">
           This brief preserves decision snapshot {currentBrief.sourceDecision.snapshotAsOf}. Its immutable source remains historical even if the live card has moved to a newer decision.
         </div>
       ) : null}
 
       <div className="mt-3 grid gap-2.5">
         {(["keep", "change", "next"] as const).map((field) => (
-          <label key={field} className="grid gap-1 text-[12px] font-semibold text-[var(--ink)]">
+          <label key={field} className="grid gap-1 text-[11px] font-semibold text-[var(--ink)]">
             {field === "keep" ? "Keep" : field === "change" ? "Change" : "Next test"}
             <textarea
               value={content[field]}
@@ -196,7 +196,7 @@ export function CreativeBriefPanel({
       </div>
 
       {error ? (
-        <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-2.5 py-2 text-[12px] text-[var(--danger)]" role="alert">
+        <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-2.5 py-2 text-[11px] text-[var(--danger)]" role="alert">
           {error}
         </p>
       ) : null}
@@ -238,7 +238,7 @@ export function CreativeBriefPanel({
         ) : null}
       </div>
 
-      <p className="mt-2 font-mono text-[12px] leading-4 text-[var(--muted)]">
+      <p className="mt-2 font-mono text-[10px] leading-4 text-[var(--muted)]">
         {currentBrief
           ? `brief ${currentBrief.id} · v${currentBrief.version} · source ${currentBrief.sourceDecision.snapshotId}`
           : snapshotId

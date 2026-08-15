@@ -141,6 +141,12 @@ export function OpportunityFlags({
       {opportunities.map((op, i) => (
         <OpportunityCard key={i} op={op} />
       ))}
+      {/* The design states where the flags come from, so a quiet screen reads
+          as "nothing crossed a threshold" rather than "nothing was checked". */}
+      <p className="m-0 pt-1 font-[family-name:var(--adv-font-mono)] text-[10.5px] leading-[1.6] text-[var(--adv-ink-4)]">
+        Derived from this window&apos;s funnel, landing-page, audience and
+        channel reads — thresholds, not opinions. Not enough data → no flag.
+      </p>
     </div>
   );
 }
@@ -148,25 +154,25 @@ export function OpportunityFlags({
 function OpportunityCard({ op }: { op: Opportunity }) {
   const config = {
     opportunity: {
-      icon: <Zap className="h-4 w-4 text-blue-600 dark:text-blue-400" />,
-      border: "border-blue-200 dark:border-blue-900/50",
-      bg: "bg-blue-50 dark:bg-blue-950/30",
-      titleColor: "text-blue-900 dark:text-blue-100",
-      textColor: "text-blue-700 dark:text-blue-300",
+      icon: <Zap className="h-4 w-4 text-[var(--adc-info-fg)]" />,
+      border: "border-[var(--adc-info-bd)]",
+      bg: "bg-[var(--adc-info-bg)]",
+      titleColor: "text-[var(--adc-info-fg)]",
+      textColor: "text-[var(--adc-info-fg)]",
     },
     warning: {
-      icon: <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />,
-      border: "border-amber-200 dark:border-amber-900/50",
-      bg: "bg-amber-50 dark:bg-amber-950/30",
-      titleColor: "text-amber-900 dark:text-amber-100",
-      textColor: "text-amber-700 dark:text-amber-300",
+      icon: <AlertTriangle className="h-4 w-4 text-[var(--adc-caution-fg)] " />,
+      border: "border-[var(--adc-caution-bd)] ",
+      bg: "bg-[var(--adc-caution-bg)] ",
+      titleColor: "text-[var(--adc-caution-fg)] ",
+      textColor: "text-[var(--adc-caution-fg)] ",
     },
     strong: {
-      icon: <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />,
-      border: "border-emerald-200 dark:border-emerald-900/50",
-      bg: "bg-emerald-50 dark:bg-emerald-950/30",
-      titleColor: "text-emerald-900 dark:text-emerald-100",
-      textColor: "text-emerald-700 dark:text-emerald-300",
+      icon: <TrendingUp className="h-4 w-4 text-[var(--adc-pos-fg)] " />,
+      border: "border-[var(--adc-pos-bd)] ",
+      bg: "bg-[var(--adc-pos-bg)] ",
+      titleColor: "text-[var(--adc-pos-fg)] ",
+      textColor: "text-[var(--adc-pos-fg)] ",
     },
   }[op.type];
 

@@ -48,14 +48,14 @@ export function buildLabelsCoverageWidget(
           ) : null}
           {test > 0 ? (
             <span
-              className="block h-full bg-blue-600"
+              className="block h-full bg-[var(--adc-info-fg)]"
               style={{ width: widthFor(test) }}
               aria-hidden="true"
             />
           ) : null}
           {mixed > 0 ? (
             <span
-              className="block h-full bg-amber-500"
+              className="block h-full bg-[var(--adc-caution-fg)]"
               style={{ width: widthFor(mixed) }}
               aria-hidden="true"
             />
@@ -72,12 +72,12 @@ export function buildLabelsCoverageWidget(
             />
           ) : null}
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-3 text-[12px] text-neutral-500">
+        <div className="mt-2.5 flex flex-wrap gap-3 text-[11px] text-neutral-500">
           {hasBreakdown ? (
             <>
               <LegendDot color="bg-neutral-900" label={`Main ${main}`} />
-              <LegendDot color="bg-blue-600" label={`Test ${test}`} />
-              <LegendDot color="bg-amber-500" label={`Mixed ${mixed}`} />
+              <LegendDot color="bg-[var(--adc-info-fg)]" label={`Test ${test}`} />
+              <LegendDot color="bg-[var(--adc-caution-fg)]" label={`Mixed ${mixed}`} />
             </>
           ) : (
             <LegendDot
@@ -94,7 +94,7 @@ export function buildLabelsCoverageWidget(
           {input.labeledCampaigns}/{input.activeCampaigns} active campaigns labeled
         </div>
         {input.scopeNote ? (
-          <div className="mt-1 text-[12px] text-neutral-500">{input.scopeNote}</div>
+          <div className="mt-1 text-[11px] text-neutral-500">{input.scopeNote}</div>
         ) : null}
         {needsAttention ? (
           <div className="mt-3">
@@ -102,14 +102,14 @@ export function buildLabelsCoverageWidget(
               <button
                 type="button"
                 onClick={input.onFixGaps}
-                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
               >
                 Fix {input.unlabeledCampaigns} unlabeled
               </button>
             ) : (
               <a
                 href={input.fixHref ?? "#campaign-labels"}
-                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
               >
                 Fix {input.unlabeledCampaigns} unlabeled
               </a>
@@ -169,14 +169,14 @@ export function buildTargetAnchorWidget(
                 <button
                   type="button"
                   onClick={input.onSetAnchor}
-                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
                 >
                   Set anchor…
                 </button>
               ) : (
                 <a
                   href={input.setAnchorHref ?? "/commercial-truth"}
-                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
                 >
                   Set anchor…
                 </a>
@@ -222,7 +222,7 @@ export function buildEngineStatusWidget(
           </div>
         ) : null}
         {needsAttention && input.snapshotStatus ? (
-          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[12px] font-semibold text-amber-800">
+          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-[var(--adc-caution-bg)] px-2 py-1 text-[11px] font-semibold text-[var(--adc-caution-fg)]">
             snapshot · {input.snapshotStatus.replace(/_/g, " ")}
           </div>
         ) : null}
@@ -264,14 +264,14 @@ export function buildAnomaliesWidget(
                 <button
                   type="button"
                   onClick={input.onView}
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-800 hover:bg-amber-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-caution-fg)] hover:bg-[var(--adc-caution-bg)]"
                 >
                   View anomalies
                 </button>
               ) : input.viewHref ? (
                 <a
                   href={input.viewHref}
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-800 hover:bg-amber-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-caution-fg)] hover:bg-[var(--adc-caution-bg)]"
                 >
                   View anomalies
                 </a>

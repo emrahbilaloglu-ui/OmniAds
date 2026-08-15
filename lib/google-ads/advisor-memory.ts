@@ -1359,3 +1359,54 @@ export async function logAdvisorExecutionEvent(input: {
     )
   `;
 }
+
+export interface GoogleAdsActivityEntry {
+  id: string;
+  createdAt: string;
+  operation: string;
+  mutateActionType: string;
+  status: string;
+  accountId: string;
+  detail: string | null;
+}
+
+/**
+ * The design's Activity feed on Plan: every guarded write that reached the
+ * execution boundary, newest first, straight off the execution log. Nothing is
+ * synthesised — an empty log renders an empty feed.
+ */
+export async function listAdvisorExecutionEvents(input: {
+  businessId: string;
+  accountId?: string | null;
+  limit?: number;
+}): Promise<GoogleAdsActivityEntry[]> {
+  if (!isDbConfigured()) return [];
+  const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT id, created_at, account_id, mutate_action_type, operation, status, error_message
+    FROM google_ads_advisor_execution_logs
+    WHERE business_id = ${input.businessId}
+      AND (${input.accountId ?? null}::text IS NULL OR account_id = ${input.accountId ?? null})
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `.catch(() => [])) as Array<{
+    id: string;
+    created_at: string;
+    account_id: string;
+    mutate_action_type: string;
+    operation: string;
+    status: string;
+    error_message: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    createdAt: new Date(row.created_at).toISOString(),
+    operation: row.operation,
+    mutateActionType: row.mutate_action_type,
+    status: row.status,
+    accountId: row.account_id,
+    detail: row.error_message,
+  }));
+}

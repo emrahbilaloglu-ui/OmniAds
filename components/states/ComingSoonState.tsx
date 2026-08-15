@@ -1,4 +1,4 @@
-import { PlatformLogo } from "@/components/layout/PlatformSwitcher";
+import { PlatformLogo } from "@/components/layout/platform-logo";
 import { platformsRegistry, type PlatformId } from "@/components/layout/nav-items";
 import { cn } from "@/lib/utils";
 

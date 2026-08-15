@@ -11,9 +11,9 @@ interface MetaAlertsStripProps {
 }
 
 const SEVERITY_CLASS = {
-  high: "bg-rose-100 text-rose-700 border-rose-200",
-  medium: "bg-amber-100 text-amber-800 border-amber-200",
-  low: "bg-sky-100 text-sky-700 border-sky-200",
+  high: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] border-[var(--adc-danger-bd)]",
+  medium: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] border-[var(--adc-caution-bd)]",
+  low: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] border-[var(--adc-info-bd)]",
 } as const;
 
 function formatScanTime(value?: string | null) {
@@ -36,17 +36,17 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
   }
 
   return (
-    <div className="rounded-xl border-l-4 border-l-rose-500 border border-rose-200 bg-rose-50/30 overflow-hidden" data-alerts-strip>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-rose-100 bg-rose-50/70">
-        <AlertTriangle className="inline-block shrink-0 text-rose-600" size={15} aria-hidden="true" />
-        <span className="text-[12.5px] font-semibold text-rose-950">
+    <div className="rounded-xl border-l-4 border-l-rose-500 border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]/30 overflow-hidden" data-alerts-strip>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]/70">
+        <AlertTriangle className="inline-block shrink-0 text-[var(--adc-danger-fg)]" size={15} aria-hidden="true" />
+        <span className="text-[12.5px] font-semibold text-[var(--adc-danger-fg)]">
           {anomalies.length} active anomal{anomalies.length === 1 ? "y" : "ies"}
         </span>
-        <span className="text-[12px] text-rose-700">diagnose before broad budget moves</span>
+        <span className="text-[11.5px] text-[var(--adc-danger-fg)]">diagnose before broad budget moves</span>
         {hidden.length > 0 ? (
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[12px] text-rose-700 hover:text-rose-950"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11.5px] text-[var(--adc-danger-fg)] hover:text-[var(--adc-danger-fg)]"
             onClick={() => setOpen((current) => !current)}
           >
             {open ? "Show less" : "View all"}
@@ -59,21 +59,21 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
           <button
             key={anomaly.id}
             type="button"
-            className="grid gap-2 rounded-lg border border-rose-100 bg-white px-3 py-2 text-left hover:bg-rose-50/60 md:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+            className="grid gap-2 rounded-lg border border-[var(--adc-danger-bd)] bg-white px-3 py-2 text-left hover:bg-[var(--adc-danger-bg)]/60 md:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
             onClick={() => onOpenDiagnostic?.(anomaly)}
           >
-            <span className={`w-fit rounded border px-1.5 py-0.5 text-[12px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
+            <span className={`w-fit rounded border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
               {anomaly.severity}
             </span>
             <span className="min-w-0">
               <span className="block truncate text-[12.5px] font-semibold text-slate-900">{anomaly.title}</span>
-              <span className="block truncate text-[12px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
+              <span className="block truncate text-[11.5px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
             </span>
-            <span className="inline-flex items-center gap-1 text-[12px] text-slate-500">
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
               <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
               {anomaly.detectedAt}
             </span>
-            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-rose-700">
+            <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--adc-danger-fg)]">
               Open diagnostic
               <ExternalLink className="inline-block shrink-0" size={11} aria-hidden="true" />
             </span>

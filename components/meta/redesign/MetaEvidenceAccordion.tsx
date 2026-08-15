@@ -15,7 +15,7 @@ interface MetaEvidenceAccordionProps {
 function JsonBlock({ value }: { value: unknown }) {
   if (value == null) return <span className="text-slate-400">None</span>;
   return (
-    <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[12px] leading-relaxed text-slate-600">
+    <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-600">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -45,7 +45,7 @@ function TrendBlock({ rec }: { rec: MetaRecommendation }) {
       {history.slice(-14).map((value, index) => (
         <span
           key={`${index}-${String(value)}`}
-          className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[12px] text-slate-700"
+          className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10.5px] text-slate-700"
         >
           {formatRoas(Number(value))}
         </span>

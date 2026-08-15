@@ -9,6 +9,27 @@ import {
 } from "@/components/date-range/DateRangePicker";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { StateBanner } from "@/components/ui/product-surface";
+
+/** Errors thrown from the SEO fetchers carry the server's own error code. */
+type SeoRequestError = Error & { code?: string };
+
+function isSearchConsoleReconnect(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error as SeoRequestError).code === "search_console_reconnect_required"
+  );
+}
+
+/**
+ * The analysis cooldown is a temporary, self-clearing suppression — not a
+ * failure. It gets a caution banner and a retry, never a red error card.
+ */
+function isAnalysisCooldown(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const code = (error as SeoRequestError).code ?? "";
+  return code.endsWith("_cooldown");
+}
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useAppStore } from "@/store/app-store";
@@ -31,6 +52,7 @@ import {
   SEO_TABS,
   type SeoTab,
 } from "@/app/(dashboard)/insights/seo/seo-intelligence-support";
+import { UrlInspectionStatusPanel } from "@/app/(dashboard)/insights/seo/url-inspection-status-panel";
 
 async function fetchSeoOverview(params: {
   businessId: string;
@@ -40,11 +62,13 @@ async function fetchSeoOverview(params: {
   const qs = new URLSearchParams(params).toString();
   const response = await fetch(`/api/seo/overview?${qs}`);
   const payload = (await response.json().catch(() => null)) as
-    | { message?: string }
+    | { message?: string; error?: string }
     | null;
 
   if (!response.ok) {
-    throw new Error(payload?.message ?? "Failed to load SEO Intelligence.");
+    const error = new Error(payload?.message ?? "Failed to load SEO Intelligence.");
+    if (payload?.error) (error as SeoRequestError).code = payload.error;
+    throw error;
   }
 
   return payload as SeoOverviewResponse;
@@ -76,15 +100,17 @@ async function fetchSeoMonthlyAiAnalysis(params: {
   const qs = new URLSearchParams(params).toString();
   const response = await fetch(`/api/seo/ai-analysis?${qs}`);
   const payload = (await response.json().catch(() => null)) as
-    | { message?: string; unavailableReason?: string }
+    | { message?: string; unavailableReason?: string; error?: string }
     | null;
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       payload?.message ??
         payload?.unavailableReason ??
         "Failed to load monthly SEO AI analysis.",
     );
+    if (payload?.error) (error as SeoRequestError).code = payload.error;
+    throw error;
   }
 
   return payload as SeoMonthlyAiAnalysisResponse;
@@ -188,11 +214,10 @@ export default function SeoIntelligencePage() {
       <div className="space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
-              Insights
-            </p>
-            <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>
-            <p className="max-w-2xl text-sm leading-5 text-neutral-500">
+            <h2 className="font-[family-name:var(--adv-font-display)] text-[19px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
+              SEO Intelligence
+            </h2>
+            <p className="max-w-2xl text-sm leading-5 text-[var(--adv-ink-3)]">
               Monitor organic search volatility, isolate likely causes, and prioritize technical or
               content fixes using Search Console-backed intelligence.
             </p>
@@ -207,11 +232,10 @@ export default function SeoIntelligencePage() {
     <div className="space-y-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
-            Insights
-          </p>
-          <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>
-          <p className="max-w-2xl text-sm leading-5 text-neutral-500">
+          <h2 className="font-[family-name:var(--adv-font-display)] text-[19px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
+            SEO Intelligence
+          </h2>
+          <p className="max-w-2xl text-sm leading-5 text-[var(--adv-ink-3)]">
             Monitor organic search volatility, isolate likely causes, and prioritize technical or
             content fixes using Search Console-backed intelligence.
           </p>
@@ -229,33 +253,44 @@ export default function SeoIntelligencePage() {
 
       {searchConsoleConnected && (
         <>
-          <section className="rounded-xl border border-neutral-200 bg-white p-3">
+          <section className="rounded-xl border border-[var(--adv-border)] bg-white p-3">
             <div className="flex flex-wrap items-center gap-3">
-              {/*
-            This surface reads no comparison, so it does not offer one. The
-            Compare control was rendered here and never read: an operator could
-            pick "Previous year", watch the chip turn active and print the
-            year-ago dates, and change nothing at all.
-          */}
-          <DateRangePicker
-            value={dateRange}
-            onChange={setDateRange}
-            showComparisonTrigger={false}
-          />
+              <DateRangePicker value={dateRange} onChange={setDateRange} />
             </div>
           </section>
 
           {overviewQuery.isLoading && <LoadingSkeleton rows={4} />}
 
           {overviewQuery.error && (
-            <ErrorState
-              description={
-                overviewQuery.error instanceof Error
+            // Search Console losing its scope is a known, named condition — it
+            // gets the reconnect surface, not a generic failure card.
+            isAnalysisCooldown(overviewQuery.error) ? (
+              <StateBanner tone="warning" title="Search Console refresh paused by cooldown">
+                {overviewQuery.error instanceof Error
                   ? overviewQuery.error.message
-                  : "Failed to load SEO Intelligence."
-              }
-              onRetry={() => overviewQuery.refetch()}
-            />
+                  : "Search Console refresh is temporarily suppressed."}
+              </StateBanner>
+            ) : isSearchConsoleReconnect(overviewQuery.error) ? (
+              <IntegrationEmptyState
+                providerLabel="Search Console"
+                status="error"
+                title="Reconnect Search Console to unlock SEO Intelligence"
+                description={
+                  overviewQuery.error instanceof Error
+                    ? overviewQuery.error.message
+                    : "Google integration is missing the Search Console scope."
+                }
+              />
+            ) : (
+              <ErrorState
+                description={
+                  overviewQuery.error instanceof Error
+                    ? overviewQuery.error.message
+                    : "Failed to load SEO Intelligence."
+                }
+                onRetry={() => overviewQuery.refetch()}
+              />
+            )
           )}
 
           {overviewQuery.data && (
@@ -292,7 +327,7 @@ export default function SeoIntelligencePage() {
                 />
               </div>
 
-              <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
+              <div className="flex gap-1 overflow-x-auto border-b border-[var(--adv-border)]">
                 {SEO_TABS.map((tab) => (
                   <button
                     key={tab.id}
@@ -301,8 +336,8 @@ export default function SeoIntelligencePage() {
                     className={cn(
                       "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
                       activeTab === tab.id
-                        ? "border-neutral-950 text-neutral-950"
-                        : "border-transparent text-neutral-500 hover:text-neutral-900",
+                        ? "border-[var(--adv-ink)] text-[var(--adv-ink)]"
+                        : "border-transparent text-[var(--adv-ink-3)] hover:text-[var(--adv-ink)]",
                     )}
                   >
                     {tab.label}
@@ -310,24 +345,47 @@ export default function SeoIntelligencePage() {
                 ))}
               </div>
 
-              <section className="space-y-4 rounded-xl border border-neutral-200 bg-white p-5">
+              <section className="space-y-4 rounded-xl border border-[var(--adv-border)] bg-white p-5">
                 {activeTab === "overview" && (
                   <>
                     <SectionIntro
-                      title="Monthly AI overview"
+                      title="Monthly AI analysis"
                       description="Generate one strategic ecommerce SEO analysis per month, then use the saved output as the team's planning artifact."
                     />
                     {monthlyAiQuery.isLoading && <LoadingSkeleton rows={4} />}
-                    {monthlyAiQuery.error && (
-                      <ErrorState
-                        description={
-                          monthlyAiQuery.error instanceof Error
+                    {monthlyAiQuery.error &&
+                      // Same named condition as the overview read: a lost scope
+                      // gets the reconnect surface, not a generic failure card.
+                      (isAnalysisCooldown(monthlyAiQuery.error) ? (
+                        <StateBanner
+                          tone="warning"
+                          title="Analysis paused by cooldown"
+                        >
+                          {monthlyAiQuery.error instanceof Error
                             ? monthlyAiQuery.error.message
-                            : "Failed to load monthly SEO AI analysis."
-                        }
-                        onRetry={() => monthlyAiQuery.refetch()}
-                      />
-                    )}
+                            : "Search Console requests for this analysis are temporarily suppressed."}
+                        </StateBanner>
+                      ) : isSearchConsoleReconnect(monthlyAiQuery.error) ? (
+                        <IntegrationEmptyState
+                          providerLabel="Search Console"
+                          status="error"
+                          title="Reconnect Search Console to run the monthly analysis"
+                          description={
+                            monthlyAiQuery.error instanceof Error
+                              ? monthlyAiQuery.error.message
+                              : "Google integration is missing the Search Console scope."
+                          }
+                        />
+                      ) : (
+                        <ErrorState
+                          description={
+                            monthlyAiQuery.error instanceof Error
+                              ? monthlyAiQuery.error.message
+                              : "Failed to load monthly SEO AI analysis."
+                          }
+                          onRetry={() => monthlyAiQuery.refetch()}
+                        />
+                      ))}
                     {monthlyAiQuery.data && (
                       <SeoMonthlyAiPanel
                         monthly={monthlyAiQuery.data}
@@ -357,24 +415,28 @@ export default function SeoIntelligencePage() {
                     <div className="grid gap-4 xl:grid-cols-2">
                       <EntityTable
                         title="Biggest declining queries"
+                        nameLabel="Query"
                         rows={overviewQuery.data.movers.decliningQueries}
                         emptyLabel="No declining queries in this period."
                         scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Biggest declining pages"
+                        nameLabel="Page"
                         rows={overviewQuery.data.movers.decliningPages}
                         emptyLabel="No declining pages in this period."
                         scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Improving queries"
+                        nameLabel="Query"
                         rows={overviewQuery.data.movers.improvingQueries}
                         emptyLabel="No improving queries in this period."
                         scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Improving pages"
+                        nameLabel="Page"
                         rows={overviewQuery.data.movers.improvingPages}
                         emptyLabel="No improving pages in this period."
                         scrollHeightClass="max-h-64"
@@ -387,10 +449,11 @@ export default function SeoIntelligencePage() {
                   <>
                     <SectionIntro
                       title="Query leaders"
-                      description="These queries currently anchor your organic search visibility and should be monitored first when performance shifts."
+                      description="Search Console · 28d · these anchor organic visibility — watch them first"
                     />
                     <EntityTable
                       title="Top queries by clicks"
+                        nameLabel="Query"
                       rows={overviewQuery.data.leaders.queries}
                       emptyLabel="No query data available for this period."
                     />
@@ -401,10 +464,11 @@ export default function SeoIntelligencePage() {
                   <>
                     <SectionIntro
                       title="Page leaders"
-                      description="These landing pages carry the most organic search value and are the best starting point for technical or snippet-level analysis."
+                      description="landing pages carrying the most organic value — start technical or snippet work here"
                     />
                     <EntityTable
                       title="Top pages by clicks"
+                        nameLabel="Page"
                       rows={overviewQuery.data.leaders.pages}
                       emptyLabel="No page data available for this period."
                     />
@@ -452,9 +516,9 @@ export default function SeoIntelligencePage() {
                   <>
                     <SectionIntro
                       title="Technical findings"
-                      description="Targeted audits on Search Console-backed or inspection-confirmed pages to surface crawl, indexation, metadata, canonical, and structured-data risks."
+                      description="crawl · indexation · metadata · canonical · structured data"
                     />
-                    <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm leading-5 text-neutral-500">
+                    <div className="rounded-xl border border-[var(--adv-border)] bg-[var(--adv-fill)] px-4 py-3 text-sm leading-5 text-[var(--adv-ink-3)]">
                       Pages can still appear here even when current impressions are `0`.
                       That usually means the URL was previously visible in Search Console, is now losing discovery,
                       or was directly confirmed as excluded/not indexed via URL Inspection. Querystring URLs and feed/service paths are excluded from this view.
@@ -470,11 +534,22 @@ export default function SeoIntelligencePage() {
                         onRetry={() => findingsQuery.refetch()}
                       />
                     )}
+                    {/* A partial or drifted findings payload must degrade to the
+                        blocks it can fill; it must not take the screen down. */}
                     {findingsQuery.data && (
                       <>
-                        <ConfirmedExcludedPagesList pages={findingsQuery.data.confirmedExcludedPages} />
-                        <FindingsSummaryCards {...findingsQuery.data.summary} />
-                        <TechnicalFindingsList findings={findingsQuery.data.findings} />
+                        {findingsQuery.data.meta?.urlInspection ? (
+                          <UrlInspectionStatusPanel
+                            evidence={findingsQuery.data.meta.urlInspection}
+                          />
+                        ) : null}
+                        <ConfirmedExcludedPagesList
+                          pages={findingsQuery.data.confirmedExcludedPages ?? []}
+                        />
+                        {findingsQuery.data.summary ? (
+                          <FindingsSummaryCards {...findingsQuery.data.summary} />
+                        ) : null}
+                        <TechnicalFindingsList findings={findingsQuery.data.findings ?? []} />
                       </>
                     )}
                   </>

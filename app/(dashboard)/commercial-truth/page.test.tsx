@@ -28,6 +28,19 @@ vi.mock("@/components/settings/settings-section", () => ({
     React.createElement("div", null, `${props.label}:${props.value}`),
 }));
 
+// The page reads the pack, blended MER and campaign spend through React Query;
+// the SSR assertions here only cover the shell, so the hook is stubbed out.
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: undefined, isLoading: false }),
+}));
+
+vi.mock("@/components/settings/commercial-truth-blocks", () => ({
+  CommercialRevenueSplit: () => React.createElement("div", null, "revenue-split"),
+  CommercialConsumers: () => React.createElement("div", null, "consumed-by"),
+  CommercialChangeHistory: () => React.createElement("div", null, "change-history"),
+  CommercialSpendBands: () => React.createElement("div", null, "spend-bands"),
+}));
+
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (state: typeof mockAppState) => unknown) => selector(mockAppState),
 }));
@@ -52,7 +65,7 @@ describe("CommercialTruthPage", () => {
 
   it("renders the dedicated page header and section for the active business", async () => {
     const { default: CommercialTruthPage } = await import(
-      "@/app/(dashboard)/commercial-truth/legacy-page"
+      "@/app/(dashboard)/commercial-truth/page"
     );
 
     const html = renderToStaticMarkup(React.createElement(CommercialTruthPage));
@@ -67,7 +80,7 @@ describe("CommercialTruthPage", () => {
     mockAppState.selectedBusinessId = null as never;
 
     const { default: CommercialTruthPage } = await import(
-      "@/app/(dashboard)/commercial-truth/legacy-page"
+      "@/app/(dashboard)/commercial-truth/page"
     );
 
     const html = renderToStaticMarkup(React.createElement(CommercialTruthPage));

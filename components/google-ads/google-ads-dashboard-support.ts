@@ -1,12 +1,15 @@
 import { getCurrencySymbol } from "@/hooks/use-currency";
 import type { RangePreset } from "@/components/date-range/DateRangePicker";
 import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
+import type { BudgetRec } from "@/components/google-ads/BudgetScalingTab";
 
 export type ActionState = "scale" | "optimize" | "test" | "reduce";
 export type TrendLabelMode = "day" | "month";
 export type PanelKey =
   | "summary"
   | "insights"
+  | "search"
+  | "plan"
   | "assetGroupAudience"
   | "products"
   | "assets";
@@ -58,6 +61,8 @@ export interface AssetGroupRow {
   roas: number;
   conversionRate: number;
   coverageScore: number;
+  /** Google-served asset group ad strength (Best / Good / Learning / Low). */
+  adStrength?: string | null;
   classification?: string;
   searchThemes: SearchTheme[];
   searchThemeCount: number;
@@ -72,10 +77,15 @@ export interface AssetGroupsResponse {
 }
 
 export interface AudienceRow {
+  criterionId?: string;
+  name?: string;
   campaignId?: string | null;
   campaign?: string;
+  adGroup?: string;
   type: string;
   spend: number;
+  revenue?: number;
+  cpa?: number;
   roas: number;
   conversions: number;
 }
@@ -93,6 +103,7 @@ export interface AssetRow {
   assetName?: string | null;
   type: string;
   performanceLabel?: "top" | "average" | "underperforming";
+  impressions?: number;
   spend: number;
   conversions: number;
   roas: number;
@@ -109,6 +120,8 @@ export interface AssetsResponse {
 export interface ProductRow {
   itemId?: string;
   title?: string;
+  impressions?: number;
+  clicks?: number;
   spend: number;
   revenue: number;
   roas: number;
@@ -210,29 +223,38 @@ export const ACTION_CONFIG: Record<
 > = {
   scale: {
     label: "Scale",
-    dot: "bg-emerald-500",
-    chip: "bg-emerald-50 text-emerald-800",
-    border: "border-emerald-200",
+    dot: "bg-[var(--adc-pos-fg)]",
+    chip: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
+    border: "border-[var(--adc-pos-bd)]",
   },
   optimize: {
     label: "Optimize",
-    dot: "bg-sky-500",
-    chip: "bg-sky-50 text-sky-800",
-    border: "border-sky-200",
+    dot: "bg-[var(--adc-info-fg)]",
+    chip: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
+    border: "border-[var(--adc-info-bd)]",
   },
   test: {
     label: "Test",
-    dot: "bg-amber-500",
-    chip: "bg-amber-50 text-amber-800",
-    border: "border-amber-200",
+    dot: "bg-[var(--adc-caution-fg)]",
+    chip: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+    border: "border-[var(--adc-caution-bd)]",
   },
   reduce: {
     label: "Reduce",
-    dot: "bg-rose-500",
-    chip: "bg-rose-50 text-rose-800",
-    border: "border-rose-200",
+    dot: "bg-[var(--adc-danger-fg)]",
+    chip: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",
+    border: "border-[var(--adc-danger-bd)]",
   },
 };
+
+/** The three surfaces the design's Assets & Audiences screen switches between. */
+export type AssetViewKey = "groups" | "assets" | "audiences";
+
+export const ASSET_VIEWS: Array<{ key: AssetViewKey; label: string }> = [
+  { key: "groups", label: "Asset groups" },
+  { key: "assets", label: "Assets" },
+  { key: "audiences", label: "Audiences" },
+];
 
 export const PANEL_ITEMS: Array<{ key: PanelKey; label: string }> = [
   { key: "summary", label: "Summary" },
@@ -339,4 +361,53 @@ export function resolveTrendTimeline(start: string, end: string): {
   }
 
   return { dates, labelMode: "day" };
+}
+
+/**
+ * The budget endpoint returns its findings as named campaign buckets. The UI
+ * contract is a flat recommendation list, so the buckets are mapped here.
+ *
+ * Google serves no per-campaign budget delta on this report, so the change
+ * amount stays null and the card reads direction only.
+ */
+export interface GoogleBudgetInsights {
+  scaleBudgetCandidates?: Array<Record<string, unknown>>;
+  budgetWasteCampaigns?: Array<Record<string, unknown>>;
+  balancedCampaigns?: Array<Record<string, unknown>>;
+}
+
+export function normaliseBudgetRecommendations(
+  value: GoogleBudgetInsights | BudgetRec[] | undefined,
+): BudgetRec[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+
+  const build = (
+    rows: Array<Record<string, unknown>> | undefined,
+    direction: "increase" | "decrease",
+    reason: string,
+  ): BudgetRec[] =>
+    (rows ?? []).map((row) => ({
+      campaign:
+        (typeof row.name === "string" && row.name) ||
+        (typeof row.campaignName === "string" && row.campaignName) ||
+        "Unnamed campaign",
+      currentSpend: Number(row.spend) || 0,
+      suggestedBudgetChange: null,
+      direction,
+      reason,
+    }));
+
+  return [
+    ...build(
+      value.scaleBudgetCandidates,
+      "increase",
+      "Strong return and losing impression share to budget.",
+    ),
+    ...build(
+      value.budgetWasteCampaigns,
+      "decrease",
+      "Spend is running ahead of the return this campaign produces.",
+    ),
+  ];
 }

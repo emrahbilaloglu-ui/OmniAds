@@ -26,17 +26,17 @@ interface Keyword {
 }
 
 const MATCH_TYPE_CONFIG: Record<string, string> = {
-  Exact: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  Phrase: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  Exact: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  Phrase: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
   Broad: "bg-muted text-muted-foreground",
 };
 
 function QsIndicator({ score }: { score: number | null }) {
   if (score === null) return <span className="text-muted-foreground">—</span>;
   const cls =
-    score >= 8 ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+    score >= 8 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold"
     : score >= 5 ? "text-foreground"
-    : "text-rose-600 dark:text-rose-400 font-semibold";
+    : "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] font-semibold";
   return <span className={cls}>{score}/10</span>;
 }
 
@@ -46,11 +46,11 @@ const cols: ColDef<Keyword>[] = [
     render: (r) => (
       <div className="max-w-[180px]">
         <p className="text-xs font-medium truncate" title={r.keyword}>{r.keyword}</p>
-        <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", MATCH_TYPE_CONFIG[r.matchType] ?? "bg-muted text-muted-foreground")}>
+        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", MATCH_TYPE_CONFIG[r.matchType] ?? "bg-muted text-muted-foreground")}>
           {r.matchType}
         </span>
         {(r.expectedCtr || r.adRelevance || r.landingPageExperience) && (
-          <p className="mt-1 text-[12px] text-muted-foreground truncate">
+          <p className="mt-1 text-[9px] text-muted-foreground truncate">
             {r.expectedCtr ?? "n/a"} CTR · {r.adRelevance ?? "n/a"} rel · {r.landingPageExperience ?? "n/a"} LP
           </p>
         )}
@@ -64,7 +64,7 @@ const cols: ColDef<Keyword>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => r.roas === 0 ? "—" : (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : "")}>{fmtRoas(r.roas)}</span>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : "")}>{fmtRoas(r.roas)}</span>
     ),
   },
   {
@@ -98,17 +98,17 @@ export function KeywordsTab({ keywords, insights, isLoading }: KeywordsTabProps)
         <div className="flex flex-wrap gap-3 rounded-xl border bg-muted/30 px-4 py-3">
           {insights.highCtrLowConvCount > 0 && (
             <span className="text-xs text-muted-foreground">
-              <span className="font-semibold text-amber-600 dark:text-amber-400">{insights.highCtrLowConvCount}</span> keywords: high CTR, zero conversions
+              <span className="font-semibold text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]">{insights.highCtrLowConvCount}</span> keywords: high CTR, zero conversions
             </span>
           )}
           {insights.highConvLowBudgetCount > 0 && (
             <span className="text-xs text-muted-foreground">
-              <span className="font-semibold text-blue-600 dark:text-blue-400">{insights.highConvLowBudgetCount}</span> keywords with conversions but low impression share
+              <span className="font-semibold text-[var(--adc-info-fg)] dark:text-[var(--adc-info-fg)]">{insights.highConvLowBudgetCount}</span> keywords with conversions but low impression share
             </span>
           )}
           {insights.deserveOwnAdGroupCount > 0 && (
             <span className="text-xs text-muted-foreground">
-              <span className="font-semibold text-violet-600 dark:text-violet-400">{insights.deserveOwnAdGroupCount}</span> keywords may deserve their own ad group
+              <span className="font-semibold text-[var(--adc-auto-fg)] dark:text-[var(--adc-auto-fg)]">{insights.deserveOwnAdGroupCount}</span> keywords may deserve their own ad group
             </span>
           )}
         </div>

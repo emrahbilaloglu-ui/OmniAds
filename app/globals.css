@@ -7,8 +7,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Dashboard v2 type system (design decision D4): Instrument Sans is the UI
+     body face and IBM Plex Mono carries meta/evidence labels, so the Tailwind
+     defaults point at them instead of Geist. */
+  --font-sans: var(--font-instrument-sans);
+  --font-mono: var(--font-ibm-plex-mono);
+  --font-display: var(--font-space-grotesk);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -80,30 +84,67 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  --adc-s1: #f5f5f3;
+  /* Dashboard v2 palette. The --adc-* names are kept as the semantic surface so
+     every console component that already reads them moves to v2 in one step; the
+     --adv-* names carry what v2 adds on top (navy rail, tint fills, radii, type). */
+  --adc-s1: #f3f5f9;
   --adc-s2: #ffffff;
-  --adc-s3: #ededea;
-  --adc-ink: #1a1c1f;
-  --adc-ink2: #4a4f56;
-  --adc-ink3: #5f656c;
-  --adc-b1: #e4e4e0;
-  --adc-b2: #cdcdc7;
-  --adc-focus: #1e62d0;
-  --adc-danger-fg: #a6224a;
-  --adc-danger-bg: #fbedf1;
-  --adc-danger-bd: #efc4d1;
-  --adc-caution-fg: #86590a;
-  --adc-caution-bg: #faf2df;
-  --adc-caution-bd: #e8d5a6;
-  --adc-pos-fg: #0b6b4f;
-  --adc-pos-bg: #e9f4ef;
-  --adc-pos-bd: #bfdfd1;
-  --adc-info-fg: #1d5fc4;
-  --adc-info-bg: #ebf1fb;
-  --adc-info-bd: #c5d6f1;
+  --adc-s3: #f7f9fc;
+  --adc-ink: #0e1526;
+  --adc-ink2: #45526b;
+  --adc-ink3: #7a869e;
+  --adc-b1: #e4e8f0;
+  --adc-b2: #cfd8e6;
+  --adc-focus: #2f6bff;
+  --adc-danger-fg: #e11d48;
+  --adc-danger-bg: #fdecf0;
+  --adc-danger-bd: #f6c6d2;
+  --adc-caution-fg: #b45309;
+  --adc-caution-bg: #fbf3e1;
+  --adc-caution-bd: #ebd6a4;
+  --adc-pos-fg: #0e9f6e;
+  --adc-pos-bg: #e7f6f0;
+  --adc-pos-bd: #bfe5d6;
+  --adc-info-fg: #2f6bff;
+  --adc-info-bg: #eaf0ff;
+  --adc-info-bd: #cbd9ff;
   --adc-auto-fg: #6c41be;
-  --adc-auto-bg: #f2edfb;
-  --adc-auto-bd: #d9ccf1;
+  --adc-auto-bg: #f1ebfb;
+  --adc-auto-bd: #dacbf2;
+
+  /* v2 additions */
+  --adv-canvas: #f3f5f9;
+  --adv-surface: #ffffff;
+  --adv-fill: #f7f9fc;
+  --adv-fill-2: #f1f4f9;
+  --adv-ink: #0e1526;
+  --adv-ink-2: #45526b;
+  --adv-ink-3: #7a869e;
+  --adv-ink-4: #98a4ba;
+  --adv-border: #e4e8f0;
+  --adv-hairline: #edf0f6;
+  --adv-accent: #2f6bff;
+  --adv-accent-hover: #1e4fd6;
+  --adv-accent-bg: #eaf0ff;
+  --adv-accent-bd: #cbd9ff;
+  --adv-rail: #0b1020;
+  --adv-rail-ink: #e7ecf5;
+  --adv-rail-ink-2: #a8b3c7;
+  --adv-rail-ink-3: #5b6577;
+  --adv-rail-raised: #1e2a45;
+  --adv-rail-avatar-fg: #9db4e8;
+  --adv-rail-line: rgba(255, 255, 255, 0.07);
+  --adv-rail-hover: rgba(255, 255, 255, 0.06);
+  --adv-alert: #e8434a;
+  --adv-live: #22c55e;
+  --adv-scroll-thumb: #c9d2e0;
+  --adv-r-card: 16px;
+  --adv-r-tile: 10px;
+  --adv-r-control: 9px;
+  --adv-r-chip: 8px;
+  --adv-font-display: var(--font-space-grotesk), "Space Grotesk", var(--font-geist-sans), system-ui, sans-serif;
+  --adv-font-body: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  --adv-font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 }
 
 .dark {
@@ -141,15 +182,6 @@
 }
 
 @layer base {
-  /*
-   * `small` defaults to 0.8em, which lands under the readable floor wherever
-   * the surrounding text is already compact. The element still means "side
-   * comment"; it just may not be smaller than essential text is allowed to be.
-   */
-  small {
-    font-size: 12px;
-  }
-
   * {
     @apply border-border outline-ring/50;
   }
@@ -160,30 +192,30 @@
 
 @layer components {
   .ad-console-shell {
-    --adc-s1: #f5f5f3;
+    --adc-s1: #f3f5f9;
     --adc-s2: #ffffff;
-    --adc-s3: #ededea;
-    --adc-ink: #1a1c1f;
-    --adc-ink2: #4a4f56;
-    --adc-ink3: #5f656c;
-    --adc-b1: #e4e4e0;
-    --adc-b2: #cdcdc7;
-    --adc-focus: #1e62d0;
-    --adc-danger-fg: #a6224a;
-    --adc-danger-bg: #fbedf1;
-    --adc-danger-bd: #efc4d1;
-    --adc-caution-fg: #86590a;
-    --adc-caution-bg: #faf2df;
-    --adc-caution-bd: #e8d5a6;
-    --adc-pos-fg: #0b6b4f;
-    --adc-pos-bg: #e9f4ef;
-    --adc-pos-bd: #bfdfd1;
-    --adc-info-fg: #1d5fc4;
-    --adc-info-bg: #ebf1fb;
-    --adc-info-bd: #c5d6f1;
+    --adc-s3: #f7f9fc;
+    --adc-ink: #0e1526;
+    --adc-ink2: #45526b;
+    --adc-ink3: #7a869e;
+    --adc-b1: #e4e8f0;
+    --adc-b2: #cfd8e6;
+    --adc-focus: #2f6bff;
+    --adc-danger-fg: #e11d48;
+    --adc-danger-bg: #fdecf0;
+    --adc-danger-bd: #f6c6d2;
+    --adc-caution-fg: #b45309;
+    --adc-caution-bg: #fbf3e1;
+    --adc-caution-bd: #ebd6a4;
+    --adc-pos-fg: #0e9f6e;
+    --adc-pos-bg: #e7f6f0;
+    --adc-pos-bd: #bfe5d6;
+    --adc-info-fg: #2f6bff;
+    --adc-info-bg: #eaf0ff;
+    --adc-info-bd: #cbd9ff;
     --adc-auto-fg: #6c41be;
-    --adc-auto-bg: #f2edfb;
-    --adc-auto-bd: #d9ccf1;
+    --adc-auto-bg: #f1ebfb;
+    --adc-auto-bd: #dacbf2;
     /* Unify the shadcn/Tailwind theme vars onto the reference --adc-* palette so
        shared components that still use bg-background / text-muted-foreground /
        bg-card / border / ring / bg-accent stop rendering the achromatic shadcn
@@ -206,9 +238,14 @@
     --border: var(--adc-b1);
     --input: var(--adc-b1);
     --ring: var(--adc-focus);
+    /* Dashboard v2 primary is the accent blue, not shadcn's near-black — this
+       is what carries every default Button across the screens that still own
+       their own markup. */
+    --primary: var(--adv-accent);
+    --primary-foreground: #ffffff;
     background: var(--adc-s1);
     color: var(--adc-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.45;
   }
@@ -383,7 +420,7 @@
     --admin-auto-bd: var(--adc-auto-bd);
     background: var(--admin-s1);
     color: var(--admin-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.45;
   }
@@ -622,7 +659,7 @@
     flex-direction: column;
     gap: 14px;
     color: var(--adc-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.45;
   }
@@ -641,7 +678,7 @@
   .ad-mobile-card-label {
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     letter-spacing: 0;
@@ -809,7 +846,7 @@
     flex: none;
     color: currentColor;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
   }
@@ -817,76 +854,92 @@
   .ad-mobile-card-body {
     margin-top: 6px;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.55;
   }
 
   .ad-mobile-card-action {
     margin-top: 7px;
     color: var(--adc-info-fg);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
   }
 
+  /* The page frame (.adv-page) owns the gutters and the 1560px column, so a
+     workspace surface only declares the measure the design gives that screen. */
   .ad-workspace-page {
     width: 100%;
-    max-width: 1060px;
-    margin: 0 auto;
-    padding: 18px 20px 48px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
     color: var(--adc-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.45;
   }
 
+  /* Settings sits on a 920px measure in the design. */
   .ad-workspace-page-narrow {
-    max-width: 900px;
+    max-width: 920px;
   }
 
+  /* Team and Commercial Truth sit on 1240px. */
   .ad-workspace-page-wide {
-    max-width: 1120px;
+    max-width: 1240px;
   }
 
   .ad-workspace-header {
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 16px;
+  }
+
+  /* The v2 display heading needs real width — without a basis the identity
+     column collapses under the actions grid and the title wraps per word. */
+  .ad-workspace-header > :first-child {
+    flex: 1 1 440px;
+    min-width: 0;
+  }
+
+  .ad-workspace-header > :last-child:not(:first-child) {
+    flex: 0 1 auto;
   }
 
   .ad-workspace-eyebrow,
   .ad-workspace-mono,
   .ad-workspace-stat-label,
   .ad-workspace-table-head {
-    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--adv-font-mono);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0;
   }
 
+  /* Dashboard v2 page header for every WorkspaceSurface screen. */
   .ad-workspace-eyebrow {
-    color: var(--adc-ink3);
-    font-size: 12px;
+    color: var(--adv-ink-3);
+    font-size: 11px;
     font-weight: 500;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
   }
 
   .ad-workspace-title-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
-    margin-top: 2px;
+    margin-top: 4px;
   }
 
   .ad-workspace-title-row h1 {
     margin: 0;
-    color: var(--adc-ink);
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: 0;
+    color: var(--adv-ink);
+    font-family: var(--adv-font-display);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     line-height: 1.35;
   }
 
@@ -900,7 +953,15 @@
 
   .ad-workspace-header-meta {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
+  }
+
+  /* With no actions column the meta slot IS the header's right-hand cluster, so
+     it trails to the edge. When actions exist they own that edge and the meta
+     stays a qualifier next to the title. */
+  .ad-workspace-header:not(:has(.ad-workspace-actions))
+    .ad-workspace-header-meta {
+    margin-left: auto;
   }
 
   .ad-workspace-actions {
@@ -945,7 +1006,7 @@
   .ad-workspace-card-header p {
     margin: 2px 0 0;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.45;
   }
 
@@ -960,7 +1021,7 @@
 
   .ad-workspace-stat-label {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 500;
     text-transform: uppercase;
   }
@@ -978,7 +1039,7 @@
   .ad-workspace-stat-detail {
     margin-top: 3px;
     color: currentColor;
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.45;
   }
 
@@ -990,7 +1051,7 @@
     border-radius: 999px;
     padding: 2px 9px;
     color: var(--adc-ink2);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     line-height: 1.2;
   }
@@ -1062,35 +1123,11 @@
   }
 
   @media (max-width: 720px) {
-    /*
-     * Two rows, not one clipped row.
-     *
-     * This bar used to be a fixed 50px with `overflow: hidden`, and at 320px
-     * its children physically overlapped: measured in production, Refresh over
-     * Meta by 3x16px and Meta over Notifications by 28x28px. `overflow: hidden`
-     * hid the symptom -- nothing looked cut off, because the controls were
-     * stacked rather than clipped -- while a tap near the seam went to whatever
-     * was on top.
-     *
-     * Wrapping lets the freshness reading take its own full-width row beneath
-     * the controls. Nothing is hidden, every target keeps its own box, and the
-     * bar grows by one line instead of overlapping.
-     */
     .ad-console-shell .ad-console-topbar {
-      height: auto;
-      min-height: 50px;
-      flex-wrap: wrap;
-      row-gap: 4px;
+      height: 50px;
       gap: 8px;
-      overflow: visible;
-      padding: 6px 10px;
-    }
-
-    .ad-console-shell .ad-console-freshness {
-      order: 99;
-      flex: 1 0 100%;
-      min-width: 0;
       overflow: hidden;
+      padding: 0 10px;
     }
 
     .ad-console-shell .ad-console-brand {
@@ -1153,7 +1190,7 @@
       border-bottom: 1px solid var(--adc-b1);
       background: var(--adc-s2);
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.35;
       padding: 7px 12px;
     }
@@ -1161,7 +1198,7 @@
     .ad-console-shell .ad-console-mobile-readonly [data-mono] {
       flex: 0 0 auto;
       color: var(--adc-ink2);
-      font-size: 12px;
+      font-size: 10.5px;
       letter-spacing: 0.02em;
       text-transform: uppercase;
     }
@@ -1199,7 +1236,7 @@
       padding: 8px 14px;
       color: var(--adc-ink3);
       font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
+      font-size: 10px;
       font-variant-numeric: tabular-nums;
       line-height: 1.2;
     }
@@ -1208,7 +1245,7 @@
       padding: 2px 14px 8px;
       color: var(--adc-ink3);
       font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
+      font-size: 11px;
       font-variant-numeric: tabular-nums;
       line-height: 1.25;
     }
@@ -1228,7 +1265,7 @@
     .ad-mobile-title p {
       margin: 2px 0 0;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 10.5px;
       line-height: 1.35;
     }
 
@@ -1259,7 +1296,7 @@
     .ad-mobile-anomaly div {
       margin-top: 2px;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 10.5px;
     }
 
     .ad-mobile-row-card h3 {
@@ -1272,7 +1309,7 @@
 
     .ad-mobile-row-card p {
       margin: 2px 0 0;
-      font-size: 12px;
+      font-size: 11.5px;
       font-variant-numeric: tabular-nums;
       line-height: 1.35;
     }
@@ -1293,7 +1330,7 @@
       margin-top: 7px;
       min-height: 28px;
       color: var(--adc-info-fg);
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .ad-mobile-row-footer button,
@@ -1311,7 +1348,7 @@
     .ad-mobile-back {
       margin: 0 14px 4px;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .ad-confidence-pill {
@@ -1321,7 +1358,7 @@
       border: 1px solid var(--adc-b2);
       border-radius: 999px;
       color: var(--adc-ink2);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       padding: 2px 9px;
     }
@@ -1374,14 +1411,14 @@
     .ad-mobile-heat span {
       margin-top: 2px;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 10.5px;
     }
 
     .ad-mobile-copy {
       margin: 0 10px;
       padding: 0 4px;
       color: var(--adc-ink2);
-      font-size: 12px;
+      font-size: 11.5px;
       line-height: 1.6;
     }
 
@@ -1391,7 +1428,7 @@
       background: var(--adc-info-bg);
       color: var(--adc-info-fg);
       font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 12px;
+      font-size: 9px;
       padding: 0 3px;
     }
 
@@ -1400,7 +1437,7 @@
       gap: 4px;
       margin: 8px 14px 0;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 10.5px;
       line-height: 1.45;
     }
 
@@ -1415,7 +1452,7 @@
       border: 1px dashed var(--adc-b2);
       border-radius: 10px;
       color: var(--adc-ink3);
-      font-size: 12px;
+      font-size: 10.5px;
       line-height: 1.45;
       padding: 9px 12px;
     }
@@ -1478,7 +1515,7 @@
     --adc-s3: #ededea;
     --adc-ink: #1a1c1f;
     --adc-ink2: #4a4f56;
-    --adc-ink3: #5f656c;
+    --adc-ink3: #7d838c;
     --adc-b1: #e4e4e0;
     --adc-b2: #cdcdc7;
     --adc-focus: #1e62d0;
@@ -1496,7 +1533,7 @@
     place-items: center;
     background: var(--adc-s1);
     color: var(--adc-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.5;
     padding: 28px 16px;
@@ -1533,7 +1570,7 @@
   .ad-auth-mono {
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0;
   }
@@ -1548,26 +1585,7 @@
     margin-bottom: 2px;
   }
 
-  .ad-auth-mark-link {
-  display: inline-flex;
-  border-radius: 6px;
-}
-
-.ad-auth-mark-link:focus-visible {
-  outline: 2px solid var(--adc-focus);
-  outline-offset: 2px;
-}
-
-/* The two links in .ad-auth-row styled colour only, so keyboard users fell
-   back to the UA default ring on "Forgot password?" and "Create account" —
-   the only controls on these screens without a visible focus state. */
-.ad-auth-row a:focus-visible {
-  outline: 2px solid var(--adc-focus);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.ad-auth-mark {
+  .ad-auth-mark {
     width: 10px;
     height: 10px;
     border-radius: 2px;
@@ -1609,7 +1627,7 @@
     flex-direction: column;
     gap: 4px;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 400;
   }
 
@@ -1713,7 +1731,7 @@
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    font-size: 12px;
+    font-size: 11.5px;
   }
 
   .ad-auth-row a,
@@ -1756,7 +1774,7 @@
   .ad-auth-footer {
     border-top: 1px solid var(--adc-b1);
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     padding-top: 12px;
   }
 
@@ -1858,7 +1876,7 @@
     color: var(--adc-ink2);
     flex: none;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     line-height: 1;
     max-width: 220px;
     overflow: hidden;
@@ -1909,7 +1927,7 @@
     gap: 8px;
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0;
   }
@@ -1938,7 +1956,7 @@
   .ad-auth-step-link {
     align-self: flex-start;
     color: var(--adc-info-fg);
-    font-size: 12px;
+    font-size: 11.5px;
     margin-top: auto;
     text-decoration: none;
   }
@@ -1974,7 +1992,7 @@
     --adc-s3: #ededea;
     --adc-ink: #1a1c1f;
     --adc-ink2: #4a4f56;
-    --adc-ink3: #5f656c;
+    --adc-ink3: #7d838c;
     --adc-b1: #e4e4e0;
     --adc-b2: #cdcdc7;
     --adc-caution-fg: #86590a;
@@ -1989,7 +2007,7 @@
     min-height: 100vh;
     background: var(--adc-s1);
     color: var(--adc-ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -2035,7 +2053,7 @@
     border: 1px solid var(--adc-b1);
     border-radius: 999px;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11px;
     padding: 2px 9px;
     white-space: nowrap;
   }
@@ -2062,7 +2080,7 @@
   .ad-client-email {
     flex: none;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
   }
 
   .ad-client-content {
@@ -2167,7 +2185,7 @@
 
   .ad-client-kpi p {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     margin: 0;
   }
 
@@ -2187,7 +2205,7 @@
   .ad-client-kpi span {
     display: block;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     margin-top: 2px;
   }
 
@@ -2205,7 +2223,7 @@
 
   .ad-client-section-note {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     margin: 0 0 8px;
   }
 
@@ -2236,7 +2254,7 @@
   .ad-client-feed-item time {
     flex: none;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-client-feed-item p {
@@ -2253,7 +2271,7 @@
     border-radius: 999px;
     background: var(--adc-s1);
     color: var(--adc-ink2);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
     margin-top: 8px;
     padding: 2px 10px;
@@ -2307,7 +2325,7 @@
     background: color-mix(in srgb, var(--adc-s2) 88%, transparent);
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     padding: 2px 5px;
   }
 
@@ -2325,7 +2343,7 @@
 
   .ad-client-highlight-body p {
     color: var(--adc-ink2);
-    font-size: 12px;
+    font-size: 11.5px;
     margin: 2px 0 0;
   }
 
@@ -2348,7 +2366,7 @@
   .ad-client-footer {
     border-top: 1px solid var(--adc-b1);
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.5;
     padding-top: 12px;
   }
@@ -2400,66 +2418,72 @@
     justify-content: space-between;
   }
 
+  /* Dashboard v2 page header: display face over a mono eyebrow. */
   .ad-platform-readiness-header h1 {
-    color: var(--adc-ink);
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: 0;
-    line-height: 1.3;
-    margin: 2px 0 0;
+    color: var(--adv-ink);
+    font-family: var(--adv-font-display);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 4px 0 0;
   }
 
   .ad-platform-readiness-header p {
-    color: var(--adc-ink3);
-    font-size: 12px;
+    color: var(--adv-ink-2);
+    font-size: 13.5px;
     line-height: 1.5;
     margin: 4px 0 0;
     max-width: 620px;
   }
 
   .ad-platform-kicker {
-    color: var(--adc-ink3) !important;
-    font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px !important;
-    letter-spacing: 0.08em;
+    color: var(--adv-ink-3) !important;
+    font-family: var(--adv-font-mono);
+    font-size: 11px !important;
+    letter-spacing: 0.12em;
     margin: 0 !important;
     text-transform: uppercase;
   }
 
   .ad-platform-context-pill {
     align-items: center;
-    background: var(--adc-s2);
-    border: 1px solid var(--adc-b1);
-    border-radius: 8px;
-    color: var(--adc-ink2);
+    background: var(--adv-surface);
+    border: 1px solid var(--adv-border);
+    border-radius: var(--adv-r-control);
+    color: var(--adv-ink-2);
     display: inline-flex;
     flex: none;
-    font-size: 12px;
-    gap: 7px;
-    min-height: 32px;
-    padding: 5px 9px;
+    font-size: 13px;
+    font-weight: 500;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
   }
 
   .ad-platform-context-pill strong {
-    border: 1px solid var(--adc-b1);
-    border-radius: 999px;
-    color: var(--adc-ink3);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 1px 7px;
+    background: var(--adv-fill-2);
+    border: 0;
+    border-radius: 5px;
+    color: var(--adv-ink-3);
+    font-family: var(--adv-font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 3px 7px;
+    text-transform: uppercase;
   }
 
   .ad-platform-context-pill strong[data-status="beta"] {
     background: var(--adc-caution-bg);
-    border-color: var(--adc-caution-bd);
     color: var(--adc-caution-fg);
   }
 
   .ad-platform-card {
-    background: var(--adc-s2);
-    border: 1px solid var(--adc-b1);
-    border-radius: 10px;
-    padding: 13px 15px;
+    background: var(--adv-surface);
+    border: 1px solid var(--adv-border);
+    border-radius: var(--adv-r-card);
+    padding: 16px;
   }
 
   .ad-platform-section-head {
@@ -2479,7 +2503,7 @@
 
   .ad-platform-section-head p {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.5;
     margin: 3px 0 0;
   }
@@ -2536,7 +2560,7 @@
 
   .ad-platform-readiness-row p {
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 11px;
     margin: 0;
   }
 
@@ -2612,13 +2636,7 @@
     --ink-2: var(--adc-ink2);
     --ink-3: var(--adc-ink3);
     --muted: var(--adc-ink3);
-    /* Was var(--adc-b2) -- a hairline colour, aliased one line below as
-       --border-3. Twenty-five text sites painted words with it, including the
-       Copies "data as of ..." stamp at 1.60:1. There is no legible tier below
-       --muted, so this resolves to the same ink rather than inventing a
-       dimmer one that would fail the floor on tinted rows. Hairline users
-       moved to --border-3 and are unchanged. */
-    --muted-2: var(--adc-ink3);
+    --muted-2: var(--adc-b2);
     --border: var(--adc-b1);
     --border-2: var(--adc-b1);
     --border-3: var(--adc-b2);
@@ -2654,7 +2672,7 @@
     min-height: 100vh;
     background: var(--bg);
     color: var(--ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 13px;
     line-height: 1.45;
     -webkit-font-smoothing: antialiased;
@@ -2679,7 +2697,7 @@
   .ad-final .crumbs {
     margin-bottom: 1px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-final .crumbs b {
@@ -2788,7 +2806,7 @@
     border-radius: 999px;
     background: var(--surface);
     color: var(--ink-3);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     line-height: 1;
     padding: 0 9px;
@@ -2799,9 +2817,7 @@
     height: 6px;
     flex-shrink: 0;
     border-radius: 50%;
-    /* A neutral status dot, not text. --border-3 is the same colour --muted-2
-       used to resolve to, so this renders identically. */
-    background: var(--border-3);
+    background: var(--muted-2);
   }
 
   .ad-final .chip--action {
@@ -2953,7 +2969,7 @@
   .ad-final .meta-digest b {
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
   }
@@ -3026,7 +3042,7 @@
 
   .ad-final .meta-readiness-stack__head small {
     color: var(--ink-2);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
   }
 
@@ -3065,7 +3081,7 @@
     min-width: 0;
     color: var(--ink-2);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
 
@@ -3083,7 +3099,7 @@
     background: var(--surface);
     color: currentColor;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 650;
     padding: 3px 9px;
     text-decoration: none;
@@ -3106,7 +3122,7 @@
     gap: 12px;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     letter-spacing: 0.03em;
@@ -3117,8 +3133,8 @@
   .ad-final .meta-lane-group-head small {
     overflow: hidden;
     color: var(--muted);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
-    font-size: 12px;
+    font-family: var(--adv-font-body);
+    font-size: 11px;
     font-weight: 400;
     text-overflow: ellipsis;
     text-transform: none;
@@ -3145,7 +3161,7 @@
     justify-content: space-between;
     gap: 8px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
     letter-spacing: 0.01em;
   }
@@ -3171,7 +3187,7 @@
 
   .ad-final .pulse .micro {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-final .pulse .micro b {
@@ -3223,7 +3239,7 @@
     border-radius: 999px;
     background: var(--surface-3);
     color: var(--ink-3);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     padding: 1px 7px;
     text-align: center;
@@ -3362,7 +3378,7 @@
 
   .ad-final .filter-trigger .k {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 500;
     letter-spacing: 0;
     text-transform: uppercase;
@@ -3426,7 +3442,7 @@
 
   .ad-final .filter-popover-head span {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-final .filter-option-list {
@@ -3481,7 +3497,7 @@
   .ad-final .filter-option small {
     margin-top: 2px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.35;
   }
 
@@ -3578,14 +3594,14 @@
   .ad-final .date-chip .range {
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
   }
 
   .ad-final .date-chip .chev,
   .ad-final .preset-chip .chev {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .ad-final .cal-popover {
@@ -3659,13 +3675,13 @@
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: 2px;
-    font-size: 12px;
+    font-size: 11.5px;
     text-align: center;
   }
 
   .ad-final .cal-grid-days .dh {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.04em;
     padding: 4px 0;
@@ -3788,7 +3804,7 @@
     flex: none;
     font-style: normal;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--muted);
@@ -3812,7 +3828,7 @@
   .ad-final .meta-brief__asof {
     flex: none;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
   }
 
@@ -3847,7 +3863,7 @@
     border: none;
     padding: 4px 11px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--muted);
     cursor: pointer;
   }
@@ -3863,7 +3879,7 @@
   }
 
   .ad-final .meta-spine-lens__note {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
   }
 
@@ -3891,7 +3907,7 @@
     background: var(--surface-2);
     border-bottom: 1px solid var(--border-3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     letter-spacing: 0.03em;
     color: var(--muted);
   }
@@ -3930,7 +3946,7 @@
     border-bottom: 1px solid var(--border);
     padding: 7px 12px 5px;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     letter-spacing: 0.03em;
     text-transform: uppercase;
     color: var(--muted);
@@ -4006,7 +4022,7 @@
   .ad-final .meta-spine__grain {
     justify-self: start;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     letter-spacing: 0.02em;
     border: 1px solid var(--border-2);
     border-radius: var(--r-xs);
@@ -4045,7 +4061,7 @@
     align-items: center;
     justify-content: center;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 8px;
     color: var(--muted);
   }
 
@@ -4060,7 +4076,7 @@
   .ad-final .meta-spine__fmt {
     flex: none;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     color: var(--muted);
     border: 1px solid var(--border-2);
     border-radius: var(--r-xs);
@@ -4069,13 +4085,13 @@
 
   .ad-final .meta-spine__meta {
     flex: none;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
   }
 
   .ad-final .meta-spine__auto {
     flex: none;
-    font-size: 12px;
+    font-size: 10px;
     color: var(--purple);
     border: 1px solid var(--purple-bd);
     background: var(--purple-bg);
@@ -4086,7 +4102,7 @@
   .ad-final .meta-spine__delta {
     text-align: right;
     font-variant-numeric: tabular-nums;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
   }
 
@@ -4096,7 +4112,7 @@
 
   .ad-final .meta-spine__delivery {
     justify-self: start;
-    font-size: 12px;
+    font-size: 10.5px;
     border: 1px solid var(--border-2);
     border-radius: 999px;
     padding: 1px 7px;
@@ -4127,14 +4143,14 @@
   .ad-final .meta-spine__conf {
     justify-self: center;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
 
   .ad-final .meta-spine__verdict {
     justify-self: start;
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 600;
     border: 1px solid var(--border-2);
     border-radius: 999px;
@@ -4350,7 +4366,7 @@
     background: transparent;
     color: currentColor;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 650;
     padding: 3px 9px;
     text-decoration: none;
@@ -4431,7 +4447,7 @@
     align-items: center;
     justify-content: center;
     color: #fff;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
   }
 
@@ -4479,7 +4495,7 @@
     display: block;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     letter-spacing: 0.02em;
     margin-top: 6px;
     text-transform: lowercase;
@@ -4503,7 +4519,7 @@
 
   .ad-final .actions-col .why-action {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.05em;
     margin-bottom: 2px;
@@ -4539,7 +4555,7 @@
   .ad-final .meta-action-feedback small {
     color: var(--muted);
     display: block;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.35;
     margin-top: 2px;
   }
@@ -4593,7 +4609,7 @@
   .ad-final .metric-strip .m .k {
     display: block;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.04em;
     margin-bottom: 4px;
@@ -4618,7 +4634,7 @@
   .ad-final .metric-strip .m .delta {
     display: block;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
     margin-top: 2px;
   }
 
@@ -4636,7 +4652,7 @@
     gap: 6px;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
   }
 
@@ -4859,7 +4875,7 @@
     background: rgba(0, 0, 0, 0.55);
     color: #fff;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 600;
     letter-spacing: 0.03em;
     padding: 1px 5px;
@@ -4874,7 +4890,7 @@
     background: var(--surface);
     color: var(--ink-3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 600;
     letter-spacing: 0.03em;
     padding: 2px 7px;
@@ -4904,7 +4920,7 @@
     align-items: center;
     justify-content: center;
     color: #fff;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
   }
 
@@ -4937,7 +4953,7 @@
     overflow: hidden;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -4983,7 +4999,7 @@
   .ad-final .tile-metrics .m .k {
     display: block;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -5059,7 +5075,7 @@
   .ad-final .preset-chip .preset-meta,
   .ad-final .preset-bar .meta-count {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
   }
 
@@ -5122,7 +5138,7 @@
     margin-top: 8px;
     color: var(--ink-3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
   }
 
   .ad-final .preset-list .preset-item--disabled {
@@ -5154,7 +5170,7 @@
     display: flex;
     justify-content: space-between;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.04em;
     margin-bottom: 6px;
@@ -5180,7 +5196,7 @@
 
   .ad-final .kpi-cell .micro {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     margin-top: 4px;
   }
 
@@ -5199,7 +5215,7 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.05em;
     padding: 10px 12px;
@@ -5303,7 +5319,7 @@
     background: var(--surface);
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 8.5px;
     font-weight: 600;
     padding: 0 3px;
   }
@@ -5327,7 +5343,7 @@
   .ad-final .name-text span {
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
   }
 
   .ad-final .score {
@@ -5441,7 +5457,7 @@
   .compare-drawer-eyebrow {
     display: block;
     color: var(--muted, #64748b);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.06em;
     line-height: 1.2;
@@ -5475,7 +5491,7 @@
     border-radius: 999px;
     background: var(--surface-2, #fbfbfd);
     color: var(--muted, #64748b);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
     padding: 3px 9px;
   }
@@ -5539,7 +5555,7 @@
     background: var(--surface, #ffffff);
     color: var(--ink-3, #475569);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 700;
     letter-spacing: 0.03em;
     line-height: 1;
@@ -5552,7 +5568,7 @@
     border-radius: 999px;
     background: var(--surface-3, #f2f3f6);
     color: var(--ink-3, #475569);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 700;
     padding: 2px 7px;
   }
@@ -5612,7 +5628,7 @@
     background: rgba(15, 23, 42, 0.68);
     color: #fff;
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 700;
     padding: 1px 5px;
   }
@@ -5638,7 +5654,7 @@
     overflow: hidden;
     color: var(--muted, #64748b);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -5664,7 +5680,7 @@
   .compare-drawer-metric-key {
     display: block;
     color: var(--muted, #64748b);
-    font-size: 12px;
+    font-size: 9.5px;
     font-weight: 700;
     letter-spacing: 0.04em;
     line-height: 1.2;
@@ -5697,7 +5713,7 @@
     border-radius: 999px;
     background: var(--surface, #ffffff);
     color: var(--ink-3, #475569);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
     line-height: 1;
     padding: 4px 8px;
@@ -5984,7 +6000,7 @@
     border-radius: var(--r-xs);
     background: var(--surface);
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .ad-final .cc-modal .selected-metric .icon-btn:disabled {
@@ -5998,13 +6014,13 @@
     margin-top: 8px;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.45;
   }
 
   .ad-final .cc-modal .cc-note b {
     color: var(--ink);
-    font-family: var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+    font-family: var(--adv-font-body);
     font-size: 12px;
   }
 
@@ -6015,7 +6031,7 @@
 
   .ad-final .cc-modal .cc-mid .group-h {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
     margin: 14px 0 6px;
@@ -6093,7 +6109,7 @@
   .ad-final .cc-modal .cc-foot-note {
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-final .cross-thumb {
@@ -6137,7 +6153,7 @@
   .ad-final .share-modal__section-label {
     color: var(--pencil);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     letter-spacing: 0.6px;
     margin: 14px 0 6px;
     text-transform: uppercase;
@@ -6241,7 +6257,7 @@
     align-items: center;
     justify-content: center;
     color: #fff;
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
   }
 
@@ -6347,7 +6363,7 @@
     background: var(--surface);
     box-shadow: var(--shadow-xs);
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
   }
 
@@ -6455,7 +6471,7 @@
 
   .ad-final .creative-evidence-preview-state span {
     color: #cbd5e1;
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.45;
   }
 
@@ -6523,7 +6539,7 @@
     min-width: 0;
     flex: 1;
     color: #fff;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
     line-height: 1.3;
   }
@@ -6541,7 +6557,7 @@
     background: #fff;
     color: #111827;
     padding: 5px 8px;
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 800;
   }
 
@@ -6589,7 +6605,7 @@
     overflow: hidden;
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.02em;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -6614,7 +6630,7 @@
 
   .ad-final .creative-evidence-readiness-note {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11.5px;
   }
 
   .ad-final .creative-evidence-close {
@@ -6694,7 +6710,7 @@
     margin-top: 6px;
     color: var(--muted);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 10.5px;
     letter-spacing: 0.02em;
     text-transform: lowercase;
   }
@@ -6768,7 +6784,7 @@
     align-items: center;
     justify-content: space-between;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.05em;
     margin: 0 0 12px;
@@ -6896,7 +6912,7 @@
       border: 1px dashed var(--border-2);
       border-radius: 999px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       padding: 4px 8px;
     }
 
@@ -7086,7 +7102,7 @@
     padding-bottom: 2px;
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 8px;
     line-height: 1;
     text-transform: uppercase;
   }
@@ -7135,7 +7151,7 @@
     padding: 0 4px;
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10px;
     line-height: 16px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -7143,7 +7159,7 @@
 
   .ad-final .meta-row__level {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     text-transform: capitalize;
   }
 
@@ -7156,7 +7172,7 @@
     background: var(--adc-s2);
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     line-height: 1;
@@ -7201,7 +7217,7 @@
     border-radius: 5px;
     padding: 0 6px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 500;
     letter-spacing: 0;
   }
@@ -7237,7 +7253,7 @@
     background: var(--adc-s2);
     padding: 0 5px;
     color: var(--adc-ink3);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 600;
   }
 
@@ -7258,13 +7274,13 @@
   .ad-final .meta-row__evidence-age {
     color: var(--adc-ink3);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     font-variant-numeric: tabular-nums;
   }
 
   .ad-final .meta-row__evidence-link {
     color: var(--adc-info-fg);
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
     white-space: nowrap;
   }
@@ -7278,7 +7294,7 @@
     background: var(--adc-s2);
     color: var(--adc-ink2);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 10.5px;
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     line-height: 1;
@@ -7338,7 +7354,7 @@
     background: var(--adc-auto-bg);
     padding: 6px 14px 7px 58px;
     color: var(--adc-auto-fg);
-    font-size: 12px;
+    font-size: 11.5px;
     line-height: 1.45;
   }
 
@@ -7352,7 +7368,7 @@
     padding: 4px 9px;
     color: var(--ink-2);
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
     cursor: pointer;
     text-decoration: none;
   }
@@ -7385,12 +7401,12 @@
     border-radius: var(--r-sm);
     padding: 5px 9px;
     color: var(--ink-2);
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .ad-final .meta-row__ladder > span small {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 10.5px;
   }
 
   /* ── Decision Center composition (design-tw-uplift): the wireframe's header
@@ -7414,7 +7430,7 @@
     padding: 5px 10px;
     color: var(--muted);
     font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0;
     white-space: nowrap;
   }
@@ -7429,7 +7445,7 @@
     background: var(--surface);
     padding: 7px 14px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11.5px;
   }
 
   .ad-final .meta-queue-scope-note b {
@@ -7467,7 +7483,7 @@
     justify-content: space-between;
     padding: 12px 14px 6px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -7547,14 +7563,14 @@
   .ad-final .meta-scope-biz__count {
     flex: none;
     color: var(--ink-2);
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
 
   .ad-final .meta-scope-biz__open {
     flex: none;
     color: var(--muted-2);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
   }
 
@@ -7564,7 +7580,7 @@
 
   .ad-final .meta-scope-biz__spend {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     padding-left: 15px;
   }
@@ -7573,7 +7589,7 @@
     margin: auto 0 0;
     padding: 10px 14px 14px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.5;
   }
 
@@ -7630,534 +7646,918 @@
   }
 }
 
-/* Skip link: off-screen until focused, then pinned top-left above everything. */
-.ad-skip-link {
-  position: absolute;
-  left: -9999px;
-  top: 0;
-  z-index: 100;
-}
-
-.ad-skip-link:focus-visible {
-  left: 0.75rem;
-  top: 0.75rem;
-  padding: 0.5rem 0.875rem;
-  border-radius: 0.5rem;
-  background: var(--foreground, #0a0a0a);
-  color: var(--background, #ffffff);
-  font-size: 0.875rem;
-  outline: 2px solid var(--background, #ffffff);
-  outline-offset: 2px;
-}
-
-/*
- * Mobile: a data table may not hide columns behind a sideways scroll.
- *
- * Every surface that renders tabular data in an `overflow-x` frame has the same
- * failure at phone widths -- the frame scrolls, the page does not, and the last
- * columns (which is where verdicts and assessments live) sit outside the frame.
- * Side-scrolling to reach the answer is not reading the answer.
- *
- * Rows become cards in priority order. Headers are hidden from sight but kept
- * for assistive technology via the cells' own labels, and nothing is removed --
- * secondary cells fall below rather than off the side.
- */
-@media (max-width: 767px) {
-  .ad-console-shell [class*="overflow-x-auto"] table,
-  .ad-console-shell [class*="overflow-x-auto"] th,
-  .ad-console-shell [class*="overflow-x-auto"] td,
-  .ad-console-shell [class*="overflow-x-auto"] tr {
-    min-width: 0 !important;
-    max-width: none !important;
+/* ==========================================================================
+   Dashboard v2 — shell chrome and shared primitives.
+   Values are lifted verbatim from `Adsecute Dashboard v2.dc.html`; each class
+   is the reusable form of a pattern the design repeats across screens.
+   ========================================================================== */
+@layer components {
+  .adv-shell {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--adv-canvas);
+    color: var(--adv-ink);
+    font-family: var(--adv-font-body);
+    font-size: 13px;
+    line-height: 1.45;
   }
 
-  .ad-console-shell [class*="overflow-x-auto"] table {
-    width: 100% !important;
-    table-layout: fixed;
+  .adv-shell ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
   }
 
-  .ad-console-shell [class*="overflow-x-auto"] {
-    overflow-x: hidden !important;
+  .adv-shell ::-webkit-scrollbar-thumb {
+    background: var(--adv-scroll-thumb);
+    border-radius: 8px;
+    border: 2px solid var(--adv-canvas);
   }
 
-  .ad-console-shell [class*="overflow-x-auto"] td {
-    overflow-wrap: anywhere;
-    white-space: normal !important;
+  /* ---------- rail ---------- */
+  .adv-rail {
+    width: 248px;
+    flex-shrink: 0;
+    background: var(--adv-rail);
+    display: flex;
+    flex-direction: column;
   }
 
-  /*
-   * The identity cell packs a thumbnail, a name and the assessment chip on one
-   * flex line. At phone width the chip is the thing that falls off the end --
-   * and the assessment is the whole reason the row is being read. Let the line
-   * wrap so the chip drops beneath the name instead of past the edge.
-   */
-  .ad-console-shell [class*="overflow-x-auto"] td > div,
-  .ad-console-shell [class*="overflow-x-auto"] td > span {
-    flex-wrap: wrap;
+  .adv-rail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--adv-rail-line);
+  }
+
+  .adv-rail-mark {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--adv-accent);
+    flex-shrink: 0;
+  }
+
+  .adv-rail-wordmark {
+    font-family: var(--adv-font-display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+
+  .adv-rail-version {
+    margin-left: auto;
+    font-family: var(--adv-font-mono);
+    font-size: 9.5px;
+    color: var(--adv-rail-ink-3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 2px 5px;
+  }
+
+  .adv-rail-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .adv-rail-group {
+    margin: 14px 6px 6px;
+    font-family: var(--adv-font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--adv-rail-ink-3);
+  }
+
+  .adv-rail-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--adv-rail-ink-2);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+  }
+
+  .adv-rail-item:hover {
+    background: var(--adv-rail-hover);
+    color: var(--adv-rail-ink);
+  }
+
+  .adv-rail-item > span:not([class]),
+  .adv-rail-child > span:not([class]) {
     min-width: 0;
-    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
-  .ad-console-shell [class*="overflow-x-auto"] td [class*="assessment"],
-  .ad-console-shell [class*="overflow-x-auto"] td span[style*="white-space: nowrap"] {
-    white-space: normal !important;
+  .adv-rail-item[data-active="true"] {
+    background: var(--adv-accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .adv-rail-item[data-active="true"]:hover {
+    background: var(--adv-accent);
+    color: #ffffff;
+  }
+
+  /* Platform parent rows sit a touch tighter than group entries. */
+  .adv-rail-item--platform {
+    padding: 7px 10px;
+  }
+
+  .adv-rail-item--parent[data-family="true"] {
+    background: var(--adv-rail-hover);
+    color: var(--adv-rail-ink);
+    font-weight: 600;
+  }
+
+  .adv-rail-logo {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: #ffffff;
+    flex-shrink: 0;
+  }
+
+  .adv-rail-children {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 1px 0 3px;
+    padding-left: 14px;
+  }
+
+  .adv-rail-child {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 10px 6px 12px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--adv-rail-ink-2);
+    cursor: pointer;
+    background: transparent;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+  }
+
+  .adv-rail-child:hover {
+    background: var(--adv-rail-hover);
+    color: var(--adv-rail-ink);
+  }
+
+  .adv-rail-child[data-active="true"] {
+    background: var(--adv-accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .adv-rail-count {
+    margin-left: auto;
+    font-family: var(--adv-font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    background: var(--adv-alert);
+    color: #ffffff;
+    border-radius: 9999px;
+    padding: 1px 7px;
+  }
+
+  .adv-rail-dot {
+    margin-left: auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--adv-live);
+    flex-shrink: 0;
+  }
+
+  .adv-rail-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-family: var(--adv-font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-radius: 5px;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #7a869e;
+  }
+
+  .adv-rail-badge[data-tone="beta"] {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+  }
+
+  .adv-rail-foot {
+    padding: 12px;
+    border-top: 1px solid var(--adv-rail-line);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: transparent;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+  }
+
+  .adv-rail-foot:hover {
+    background: var(--adv-rail-hover);
+  }
+
+  .adv-rail-avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+    background: var(--adv-rail-raised);
+    color: var(--adv-rail-avatar-fg);
+    font-size: 11.5px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  /* ---------- topbar ---------- */
+  .adv-topbar {
+    min-height: 56px;
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--adv-border);
+    padding: 8px 20px;
+  }
+
+  .adv-topbar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--adv-border);
+    flex-shrink: 0;
+  }
+
+  /* ---------- controls ---------- */
+  .adv-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: var(--adv-r-control);
+    border: 1px solid var(--adv-border);
+    background: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--adv-ink);
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .adv-btn:hover {
+    background: var(--adv-fill);
+  }
+
+  .adv-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .adv-btn--primary {
+    border: none;
+    background: var(--adv-accent);
+    color: #ffffff;
+  }
+
+  .adv-btn--primary:hover {
+    background: var(--adv-accent-hover);
+  }
+
+  .adv-btn--muted {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--adv-ink-2);
+  }
+
+  .adv-btn--sm {
+    height: 30px;
+    /* The design drops small controls to the chip radius, not the control one. */
+    border-radius: var(--adv-r-chip);
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--adv-ink-2);
+    gap: 6px;
+  }
+
+  .adv-icon-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--adv-r-control);
+    border: 1px solid var(--adv-border);
+    background: #ffffff;
+    color: var(--adv-ink-2);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .adv-icon-btn:hover {
+    background: var(--adv-fill);
+  }
+
+  .adv-input {
+    height: 30px;
+    border-radius: var(--adv-r-chip);
+    border: 1px solid var(--adv-border);
+    background: var(--adv-fill);
+    padding: 0 10px;
+    font-size: 12.5px;
+    outline: none;
+    font-family: inherit;
+    color: var(--adv-ink);
+  }
+
+  .adv-input:focus {
+    border-color: var(--adv-accent-bd);
+  }
+
+  .adv-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    /* Sizing lives here rather than on utilities so the mobile collapse below
+       is not outranked by Tailwind's utilities layer. */
+    flex: 0 1 230px;
+    min-width: 92px;
+    padding: 0 12px;
+    border-radius: var(--adv-r-control);
+    border: 1px solid var(--adv-border);
+    background: var(--adv-fill);
+    font-size: 13px;
+    color: var(--adv-ink-3);
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .adv-search:hover {
+    border-color: var(--adv-accent-bd);
+  }
+
+  .adv-kbd {
+    flex-shrink: 0;
+    font-family: var(--adv-font-mono);
+    font-size: 10px;
+    border: 1px solid var(--adv-border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    background: #ffffff;
+    color: var(--adv-ink-4);
+  }
+
+  /* ---------- chips ---------- */
+  .adv-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: var(--adv-accent-bg);
+    color: var(--adv-accent);
+    border: 0;
+    font-family: inherit;
+    cursor: default;
+  }
+
+  .adv-pill[data-tone="pos"] {
+    background: var(--adc-pos-bg);
+    color: var(--adc-pos-fg);
+  }
+
+  .adv-pill[data-tone="neg"] {
+    background: var(--adc-danger-bg);
+    color: var(--adc-danger-fg);
+  }
+
+  .adv-pill[data-tone="warn"] {
+    background: var(--adc-caution-bg);
+    color: var(--adc-caution-fg);
+  }
+
+  .adv-pill[data-tone="auto"] {
+    background: var(--adc-auto-bg);
+    color: var(--adc-auto-fg);
+  }
+
+  .adv-pill[data-tone="neutral"] {
+    background: var(--adv-fill-2);
+    color: var(--adv-ink-3);
+  }
+
+  .adv-pill-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  .adv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    background: var(--adv-fill-2);
+    color: var(--adv-ink-3);
+  }
+
+  .adv-chip[data-tone="pos"] {
+    background: var(--adc-pos-bg);
+    color: var(--adc-pos-fg);
+  }
+
+  .adv-chip[data-tone="neg"] {
+    background: var(--adc-danger-bg);
+    color: var(--adc-danger-fg);
+  }
+
+  .adv-chip[data-tone="warn"] {
+    background: var(--adc-caution-bg);
+    color: var(--adc-caution-fg);
+  }
+
+  .adv-chip[data-tone="info"] {
+    background: var(--adv-accent-bg);
+    color: var(--adv-accent);
+  }
+
+  .adv-chip[data-tone="auto"] {
+    background: var(--adc-auto-bg);
+    color: var(--adc-auto-fg);
+  }
+
+  .adv-tag {
+    font-family: var(--adv-font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-radius: 5px;
+    padding: 3px 7px;
+    background: var(--adv-fill-2);
+    color: var(--adv-ink-3);
+    white-space: nowrap;
+  }
+
+  .adv-tag[data-tone="pos"] {
+    background: var(--adc-pos-bg);
+    color: var(--adc-pos-fg);
+  }
+
+  .adv-tag[data-tone="neg"] {
+    background: var(--adc-danger-bg);
+    color: var(--adc-danger-fg);
+  }
+
+  .adv-tag[data-tone="warn"] {
+    background: var(--adc-caution-bg);
+    color: var(--adc-caution-fg);
+  }
+
+  .adv-tag[data-tone="info"] {
+    background: var(--adv-accent-bg);
+    color: var(--adv-accent);
+  }
+
+  .adv-tag[data-tone="auto"] {
+    background: var(--adc-auto-bg);
+    color: var(--adc-auto-fg);
+  }
+
+  /* ---------- surfaces ---------- */
+  .adv-main {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .adv-page {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 24px 28px 48px;
+  }
+
+  .adv-card {
+    border-radius: var(--adv-r-card);
+    background: #ffffff;
+    border: 1px solid var(--adv-border);
+  }
+
+  .adv-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--adv-hairline);
+  }
+
+  .adv-card-title {
+    margin: 0;
+    font-family: var(--adv-font-display);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--adv-ink);
+  }
+
+  .adv-tile {
+    border-radius: var(--adv-r-tile);
+    border: 1px solid var(--adv-hairline);
+    padding: 12px 12px 10px;
+    min-width: 0;
+  }
+
+  .adv-tile--fill {
+    border: 0;
+    background: var(--adv-fill);
+    padding: 10px 10px 8px;
+  }
+
+  /* ---------- type ---------- */
+  .adv-eyebrow {
+    margin: 0;
+    font-family: var(--adv-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--adv-ink-3);
+  }
+
+  .adv-h1 {
+    margin: 4px 0 0;
+    font-family: var(--adv-font-display);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--adv-ink);
+  }
+
+  .adv-sub {
+    margin: 4px 0 0;
+    font-size: 13.5px;
+    color: var(--adv-ink-2);
+  }
+
+  .adv-label {
+    margin: 0;
+    font-family: var(--adv-font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--adv-ink-3);
+  }
+
+  .adv-num {
+    font-family: var(--adv-font-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--adv-ink);
+  }
+
+  .adv-mono {
+    font-family: var(--adv-font-mono);
+  }
+
+  /* ---------- tables ---------- */
+  .adv-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .adv-table th {
+    padding: 9px 12px;
+    text-align: right;
+    font-family: var(--adv-font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--adv-ink-3);
+    background: var(--adv-fill);
+    white-space: nowrap;
+  }
+
+  .adv-table th:first-child {
+    text-align: left;
+    padding-left: 16px;
+  }
+
+  .adv-table th:last-child {
+    padding-right: 16px;
+  }
+
+  .adv-table td {
+    padding: 11px 12px;
+    text-align: right;
+    color: var(--adv-ink-2);
+  }
+
+  .adv-table td:first-child {
+    text-align: left;
+    padding-left: 16px;
+  }
+
+  .adv-table td:last-child {
+    padding-right: 16px;
+  }
+
+  .adv-table tbody tr {
+    border-top: 1px solid var(--adv-hairline);
+  }
+
+  .adv-scroll-x {
+    overflow-x: auto;
+  }
+
+  /* ---------- page header ---------- */
+  .adv-page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* The identity column keeps a real basis and the action cluster wraps as a
+     unit; without this a third button pushes the row past the viewport. */
+  .adv-page-head > :first-child {
+    flex: 1 1 360px;
+    min-width: 0;
+  }
+
+  .adv-page-head > :last-child:not(:first-child) {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1023px) {
+    .adv-rail {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 60;
+      transform: translateX(-100%);
+      transition: transform 160ms ease;
+    }
+
+    .adv-rail[data-open="true"] {
+      transform: translateX(0);
+    }
+
+    .adv-page {
+      padding: 16px 16px 40px;
+    }
+
+    .adv-topbar {
+      padding: 8px 12px;
+    }
+  }
+
+  /* Below the tablet break the topbar sheds its secondary affordances rather
+     than wrapping into three rows and eating a third of a phone screen. */
+  @media (max-width: 767px) {
+    .adv-topbar {
+      gap: 6px 8px;
+      padding: 8px 12px;
+    }
+
+    .adv-topbar-divider {
+      display: none;
+    }
+
+    /* The compare pill and the resolved date span are secondary reads; the
+       preset label alone still identifies the window. */
+    .adv-topbar [data-topbar-secondary] {
+      display: none;
+    }
+
+    .adv-search {
+      width: 36px;
+      min-width: 36px;
+      flex: 0 0 36px;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .adv-search > span {
+      display: none;
+    }
+
+    .adv-btn,
+    .adv-icon-btn {
+      height: 34px;
+    }
+
+    .adv-icon-btn {
+      width: 34px;
+    }
+
+    .adv-page-head {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .adv-h1 {
+      font-size: 22px;
+    }
+
+    .adv-card-head {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 8px;
+    }
+  }
+
+  @media (max-width: 479px) {
+    .adv-page {
+      padding: 14px 12px 36px;
+    }
+
+    .adv-btn {
+      padding: 0 10px;
+      font-size: 12.5px;
+    }
   }
 }
 
-/*
- * Reduced motion is a request, not a preference to weigh against aesthetics.
- *
- * Skeleton shimmers and spinners kept animating for viewers who had asked the
- * operating system for stillness -- for some people that is a trigger for
- * nausea or migraine, not an annoyance. Animation is reduced to a single frame
- * rather than removed, so a loading state still reads as "loading" without
- * moving.
- */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
+/* ==========================================================================
+   Dashboard v2 — shared page typography.
+   The design gives every screen the same heading system: Space Grotesk for
+   display headings and tabular numerals, IBM Plex Mono for eyebrow/meta
+   labels. Applying it at the shell scope moves the screens that still own
+   their own layout onto the v2 type ramp without touching their markup.
+   ========================================================================== */
+@layer components {
+  .adv-shell h1 {
+    font-family: var(--adv-font-display);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--adv-ink);
+  }
+
+  .adv-shell h2 {
+    font-family: var(--adv-font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--adv-ink);
+  }
+
+  .adv-shell h3,
+  .adv-shell h4 {
+    font-family: var(--adv-font-display);
+    font-weight: 600;
+    color: var(--adv-ink);
+  }
+
+  /* Numerals read as tabular everywhere a metric is shown. */
+  .adv-shell [class*="metric"] strong,
+  .adv-shell [class*="Metric"] strong,
+  .adv-shell [class*="value"] strong,
+  .adv-shell [class*="Value"] strong {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 767px) {
+    .adv-shell h1 {
+      font-size: 22px;
+    }
   }
 }
 
-/* ============================================================================
- * Zero-base Ledger visual system — scoped, never global.
- *
- * Everything below is confined to [data-adc-ui="zero-base"]. The 308 legacy
- * components keep the :root and .dark variables defined above, unchanged, so
- * this file can add a whole design system without restyling a single existing
- * page. Deleting this block removes the canonical look and leaves legacy
- * exactly as it was — that is the WP-04 rollback.
- *
- * Token values are transcribed from lib/design/ledger-tokens.ts; a test
- * regenerates them from that module and fails if the two ever drift.
- * ==========================================================================*/
-
-[data-adc-ui="zero-base"] {
-  --ledger-accent-action: #545e96;
-  --ledger-accent-hover: #444d84;
-  --ledger-accent-tint: #e3e8fe;
-  --ledger-bg-app: #f7f6f2;
-  --ledger-bg-inset: #f1efeb;
-  --ledger-bg-surface: #fcfcf9;
-  --ledger-border-control: #8c857c;
-  --ledger-border-subtle: #dfdcd6;
-  --ledger-focus-ring: #545e96;
-  --ledger-ink-primary: #24201a;
-  --ledger-ink-quiet: #6b645c;
-  --ledger-ink-secondary: #58514a;
-  --ledger-ink-tertiary: #635c55;
-  --ledger-lane-act-now: #8d4226;
-  --ledger-lane-monitor: #3c4f62;
-  --ledger-lane-resolve: #6f4b00;
-  --ledger-semantic-danger: #96372b;
-  --ledger-semantic-ok: #33724c;
-  --ledger-semantic-warn: #6f4b00;
-  --ledger-state-withheld: #7d3c66;
-  --ledger-state-withheld-border: #e3c8d8;
-  --ledger-state-withheld-tint: #f8edf3;
-
-  /* Scale and motion, from the same table. */
-  --ledger-radius-chip: 4px;
-  --ledger-radius-input: 6px;
-  --ledger-radius-button: 7px;
-  --ledger-radius-card: 10px;
-  --ledger-radius-panel: 12px;
-  --ledger-radius-dialog: 14px;
-  --ledger-focus-width: 2px;
-  --ledger-focus-offset: 2px;
-  --ledger-motion-fast: 120ms;
-  --ledger-motion-panel: 180ms;
-  --ledger-motion-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
-  --ledger-elevation-1: 0 1px 2px rgb(36 32 26 / 4%);
-  --ledger-elevation-2: 0 8px 28px rgb(36 32 26 / 14%);
-  --ledger-scrim: rgb(36 32 26 / 35%);
-
-  /* shadcn variables are remapped HERE ONLY. Outside this root they keep the
-   * values :root gives them, so shadcn components on legacy pages are
-   * untouched while the same components inside the canonical shell adopt
-   * Ledger colours without a fork. */
-  --background: var(--ledger-bg-app);
-  --foreground: var(--ledger-ink-primary);
-  --card: var(--ledger-bg-surface);
-  --card-foreground: var(--ledger-ink-primary);
-  --popover: var(--ledger-bg-surface);
-  --popover-foreground: var(--ledger-ink-primary);
-  --primary: var(--ledger-accent-action);
-  --primary-foreground: var(--ledger-bg-surface);
-  --secondary: var(--ledger-bg-inset);
-  --secondary-foreground: var(--ledger-ink-primary);
-  --muted: var(--ledger-bg-inset);
-  --muted-foreground: var(--ledger-ink-secondary);
-  --accent: var(--ledger-accent-tint);
-  --accent-foreground: var(--ledger-accent-action);
-  --destructive: var(--ledger-semantic-danger);
-  --border: var(--ledger-border-subtle);
-  --input: var(--ledger-border-control);
-  --ring: var(--ledger-focus-ring);
-  --radius: var(--ledger-radius-card);
-
-  color: var(--ledger-ink-primary);
-  background-color: var(--ledger-bg-app);
-  font-family: var(--font-adc-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 13px;
-  line-height: 19px;
-}
-
-/* Form controls do not inherit type.
- *
- * `button`, `input`, `select` and `textarea` take the UA's own font rather than
- * their ancestor's, so every control on a zero-base surface rendered in the
- * browser default while the prose around it rendered in the Ledger face. The
- * reference draws them in one voice, and a rendered comparison against it is
- * what caught this. */
-[data-adc-ui="zero-base"] button,
-[data-adc-ui="zero-base"] input,
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea,
-[data-adc-ui="zero-base"] optgroup {
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-}
-
-/* Auth/onboarding forms share legacy structural classes, but their canonical
- * branch must use the same Ledger controls as the rest of the product. Without
- * this scoped bridge the new frame still painted black legacy buttons and pale
- * legacy inputs, which made the rollout look only partially redesigned. */
-[data-adc-ui="zero-base"] .ad-auth-form {
-  gap: 11px;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-label {
-  color: var(--ledger-ink-secondary);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-input,
-[data-adc-ui="zero-base"] .ad-auth-select {
-  min-height: 36px;
-  border-color: var(--ledger-border-control);
-  background: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary,
-[data-adc-ui="zero-base"] .ad-auth-secondary,
-[data-adc-ui="zero-base"] .ad-auth-link-button {
-  min-height: 36px;
-  border-radius: var(--ledger-radius-input);
-  font-size: 12.5px;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary {
-  border-color: var(--ledger-accent-action);
-  background: var(--ledger-accent-action);
-  color: var(--ledger-bg-surface);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-secondary,
-[data-adc-ui="zero-base"] .ad-auth-link-button {
-  border-color: var(--ledger-border-control);
-  background: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-row {
-  color: var(--ledger-ink-secondary);
-  align-items: center;
-}
-
-[data-adc-ui="zero-base"] .ad-auth-row a,
-[data-adc-ui="zero-base"] .ad-auth-footer a {
-  color: var(--ledger-accent-action);
-}
-
-[data-adc-ui="zero-base"] .ad-auth-primary:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-secondary:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-link-button:focus-visible,
-[data-adc-ui="zero-base"] .ad-auth-input:focus,
-[data-adc-ui="zero-base"] .ad-auth-select:focus {
-  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
-  outline-offset: var(--ledger-focus-offset);
-}
-
-/* Anything carrying a control contract is a target.
- *
- * A bare inline link is 16px tall and a native checkbox is 13×13 — below the
- * 24px minimum (WCAG 2.5.8), and below what the design draws. Rather than
- * padding each site by hand and missing some, the rule is stated once against
- * the attribute that declares the element a control. */
-[data-adc-ui="zero-base"] a[data-ctl],
-[data-adc-ui="zero-base"] button[data-ctl],
-[data-adc-ui="zero-base"] label[data-ctl],
-[data-adc-ui="zero-base"] select[data-ctl] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  min-width: 24px;
-}
-
-[data-adc-ui="zero-base"] input[type="checkbox"],
-[data-adc-ui="zero-base"] input[type="radio"] {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  accent-color: var(--ledger-accent-action);
-}
-
-/* …nor colour. A native select paints the UA's own white, which is not a
- * Ledger surface and is plainly wrong in dark theme. */
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea {
-  background-color: var(--ledger-bg-surface);
-  color: var(--ledger-ink-primary);
-  border: 1px solid var(--ledger-border-control);
-  border-radius: var(--ledger-radius-input);
-}
-
-/* Explicit choice wins everywhere. Both forms are matched so the attribute can
- * sit on <html> (the usual case) or on the canonical root itself (harnesses). */
-[data-adc-theme="dark"] [data-adc-ui="zero-base"],
-[data-adc-ui="zero-base"][data-adc-theme="dark"] {
-  --ledger-accent-action: #9ca7de;
-  --ledger-accent-hover: #b6bee8;
-  --ledger-accent-tint: #2a2e47;
-  --ledger-bg-app: #1c1915;
-  --ledger-bg-inset: #15120f;
-  --ledger-bg-surface: #24211d;
-  --ledger-border-control: #79746d;
-  --ledger-border-subtle: #3b3732;
-  --ledger-focus-ring: #9ca7de;
-  --ledger-ink-primary: #eae8e3;
-  --ledger-ink-quiet: #a29e96;
-  --ledger-ink-secondary: #b4b0aa;
-  --ledger-ink-tertiary: #a29e96;
-  --ledger-lane-act-now: #e6a37a;
-  --ledger-lane-monitor: #9fb4c8;
-  --ledger-lane-resolve: #dbb970;
-  --ledger-semantic-danger: #e6867a;
-  --ledger-semantic-ok: #75be8f;
-  --ledger-semantic-warn: #dbb970;
-  --ledger-state-withheld: #d9a3c6;
-  --ledger-state-withheld-border: #4a3541;
-  --ledger-state-withheld-tint: #2a1e27;
-
-  --primary-foreground: var(--ledger-bg-app);
-  --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
-  --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
-  --ledger-scrim: rgb(0 0 0 / 55%);
-}
-
-/* Only when no explicit preference exists. A `system` preference renders with
- * no attribute, so this is what paints before the inline script settles it —
- * which is why a dark-mode OS never sees a white flash. */
-@media (prefers-color-scheme: dark) {
-  html:not([data-adc-theme]) [data-adc-ui="zero-base"] {
-    --ledger-accent-action: #9ca7de;
-    --ledger-accent-hover: #b6bee8;
-    --ledger-accent-tint: #2a2e47;
-    --ledger-bg-app: #1c1915;
-    --ledger-bg-inset: #15120f;
-    --ledger-bg-surface: #24211d;
-    --ledger-border-control: #79746d;
-    --ledger-border-subtle: #3b3732;
-    --ledger-focus-ring: #9ca7de;
-    --ledger-ink-primary: #eae8e3;
-    --ledger-ink-quiet: #a29e96;
-    --ledger-ink-secondary: #b4b0aa;
-    --ledger-ink-tertiary: #a29e96;
-    --ledger-lane-act-now: #e6a37a;
-    --ledger-lane-monitor: #9fb4c8;
-    --ledger-lane-resolve: #dbb970;
-    --ledger-semantic-danger: #e6867a;
-    --ledger-semantic-ok: #75be8f;
-    --ledger-semantic-warn: #dbb970;
-    --ledger-state-withheld: #d9a3c6;
-    --ledger-state-withheld-border: #4a3541;
-    --ledger-state-withheld-tint: #2a1e27;
-
-    --primary-foreground: var(--ledger-bg-app);
-    --ledger-elevation-1: 0 1px 2px rgb(0 0 0 / 30%);
-    --ledger-elevation-2: 0 8px 28px rgb(0 0 0 / 50%);
-    --ledger-scrim: rgb(0 0 0 / 55%);
+/* ==========================================================================
+   Dashboard v2 — surface normalization for screens that still own their
+   own markup. Follows the same attribute-selector convention the dark-mode
+   block below already uses, so the neutral greys and radii those screens
+   hardcode resolve to the v2 palette without editing each file.
+   ========================================================================== */
+@layer components {
+  .adv-shell [class~="border-neutral-200"],
+  .adv-shell [class~="border-slate-200"] {
+    border-color: var(--adv-border);
   }
-}
 
-[data-adc-ui="zero-base"] code,
-[data-adc-ui="zero-base"] kbd,
-[data-adc-ui="zero-base"] samp,
-[data-adc-ui="zero-base"] .adc-data {
-  font-family: var(--font-adc-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* One visible focus treatment for everything focusable in the canonical UI.
- * Never removed and never obscured; sticky bars reserve clearance for it. */
-[data-adc-ui="zero-base"] :focus-visible {
-  outline: var(--ledger-focus-width) solid var(--ledger-focus-ring);
-  outline-offset: var(--ledger-focus-offset);
-}
-
-/* Canonical portal host. Radix overlays render here instead of document.body
- * so they inherit the tokens above — a dialog portalled to an unscoped body
- * would render with legacy :root colours and silently look wrong. */
-[data-adc-ui="zero-base"] .adc-portal-host {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 50;
-}
-
-[data-adc-ui="zero-base"] .adc-portal-host > * {
-  pointer-events: auto;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-adc-ui="zero-base"] * {
-    transition-duration: 80ms !important;
-    transition-property: opacity !important;
-    animation: none !important;
+  .adv-shell [class~="border-neutral-100"],
+  .adv-shell [class~="border-slate-100"] {
+    border-color: var(--adv-hairline);
   }
-}
 
-/* Column headings hold one line where there is room for one, and wrap where
-   there is not. Inline `white-space: nowrap` on every heading made each table
-   as wide as its longest heading, so at 320 and 390 the surface itself scrolled
-   sideways and the row actions in the last column were unreachable. */
-[data-adc-ui="zero-base"] th {
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  [data-adc-ui="zero-base"] th,
-  [data-adc-ui="zero-base"] td {
-    white-space: normal;
-    overflow-wrap: anywhere;
+  .adv-shell [class~="rounded-xl"] {
+    border-radius: var(--adv-r-tile);
   }
-}
 
-/* Agency desk reading order. The accepted design places the withheld explainer
-   above the client rows at desk width and after them on a phone; the rows and
-   the tile keep their order at both. One element, moved — not two copies with
-   one hidden. */
-[data-adc-ui="zero-base"] [data-agency-desk] > * {
-  order: 2;
-}
-
-[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="tile"] {
-  order: 3;
-}
-
-[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
-  order: 4;
-}
-
-@media (min-width: 768px) {
-  [data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
-    order: 1;
+  .adv-shell [class~="rounded-2xl"] {
+    border-radius: var(--adv-r-card);
   }
-}
 
-/* Form controls measure their own padding and border. Without this an input
-   that fills its container overflows it by exactly its padding — 6px on every
-   dialog and drawer, enough to make the surface itself scroll sideways. */
-[data-adc-ui="zero-base"] input,
-[data-adc-ui="zero-base"] select,
-[data-adc-ui="zero-base"] textarea,
-[data-adc-ui="zero-base"] button {
-  box-sizing: border-box;
-}
+  /* The workspace screens predate v2 and use a 5–8px radius ramp throughout.
+     Map it onto the v2 ramp here so those pages pick up the card and control
+     geometry without touching thousands of lines of utility classes. */
+  .adv-shell [class~="rounded-[5px]"],
+  .adv-shell [class~="rounded-[6px]"],
+  .adv-shell [class~="rounded-md"] {
+    border-radius: var(--adv-r-chip);
+  }
 
-/* Grid and flex items may shrink below their own content.
-   Their default `min-width: auto` means a six-column table can never narrow,
-   so the surface becomes as wide as the table instead of the table scrolling
-   inside it — at 320 that pushed the heading and the plan controls off the
-   side of the screen. Controls that declare a minimum target size set it
-   inline, which still wins. */
-[data-adc-ui="zero-base"] * {
-  min-width: 0;
-}
+  .adv-shell [class~="rounded-[8px]"],
+  .adv-shell [class~="rounded-lg"] {
+    border-radius: var(--adv-r-control);
+  }
 
-/* Ops preserves the proven admin read/write handlers, but its presentation is
-   the Ledger operator product. This adapter is deliberately scoped to Ops so
-   the compatibility routes can retain their old CSS during rollback. */
-[data-ops-content] {
-  color: var(--ledger-ink-primary);
-  font-size: 13px;
-  line-height: 19px;
-}
+  .adv-shell [class~="rounded-[10px]"],
+  .adv-shell [class~="rounded-[12px]"] {
+    border-radius: var(--adv-r-tile);
+  }
 
-[data-ops-content] > * + *,
-[data-ops-supporting-diagnostics] {
-  margin-top: 16px;
-}
+  .adv-shell [class~="bg-neutral-50"],
+  .adv-shell [class~="bg-slate-50"] {
+    background-color: var(--adv-fill);
+  }
 
-[data-ops-supporting-diagnostics] {
-  padding-top: 16px;
-  border-top: 1px solid var(--ledger-border-subtle);
-}
+  .adv-shell [class~="bg-neutral-100"],
+  .adv-shell [class~="bg-slate-100"] {
+    background-color: var(--adv-fill-2);
+  }
 
-[data-ops-content] :is(.bg-white, .bg-neutral-50, .bg-gray-50, .bg-slate-50) {
-  background-color: var(--ledger-bg-surface) !important;
-}
+  .adv-shell [class~="text-neutral-900"],
+  .adv-shell [class~="text-slate-900"] {
+    color: var(--adv-ink);
+  }
 
-[data-ops-content] :is(.border-neutral-100, .border-neutral-200, .border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200) {
-  border-color: var(--ledger-border-subtle) !important;
-}
+  .adv-shell [class~="text-neutral-700"],
+  .adv-shell [class~="text-neutral-600"],
+  .adv-shell [class~="text-slate-700"],
+  .adv-shell [class~="text-slate-600"] {
+    color: var(--adv-ink-2);
+  }
 
-[data-ops-content] :is(.text-neutral-400, .text-neutral-500, .text-gray-400, .text-gray-500, .text-slate-400, .text-slate-500) {
-  color: var(--ledger-ink-tertiary) !important;
-}
+  .adv-shell [class~="text-neutral-500"],
+  .adv-shell [class~="text-slate-500"] {
+    color: var(--adv-ink-3);
+  }
 
-[data-ops-content] :is(.text-neutral-600, .text-neutral-700, .text-gray-600, .text-gray-700, .text-slate-600, .text-slate-700) {
-  color: var(--ledger-ink-secondary) !important;
-}
-
-[data-ops-content] :is(.text-neutral-800, .text-neutral-900, .text-gray-800, .text-gray-900, .text-slate-800, .text-slate-900) {
-  color: var(--ledger-ink-primary) !important;
-}
-
-[data-ops-content] :is(.rounded-lg, .rounded-xl, .rounded-2xl) {
-  border-radius: var(--ledger-radius-card) !important;
-}
-
-[data-ops-content] :is(input, select, textarea) {
-  min-height: 36px;
-  padding: 7px 10px;
-  border-color: var(--ledger-border-control) !important;
-  border-radius: var(--ledger-radius-input) !important;
-  background: var(--ledger-bg-surface) !important;
-  color: var(--ledger-ink-primary) !important;
-  font: inherit;
-}
-
-[data-ops-content] button,
-[data-ops-content] a[class*="border"] {
-  min-height: 36px;
-  border-radius: var(--ledger-radius-button) !important;
-  font-size: 12px;
-}
-
-[data-ops-content] table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-[data-ops-content] th {
-  color: var(--ledger-ink-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-[data-ops-content] :is(th, td) {
-  border-color: var(--ledger-border-subtle) !important;
+  .adv-shell [class~="text-neutral-400"],
+  .adv-shell [class~="text-slate-400"] {
+    color: var(--adv-ink-4);
+  }
 }

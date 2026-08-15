@@ -54,14 +54,6 @@ export function AuthBootstrap() {
   useEffect(() => {
     if (!hasHydrated) return;
 
-    // Bootstrap once per session. This effect is keyed on pathname so it can log
-    // where a failure happened, but re-running it on every navigation meant each
-    // sidebar hop refetched /api/auth/me and dropped the status back to
-    // "loading", unmounting the page behind a skeleton the operator had already
-    // waited through. A signed-out session resets this status to "idle"
-    // (clearAuthScopedClientState), so re-authentication still bootstraps.
-    if (authBootstrapStatus === "ready") return;
-
     let mounted = true;
     const controller = new AbortController();
     const requestId = latestRequestIdRef.current + 1;
@@ -219,14 +211,7 @@ export function AuthBootstrap() {
         }
       }
     };
-  }, [
-    authBootstrapStatus,
-    hasHydrated,
-    pathname,
-    setAuthBootstrapStatus,
-    setLanguage,
-    setWorkspaceResolved,
-  ]);
+  }, [hasHydrated, pathname, setAuthBootstrapStatus, setLanguage, setWorkspaceResolved]);
 
   useEffect(() => {
     if (!hasHydrated || authBootstrapStatus !== "ready") return;

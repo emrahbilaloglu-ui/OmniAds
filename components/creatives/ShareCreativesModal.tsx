@@ -261,7 +261,7 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
         </div>
 
         <div className="border-t px-6 py-3">
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             Public links are intended to show only selected creatives. Expiration and access control will be enforced by backend.
           </p>
         </div>

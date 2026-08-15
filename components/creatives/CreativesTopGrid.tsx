@@ -172,11 +172,11 @@ function CreativeCard({
         <div className="px-3 pb-3 pt-2" title={placementTooltip}>
           <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{row.name}</p>
           {row.campaignName ? (
-            <p className="mt-0.5 line-clamp-1 text-[12px] text-muted-foreground">
+            <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
               {row.campaignName}
             </p>
           ) : null}
-          <div className="mt-2 flex items-center gap-4 text-[12px]">
+          <div className="mt-2 flex items-center gap-4 text-[11px]">
             <MetricMini
               label="Spend"
               value={METRIC_CONFIG.spend.format(row.spend, row.currency)}
@@ -186,7 +186,7 @@ function CreativeCard({
         </div>
       </button>
 
-      <label className="flex items-center justify-between border-t px-3 py-1.5 text-[12px] text-muted-foreground">
+      <label className="flex items-center justify-between border-t px-3 py-1.5 text-[11px] text-muted-foreground">
         <span>Selected</span>
         <input
           type="checkbox"

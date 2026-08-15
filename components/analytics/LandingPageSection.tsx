@@ -30,23 +30,44 @@ function fmt(n: number, type: "number" | "percent" | "duration" = "number"): str
 function QualityBadge({ rate, threshold }: { rate: number; threshold: number }) {
   if (rate >= threshold * 1.5)
     return (
-      <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[12px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+      <span className="ml-1.5 rounded-full bg-[var(--adc-pos-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--adc-pos-fg)]">
         strong
       </span>
     );
   if (rate < threshold * 0.5)
     return (
-      <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[12px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+      <span className="ml-1.5 rounded-full bg-[var(--adc-danger-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--adc-danger-fg)]">
         weak
       </span>
     );
   return null;
 }
 
+/**
+ * The design's Signal column: the one thing that is off about this page, read
+ * from the served rates rather than from an opinion. A page whose rates are all
+ * healthy carries no signal.
+ */
+function pageSignal(row: LandingPageRow): { label: string; bg: string; fg: string } | null {
+  if (row.sessions >= 50 && row.purchases === 0) {
+    return { label: "traffic, no purchase", bg: "var(--adc-danger-bg)", fg: "var(--adc-danger-fg)" };
+  }
+  if (typeof row.bounceRate === "number" && row.bounceRate >= 0.7) {
+    return { label: "high bounce", bg: "var(--adc-caution-bg)", fg: "var(--adc-caution-fg)" };
+  }
+  if (typeof row.engagementRate === "number" && row.engagementRate > 0 && row.engagementRate < 0.4) {
+    return { label: "weak engagement", bg: "var(--adc-caution-bg)", fg: "var(--adc-caution-fg)" };
+  }
+  if (row.purchases > 0 && row.purchaseCvr >= 0.03) {
+    return { label: "converting", bg: "var(--adc-pos-bg)", fg: "var(--adc-pos-fg)" };
+  }
+  return null;
+}
+
 const columns: ColumnDef<LandingPageRow>[] = [
   {
     key: "path",
-    header: "Landing Page",
+    header: "Page",
     accessor: (r) => r.path,
     sticky: true,
     render: (r) => (
@@ -71,7 +92,7 @@ const columns: ColumnDef<LandingPageRow>[] = [
   },
   {
     key: "engagementRate",
-    header: "Engagement Rate",
+    header: "Engagement rate",
     accessor: (r) => r.engagementRate,
     align: "right",
     heatmap: true,
@@ -84,7 +105,7 @@ const columns: ColumnDef<LandingPageRow>[] = [
   },
   {
     key: "avgEngagementTime",
-    header: "Avg Time",
+    header: "Avg time",
     accessor: (r) => r.avgEngagementTime,
     align: "right",
     render: (r) => fmt(r.avgEngagementTime, "duration"),
@@ -106,14 +127,33 @@ const columns: ColumnDef<LandingPageRow>[] = [
   },
   {
     key: "bounceRate",
-    header: "Bounce Rate",
+    header: "Bounce rate",
     accessor: (r) => r.bounceRate,
     align: "right",
     heatmap: true,
     heatmapInvert: true,
     render: (r) => fmt(r.bounceRate, "percent"),
   },
+  {
+    key: "signal",
+    header: "Signal",
+    accessor: (r) => pageSignal(r)?.label ?? "",
+    render: (r) => {
+      const signal = pageSignal(r);
+      if (!signal) return <span className="text-[var(--adv-ink-4)]">—</span>;
+      return (
+        <span
+          className="inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-semibold"
+          style={{ background: signal.bg, color: signal.fg }}
+        >
+          {signal.label}
+        </span>
+      );
+    },
+  },
 ];
+
+const MAX_ROWS = 50;
 
 interface LandingPageSectionProps {
   pages?: LandingPageRow[];
@@ -131,18 +171,24 @@ export function LandingPageSection({ pages, isLoading }: LandingPageSectionProps
     );
   }
 
+  const rows = pages ?? [];
+  const shown = Math.min(rows.length, MAX_ROWS);
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Identify pages that attract traffic but fail to engage or convert.
-        Strong/weak badges flag pages relative to site average.
-      </p>
       <SortableTable
         columns={columns}
-        rows={pages ?? []}
+        rows={rows}
         defaultSortKey="sessions"
+        maxRows={MAX_ROWS}
         emptyText="No landing page data found for this date range."
       />
+      {rows.length > 0 ? (
+        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+          Showing {shown} of up to {MAX_ROWS} rows · sorted by sessions · page
+          fixes route to Launchpad as lander drafts.
+        </p>
+      ) : null}
     </div>
   );
 }

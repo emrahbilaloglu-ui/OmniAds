@@ -18,7 +18,8 @@ describe("admin token normalization", () => {
     expect(layout).not.toContain("lg:ml-60");
 
     expect(css).toContain(".ad-admin-shell");
-    expect(css).toContain("font-ibm-plex-sans");
+    // Dashboard v2 moved the shared body face onto the Instrument Sans token.
+    expect(css).toContain("--adv-font-body");
     expect(css).toContain("--admin-s1: var(--adc-s1)");
     expect(css).toContain(".ad-admin-shell .bg-blue-50");
     expect(css).toContain(".ad-admin-shell .bg-purple-100");

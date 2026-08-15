@@ -1,12 +1,16 @@
 import {
   Activity,
+  ClipboardList,
   Database,
   Home,
   Layers,
+  Lightbulb,
   Megaphone,
+  Package,
   PieChart,
   Plug,
   Rocket,
+  Search,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -46,20 +50,14 @@ export interface PlatformRegistryItem {
   logoSrc: string;
 }
 
-/**
- * Providers that appear in navigation.
- *
- * TikTok, Pinterest and Snapchat are `status: "soon"`: rail entries that
- * opened an empty Layer-2 and a coming-soon panel. That is a disabled teaser —
- * it advertises a capability the product does not have — and the zero-base
- * design removes such controls rather than disabling them.
- *
- * They stay in `PlatformId` and `platformsRegistry` because their legacy
- * routes still exist and still typecheck against them; what changes is that
- * nothing navigates to them any more. Deleting the concept outright is
- * WP-27's cleanup, not this package's.
- */
-export const platformOrder: PlatformId[] = ["meta", "klaviyo", "google"];
+export const platformOrder: PlatformId[] = [
+  "meta",
+  "klaviyo",
+  "google",
+  "tiktok",
+  "pinterest",
+  "snapchat",
+];
 
 export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
   meta: {
@@ -218,18 +216,49 @@ export function getPlatformLayer2Items(
         },
       ];
     case "google":
-      // The Google Ads intelligence dashboard is one self-contained workspace with its
-      // own internal panels (summary / insights / asset groups & audiences / products /
-      // assets). The abandoned per-view sub-routes (ads/keywords/audiences/launchpad) now
-      // redirect into it, so Layer-2 exposes the single live entry instead of dead links.
+      // Google Ads is a routed workspace in v2: the design gives each analysis
+      // surface its own screen and rail entry, mirroring the Meta platform block.
       return [
         {
-          id: "pulse",
-          label: t.pulse,
+          id: "google-overview",
+          label: "Overview",
           href: "/platforms/google",
           icon: Activity,
           activeHrefs: ["/platforms/google", "/platforms/google/pulse"],
           exact: true,
+        },
+        {
+          id: "google-advisor",
+          label: "Advisor",
+          href: "/platforms/google/advisor",
+          icon: Lightbulb,
+        },
+        {
+          id: "google-search",
+          label: "Search",
+          href: "/platforms/google/search",
+          icon: Search,
+          activeHrefs: ["/platforms/google/keywords"],
+        },
+        {
+          id: "google-products",
+          label: "Products",
+          href: "/platforms/google/products",
+          icon: Package,
+        },
+        {
+          id: "google-assets",
+          label: "Assets & Audiences",
+          href: "/platforms/google/assets",
+          icon: Layers,
+          activeHrefs: ["/platforms/google/audiences"],
+        },
+        {
+          id: "google-plan",
+          label: "Plan & Activity",
+          href: "/platforms/google/plan",
+          icon: ClipboardList,
+          activeHrefs: ["/platforms/google/launchpad"],
         },
       ];
     case "tiktok":

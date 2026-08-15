@@ -278,7 +278,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                           <p className="text-xs text-muted-foreground">
                             {TEAM_ROLE_META[invite.role]?.title ?? invite.role}
                           </p>
-                          <p className="truncate font-mono text-[12px] text-muted-foreground">
+                          <p className="truncate font-mono text-[11px] text-muted-foreground">
                             {invite.inviteUrl}
                           </p>
                         </div>
@@ -315,7 +315,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                       placeholder="name@company.com, teammate@company.com"
                       className="w-full rounded-lg border bg-background p-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
                     />
-                    <p className="text-[12px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       Add one or multiple emails separated by comma, space, or new line.
                     </p>
                   </div>

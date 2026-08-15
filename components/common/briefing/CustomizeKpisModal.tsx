@@ -123,7 +123,7 @@ export function CustomizeKpisModal({
               Customize KPIs
             </h2>
             {presetLabel ? (
-              <div className="text-[12px] text-neutral-500">
+              <div className="text-[11.5px] text-neutral-500">
                 preset · {presetLabel}
               </div>
             ) : null}
@@ -139,7 +139,7 @@ export function CustomizeKpisModal({
         </div>
 
         <div className="border-r border-neutral-200 px-3 py-3">
-          <div className="px-1 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+          <div className="px-1 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
             Selected ({draftKeys.length})
           </div>
           <ul className="mt-1 flex flex-col gap-1">
@@ -152,7 +152,7 @@ export function CustomizeKpisModal({
                   className={
                     "flex items-center gap-1 rounded-md border px-2 py-1.5 text-[12px] " +
                     (activeKey === key
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
                       : "border-neutral-200 bg-white text-neutral-700")
                   }
                 >
@@ -190,7 +190,7 @@ export function CustomizeKpisModal({
                     <button
                       type="button"
                       aria-label={`Remove ${entry.label}`}
-                      className="px-1 text-neutral-400 hover:text-rose-600"
+                      className="px-1 text-neutral-400 hover:text-[var(--adc-danger-fg)]"
                       onClick={() => toggle(key)}
                     >
                       ×
@@ -200,7 +200,7 @@ export function CustomizeKpisModal({
               );
             })}
             {draftKeys.length === 0 ? (
-              <li className="rounded-md border border-dashed border-neutral-200 px-2 py-3 text-center text-[12px] text-neutral-500">
+              <li className="rounded-md border border-dashed border-neutral-200 px-2 py-3 text-center text-[11.5px] text-neutral-500">
                 Pick KPIs from the catalog →
               </li>
             ) : null}
@@ -210,7 +210,7 @@ export function CustomizeKpisModal({
         <div className="max-h-[480px] overflow-y-auto px-4 py-3">
           {groupedCatalog.map(([group, entries]) => (
             <section key={group} className="mb-4">
-              <h3 className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+              <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
                 {group}
               </h3>
               <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -231,7 +231,7 @@ export function CustomizeKpisModal({
                         (entry.unavailable
                           ? "cursor-not-allowed border-neutral-100 bg-neutral-50 text-neutral-400"
                           : selected
-                            ? "border-blue-300 bg-blue-50 text-blue-700"
+                            ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
                             : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50")
                       }
                     >
@@ -239,7 +239,7 @@ export function CustomizeKpisModal({
                         className={
                           "mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border " +
                           (selected
-                            ? "border-blue-600 bg-blue-600 text-white"
+                            ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-fg)] text-white"
                             : "border-neutral-300 bg-white")
                         }
                         aria-hidden="true"
@@ -249,7 +249,7 @@ export function CustomizeKpisModal({
                       <span className="min-w-0 flex-1">
                         <span className="block font-semibold">{entry.label}</span>
                         {entry.unavailable ? (
-                          <span className="mt-0.5 block text-[12px] text-amber-700">
+                          <span className="mt-0.5 block text-[10.5px] text-[var(--adc-caution-fg)]">
                             {entry.unavailableReason ?? "Backend-dependent"}
                           </span>
                         ) : null}
@@ -263,7 +263,7 @@ export function CustomizeKpisModal({
         </div>
 
         <div className="border-l border-neutral-200 bg-neutral-50/60 px-4 py-3">
-          <div className="px-1 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+          <div className="px-1 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
             About
           </div>
           {activeEntry ? (
@@ -275,13 +275,13 @@ export function CustomizeKpisModal({
                 {activeEntry.description}
               </div>
               {activeEntry.unavailable ? (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-800">
+                <div className="mt-2 rounded-md border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-1.5 text-[11px] text-[var(--adc-caution-fg)]">
                   {activeEntry.unavailableReason ?? "Requires backend support."}
                 </div>
               ) : null}
             </>
           ) : (
-            <div className="mt-2 text-[12px] text-neutral-500">
+            <div className="mt-2 text-[11.5px] text-neutral-500">
               Click a KPI to see what it measures.
             </div>
           )}
@@ -326,7 +326,7 @@ export function CustomizeKpisModal({
           <button
             type="button"
             onClick={handleApply}
-            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-1 rounded-md bg-[var(--adc-info-fg)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--adc-info-fg)]"
           >
             Apply
           </button>

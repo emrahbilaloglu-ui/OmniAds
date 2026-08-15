@@ -38,7 +38,7 @@ export function EvidencePopover({
 
   const tone =
     variant === "meta"
-      ? "border-blue-100 bg-blue-50/60 text-blue-700"
+      ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)]/60 text-[var(--adc-info-fg)]"
       : "border-neutral-200 bg-neutral-50 text-neutral-700";
   const drawer = presentation === "drawer";
   const hasPreview = drawer && Boolean(media);
@@ -98,7 +98,7 @@ export function EvidencePopover({
                   {section.icon ? <span className="text-neutral-400">{section.icon}</span> : null}
                   <h3 className="text-[12px] font-semibold text-neutral-800">{section.title}</h3>
                   {section.count != null ? (
-                    <span className="ml-auto font-mono text-[12px] text-neutral-500">{section.count}</span>
+                    <span className="ml-auto font-mono text-[10.5px] text-neutral-500">{section.count}</span>
                   ) : null}
                 </div>
                 <div className="px-3 py-3 text-[12px] leading-snug text-neutral-600">

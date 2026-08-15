@@ -308,7 +308,7 @@ export function PlatformTablePage({
         >
         <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
           <table className="min-w-full text-sm">
-            <thead className="bg-neutral-50 text-left text-[12px] uppercase tracking-[0.12em] text-neutral-500">
+            <thead className="bg-neutral-50 text-left text-[11px] uppercase tracking-[0.12em] text-neutral-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -327,7 +327,7 @@ export function PlatformTablePage({
                     <Badge
                       variant="secondary"
                       className={cn(
-                        "rounded-md border px-2 py-0 text-[12px] font-medium capitalize",
+                        "rounded-md border px-2 py-0 text-[11px] font-medium capitalize",
                         row.status === "active"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                           : "border-neutral-200 bg-neutral-100 text-neutral-600"

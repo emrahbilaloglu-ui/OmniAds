@@ -1,7 +1,5 @@
 "use client";
 
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
@@ -20,7 +18,7 @@ const ReportBuilder = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
+      <div className="rounded-lg border border-[var(--adv-border)] bg-white p-8 text-sm text-[var(--adv-ink-3)]">
         Loading builder...
       </div>
     ),
@@ -95,42 +93,20 @@ export function ReportBuilderPage({
     queryFn: () => fetchRenderedReport(reportId as string, viewStart, viewEnd),
   });
 
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // query state this surface already has, so it cannot drift from what is
-  // actually on screen.
-  // This is the page that renders the figures an agency sends to a client.
-  // The Reports *list* reported its age while the rendered report said nothing,
-  // which is the wrong way round: nobody acts on the list.
-  useTierZeroFreshness({
-    surface: "reports",
-    isLoading: renderedQuery.isLoading,
-    isFetching: renderedQuery.isFetching,
-    error: renderedQuery.error,
-    // A widget that failed leaves a report that looks complete and is not.
-    partialReason: (renderedQuery.data?.widgets ?? []).some(
-      (widget: { errorMessage?: string | null }) => Boolean(widget.errorMessage),
-    )
-      ? "Some widgets could not be rendered; this report is incomplete"
-      : null,
-    asOf: measuredAsOf(renderedQuery.data?.generatedAt ?? null),
-    businessId: selectedBusinessId ?? null,
-    onRetry: () => void renderedQuery.refetch(),
-  });
-
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   // ── View mode ──────────────────────────────────────────────────────────────
   if (mode === "view") {
     if (renderedQuery.isLoading) {
       return (
-        <div className="animate-pulse rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
+        <div className="animate-pulse rounded-lg border border-[var(--adv-border)] bg-white p-8 text-sm text-[var(--adv-ink-3)]">
           {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
         </div>
       );
     }
     if (renderedQuery.error || !renderedQuery.data) {
       return (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
+        <div className="rounded-lg border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-8 text-sm text-[var(--adc-danger-fg)]">
           {renderedQuery.error instanceof Error ? renderedQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
         </div>
       );
@@ -164,9 +140,7 @@ export function ReportBuilderPage({
         const response = await fetch(`/api/reports/${reportId}/share`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // Share the window on screen, not the report's stored preset, so the
-          // client sees the same period that was just reviewed.
-          body: JSON.stringify({ expiryDays: 7, startDate: viewStart, endDate: viewEnd }),
+          body: JSON.stringify({ expiryDays: 7 }),
         });
         const payload = await response.json().catch(() => null);
         if (response.ok) setShareUrl((payload as { url?: string })?.url ?? null);
@@ -183,18 +157,18 @@ export function ReportBuilderPage({
     };
 
     return (
-      <div className="min-h-screen bg-neutral-50">
+      <div className="min-h-screen bg-[var(--adv-fill)]">
         {/* Header */}
-        <div className="sticky top-0 z-20 border-b border-neutral-200 bg-white px-6 py-3">
+        <div className="sticky top-0 z-20 border-b border-[var(--adv-border)] bg-white px-6 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 transition hover:bg-neutral-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--adv-border)] px-3 py-1.5 text-sm text-[var(--adv-ink-2)] transition hover:bg-[var(--adv-fill)]"
               >
                 {language === "tr" ? "← Geri" : "← Back"}
               </Link>
-              <h1 className="text-base font-semibold text-neutral-900">{report.name}</h1>
+              <h1 className="text-base font-semibold text-[var(--adv-ink)]">{report.name}</h1>
             </div>
             <div className="flex items-center gap-2">
               {/* Date range selector */}
@@ -209,18 +183,18 @@ export function ReportBuilderPage({
                 <button
                   type="button"
                   onClick={() => setExportOpen((o) => !o)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-700 transition hover:bg-neutral-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--adv-border)] bg-white px-3 py-1.5 text-xs text-[var(--adv-ink-2)] transition hover:bg-[var(--adv-fill)]"
                 >
                   {language === "tr" ? "Disa Aktar" : "Export"}
-                  <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
+                  <ChevronDown className="h-3.5 w-3.5 text-[var(--adv-ink-4)]" />
                 </button>
                 {exportOpen && (
-                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
+                  <div className="absolute right-0 top-10 z-50 w-[280px] rounded-lg border border-[var(--adv-border)] bg-white p-3 shadow-lg">
                     <button
                       type="button"
                       onClick={handleShareLink}
                       disabled={shareLoading}
-                      className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-neutral-50 disabled:opacity-60 transition"
+                      className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-[var(--adv-fill)] disabled:opacity-60 transition"
                     >
                       <Link2 className="h-3.5 w-3.5 shrink-0" />
                       {shareLoading ? (language === "tr" ? "Link oluşturuluyor..." : "Generating link...") : language === "tr" ? "Link paylaş" : "Share link"}
@@ -229,24 +203,24 @@ export function ReportBuilderPage({
                       type="button"
                       onClick={handleCsvExport}
                       disabled={csvLoading}
-                      className="mt-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-neutral-50 disabled:opacity-60 transition"
+                      className="mt-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-[var(--adv-fill)] disabled:opacity-60 transition"
                     >
                       <FileDown className="h-3.5 w-3.5 shrink-0" />
                       {csvLoading ? (language === "tr" ? "Disa aktariliyor..." : "Exporting...") : "Export CSV"}
                     </button>
                     {shareUrl && (
-                      <div className="mt-2 rounded-lg border bg-neutral-50 p-2">
-                        <p className="mb-1 text-[12px] text-neutral-500">{language === "tr" ? "Paylaşım linki hazır" : "Share link ready"}</p>
+                      <div className="mt-2 rounded-lg border bg-[var(--adv-fill)] p-2">
+                        <p className="mb-1 text-[11px] text-[var(--adv-ink-3)]">{language === "tr" ? "Paylaşım linki hazır" : "Share link ready"}</p>
                         <div className="flex items-center gap-1.5">
                           <input
                             readOnly
                             value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
-                            className="h-7 flex-1 rounded border border-neutral-200 bg-white px-2 text-[12px] text-neutral-600 min-w-0"
+                            className="h-7 flex-1 rounded border border-[var(--adv-border)] bg-white px-2 text-[11px] text-[var(--adv-ink-2)] min-w-0"
                           />
                           <button
                             type="button"
                             onClick={copyShareUrl}
-                            className="inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[12px] hover:bg-neutral-100 transition"
+                            className="inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[11px] hover:bg-[var(--adv-fill-2)] transition"
                           >
                             <Copy className="h-3 w-3" />
                             {copied ? (language === "tr" ? "Kopyalandi!" : "Copied!") : language === "tr" ? "Kopyala" : "Copy"}
@@ -260,7 +234,7 @@ export function ReportBuilderPage({
 
               <Link
                 href={`/reports/${reportId}/edit`}
-                className="rounded-md bg-neutral-900 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-700"
+                className="rounded-md bg-[var(--adv-ink)] px-4 py-1.5 text-xs font-medium text-white transition hover:bg-[var(--adv-ink-2)]"
               >
                 {language === "tr" ? "Düzenle" : "Edit"}
               </Link>
@@ -270,7 +244,7 @@ export function ReportBuilderPage({
         {/* Canvas */}
         <div className="mx-auto max-w-[1400px] px-6 py-8">
           {renderedQuery.isFetching ? (
-            <div className="flex items-center justify-center py-16 text-sm text-neutral-400">{language === "tr" ? "Yükleniyor..." : "Loading..."}</div>
+            <div className="flex items-center justify-center py-16 text-sm text-[var(--adv-ink-4)]">{language === "tr" ? "Yükleniyor..." : "Loading..."}</div>
           ) : (
             <ReportCanvas report={report} />
           )}
@@ -282,7 +256,7 @@ export function ReportBuilderPage({
   // ── Edit mode ──────────────────────────────────────────────────────────────
   if (mode === "edit" && reportQuery.isLoading) {
     return (
-      <div className="rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500">
+      <div className="rounded-lg border border-[var(--adv-border)] bg-white p-8 text-sm text-[var(--adv-ink-3)]">
         {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
       </div>
     );
@@ -290,7 +264,7 @@ export function ReportBuilderPage({
 
   if (mode === "edit" && reportQuery.error) {
     return (
-      <div className="rounded-lg border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
+      <div className="rounded-lg border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-8 text-sm text-[var(--adc-danger-fg)]">
         {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
       </div>
     );

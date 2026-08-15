@@ -64,9 +64,9 @@ function GeoScorePill({ score, breakdown }: { score: number; breakdown?: Record<
   const [expanded, setExpanded] = useState(false);
   const cls =
     score >= 60
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  "
       : score >= 35
-      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  "
       : "bg-muted text-muted-foreground";
   return (
     <div className="text-right">
@@ -85,7 +85,7 @@ function GeoScorePill({ score, breakdown }: { score: number; breakdown?: Record<
 }
 
 function PriorityDot({ priority }: { priority: "high" | "medium" | "low" }) {
-  const cls = { high: "bg-rose-500", medium: "bg-amber-400", low: "bg-muted-foreground" }[priority];
+  const cls = { high: "bg-[var(--adc-danger-fg)]", medium: "bg-[var(--adc-caution-fg)]", low: "bg-muted-foreground" }[priority];
   return <span className={cn("inline-block h-2 w-2 rounded-full shrink-0", cls)} title={`${priority} priority`} />;
 }
 
@@ -172,7 +172,7 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
               )}
             >
               {f.label}
-              <span className="ml-1.5 text-[12px] opacity-60">{count}</span>
+              <span className="ml-1.5 text-[10px] opacity-60">{count}</span>
             </button>
           );
         })}
@@ -213,7 +213,7 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
                   ) : (
                     <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold",
                       q.isAiStyle
-                        ? "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300"
+                        ? "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]  "
                         : "bg-muted text-muted-foreground"
                     )}>
                       {q.intent}
@@ -232,16 +232,16 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">{fmt(q.ctr, "percent")}</td>
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">
                   <span className={cn(
-                    q.position <= 3 ? "text-emerald-600 dark:text-emerald-400 font-medium" :
+                    q.position <= 3 ? "text-[var(--adc-pos-fg)]  font-medium" :
                     q.position <= 10 ? "text-foreground" :
-                    "text-amber-600 dark:text-amber-400"
+                    "text-[var(--adc-caution-fg)] "
                   )}>
                     {q.position.toFixed(1)}
                   </span>
                 </td>
                 <td className="py-2.5 text-xs text-muted-foreground max-w-[170px]">
                   {q.recommendation && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] block truncate" title={q.recommendation}>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate" title={q.recommendation}>
                       {q.recommendation}
                     </span>
                   )}

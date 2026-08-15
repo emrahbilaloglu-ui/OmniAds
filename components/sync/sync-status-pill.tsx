@@ -21,7 +21,7 @@ export function SyncStatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] font-semibold leading-none",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none",
         toneClasses[pill.tone],
         className
       )}

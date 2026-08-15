@@ -126,7 +126,7 @@ export function CreativePreview({
         className={cn(SIZE_MAP[size], className)}
       />
       {resolvedBadgeLabel ? (
-        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[12px] font-medium text-white backdrop-blur-sm">
+        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
           {resolvedBadgeLabel}
         </span>
       ) : null}

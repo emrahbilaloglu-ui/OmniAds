@@ -44,7 +44,7 @@ export function OpportunitiesTab({ opportunities, isLoading }: OpportunitiesTabP
 
       {highPriority.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-rose-600 dark:text-rose-400">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]">
             High Priority
           </p>
           <div className="grid gap-3 sm:grid-cols-2">

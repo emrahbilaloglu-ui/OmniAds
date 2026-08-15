@@ -2,7 +2,7 @@
   display: block;
   margin-top: 3px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -33,7 +33,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 4px 10px;
 }
 
@@ -70,7 +70,7 @@
   align-items: center;
   gap: 6px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .toolbarSort select {
@@ -80,7 +80,7 @@
   background: var(--adc-s2);
   color: var(--adc-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 4px 24px 4px 8px;
 }
 
@@ -96,7 +96,7 @@
   background: var(--adc-s3);
   color: var(--adc-ink2);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10px;
   padding: 1px 5px;
 }
 
@@ -113,7 +113,7 @@
 
 .advancedFilterSection > span {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -132,7 +132,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 4px 9px;
 }
 
@@ -153,7 +153,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 5px 9px;
 }
 
@@ -204,7 +204,7 @@
 .scopeRail > header span,
 .scopeRail > header small {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .scopeRail > header small {
@@ -220,7 +220,7 @@
   border-radius: 6px;
   background: var(--adc-auto-bg);
   color: var(--adc-auto-fg);
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.4;
   padding: 8px;
 }
@@ -277,21 +277,21 @@
 
 .scopeCampaign strong {
   color: var(--adc-ink);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
 .scopeCampaign small {
   margin-top: 1px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .scopeCampaign > b {
   flex: none;
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 500;
 }
 
@@ -320,7 +320,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 10.5px;
   padding: 4px 6px;
   text-align: left;
 }
@@ -342,13 +342,13 @@
   flex: none;
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9px;
 }
 
 .scopeAdsets p {
   margin: 3px 4px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
   line-height: 1.4;
 }
 
@@ -361,7 +361,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   padding: 6px 8px;
 }
 
@@ -378,7 +378,7 @@
   margin-bottom: 8px;
   border-bottom: 1px solid var(--adc-b1);
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .queueHeader strong {
@@ -445,7 +445,7 @@
 .boardGrid :global(.meta-row__metric-summary) {
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -455,7 +455,7 @@
   margin: 7px 0 0;
   overflow: hidden;
   color: var(--adc-ink2);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -476,7 +476,7 @@
 
 .boardGrid :global(.meta-row__spend-anchor small) {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 500;
   text-transform: uppercase;
 }
@@ -514,7 +514,7 @@
   gap: 12px;
   margin-top: 5px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .sectionHeader > div {
@@ -526,7 +526,7 @@
 .sectionHeader strong {
   color: var(--adc-ink2);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   text-transform: uppercase;
 }
 
@@ -536,7 +536,7 @@
   background: var(--adc-s3);
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   padding: 1px 5px;
   text-align: center;
 }
@@ -558,7 +558,7 @@
   border-radius: 6px;
   background: var(--adc-s1);
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
   padding: 7px 10px;
 }
 
@@ -598,7 +598,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 10.5px;
   padding: 3px 9px;
 }
 
@@ -660,7 +660,7 @@
 
 .creativeMedia small {
   max-width: 48px;
-  font-size: 12px;
+  font-size: 8.5px;
   line-height: 1.25;
   text-align: center;
 }
@@ -683,7 +683,7 @@
   border-radius: 4px;
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9px;
   padding: 1px 4px;
   text-transform: uppercase;
 }
@@ -699,7 +699,7 @@
   display: -webkit-box;
   overflow: hidden;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -726,14 +726,14 @@
 
 .creativeMetrics small {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 8.5px;
   text-transform: uppercase;
 }
 
 .creativeMetrics b {
   margin-top: 2px;
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -743,7 +743,7 @@
   justify-content: flex-end;
   gap: 4px;
   color: var(--adc-info-fg);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 650;
 }
 
@@ -774,7 +774,7 @@
   border-radius: 4px;
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9px;
   padding: 1px 4px;
 }
 
@@ -792,13 +792,13 @@
 
 .quietIdentity strong {
   color: var(--adc-ink);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .quietIdentity small {
   margin-top: 2px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .quietMetrics {
@@ -815,14 +815,14 @@
 
 .quietMetrics small {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 8.5px;
   text-transform: uppercase;
 }
 
 .quietMetrics b {
   color: var(--adc-ink2);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -831,7 +831,7 @@
   border: 1px solid var(--adc-b1);
   border-radius: 999px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 9.5px;
   padding: 2px 7px;
   white-space: nowrap;
 }
@@ -892,7 +892,7 @@
 .sectionEyebrow {
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   text-transform: uppercase;
 }
 
@@ -905,7 +905,7 @@
 .creativeDrawerHeader p {
   margin: 2px 0 0;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .creativeDrawerBody {
@@ -939,7 +939,7 @@
 .drawerDecisionLine b {
   color: var(--adc-ink2);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .drawerMetrics {
@@ -965,7 +965,7 @@
 
 .drawerMetrics span {
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 9px;
   text-transform: uppercase;
 }
 
@@ -987,7 +987,7 @@
   gap: 10px;
   border-bottom: 1px solid var(--adc-b1);
   padding: 6px 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .drawerFacts dt {
@@ -1013,7 +1013,7 @@
   border-radius: 5px;
   background: var(--adc-s1);
   color: var(--adc-ink2);
-  font-size: 12px;
+  font-size: 10px;
   padding: 3px 6px;
 }
 
@@ -1021,7 +1021,7 @@
   margin: 7px 0 0;
   border-left: 2px solid var(--adc-caution-fg);
   color: var(--adc-ink2);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.45;
   padding-left: 8px;
 }
@@ -1031,7 +1031,7 @@
   border-radius: 7px;
   background: var(--adc-auto-bg);
   color: var(--adc-auto-fg);
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.45;
   padding: 9px 10px;
 }
@@ -1049,15 +1049,15 @@
   color: var(--adc-ink);
 }
 
+/* Dashboard v2 page header: an eyebrow / display title / as-of stack sitting
+   directly on the canvas, with the command cluster bottom-aligned beside it. */
 .osHeader {
   display: flex;
-  min-height: 92px;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  border-bottom: 1px solid var(--adc-b1);
-  background: var(--adc-s2);
-  padding: 16px 18px 14px;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0 0 4px;
 }
 
 .osIdentity {
@@ -1065,9 +1065,11 @@
 }
 
 .osEyebrow {
-  color: var(--adc-ink3);
-  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  display: block;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -1076,15 +1078,17 @@
   min-width: 0;
   align-items: baseline;
   gap: 10px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .osTitleRow h1 {
   margin: 0;
-  color: var(--adc-ink);
-  font-size: 22px;
-  font-weight: 680;
-  line-height: 1.2;
+  color: var(--adv-ink);
+  font-family: var(--adv-font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
 .osTitleRow span {
@@ -1097,9 +1101,10 @@
 }
 
 .osIdentity p {
-  margin: 5px 0 0;
-  color: var(--adc-ink3);
-  font-size: 12px;
+  margin: 4px 0 0;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -1109,6 +1114,10 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+}
+
+.osHeaderCommands {
+  flex-wrap: wrap;
 }
 
 .osHeaderCommands {
@@ -1143,7 +1152,7 @@
   border-radius: 6px;
   background: var(--adc-s1);
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
   padding-left: 8px;
 }
 
@@ -1155,7 +1164,7 @@
   background: var(--adc-s2);
   color: var(--adc-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   outline: none;
   padding: 4px 22px 4px 7px;
 }
@@ -1173,7 +1182,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   padding: 5px 8px;
   white-space: nowrap;
 }
@@ -1239,7 +1248,7 @@
   background: var(--adc-s3);
   color: var(--adc-ink2);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   font-weight: 500;
   padding: 1px 5px;
   text-align: center;
@@ -1249,7 +1258,7 @@
   margin-left: auto;
   align-self: center;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .osToolbar {
@@ -1273,7 +1282,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 4px 9px;
 }
 
@@ -1286,7 +1295,7 @@
 .osToolbarNote {
   margin-left: auto;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 10px;
   text-align: right;
 }
 
@@ -1334,7 +1343,7 @@
   border: 1px dashed var(--adc-b2);
   border-radius: 6px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.45;
   padding: 13px 14px;
 }
@@ -1360,7 +1369,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   padding: 4px 9px;
 }
 
@@ -1390,7 +1399,7 @@
 .historyHandoff p {
   margin-top: 3px;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .contextDock {
@@ -1439,7 +1448,7 @@
   display: block;
   color: var(--adc-ink3);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 9.5px;
   text-transform: uppercase;
 }
 
@@ -1454,7 +1463,7 @@
 .contextIdle p {
   margin: 4px 0 0;
   color: var(--adc-ink3);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1469,7 +1478,7 @@
   gap: 12px;
   border-bottom: 1px solid var(--adc-b1);
   padding: 6px 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .contextIdle dl div:last-child {
@@ -1496,7 +1505,7 @@
 
 .contextIdle > footer a {
   color: var(--adc-info-fg);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
   text-decoration: none;
 }

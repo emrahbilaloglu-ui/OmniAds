@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-// The Google Ads intelligence dashboard is a single self-contained workspace; its
-// audience intelligence lives inside it, so this legacy sub-route folds back in.
-export default function GoogleAudiencesRedirect() {
-  redirect("/platforms/google");
+// v2 gives Google Ads routed surfaces; this legacy sub-route folds into the
+// assets & audiences screen that now owns its content.
+export default function GoogleLegacyRedirect() {
+  redirect("/platforms/google/assets");
 }

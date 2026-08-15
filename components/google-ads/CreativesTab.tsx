@@ -23,10 +23,10 @@ interface Creative {
 }
 
 const STRENGTH_CONFIG: Record<string, string> = {
-  Best: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  Good: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  Low: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-  Learning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  Best: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
+  Good: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  Low: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",
+  Learning: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
   Unknown: "bg-muted text-muted-foreground",
 };
 
@@ -37,12 +37,12 @@ const cols: ColDef<Creative>[] = [
       <div className="max-w-[180px]">
         <p className="text-xs font-medium truncate" title={r.name}>{r.name}</p>
         <div className="flex items-center gap-1 mt-0.5">
-          <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", STRENGTH_CONFIG[r.adStrength ?? "Unknown"])}>
+          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", STRENGTH_CONFIG[r.adStrength ?? "Unknown"])}>
             {r.adStrength ?? "Unknown"}
           </span>
-          <span className="text-[12px] text-muted-foreground">{r.type}</span>
+          <span className="text-[9px] text-muted-foreground">{r.type}</span>
           {typeof r.assetCount === "number" ? (
-            <span className="text-[12px] text-muted-foreground">· {r.assetCount} assets</span>
+            <span className="text-[9px] text-muted-foreground">· {r.assetCount} assets</span>
           ) : null}
         </div>
       </div>
@@ -55,7 +55,7 @@ const cols: ColDef<Creative>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "")}>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -86,7 +86,7 @@ export function CreativesTab({ creatives, insights, isLoading }: CreativesTabPro
       {insights && insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((ins, i) => (
-            <div key={i} className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+            <div key={i} className="rounded-xl border border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50 bg-[var(--adc-caution-bg)] dark:bg-[var(--adc-caution-fg)]/30 px-4 py-3">
               <p className="text-xs text-foreground">△ {ins}</p>
             </div>
           ))}

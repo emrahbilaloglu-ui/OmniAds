@@ -19,8 +19,8 @@ interface KpiSummaryTilesProps {
 
 const HIGHLIGHT_STYLES: Record<NonNullable<KpiSummaryTile["highlight"]>, string> = {
   neutral: "border-neutral-200 bg-white",
-  warn: "border-amber-200 bg-amber-50/50",
-  good: "border-emerald-200 bg-emerald-50/50",
+  warn: "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/50",
+  good: "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]/50",
 };
 
 export function KpiSummaryTiles({
@@ -41,7 +41,7 @@ export function KpiSummaryTiles({
             HIGHLIGHT_STYLES[tile.highlight ?? "neutral"]
           }
         >
-          <div className="flex items-center justify-between text-[12px] uppercase tracking-wider text-neutral-500">
+          <div className="flex items-center justify-between text-[10.5px] uppercase tracking-wider text-neutral-500">
             <span className="font-semibold">{tile.title}</span>
             {tile.scope ? <span className="font-mono normal-case">{tile.scope}</span> : null}
           </div>
@@ -54,7 +54,7 @@ export function KpiSummaryTiles({
             ) : null}
           </div>
           {tile.micro ? (
-            <div className="mt-1 text-[12px] text-neutral-500">{tile.micro}</div>
+            <div className="mt-1 text-[11px] text-neutral-500">{tile.micro}</div>
           ) : null}
         </div>
       ))}

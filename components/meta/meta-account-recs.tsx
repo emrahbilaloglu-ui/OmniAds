@@ -33,11 +33,11 @@ function DecisionBadge({ state }: { state: MetaRecommendation["decisionState"] }
     state === "act"
       ? "bg-foreground text-background"
       : state === "test"
-      ? "bg-violet-500/10 text-violet-700"
+      ? "bg-[var(--adc-auto-fg)]/10 text-[var(--adc-auto-fg)]"
       : "bg-slate-100 text-slate-500";
   const labels: Record<typeof state, string> = { act: "ACT", test: "TEST", watch: "WATCH" };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide ${cls}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cls}`}>
       {labels[state]}
     </span>
   );
@@ -70,7 +70,7 @@ function RecCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <DecisionBadge state={rec.decisionState} />
-            <span className="truncate text-[12px] text-slate-400">{rec.title}</span>
+            <span className="truncate text-[10px] text-slate-400">{rec.title}</span>
           </div>
           <p className={cn(
             "mt-1.5 text-[13px] font-semibold leading-snug",
@@ -84,9 +84,9 @@ function RecCard({
                 <span
                   key={ev.label}
                   className={cn(
-                    "rounded-md px-2 py-0.5 text-[12px] font-medium",
-                    ev.tone === "positive" ? "bg-emerald-50 text-emerald-700"
-                    : ev.tone === "warning" ? "bg-amber-50 text-amber-700"
+                    "rounded-md px-2 py-0.5 text-[10px] font-medium",
+                    ev.tone === "positive" ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
+                    : ev.tone === "warning" ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
                     : "bg-slate-100 text-slate-600"
                   )}
                 >
@@ -106,19 +106,19 @@ function RecCard({
         <div className="space-y-3 border-t border-slate-100 px-3 pb-3 pt-2.5">
           {rec.why && (
             <div>
-              <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Why</p>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Why</p>
               <p className="text-xs leading-relaxed text-slate-600">{rec.why}</p>
             </div>
           )}
           {rec.summary && rec.summary !== rec.why && (
             <div>
-              <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Summary</p>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Summary</p>
               <p className="text-xs leading-relaxed text-slate-600">{rec.summary}</p>
             </div>
           )}
           {rec.expectedImpact && (
             <div>
-              <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Expected impact</p>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Expected impact</p>
               <p className="text-xs leading-relaxed text-slate-600">{rec.expectedImpact}</p>
             </div>
           )}
@@ -126,13 +126,13 @@ function RecCard({
             <div className="flex gap-3">
               {rec.defensiveBidBand && (
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Defensive bid band</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Defensive bid band</p>
                   <p className="mt-0.5 text-xs font-semibold text-slate-700">{rec.defensiveBidBand}</p>
                 </div>
               )}
               {rec.scaleBidBand && (
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Scale bid band</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Scale bid band</p>
                   <p className="mt-0.5 text-xs font-semibold text-slate-700">{rec.scaleBidBand}</p>
                 </div>
               )}
@@ -147,7 +147,7 @@ function RecCard({
               className={cn(
                 "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
                 checked
-                  ? "border-emerald-500 bg-emerald-500 text-white"
+                  ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-fg)] text-white"
                   : "border-slate-300 bg-white hover:border-slate-400"
               )}
             >
@@ -157,7 +157,7 @@ function RecCard({
                 </svg>
               )}
             </button>
-            <span className="text-[12px] text-slate-500">
+            <span className="text-[11px] text-slate-500">
               {checked ? "Marked complete" : "Mark as complete"}
             </span>
           </div>
@@ -198,7 +198,7 @@ export function MetaAccountRecs({
   return (
     <div className="space-y-4" data-testid="meta-recommendations-panel">
       <div className="space-y-1">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Destekleyici Bağlam" : "Supporting Context"}
         </p>
         <p className="text-xs text-slate-500">
@@ -239,14 +239,14 @@ export function MetaAccountRecs({
           )}
         </button>
         {lastAnalyzedAt && (
-          <p className="text-[12px] text-slate-400">
+          <p className="text-[10px] text-slate-400">
             {language === "tr" ? "Son çalıştırma:" : "Last run:"}{" "}
             {formatRelativeAge(lastAnalyzedAt.toISOString())}
           </p>
         )}
       </div>
       {analysisError ? (
-        <p className="text-xs text-red-500">
+        <p className="text-xs text-[var(--adc-danger-fg)]">
           {analysisError}
         </p>
       ) : null}

@@ -29,18 +29,18 @@ function FloorGroup({
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
         {title}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {items.map((item) => (
           <div
             key={`${title}:${item.key}:${item.current}`}
-            className={cn("rounded-xl border px-2.5 py-2 text-[12px]", floorTone(item.status))}
+            className={cn("rounded-xl border px-2.5 py-2 text-[11px]", floorTone(item.status))}
           >
             <p className="font-semibold">{item.label}</p>
             <p className="mt-1">{item.current}</p>
-            {item.reason ? <p className="mt-1 text-[12px] opacity-80">{item.reason}</p> : null}
+            {item.reason ? <p className="mt-1 text-[10px] opacity-80">{item.reason}</p> : null}
           </div>
         ))}
       </div>
@@ -63,14 +63,14 @@ export function DecisionPolicyExplanationPanel({
     <section className={cn("rounded-2xl border border-slate-200 bg-white p-4", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             {title ?? "Policy Review"}
           </p>
           <p className="mt-1 text-sm text-slate-700">{explanation.summary}</p>
         </div>
         <div
           className={cn(
-            "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
+            "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
             compareTone(explanation.compare.cutoverState),
           )}
         >

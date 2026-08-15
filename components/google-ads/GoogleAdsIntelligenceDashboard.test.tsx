@@ -76,6 +76,8 @@ vi.mock("@/components/google-ads/google-ads-dashboard-support", () => ({
   fmtRoas: (value: number) => String(value),
   isCampaignActive: () => true,
   mapRangePresetToApi: (preset: string) => (preset === "today" ? "custom" : preset),
+  normaliseBudgetRecommendations: () => [],
+  ASSET_VIEWS: [],
   PANEL_ITEMS: [],
   resolveTrendTimeline: () => ({ labelMode: "day" }),
 }));

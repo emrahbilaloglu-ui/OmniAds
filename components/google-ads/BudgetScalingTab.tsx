@@ -6,7 +6,7 @@ import {
   TabSkeleton, TabEmpty, SectionLabel, SpendBar, SimpleTable, ColDef,
 } from "./shared";
 
-interface BudgetCampaign {
+export interface BudgetCampaign {
   id: string;
   name: string;
   dailyBudget: number;
@@ -22,10 +22,11 @@ interface BudgetCampaign {
   lostIsRank?: number | null;
 }
 
-interface BudgetRec {
+export interface BudgetRec {
   campaign: string;
   currentSpend: number;
-  suggestedBudgetChange: number;
+  /** Google serves no per-campaign budget delta; null means "direction only". */
+  suggestedBudgetChange: number | null;
   direction: "increase" | "decrease";
   reason: string;
 }
@@ -46,7 +47,7 @@ const cols: ColDef<BudgetCampaign>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn("font-semibold", r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn("font-semibold", r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : r.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -58,13 +59,13 @@ const cols: ColDef<BudgetCampaign>[] = [
   {
     key: "lostIsBudget", header: "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
     render: (r) => r.lostIsBudget != null && r.lostIsBudget > 0
-      ? <span className="text-amber-600 dark:text-amber-400 font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
+      ? <span className="text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)] font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
       : "—",
   },
   {
     key: "lostIsRank", header: "Lost IS (Rank)", accessor: (r) => r.lostIsRank ?? 0, align: "right",
     render: (r) => r.lostIsRank != null && r.lostIsRank > 0
-      ? <span className="text-rose-600 dark:text-rose-400 font-semibold">{fmtPercent(r.lostIsRank * 100)}</span>
+      ? <span className="text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] font-semibold">{fmtPercent(r.lostIsRank * 100)}</span>
       : "—",
   },
 ];
@@ -101,16 +102,16 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Campaigns</p>
           <p className="text-2xl font-bold mt-1">{campaigns.length}</p>
         </div>
-        <div className={cn("rounded-xl border p-4", avgRoas >= 3 ? "border-emerald-200 dark:border-emerald-900/50" : avgRoas < 1 ? "border-rose-200 dark:border-rose-900/50" : "bg-card")}>
+        <div className={cn("rounded-xl border p-4", avgRoas >= 3 ? "border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50" : avgRoas < 1 ? "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50" : "bg-card")}>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Avg ROAS</p>
-          <p className={cn("text-2xl font-bold mt-1", avgRoas >= 3 ? "text-emerald-600 dark:text-emerald-400" : avgRoas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+          <p className={cn("text-2xl font-bold mt-1", avgRoas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : avgRoas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
             {fmtRoas(avgRoas)}
           </p>
         </div>
-        <div className={cn("rounded-xl border p-4", budgetLimited > 0 ? "border-amber-200 dark:border-amber-900/50" : "bg-card")}>
+        <div className={cn("rounded-xl border p-4", budgetLimited > 0 ? "border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50" : "bg-card")}>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Budget-Limited</p>
-          <p className={cn("text-2xl font-bold mt-1", budgetLimited > 0 ? "text-amber-600 dark:text-amber-400" : "")}>{budgetLimited}</p>
-          <p className="text-[12px] text-muted-foreground">campaigns losing IS</p>
+          <p className={cn("text-2xl font-bold mt-1", budgetLimited > 0 ? "text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]" : "")}>{budgetLimited}</p>
+          <p className="text-[10px] text-muted-foreground">campaigns losing IS</p>
         </div>
       </div>
 
@@ -125,14 +126,16 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
                 className={cn(
                   "rounded-xl border p-4",
                   rec.direction === "increase"
-                    ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30"
-                    : "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30"
+                    ? "border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50 bg-[var(--adc-pos-bg)] dark:bg-[var(--adc-pos-fg)]/30"
+                    : "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30"
                 )}
               >
                 <p className="text-xs font-semibold truncate" title={rec.campaign}>{rec.campaign}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{rec.reason}</p>
-                <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
-                  {rec.direction === "increase" ? "+" : "-"}{fmtCurrency(Math.abs(rec.suggestedBudgetChange))}
+                <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]")}>
+                  {rec.suggestedBudgetChange === null
+                    ? (rec.direction === "increase" ? "Scale up" : "Pull back")
+                    : `${rec.direction === "increase" ? "+" : "-"}${fmtCurrency(Math.abs(rec.suggestedBudgetChange))}`}
                   <span className="text-xs font-normal text-muted-foreground ml-1">suggested shift</span>
                 </p>
               </div>
@@ -144,18 +147,18 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
       {/* Scaling + Waste */}
       <div className="grid gap-4 lg:grid-cols-2">
         {scalingCandidates.length > 0 && (
-          <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-4">
-            <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100 mb-1">
+          <div className="rounded-xl border border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50 bg-[var(--adc-pos-bg)] dark:bg-[var(--adc-pos-fg)]/30 p-4">
+            <p className="text-xs font-semibold text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] mb-1">
               {scalingCandidates.length} campaign{scalingCandidates.length > 1 ? "s" : ""} ready to scale
             </p>
-            <p className="text-[12px] text-emerald-700 dark:text-emerald-300 mb-3">
+            <p className="text-[10px] text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] mb-3">
               Strong ROAS but losing impression share to budget — increasing budgets here should yield efficient growth.
             </p>
             <div className="space-y-2">
               {scalingCandidates.map((c, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="truncate text-emerald-900 dark:text-emerald-100 max-w-[180px]">{c.name}</span>
-                  <div className="flex items-center gap-3 shrink-0 text-emerald-700 dark:text-emerald-300">
+                  <span className="truncate text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] max-w-[180px]">{c.name}</span>
+                  <div className="flex items-center gap-3 shrink-0 text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]">
                     <span>{fmtRoas(c.roas)} ROAS</span>
                     <span>{fmtPercent((c.lostIsBudget ?? 0) * 100)} lost to budget</span>
                   </div>
@@ -166,18 +169,18 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
         )}
 
         {wastedCampaigns.length > 0 && (
-          <div className="rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 p-4">
-            <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 mb-1">
+          <div className="rounded-xl border border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30 p-4">
+            <p className="text-xs font-semibold text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] mb-1">
               {fmtCurrency(wastedCampaigns.reduce((s, c) => s + c.spend, 0))} in low-efficiency spend
             </p>
-            <p className="text-[12px] text-rose-700 dark:text-rose-300 mb-3">
+            <p className="text-[10px] text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] mb-3">
               These campaigns have significant spend with weak or zero returns — reallocate to high performers.
             </p>
             <div className="space-y-2">
               {wastedCampaigns.slice(0, 4).map((c, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="truncate text-rose-900 dark:text-rose-100 max-w-[180px]">{c.name}</span>
-                  <div className="flex items-center gap-3 shrink-0 text-rose-700 dark:text-rose-300">
+                  <span className="truncate text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] max-w-[180px]">{c.name}</span>
+                  <div className="flex items-center gap-3 shrink-0 text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]">
                     <span>{fmtCurrency(c.spend)} spent</span>
                     <span>{c.conversions === 0 ? "0 conv." : `${fmtRoas(c.roas)} ROAS`}</span>
                   </div>
@@ -199,13 +202,13 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs truncate max-w-[180px]" title={c.name}>{c.name}</span>
-                    <span className="text-[12px] text-muted-foreground shrink-0 ml-2">{pct.toFixed(1)}%</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{pct.toFixed(1)}%</span>
                   </div>
                   <SpendBar value={c.spend} max={spend} />
                 </div>
                 <div className="text-right shrink-0 w-20">
                   <p className="text-xs tabular-nums">{fmtCurrency(c.spend)}</p>
-                  <p className={cn("text-[12px]", c.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : c.roas < 1 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground")}>
+                  <p className={cn("text-[10px]", c.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : c.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "text-muted-foreground")}>
                     {c.roas > 0 ? `${fmtRoas(c.roas)} ROAS` : "—"}
                   </p>
                 </div>

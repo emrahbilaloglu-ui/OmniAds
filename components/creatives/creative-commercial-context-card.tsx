@@ -55,7 +55,7 @@ export function CreativeCommercialContextCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
             Commercial Context
           </p>
           <h4 className="mt-1 text-sm font-semibold text-neutral-950">
@@ -64,7 +64,7 @@ export function CreativeCommercialContextCard({
         </div>
         <span
           className={cn(
-            "rounded-full px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
+            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
             tone.badge,
           )}
         >
@@ -75,15 +75,15 @@ export function CreativeCommercialContextCard({
         {query.data.why[0] ??
           "Decisions use live windows. Selected period affects analysis only."}
       </p>
-      <p className="mt-2 text-[12px] text-neutral-500">
+      <p className="mt-2 text-[11px] text-neutral-500">
         Decisions use live windows. Selected period affects analysis only.
       </p>
-      <p className="mt-2 text-[12px] text-neutral-500">
+      <p className="mt-2 text-[11px] text-neutral-500">
         Decision as of {query.data.decisionAsOf} · primary window {query.data.decisionWindows.primary30d.startDate} to {query.data.decisionWindows.primary30d.endDate}
       </p>
       {query.data.degradedMode.active ? (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <p className="font-semibold uppercase tracking-[0.14em] text-amber-700">
+        <div className="mt-3 rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-3 py-2 text-xs text-[var(--adc-caution-fg)]">
+          <p className="font-semibold uppercase tracking-[0.14em] text-[var(--adc-caution-fg)]">
             Degraded Mode
           </p>
           <p className="mt-1">
@@ -101,7 +101,7 @@ export function CreativeCommercialContextCard({
               key={`${row.label}-${row.detail}`}
               className="rounded-xl border border-neutral-200 bg-white/85 px-3 py-2"
             >
-              <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
                 {row.label}
               </p>
               <p className="mt-1 text-sm text-neutral-800">{row.detail}</p>
@@ -111,14 +111,14 @@ export function CreativeCommercialContextCard({
       ) : null}
       {query.data.guardrails[0] ? (
         <div className="mt-3 rounded-xl border border-neutral-200 bg-white/85 px-3 py-2">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
             Guardrail
           </p>
           <p className="mt-1 text-sm text-neutral-800">{query.data.guardrails[0]}</p>
         </div>
       ) : null}
       {query.data.missingInputs.length > 0 ? (
-        <p className="mt-3 text-xs text-amber-800">
+        <p className="mt-3 text-xs text-[var(--adc-caution-fg)]">
           Missing inputs: {query.data.missingInputs.join(" ")}
         </p>
       ) : null}

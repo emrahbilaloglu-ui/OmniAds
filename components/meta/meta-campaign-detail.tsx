@@ -62,13 +62,13 @@ function DecisionBadge({ state }: { state: MetaRecommendation["decisionState"] }
     state === "act"
       ? "bg-foreground text-background"
       : state === "test"
-      ? "bg-violet-500/10 text-violet-700"
+      ? "bg-[var(--adc-auto-fg)]/10 text-[var(--adc-auto-fg)]"
       : "bg-muted text-muted-foreground";
 
   const labels: Record<typeof state, string> = { act: "ACT", test: "TEST", watch: "WATCH" };
 
   return (
-    <span className={`inline-block rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${cls}`}>
+    <span className={`inline-block rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${cls}`}>
       {labels[state]}
     </span>
   );
@@ -77,9 +77,9 @@ function DecisionBadge({ state }: { state: MetaRecommendation["decisionState"] }
 // ── ROAS color ────────────────────────────────────────────────────────────────
 
 function roasColor(roas: number) {
-  if (roas > 2.5) return "text-emerald-600";
-  if (roas >= 1.5) return "text-amber-500";
-  return "text-red-500";
+  if (roas > 2.5) return "text-[var(--adc-pos-fg)]";
+  if (roas >= 1.5) return "text-[var(--adc-caution-fg)]";
+  return "text-[var(--adc-danger-fg)]";
 }
 
 // ── Metric tile ───────────────────────────────────────────────────────────────
@@ -97,11 +97,11 @@ function MetricTile({
 }) {
   return (
     <div className="rounded-lg border bg-white px-3 py-2 shadow-sm shadow-slate-100/60">
-      <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
       <p className={cn("mt-0.5 font-mono text-sm font-bold tabular-nums leading-tight", valueClass ?? "text-slate-950")}>
         {value}
       </p>
-      {sub && <p className="mt-0.5 text-[12px] text-slate-400">{sub}</p>}
+      {sub && <p className="mt-0.5 text-[9px] text-slate-400">{sub}</p>}
     </div>
   );
 }
@@ -133,11 +133,11 @@ function CampaignOperatorHeadline({
         {!shouldShowRecommendationAsContext ? (
           <DecisionBadge state={recommendation.decisionState} />
         ) : (
-          <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-amber-700">
+          <span className="rounded-full bg-[var(--adc-caution-fg)]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--adc-caution-fg)]">
             Context
           </span>
         )}
-        <p className="text-[12px] text-slate-500">
+        <p className="text-[11px] text-slate-500">
           {fallbackRecommendation
             ? "Snapshot recommendation context"
             : recommendation.title}
@@ -149,12 +149,12 @@ function CampaignOperatorHeadline({
           : recommendation.recommendedAction}
       </p>
       {fallbackRecommendation ? (
-        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+        <p className="mt-2 text-xs leading-relaxed text-[var(--adc-caution-fg)]">
           Snapshot context only. Legacy Meta Decision OS authority is archived in Phase 4.1.
         </p>
       ) : null}
       {shouldDemoteAggressiveRecommendation && !fallbackRecommendation ? (
-        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+        <p className="mt-2 text-xs leading-relaxed text-[var(--adc-caution-fg)]">
           Recommendation is shown as context until a current authority surface is ready for this range.
         </p>
       ) : null}
@@ -168,7 +168,7 @@ function CampaignOperatorHeadline({
               key={ev.label}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm"
             >
-              <p className="text-[12px] font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
                 {ev.label}
               </p>
               <p className="text-xs font-semibold text-slate-800">{ev.value}</p>
@@ -282,11 +282,11 @@ function AdSetList({
             <div className="flex items-start gap-3">
               {/* Zone 1 — Identity (fixed ~35% so short names don't expand) */}
               <div className="flex w-[35%] min-w-0 shrink-0 items-start gap-2">
-                <span className={cn("mt-1 h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-emerald-500" : "bg-slate-400")} />
+                <span className={cn("mt-1 h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-[var(--adc-pos-fg)]" : "bg-slate-400")} />
                 <div className="min-w-0">
                   <p className="truncate text-[12px] font-semibold text-slate-800">{adset.name}</p>
                   {adset.optimizationGoal && (
-                    <p className="mt-0.5 truncate text-[12px] uppercase tracking-wide text-slate-400">
+                    <p className="mt-0.5 truncate text-[10px] uppercase tracking-wide text-slate-400">
                       {adset.optimizationGoal}
                     </p>
                   )}
@@ -296,7 +296,7 @@ function AdSetList({
               {/* Zone 2 — Bid (flex-1 so it fills remaining space between name and metrics) */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                  <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
                     {bidLabel}
                   </span>
                   {bidValueStr && (
@@ -306,7 +306,7 @@ function AdSetList({
                   )}
                 </div>
                 {prevBidValueStr && (
-                  <p className="mt-0.5 text-[12px] text-slate-400">
+                  <p className="mt-0.5 text-[10px] text-slate-400">
                     ← {prevBidValueStr}{prevBidAge ? ` · ${prevBidAge}` : ""}
                   </p>
                 )}
@@ -315,20 +315,20 @@ function AdSetList({
               {/* Zone 3 — Metrics: Spend | ROAS | CPA | CTR */}
               <div className="flex shrink-0 items-center gap-3">
                 <div className="text-right">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
-                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
-                  <p className={cn("font-mono text-[12px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
+                  <p className={cn("font-mono text-[11px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
-                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">CTR</p>
-                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{ctrStr}</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CTR</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{ctrStr}</p>
                 </div>
               </div>
             </div>
@@ -364,7 +364,7 @@ function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           Account Drilldown
         </p>
         <p className="mt-1 text-sm font-semibold text-slate-950">
@@ -515,7 +515,7 @@ export function MetaCampaignDetail({
       {/* Back breadcrumb */}
       <button
         onClick={onClearSelection}
-        className="flex items-center gap-1 text-[12px] text-slate-400 transition-colors hover:text-slate-600"
+        className="flex items-center gap-1 text-[11px] text-slate-400 transition-colors hover:text-slate-600"
       >
         ← {language === "tr" ? "Hesap Geneli" : "Account Overview"}
       </button>
@@ -524,7 +524,7 @@ export function MetaCampaignDetail({
       <div>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               {campaign.objective ?? "—"}
             </p>
             <h2 className="mt-0.5 text-lg font-bold leading-tight text-slate-950">
@@ -533,9 +533,9 @@ export function MetaCampaignDetail({
           </div>
           <span
             className={cn(
-              "shrink-0 rounded-full px-2 py-1 text-[12px] font-semibold uppercase",
+              "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase",
               campaign.status.toLowerCase() === "active"
-                ? "bg-emerald-500/10 text-emerald-700"
+                ? "bg-[var(--adc-pos-fg)]/10 text-[var(--adc-pos-fg)]"
                 : "bg-slate-400/10 text-slate-500"
             )}
           >
@@ -553,7 +553,7 @@ export function MetaCampaignDetail({
       {/* Metric grid — Spend / Revenue / ROAS / CPA / Budget */}
       <div className="grid grid-cols-5 gap-1.5">
         <MetricTile label="Spend" value={fmtK(campaign.spend, sym)} />
-        <MetricTile label="Revenue" value={fmtK(campaign.revenue, sym)} valueClass="text-emerald-600" />
+        <MetricTile label="Revenue" value={fmtK(campaign.revenue, sym)} valueClass="text-[var(--adc-pos-fg)]" />
         <MetricTile label="ROAS" value={`${roas.toFixed(2)}×`} valueClass={roasColor(roas)} />
         <MetricTile label="CPA" value={fmt$(campaign.cpa, sym)} />
         {(campaign.dailyBudget != null || campaign.lifetimeBudget != null) && (
@@ -573,7 +573,7 @@ export function MetaCampaignDetail({
 
       {/* Ad sets */}
       <div className="space-y-2" data-testid="meta-adsets-section">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Ad Set'ler" : "Ad Sets"}
         </p>
         <AdSetList

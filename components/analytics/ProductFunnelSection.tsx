@@ -48,7 +48,7 @@ const columns: ColumnDef<ProductRow>[] = [
   },
   {
     key: "addToCarts",
-    header: "Add to Cart",
+    header: "Add to cart",
     accessor: (r) => r.addToCarts,
     align: "right",
     render: (r) => fmt(r.addToCarts),
@@ -69,7 +69,7 @@ const columns: ColumnDef<ProductRow>[] = [
   },
   {
     key: "atcRate",
-    header: "ATC Rate",
+    header: "ATC rate",
     accessor: (r) => r.atcRate,
     align: "right",
     heatmap: true,
@@ -77,7 +77,7 @@ const columns: ColumnDef<ProductRow>[] = [
   },
   {
     key: "checkoutRate",
-    header: "Checkout Rate",
+    header: "Checkout rate",
     accessor: (r) => r.checkoutRate,
     align: "right",
     heatmap: true,
@@ -85,7 +85,7 @@ const columns: ColumnDef<ProductRow>[] = [
   },
   {
     key: "purchaseRate",
-    header: "Purchase Rate",
+    header: "Purchase rate",
     accessor: (r) => r.purchaseRate,
     align: "right",
     heatmap: true,
@@ -99,6 +99,8 @@ const columns: ColumnDef<ProductRow>[] = [
     render: (r) => fmt(r.revenue, "currency"),
   },
 ];
+
+const MAX_ROWS = 50;
 
 interface ProductFunnelSectionProps {
   products?: ProductRow[];
@@ -119,18 +121,26 @@ export function ProductFunnelSection({
     );
   }
 
+  // The design shows the top slice and states the cap rather than mounting the
+  // whole item report.
+  const rows = products ?? [];
+  const shown = Math.min(rows.length, MAX_ROWS);
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Shows where products lose users through the purchase funnel. Higher rates
-        are better — red values need attention.
-      </p>
       <SortableTable
         columns={columns}
-        rows={products ?? []}
+        rows={rows}
         defaultSortKey="views"
+        maxRows={MAX_ROWS}
         emptyText="No product funnel data found for this date range."
       />
+      {rows.length > 0 ? (
+        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+          Showing {shown} of up to {MAX_ROWS} rows · GA4 item-scoped events ·
+          higher rates are better, weak cells are where users leave.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -271,7 +271,7 @@ export function CreativeAdActionsSection({
           </div>
         </div>
         {pendingAction ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-[12px] font-medium text-neutral-600">
+          <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-[11px] font-medium text-neutral-600">
             <Loader2 className="h-3 w-3 animate-spin" />
             Updating
           </span>
@@ -308,7 +308,7 @@ export function CreativeAdActionsSection({
         </button>
       </div>
       {!hasExactAdAuthority ? (
-        <p className="mt-2 text-xs leading-5 text-amber-700">
+        <p className="mt-2 text-xs leading-5 text-[var(--adc-caution-fg)]">
           Review only: Meta did not present one exact ad, creative, and account
           identity for this row. Provider actions stay disabled.
         </p>
@@ -323,7 +323,7 @@ export function CreativeAdActionsSection({
           {historyQuery.isLoading ? (
             <p className="text-sm text-neutral-500">Loading actions...</p>
           ) : historyQuery.isError ? (
-            <p className="text-sm text-rose-600">Action history unavailable.</p>
+            <p className="text-sm text-[var(--adc-danger-fg)]">Action history unavailable.</p>
           ) : (historyQuery.data ?? []).length === 0 ? (
             <p className="text-sm text-neutral-500">No actions yet.</p>
           ) : (
@@ -339,7 +339,7 @@ export function CreativeAdActionsSection({
                     {item.status}
                   </span>
                   {item.errorMessage ? (
-                    <p className="col-span-3 text-rose-700">
+                    <p className="col-span-3 text-[var(--adc-danger-fg)]">
                       {item.errorCode ? `${item.errorCode}: ` : ""}
                       {item.errorMessage}
                     </p>
@@ -355,7 +355,7 @@ export function CreativeAdActionsSection({
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-neutral-950/50 px-4">
           <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
+              <AlertTriangle className="mt-0.5 h-5 w-5 text-[var(--adc-caution-fg)]" />
               <div>
                 <h5 className="text-sm font-semibold text-neutral-900">
                   Confirm {confirmAction === "pause" ? "pause" : "resume"}
@@ -521,8 +521,8 @@ export function CreativeAdActionsSection({
         <div
           className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] ${
             toast.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-rose-200 bg-rose-50 text-rose-900"
+              ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
+              : "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
           }`}
         >
           {toast.message}
@@ -588,23 +588,23 @@ export function resolveManualAdActionCandidateIds(row: MetaCreativeRow) {
 
 function statusClassName(status: string) {
   const base = "rounded border px-2 py-0.5 text-xs font-semibold";
-  if (status === "ACTIVE") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
-  if (status === "PAUSED") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
+  if (status === "ACTIVE") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (status === "PAUSED") return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
 function historyStatusClassName(status: ActionHistoryRow["status"]) {
-  const base = "rounded border px-2 py-0.5 text-center text-[12px] font-semibold";
-  if (status === "success") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
-  if (status === "silent_failure") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
-  if (status === "failure") return `${base} border-rose-200 bg-rose-50 text-rose-700`;
+  const base = "rounded border px-2 py-0.5 text-center text-[11px] font-semibold";
+  if (status === "success") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (status === "silent_failure") return `${base} border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]`;
+  if (status === "failure") return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-600`;
 }
 
 function duplicateProgressClassName(progress: DuplicateProgress) {
   const base = "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm";
-  if (progress === "success") return `${base} border-emerald-200 bg-emerald-50 text-emerald-900`;
-  if (progress === "error") return `${base} border-rose-200 bg-rose-50 text-rose-900`;
+  if (progress === "success") return `${base} border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]`;
+  if (progress === "error") return `${base} border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]`;
   return `${base} border-neutral-200 bg-neutral-50 text-neutral-700`;
 }
 

@@ -138,7 +138,7 @@ export function CrossPlacementCard({
             data-lane="action"
             checked={selected}
             onChange={(event) => onSelectChange?.(actionCardId, event.currentTarget.checked)}
-            className="w-4 h-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            className="w-4 h-4 rounded border-neutral-300 text-[var(--adc-info-fg)] focus:ring-blue-500 cursor-pointer"
           />
         </label>
         <button
@@ -171,22 +171,22 @@ export function CrossPlacementCard({
                     {name}
                   </button>
                 </h3>
-                <span className="text-[12px] uppercase tracking-wider text-neutral-400 font-medium">
+                <span className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-medium">
                   {card.brand || "Brand"}
                 </span>
               </div>
-              <div className="text-[12px] text-neutral-500 truncate mt-0.5">
+              <div className="text-[11.5px] text-neutral-500 truncate mt-0.5">
                 In {placementList.length} placements · best in{" "}
                 <span className="font-medium text-neutral-700">{bestPlacement}</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 text-[12px] font-medium">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 text-[10.5px] font-medium">
                 <Layers className="inline-block shrink-0" size={11} aria-hidden="true" />
                 {placementList.length} placements
               </span>
               {mixed ? (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-300 bg-neutral-100 text-neutral-700 text-[12px] font-medium">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-300 bg-neutral-100 text-neutral-700 text-[10.5px] font-medium">
                   <AlertTriangle className="inline-block shrink-0" size={11} aria-hidden="true" />
                   mixed
                 </span>
@@ -207,7 +207,7 @@ export function CrossPlacementCard({
             {card.reason || "No engine reason supplied."}
           </div>
           {card.predictive ? (
-            <div className="text-[12px] text-neutral-500 italic flex items-center gap-1 mt-0.5">
+            <div className="text-[11.5px] text-neutral-500 italic flex items-center gap-1 mt-0.5">
               <Sparkles className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
               <span>{card.predictive}</span>
             </div>
@@ -220,21 +220,21 @@ export function CrossPlacementCard({
             <CtrBar value={card.ctrFunnel?.value ?? card.ctr} p50={card.ctrFunnel?.p50} />
             <MetricDivider />
             <div className="flex items-center gap-1.5">
-              <span className="text-[12px] text-neutral-500">28d ROAS</span>
+              <span className="text-[10.5px] text-neutral-500">28d ROAS</span>
               <Sparkline
                 values={card.sparkline}
-                tone={label === "scale" ? "text-emerald-500" : "text-rose-500"}
+                tone={label === "scale" ? "text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)]"}
                 width={60}
                 height={18}
               />
-              <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
+              <span className="font-mono tabular-nums text-[11px] font-medium text-neutral-900">
                 {formatOptionalRoas(card.roas)}
               </span>
             </div>
             <MetricDivider />
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
-            <span className="font-mono tabular-nums text-[12px] text-neutral-500">
+            <span className="font-mono tabular-nums text-[11px] text-neutral-500">
               {formatOptionalCurrency(card.spend, card.currency)} spend · {formatOptionalInteger(card.purchases)} purch.
             </span>
           </div>
@@ -268,7 +268,7 @@ export function CrossPlacementCard({
         </DeferTooltip>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 text-[12px] text-neutral-500 hover:text-neutral-900"
+          className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-neutral-500 hover:text-neutral-900"
           data-action="evidence"
           data-id={actionCardId}
           aria-haspopup="dialog"
@@ -309,7 +309,7 @@ function PlacementStrip({
 }) {
   return (
     <div className="mt-3 pl-[44px]">
-      <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
+      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
         <Layers className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
         Placements ({placements.length})
       </div>
@@ -322,11 +322,11 @@ function PlacementStrip({
           return (
             <div
               key={key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white cursor-pointer text-[12px]"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white cursor-pointer text-[11.5px]"
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  placement.status === "ACTIVE" ? "bg-emerald-500" : "bg-neutral-300"
+                  placement.status === "ACTIVE" ? "bg-[var(--adc-pos-fg)]" : "bg-neutral-300"
                 }`}
               />
               <span className="text-neutral-700 truncate flex-1 min-w-0">
@@ -342,10 +342,10 @@ function PlacementStrip({
                 className={`font-mono tabular-nums font-medium ${
                   roas !== null
                     ? roas >= 2
-                      ? "text-emerald-700"
+                      ? "text-[var(--adc-pos-fg)]"
                       : roas >= 1
                         ? "text-neutral-700"
-                        : "text-rose-700"
+                        : "text-[var(--adc-danger-fg)]"
                     : "text-neutral-500"
                 }`}
               >

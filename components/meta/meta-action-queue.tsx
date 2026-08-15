@@ -30,7 +30,7 @@ function decisionStyle(state: MetaRecommendation["decisionState"]) {
   if (state === "act")
     return "bg-foreground text-background hover:bg-foreground/90";
   if (state === "test")
-    return "bg-violet-500/10 text-violet-700 hover:bg-violet-500/15";
+    return "bg-[var(--adc-auto-fg)]/10 text-[var(--adc-auto-fg)] hover:bg-[var(--adc-auto-fg)]/15";
   return "bg-muted text-muted-foreground";
 }
 
@@ -50,10 +50,10 @@ function decisionLabel(
 
 function LensIcon({ lens }: { lens: MetaRecommendation["lens"] }) {
   if (lens === "volume")
-    return <TrendingUp className="h-3.5 w-3.5 shrink-0 text-blue-500" />;
+    return <TrendingUp className="h-3.5 w-3.5 shrink-0 text-[var(--adc-info-fg)]" />;
   if (lens === "profitability")
-    return <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
-  return <Workflow className="h-3.5 w-3.5 shrink-0 text-amber-500" />;
+    return <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-[var(--adc-pos-fg)]" />;
+  return <Workflow className="h-3.5 w-3.5 shrink-0 text-[var(--adc-caution-fg)]" />;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ export function MetaActionQueue({
       <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm shadow-slate-200/40">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               Action Queue
             </p>
             <p className="text-sm text-muted-foreground">Could not load analysis</p>
@@ -144,7 +144,7 @@ export function MetaActionQueue({
   if (sorted.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm shadow-slate-200/40">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           Action Queue
         </p>
         <p className="mt-1 text-sm text-muted-foreground">No strong signals detected for this period.</p>
@@ -159,7 +159,7 @@ export function MetaActionQueue({
       {/* Header */}
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
             Action Queue
           </p>
           <p className="text-sm font-semibold text-slate-950">
@@ -175,7 +175,7 @@ export function MetaActionQueue({
             </Badge>
           )}
           {testCount > 0 && (
-            <Badge className="border-0 bg-violet-500/10 text-violet-700">
+            <Badge className="border-0 bg-[var(--adc-auto-fg)]/10 text-[var(--adc-auto-fg)]">
               {testCount} TEST
             </Badge>
           )}
@@ -191,7 +191,7 @@ export function MetaActionQueue({
           >
             {/* Decision badge */}
             <span
-              className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${decisionStyle(rec.decisionState)}`}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${decisionStyle(rec.decisionState)}`}
             >
               {decisionLabel(rec.decisionState, language)}
             </span>
@@ -202,7 +202,7 @@ export function MetaActionQueue({
                 {rec.campaignName ??
                   "Account-level"}
               </p>
-              <p className="truncate text-[12px] text-slate-500">
+              <p className="truncate text-[11px] text-slate-500">
                 {rec.recommendedAction}
               </p>
             </div>
@@ -215,7 +215,7 @@ export function MetaActionQueue({
               <button
                 type="button"
                 onClick={() => onOpenCampaign(rec.campaignId!)}
-                className="shrink-0 text-[12px] font-medium text-blue-600 hover:underline"
+                className="shrink-0 text-[11px] font-medium text-[var(--adc-info-fg)] hover:underline"
               >
                 View
               </button>

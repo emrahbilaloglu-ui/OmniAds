@@ -54,7 +54,7 @@ export function CreativeEngineV3EvidenceSection({
   if (!exactIdentityReady) {
     return (
       <EvidenceShell>
-        <p className="text-sm text-rose-600">
+        <p className="text-sm text-[var(--adc-danger-fg)]">
           Exact Ad evidence unavailable: provider account or real Ad identity
           is missing.
         </p>
@@ -75,7 +75,7 @@ export function CreativeEngineV3EvidenceSection({
   if (evidenceQuery.isError) {
     return (
       <EvidenceShell>
-        <p className="text-sm text-rose-600">
+        <p className="text-sm text-[var(--adc-danger-fg)]">
           Persisted exact-Ad evidence is unavailable or failed lineage
           validation.
         </p>

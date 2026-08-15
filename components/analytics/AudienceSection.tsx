@@ -36,7 +36,7 @@ function fmt(n: number, type: "number" | "percent" | "currency" = "number"): str
 const channelColumns: ColumnDef<ChannelRow>[] = [
   {
     key: "sourceMedium",
-    header: "Source / Medium",
+    header: "Source / medium",
     accessor: (r) => r.sourceMedium,
     sticky: true,
     render: (r) => (
@@ -54,7 +54,7 @@ const channelColumns: ColumnDef<ChannelRow>[] = [
   },
   {
     key: "engagementRate",
-    header: "Engagement Rate",
+    header: "Engagement rate",
     accessor: (r) => r.engagementRate,
     align: "right",
     heatmap: true,
@@ -125,15 +125,15 @@ export function AudienceSection({
       {newSeg && returnSeg && (
         <div>
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            New vs Returning Visitors
+            New vs returning
           </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
             <SegmentCard
-              label="New Visitors"
+              label="New visitors"
               segment={newSeg}
             />
             <SegmentCard
-              label="Returning Visitors"
+              label="Returning visitors"
               segment={returnSeg}
               multiplierVs={newSeg.purchaseCvr}
               multiplier={multiplier}
@@ -174,13 +174,13 @@ function SegmentCard({
 }) {
   const isBetter = multiplier !== undefined && multiplierVs !== undefined && multiplier >= 1.3;
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
         {isBetter && (
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+          <span className="rounded-full bg-[var(--adc-pos-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--adc-pos-fg)] ">
             {multiplier!.toFixed(1)}× better CVR
           </span>
         )}
@@ -211,7 +211,7 @@ function Metric({
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p
-        className={`text-base font-semibold ${highlight ? "text-emerald-600 dark:text-emerald-400" : ""}`}
+        className={`text-base font-semibold ${highlight ? "text-[var(--adc-pos-fg)] " : ""}`}
       >
         {value}
       </p>

@@ -4,7 +4,6 @@ import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import {
   resolveGoogleAdsSyncProgress,
   shouldRenderGoogleAdsSyncProgress,
-  type GoogleAdsResolvedSyncProgress,
   type GoogleAdsSyncProgressVariant,
 } from "@/lib/google-ads/sync-progress-ux";
 import { cn } from "@/lib/utils";
@@ -12,22 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export { shouldRenderGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
 
-function getTone(kind: GoogleAdsResolvedSyncProgress["kind"]) {
-  if (kind === "freshness") {
-    // Neutral on purpose: a freshness verdict short of `settled` is neither a
-    // success to paint green nor a failure to paint amber. It is what we know.
-    return {
-      border: "border-neutral-200",
-      bg: "bg-neutral-50",
-      track: "bg-neutral-200",
-      fill: "bg-neutral-400",
-      text: "text-neutral-900",
-      subtext: "text-neutral-700/85",
-      detail: "text-neutral-800/90",
-    };
-  }
-
-  if (kind === "historical") {
+// `freshness` joined the resolver after this component was written; it is a
+// backfill-shaped run, so it reads with the same neutral tone as historical.
+function getTone(kind: "advisor" | "historical" | "freshness") {
+  if (kind === "historical" || kind === "freshness") {
     return {
       border: "border-slate-200",
       bg: "bg-slate-50",
@@ -40,13 +27,13 @@ function getTone(kind: GoogleAdsResolvedSyncProgress["kind"]) {
   }
 
   return {
-    border: "border-blue-200",
-    bg: "bg-blue-50",
-    track: "bg-blue-100",
-    fill: "bg-blue-500",
-    text: "text-blue-950",
-    subtext: "text-blue-800/85",
-    detail: "text-blue-900/90",
+    border: "border-[var(--adc-info-bd)]",
+    bg: "bg-[var(--adc-info-bg)]",
+    track: "bg-[var(--adc-info-bg)]",
+    fill: "bg-[var(--adc-info-fg)]",
+    text: "text-[var(--adc-info-fg)]",
+    subtext: "text-[var(--adc-info-fg)]/85",
+    detail: "text-[var(--adc-info-fg)]/90",
   };
 }
 
@@ -134,26 +121,21 @@ export function GoogleAdsSyncProgress({
   const progress = resolved.percent;
   const title = resolved.title;
   const description = resolved.description;
-  // With no evidence behind it there is no percent worth printing — the label
-  // ("Unknown") is the honest headline, and 0% would read as a failed sync.
-  const showsPercent = resolved.kind !== "freshness" || resolved.freshnessVerified;
 
   if (variant === "inline") {
     return (
       <div
         className={cn(
-          resolved.kind === "advisor"
-            ? "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12px]"
-            : "inline-flex min-w-[150px] max-w-[250px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12px]",
+          resolved.kind === "historical"
+            ? "inline-flex min-w-[150px] max-w-[250px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]"
+            : "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]",
           tone.border,
           tone.bg,
           tone.detail,
           className
         )}
       >
-        <span className="shrink-0 text-[12px] font-semibold tabular-nums">
-          {showsPercent ? `${progress}%` : resolved.freshnessLabel}
-        </span>
+        <span className="shrink-0 text-[11px] font-semibold tabular-nums">{progress}%</span>
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="truncate leading-none">{description}</div>
           <div className={cn("mt-1 h-1 overflow-hidden rounded-full", tone.track)}>
@@ -182,13 +164,11 @@ export function GoogleAdsSyncProgress({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{title}</p>
-            <p className={cn("mt-1 line-clamp-2 text-[12px] leading-4", tone.subtext)}>
+            <p className={cn("mt-1 line-clamp-2 text-[11px] leading-4", tone.subtext)}>
               {description}
             </p>
           </div>
-          <p className="shrink-0 text-xs font-semibold tabular-nums">
-            {showsPercent ? `${progress}%` : resolved.freshnessLabel}
-          </p>
+          <p className="shrink-0 text-xs font-semibold tabular-nums">{progress}%</p>
         </div>
         <div className={cn("mt-3 h-1.5 overflow-hidden rounded-full", tone.track)}>
           <div
@@ -196,9 +176,6 @@ export function GoogleAdsSyncProgress({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className={cn("mt-2 text-[12px] leading-4", tone.subtext)}>
-          {resolved.freshnessLabel} — {resolved.freshnessDetail}
-        </p>
       </div>
     );
   }
@@ -219,9 +196,7 @@ export function GoogleAdsSyncProgress({
           <p className={cn("mt-0.5 text-sm", tone.subtext)}>{description}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className={cn("text-lg font-semibold tabular-nums", tone.text)}>
-            {showsPercent ? `${progress}%` : resolved.freshnessLabel}
-          </p>
+          <p className={cn("text-lg font-semibold tabular-nums", tone.text)}>{progress}%</p>
         </div>
       </div>
       <div className={cn("mt-3 h-2 overflow-hidden rounded-full", tone.track)}>
@@ -230,10 +205,7 @@ export function GoogleAdsSyncProgress({
           style={{ width: `${progress}%` }}
         />
       </div>
-      {/* The verdict and its reasoning, not a second copy of the headline. */}
-      <p className={cn("mt-2 text-xs", tone.subtext)}>
-        {resolved.freshnessLabel} — {resolved.freshnessDetail}
-      </p>
+      <p className={cn("mt-2 text-xs", tone.subtext)}>{description}</p>
     </div>
   );
 }

@@ -53,13 +53,13 @@ export function shouldRenderMetaSyncProgress(
 function getTone(status: MetaStatusResponse) {
   if (status.state === "action_required") {
     return {
-      border: "border-amber-200",
-      bg: "bg-amber-50",
-      track: "bg-amber-100",
-      fill: "bg-amber-500",
-      text: "text-amber-950",
-      subtext: "text-amber-800/85",
-      detail: "text-amber-900/90",
+      border: "border-[var(--adc-caution-bd)]",
+      bg: "bg-[var(--adc-caution-bg)]",
+      track: "bg-[var(--adc-caution-bg)]",
+      fill: "bg-[var(--adc-caution-fg)]",
+      text: "text-[var(--adc-caution-fg)]",
+      subtext: "text-[var(--adc-caution-fg)]/85",
+      detail: "text-[var(--adc-caution-fg)]/90",
     };
   }
   if (status.state === "paused") {
@@ -75,23 +75,23 @@ function getTone(status: MetaStatusResponse) {
   }
   if (status.state === "partial") {
     return {
-      border: "border-sky-200",
-      bg: "bg-sky-50",
-      track: "bg-sky-100",
-      fill: "bg-sky-500",
-      text: "text-sky-950",
-      subtext: "text-sky-800/85",
-      detail: "text-sky-900/90",
+      border: "border-[var(--adc-info-bd)]",
+      bg: "bg-[var(--adc-info-bg)]",
+      track: "bg-[var(--adc-info-bg)]",
+      fill: "bg-[var(--adc-info-fg)]",
+      text: "text-[var(--adc-info-fg)]",
+      subtext: "text-[var(--adc-info-fg)]/85",
+      detail: "text-[var(--adc-info-fg)]/90",
     };
   }
   return {
-    border: "border-blue-200",
-    bg: "bg-blue-50",
-    track: "bg-blue-100",
-    fill: "bg-blue-500",
-    text: "text-blue-950",
-    subtext: "text-blue-800/85",
-    detail: "text-blue-900/90",
+    border: "border-[var(--adc-info-bd)]",
+    bg: "bg-[var(--adc-info-bg)]",
+    track: "bg-[var(--adc-info-bg)]",
+    fill: "bg-[var(--adc-info-fg)]",
+    text: "text-[var(--adc-info-fg)]",
+    subtext: "text-[var(--adc-info-fg)]/85",
+    detail: "text-[var(--adc-info-fg)]/90",
   };
 }
 
@@ -197,7 +197,7 @@ export function MetaSyncProgress({
       >
         <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="line-clamp-2 text-[12px] font-medium leading-4">{caption ?? description}</div>
+          <div className="line-clamp-2 text-[11px] font-medium leading-4">{caption ?? description}</div>
           <div className={cn("h-1.5 overflow-hidden rounded-full", tone.track)}>
             <div
               className={cn("h-full rounded-full transition-[width] duration-300", tone.fill)}
@@ -224,7 +224,7 @@ export function MetaSyncProgress({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{title}</p>
-            <p className={cn("mt-1 line-clamp-2 text-[12px] leading-4", tone.subtext)}>{caption ?? description}</p>
+            <p className={cn("mt-1 line-clamp-2 text-[11px] leading-4", tone.subtext)}>{caption ?? description}</p>
           </div>
           <p className="shrink-0 text-xs font-semibold tabular-nums">{progress}%</p>
         </div>

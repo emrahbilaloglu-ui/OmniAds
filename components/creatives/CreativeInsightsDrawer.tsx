@@ -109,20 +109,20 @@ export function CreativeInsightsDrawer({
           <div className="mt-4 space-y-1.5">
             <p className="text-sm font-semibold leading-tight">{safeRow.name}</p>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" className="text-[12px]">
+              <Badge variant="secondary" className="text-[10px]">
                 Meta
               </Badge>
               {taxonomyPills.primaryLabel ? (
-                <Badge variant="outline" className="text-[12px]">
+                <Badge variant="outline" className="text-[10px]">
                   {taxonomyPills.primaryLabel}
                 </Badge>
               ) : null}
               {taxonomyPills.secondaryLabel ? (
-                <Badge variant="outline" className="text-[12px]">
+                <Badge variant="outline" className="text-[10px]">
                   {taxonomyPills.secondaryLabel}
                 </Badge>
               ) : null}
-              <span className="text-[12px] text-muted-foreground">Launched {safeRow.launchDate}</span>
+              <span className="text-[11px] text-muted-foreground">Launched {safeRow.launchDate}</span>
             </div>
           </div>
         </div>
@@ -134,7 +134,7 @@ export function CreativeInsightsDrawer({
           <AnalysisBlock title="Risks & Warnings" items={analysis.risks} />
 
           <section className="rounded-xl border p-3.5">
-            <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Where it runs
             </h3>
             <div className="grid gap-2 text-sm sm:grid-cols-3">
@@ -145,7 +145,7 @@ export function CreativeInsightsDrawer({
           </section>
 
           <section className="rounded-xl border p-3.5">
-            <h3 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Notes
             </h3>
             <textarea
@@ -166,7 +166,7 @@ function AnalysisBlock({ title, items }: { title: string; items: string[] }) {
 
   return (
     <section className="rounded-xl border p-3.5">
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
       <ul className="space-y-1.5 text-[13px] leading-relaxed">
@@ -184,7 +184,7 @@ function AnalysisBlock({ title, items }: { title: string; items: string[] }) {
 function MetaField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[12px] text-muted-foreground">{label}</p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
       <p className="truncate text-[12px] font-medium">{value}</p>
     </div>
   );

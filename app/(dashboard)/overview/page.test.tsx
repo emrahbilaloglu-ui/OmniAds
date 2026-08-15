@@ -28,32 +28,8 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
 vi.mock("@/components/states/error-state", () => ({
   ErrorState: () => React.createElement("div", null, "error-state"),
 }));
-vi.mock("@/components/ui/badge", () => ({
-  Badge: (props: { children: React.ReactNode }) => React.createElement("div", null, props.children),
-}));
-vi.mock("@/components/ui/button", () => ({
-  Button: (props: { children: React.ReactNode }) => React.createElement("button", null, props.children),
-}));
-vi.mock("@/components/overview/SummaryMetricCard", () => ({
-  SummaryMetricCard: () => React.createElement("div", null, "summary-metric-card"),
-}));
-vi.mock("@/components/overview/SummarySection", () => ({
-  SummarySection: (props: { children: React.ReactNode }) => React.createElement("section", null, props.children),
-}));
-vi.mock("@/components/overview/SummaryAttributionTable", () => ({
-  SummaryAttributionTable: () => React.createElement("div", null, "summary-attribution-table"),
-}));
-vi.mock("@/components/overview/AiDailyBrief", () => ({
-  AiDailyBrief: () => React.createElement("div", null, "ai-daily-brief"),
-}));
-vi.mock("@/components/overview/PinsSection", () => ({
-  PinsSection: () => React.createElement("div", null, "pins-section"),
-}));
 vi.mock("@/components/overview/CostModelSheet", () => ({
   CostModelSheet: () => React.createElement("div", null, "cost-model-sheet"),
-}));
-vi.mock("@/components/sync/sync-status-pill", () => ({
-  SyncStatusPill: () => React.createElement("div", null, "sync-status-pill"),
 }));
 
 vi.mock("@/hooks/use-persistent-date-range", () => ({
@@ -72,6 +48,18 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
 
 vi.mock("@/lib/overview-metric-catalog", () => ({
   buildOverviewMetricCatalog: () => [],
+  DEFAULT_PINNED_METRICS: ["revenue"],
+}));
+vi.mock("@/store/preferences-store", () => ({
+  usePreferencesStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      language: "en",
+      overviewPinsByContext: {},
+      setOverviewPins: vi.fn(),
+      pinOverviewMetric: vi.fn(),
+      unpinOverviewMetric: vi.fn(),
+      moveOverviewMetric: vi.fn(),
+    }),
 }));
 vi.mock("@/lib/business-mode", () => ({
   isDemoBusinessSelected: () => false,
@@ -104,6 +92,15 @@ vi.mock("@/store/integrations-store", () => ({
 }));
 vi.mock("@/lib/sync/sync-status-pill", () => ({
   resolveProviderSyncStatusPill: () => null,
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/overview",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/layout/v2/use-shell-signals", () => ({
+  useMetaActionNowCount: () => null,
+  useWorkspaceSyncState: () => ({ tone: "fresh", label: "Synced 12m ago" }),
 }));
 vi.mock("@/src/services", () => ({
   getOverviewSummary: vi.fn(),
@@ -159,7 +156,7 @@ describe("OverviewPage timezone date selection", () => {
   });
 
   it("uses workspace timezone for overview preset resolution and picker props", async () => {
-    const { default: OverviewPage } = await import("@/app/(dashboard)/overview/legacy-page");
+    const { default: OverviewPage } = await import("@/app/(dashboard)/overview/page");
 
     renderToStaticMarkup(React.createElement(OverviewPage));
 
@@ -183,8 +180,22 @@ describe("OverviewPage timezone date selection", () => {
       "none",
     ]);
 
+    // Dashboard v2 moves the range control into the shell topbar, so the page
+    // itself must not render a second picker.
+    expect(capturedPickerProps).toHaveLength(0);
+  });
+
+  it("keeps the shell topbar picker resolving against the workspace timezone", async () => {
+    const { AppTopbar } = await import("@/components/layout/v2/app-topbar");
+
+    renderToStaticMarkup(
+      React.createElement(AppTopbar, { userName: "Reviewer", onOpenNav: () => {} }),
+    );
+
+    expect(mockGetTodayIsoForTimeZone).toHaveBeenCalledWith("America/Los_Angeles");
     expect(capturedPickerProps).toHaveLength(1);
     expect(capturedPickerProps[0]?.referenceDate).toBe("2026-04-07");
     expect(capturedPickerProps[0]?.timeZoneLabel).toBe("America/Los_Angeles");
+    expect(capturedPickerProps[0]?.variant).toBe("v2");
   });
 });

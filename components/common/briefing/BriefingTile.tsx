@@ -44,8 +44,8 @@ const SHAPE_DIMENSIONS: Record<TileShape, { width: number; height: number; ratio
 
 const METRIC_TONE_CLASS: Record<NonNullable<TileMetric["tone"]>, string> = {
   neutral: "text-neutral-900",
-  good: "text-emerald-700",
-  warn: "text-rose-700",
+  good: "text-[var(--adc-pos-fg)]",
+  warn: "text-[var(--adc-danger-fg)]",
 };
 
 export function BriefingTile({
@@ -96,7 +96,7 @@ export function BriefingTile({
       data-testid={testId}
     >
       <div className="relative flex h-[170px] items-center justify-center border-b border-neutral-200 bg-neutral-50 p-3.5">
-        <span className="absolute left-2.5 top-2.5 rounded border border-neutral-200 bg-white px-1.5 py-0.5 font-mono text-[12px] font-semibold tracking-wider text-neutral-600">
+        <span className="absolute left-2.5 top-2.5 rounded border border-neutral-200 bg-white px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tracking-wider text-neutral-600">
           {fmtLabel}
         </span>
         <button
@@ -114,7 +114,7 @@ export function BriefingTile({
           }
         >
           {selected ? (
-            <span aria-hidden="true" className="text-[12px] font-bold leading-none">
+            <span aria-hidden="true" className="text-[11px] font-bold leading-none">
               ✓
             </span>
           ) : null}
@@ -145,7 +145,7 @@ export function BriefingTile({
                 </span>
               ))}
           </div>
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/55 px-1 py-px font-mono text-[12px] font-semibold tracking-wider text-white">
+          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/55 px-1 py-px font-mono text-[9.5px] font-semibold tracking-wider text-white">
             {dims.ratio}
           </span>
         </div>
@@ -156,7 +156,7 @@ export function BriefingTile({
         <div className="truncate text-[14px] font-semibold tracking-tight text-neutral-900">
           {name}
         </div>
-        <div className="truncate font-mono text-[12px] text-neutral-500">
+        <div className="truncate font-mono text-[10.5px] text-neutral-500">
           {meta}
         </div>
         <div
@@ -174,7 +174,7 @@ export function BriefingTile({
                 (index < 2 ? "border-r border-neutral-200" : "")
               }
             >
-              <span className="block text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+              <span className="block text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500">
                 {metric.label}
               </span>
               <span

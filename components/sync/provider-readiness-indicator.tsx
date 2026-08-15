@@ -100,7 +100,7 @@ export function ProviderReadinessIndicator({
       <div className="min-w-0">
         <p className={cn("text-xs font-semibold", tone.text)}>{label}</p>
         {summary ? (
-          <p className={cn("truncate text-[12px]", tone.subtext)}>{summary}</p>
+          <p className={cn("truncate text-[11px]", tone.subtext)}>{summary}</p>
         ) : null}
       </div>
     </div>

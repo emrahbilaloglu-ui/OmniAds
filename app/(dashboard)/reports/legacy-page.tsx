@@ -1,7 +1,5 @@
 "use client";
 
-import { measuredAsOf } from "@/lib/tier-zero-as-of";
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,10 +11,7 @@ import { CUSTOM_REPORT_TEMPLATES, type CustomReportRecord } from "@/lib/custom-r
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { ProductSection } from "@/components/ui/product-surface";
-import {
-  WorkspacePill,
-  WorkspaceSurface,
-} from "@/components/workspace/workspace-surface";
+import { WorkspaceSurface } from "@/components/workspace/workspace-surface";
 
 async function fetchReports(businessId: string) {
   const response = await fetch(`/api/reports?businessId=${encodeURIComponent(businessId)}`, {
@@ -26,17 +21,10 @@ async function fetchReports(businessId: string) {
   if (!response.ok) {
     throw new Error((payload as { message?: string } | null)?.message ?? "Failed to load reports.");
   }
-  const body = payload as {
-    reports: CustomReportRecord[];
-    generatedAt?: string | null;
-  };
-  // The read's own time travels with the rows so the surface can date itself
-  // from when it read, not from when someone last edited a report.
-  return { reports: body.reports, generatedAt: body.generatedAt ?? null };
+  return (payload as { reports: CustomReportRecord[] }).reports;
 }
 
 export default function ReportsPage() {
-
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -53,22 +41,7 @@ export default function ReportsPage() {
     enabled: Boolean(selectedBusinessId),
     queryFn: () => fetchReports(businessId),
   });
-
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // query state this surface already has, so it cannot drift from what is
-  // actually on screen.
-  useTierZeroFreshness({
-    surface: "reports",
-    isLoading: reportsQuery.isLoading,
-    isFetching: reportsQuery.isFetching,
-    error: reportsQuery.error,
-    // The newest row's `updatedAt` is when a human last saved a report
-    // definition, not when this list was read. Keep it as row content.
-    asOf: measuredAsOf(reportsQuery.data?.generatedAt ?? null),
-    businessId: selectedBusinessId,
-    onRetry: () => void reportsQuery.refetch(),
-  });
-  const reports = reportsQuery.data?.reports ?? [];
+  const reports = reportsQuery.data ?? [];
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredReports = (normalizedQuery
     ? reports.filter((report) => {
@@ -134,21 +107,28 @@ export default function ReportsPage() {
   return (
     <PlanGate requiredPlan="pro">
     <WorkspaceSurface
-      eyebrow={language === "tr" ? "Ozel Raporlama" : "Reports"}
-      title={
+      eyebrow={
+        // v2 puts the identity in the eyebrow and keeps the title a bare noun.
         language === "tr"
-          ? business?.name ? `Raporlar · ${business.name}` : "Raporlar"
-          : business?.name ? `Reports · ${business.name}` : "Reports"
+          ? business?.name ? `Büyüme · ${business.name}` : "Büyüme · Müşteriye hazır çıktı"
+          : business?.name ? `Growth · ${business.name}` : "Growth · Client-ready output"
       }
+      title={language === "tr" ? "Raporlar" : "Reports"}
       description={
         language === "tr"
           ? "Rapor formatlarını kaydedin, paylaşın veya CSV olarak dışa aktarın."
           : "Save report formats, share as a link, or export tables as CSV."
       }
-      meta={<WorkspacePill tone="info">saved & templates</WorkspacePill>}
+      meta={
+        <span className="font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+          {language === "tr"
+            ? "her rapor PDF · paylaşım linki · tablo başına CSV olarak dışa aktarılır"
+            : "every report exports as PDF · share link · CSV per table"}
+        </span>
+      }
       actions={
-        <Button asChild size="sm" className="bg-[var(--adc-ink)] text-[var(--adc-s2)] hover:bg-[var(--adc-ink2)]">
-          <Link href="/reports/new">{language === "tr" ? "Boş Rapor Oluştur" : "Create Blank Report"}</Link>
+        <Button asChild size="sm" className="bg-[var(--adv-accent)] text-[var(--adc-s2)] hover:bg-[var(--adv-accent-hover)]">
+          <Link href="/reports/new">{language === "tr" ? "+ Yeni rapor" : "+ New report"}</Link>
         </Button>
       }
     >
@@ -207,7 +187,7 @@ export default function ReportsPage() {
                       <p className="mt-1 text-[12px] text-[var(--adc-ink3)]">
                         {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
-                      <p className="mt-2 font-mono text-[12px] text-[var(--adc-ink3)]">
+                      <p className="mt-2 font-mono text-[10.5px] text-[var(--adc-ink3)]">
                         {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
@@ -216,7 +196,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[12px] font-medium text-[var(--adc-ink3)]">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[10.5px] font-medium text-[var(--adc-ink3)]">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -259,15 +239,15 @@ export default function ReportsPage() {
                 className="rounded-[10px] border border-dashed border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />
                 </div>
                 <TemplateMiniPreview definition={template.definition} className="mt-6" />
                 <h3 className="mt-4 text-[13px] font-semibold text-[var(--adc-ink)]">{template.name}</h3>
-                <p className="mt-1 text-[12px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
-                <p className="mt-3 text-[12px] text-[var(--adc-ink3)]">
+                <p className="mt-1 text-[11.5px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
+                <p className="mt-3 text-[11px] text-[var(--adc-ink3)]">
                   {template.definition.widgets.length} widgets · share link · CSV · print
                 </p>
               </Link>

@@ -72,7 +72,7 @@ function buildColumns(dimensionLabel: string): ColumnDef<DemoRow>[] {
     },
     {
       key: "engagementRate",
-      header: "Engagement Rate",
+      header: "Engagement rate",
       accessor: (r) => r.engagementRate,
       align: "right",
       heatmap: true,
@@ -129,8 +129,7 @@ export function DemographicSection({
           <button
             key={d}
             onClick={() => onDimensionChange(d)}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+            className={cn( "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
               d === dimension
                 ? "border-foreground bg-foreground text-background"
                 : "border-border bg-background text-muted-foreground hover:border-foreground/50 hover:text-foreground"
@@ -147,7 +146,7 @@ export function DemographicSection({
           <p className="text-sm">
             <span className="font-semibold">{dimensionLabel} &ldquo;{summary.topValue}&rdquo;</span>
             {" "}has the highest purchase rate at{" "}
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+            <span className="font-semibold text-[var(--adc-pos-fg)] ">
               {fmt(summary.topValuePurchaseCvr, "percent")}
             </span>
             {summary.avgPurchaseCvr > 0 && (

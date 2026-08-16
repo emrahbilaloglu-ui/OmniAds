@@ -35,8 +35,31 @@ rootcron_sha256_file() {
 # sourcing keeps its own. Defining them unconditionally would silently seize
 # the real root crontab from any harness that thought it had substituted a
 # fixture — which is how a test suite ends up editing the machine it runs on.
+# Read the root crontab, or FAIL — never silently produce an empty one.
+#
+# `crontab -l` exits non-zero both when the user genuinely has no crontab and
+# when it could not look: a permissions refusal, a missing binary, a transient
+# cron error. Collapsing all of those to "" with `|| true` makes an unreadable
+# scheduler indistinguishable from an absent one, and the caller then concludes
+# there is no managed block and lets migrations run while the real scheduler is
+# still firing. Only the documented "no crontab for <user>" is an empty read.
 command -v rootcron_read >/dev/null 2>&1 || rootcron_read() {
-  crontab -l -u "${ROOTCRON_USER}" 2>/dev/null || true
+  _rc_err="$(mktemp)"
+  if crontab -l -u "${ROOTCRON_USER}" 2>"${_rc_err}"; then
+    rm -f "${_rc_err}"
+    return 0
+  fi
+  _rc_status=$?
+  _rc_msg="$(cat "${_rc_err}" 2>/dev/null || true)"
+  rm -f "${_rc_err}"
+  case "${_rc_msg}" in
+    *"no crontab for"*)
+      # Genuinely empty. Nothing is scheduled, so nothing needs quiescing.
+      return 0
+      ;;
+  esac
+  rootcron_die "could not read the ${ROOTCRON_USER} crontab (exit ${_rc_status}): ${_rc_msg:-no diagnostic}. Refusing to treat an unreadable scheduler as an absent one."
+  return 1
 }
 
 command -v rootcron_write >/dev/null 2>&1 || rootcron_write() {
@@ -50,17 +73,34 @@ rootcron_split() {
   current="$1"; outside="$2"; block="$3"
   : > "${outside}"
   : > "${block}"
+  # Exit codes: 3 = BEGIN without END, 4 = more than one managed block,
+  # 5 = a nested BEGIN or a stray END outside any block.
+  #
+  # A second block is not a merge problem, it is an ambiguity: appending both
+  # to one saved file and reinserting at the last BEGIN's index would relocate
+  # every line between them -- including MAILTO/PATH assignments, whose
+  # position changes what the jobs below them inherit.
   awk -v begin="${ROOTCRON_BEGIN}" -v end="${ROOTCRON_END}" \
       -v outside="${outside}" -v block="${block}" '
-    BEGIN { inside = 0; found = 0; outcount = 0; startidx = -1 }
+    BEGIN { inside = 0; blocks = 0; outcount = 0; startidx = -1 }
     {
-      if (!inside && $0 == begin) { inside = 1; found = 1; startidx = outcount; print > block; next }
-      if (inside) { print > block; if ($0 == end) { inside = 0 }; next }
+      if (!inside && $0 == begin) {
+        blocks++
+        if (blocks > 1) exit 4
+        inside = 1; startidx = outcount; print > block; next
+      }
+      if (inside) {
+        if ($0 == begin) exit 5
+        print > block
+        if ($0 == end) { inside = 0 }
+        next
+      }
+      if ($0 == end) exit 5
       print > outside; outcount++
     }
     END {
       if (inside) exit 3
-      if (!found) startidx = -1
+      if (blocks == 0) startidx = -1
       print startidx
     }
   ' "${current}"
@@ -78,7 +118,10 @@ rootcron_is_paused() {
 # that dies between the two can be completed by the next run.
 rootcron_pause() {
   state_dir="$1"
-  mkdir -p "${state_dir}"
+  if ! mkdir -p "${state_dir}"; then
+    rootcron_die "could not create the state directory ${state_dir}; refusing to pause a scheduler we cannot record"
+    return 1
+  fi
 
   if rootcron_is_paused "${state_dir}"; then
     rootcron_log "a managed block is already parked in ${state_dir}; leaving it parked"
@@ -86,10 +129,21 @@ rootcron_pause() {
   fi
 
   tmp="$(mktemp)"; outside="$(mktemp)"; block="$(mktemp)"
-  rootcron_read > "${tmp}"
-  if ! start="$(rootcron_split "${tmp}" "${outside}" "${block}")"; then
+  if ! rootcron_read > "${tmp}"; then
     rm -f "${tmp}" "${outside}" "${block}"
-    rootcron_die "the root crontab has a '${ROOTCRON_BEGIN}' with no '${ROOTCRON_END}'; refusing to guess where the managed block ends"
+    return 1
+  fi
+
+  split_rc=0
+  start="$(rootcron_split "${tmp}" "${outside}" "${block}")" || split_rc=$?
+  if [ "${split_rc}" -ne 0 ]; then
+    rm -f "${tmp}" "${outside}" "${block}"
+    case "${split_rc}" in
+      3) rootcron_die "the root crontab has a '${ROOTCRON_BEGIN}' with no '${ROOTCRON_END}'; refusing to guess where the managed block ends" ;;
+      4) rootcron_die "the root crontab contains more than one '${ROOTCRON_BEGIN}' block; refusing to merge or relocate them" ;;
+      5) rootcron_die "the root crontab has nested or unmatched Sync markers; refusing to parse it" ;;
+      *) rootcron_die "the root crontab could not be parsed (split exit ${split_rc})" ;;
+    esac
     return 1
   fi
 
@@ -99,17 +153,61 @@ rootcron_pause() {
     return 0
   fi
 
-  cp "${block}" "${state_dir}/rootcron.block"
-  cp "${outside}" "${state_dir}/rootcron.outside"
-  printf '%s' "${start}" > "${state_dir}/rootcron.index"
-  rootcron_sha256_file "${outside}" > "${state_dir}/rootcron.outside.sha256"
+  # Persist EVERY piece of recovery state, and verify it, BEFORE the live
+  # crontab is touched.
+  #
+  # This function is called as `rootcron_pause ... || return 1`, which places
+  # its whole body in a context where errexit and the ERR trap are suppressed —
+  # so an unchecked `cp` onto a full or read-only state directory would fail
+  # silently and execution would walk straight into `rootcron_write`. That
+  # ordering is the difference between "the deploy refused" and "the scheduler
+  # is gone and the only copy of it was never written".
+  persist_failed=""
+  cp "${block}"   "${state_dir}/rootcron.block"   || persist_failed="rootcron.block"
+  [ -z "${persist_failed}" ] && { cp "${outside}" "${state_dir}/rootcron.outside" || persist_failed="rootcron.outside"; }
+  [ -z "${persist_failed}" ] && { printf '%s' "${start}" > "${state_dir}/rootcron.index" || persist_failed="rootcron.index"; }
+  [ -z "${persist_failed}" ] && { rootcron_sha256_file "${outside}" > "${state_dir}/rootcron.outside.sha256" || persist_failed="rootcron.outside.sha256"; }
+
+  # Written is not the same as readable-back: a full filesystem can accept the
+  # write and truncate the content.
+  if [ -z "${persist_failed}" ]; then
+    cmp -s "${state_dir}/rootcron.block" "${block}"     || persist_failed="rootcron.block (content mismatch)"
+  fi
+  if [ -z "${persist_failed}" ]; then
+    cmp -s "${state_dir}/rootcron.outside" "${outside}" || persist_failed="rootcron.outside (content mismatch)"
+  fi
+  if [ -z "${persist_failed}" ]; then
+    [ -s "${state_dir}/rootcron.index" ] || persist_failed="rootcron.index (empty)"
+  fi
+  if [ -z "${persist_failed}" ]; then
+    [ -s "${state_dir}/rootcron.outside.sha256" ] || persist_failed="rootcron.outside.sha256 (empty)"
+  fi
+
+  if [ -n "${persist_failed}" ]; then
+    # Leave nothing half-parked for the next run to adopt as authoritative.
+    rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
+          "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+    rm -f "${tmp}" "${outside}" "${block}"
+    rootcron_die "could not durably persist ${persist_failed} under ${state_dir}; the live crontab has NOT been modified"
+    return 1
+  fi
+
   chmod 0600 "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" 2>/dev/null || true
 
-  rootcron_write < "${outside}"
+  if ! rootcron_write < "${outside}"; then
+    rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
+          "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+    rm -f "${tmp}" "${outside}" "${block}"
+    rootcron_die "could not write the root crontab; parked state discarded and the schedule left as it was"
+    return 1
+  fi
 
   # Read back. `crontab` exiting 0 is not proof the daemon accepted the file.
   vtmp="$(mktemp)"; voutside="$(mktemp)"; vblock="$(mktemp)"
-  rootcron_read > "${vtmp}"
+  if ! rootcron_read > "${vtmp}"; then
+    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
+    return 1
+  fi
   if ! rootcron_split "${vtmp}" "${voutside}" "${vblock}" >/dev/null; then
     rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
     rootcron_die "the root crontab is unparseable after removing the managed block"
@@ -142,7 +240,10 @@ rootcron_resume() {
   fi
 
   tmp="$(mktemp)"; outside="$(mktemp)"; block="$(mktemp)"; rebuilt="$(mktemp)"
-  rootcron_read > "${tmp}"
+  if ! rootcron_read > "${tmp}"; then
+    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
+    return 1
+  fi
   if ! rootcron_split "${tmp}" "${outside}" "${block}" >/dev/null; then
     rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
     rootcron_die "the root crontab is unparseable; refusing to restore over it"

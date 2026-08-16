@@ -190,6 +190,115 @@ else
   bad "an identical live block was not handled cleanly (rc=${rc9})"
 fi
 
+# --- 10: unwritable state dir must NOT touch the live crontab ---------------
+reset_crontab
+before="$(cat "${CRONTAB_FILE}")"
+RO_STATE="${WORK}/readonly-state"
+mkdir -p "${RO_STATE}"; chmod 0500 "${RO_STATE}"
+rc10=0
+rootcron_pause "${RO_STATE}" >/dev/null 2>&1 || rc10=$?
+chmod 0700 "${RO_STATE}" 2>/dev/null || true
+if [ "${rc10}" -ne 0 ]; then
+  ok "pause refuses when the state directory is unwritable"
+else
+  bad "pause proceeded despite unwritable state"
+fi
+if [ "$(cat "${CRONTAB_FILE}")" = "${before}" ]; then
+  ok "the live crontab is untouched when parked state cannot be persisted"
+else
+  bad "the crontab was modified even though parked state failed to persist"
+fi
+if ! rootcron_is_paused "${RO_STATE}"; then
+  ok "no half-parked state is left for the next run to adopt"
+else
+  bad "half-parked state survived a failed pause"
+fi
+
+# --- 11: a state dir that cannot be created is refused ----------------------
+reset_crontab
+before="$(cat "${CRONTAB_FILE}")"
+BLOCKER="${WORK}/not-a-dir"; : > "${BLOCKER}"
+rc11=0
+rootcron_pause "${BLOCKER}/state" >/dev/null 2>&1 || rc11=$?
+if [ "${rc11}" -ne 0 ] && [ "$(cat "${CRONTAB_FILE}")" = "${before}" ]; then
+  ok "an uncreatable state directory is refused with the crontab untouched"
+else
+  bad "an uncreatable state directory was not handled safely (rc=${rc11})"
+fi
+
+# --- 12: an unreadable crontab is NOT treated as empty ----------------------
+reset_crontab
+before="$(cat "${CRONTAB_FILE}")"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+rootcron_read() { echo "crontab: must be privileged to use -u" >&2; return 1; }
+rc12=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc12=$?
+rootcron_read() { cat "${CRONTAB_FILE}" 2>/dev/null || true; }
+if [ "${rc12}" -ne 0 ]; then
+  ok "an unreadable crontab is refused, not reported as 'no managed block'"
+else
+  bad "an unreadable crontab was treated as absent"
+fi
+if [ "$(cat "${CRONTAB_FILE}")" = "${before}" ]; then
+  ok "an unreadable crontab leaves the schedule untouched"
+else
+  bad "an unreadable crontab still led to a modification"
+fi
+
+# --- 13: duplicate managed blocks are refused, never merged -----------------
+reset_crontab
+{
+  cat "${CRONTAB_FILE}"
+  printf '%s\n' "MAILTO=ops@example.test"
+  printf '%s\n' "# BEGIN adsecute-sync"
+  printf '%s\n' "0 * * * * /usr/local/bin/second-block"
+  printf '%s\n' "# END adsecute-sync"
+} > "${WORK}/dup" && mv "${WORK}/dup" "${CRONTAB_FILE}"
+before="$(cat "${CRONTAB_FILE}")"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+rc13=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc13=$?
+if [ "${rc13}" -ne 0 ]; then
+  ok "two managed blocks are refused rather than concatenated"
+else
+  bad "two managed blocks were merged or relocated"
+fi
+if [ "$(cat "${CRONTAB_FILE}")" = "${before}" ]; then
+  ok "the duplicate-block crontab is byte-identical after the refusal"
+else
+  bad "the duplicate-block crontab was modified"
+fi
+
+# --- 14: a stray END with no BEGIN is refused -------------------------------
+printf '%s\n' "MAILTO=\"\"" "# END adsecute-sync" "*/5 * * * * /usr/local/bin/healthz" > "${CRONTAB_FILE}"
+before="$(cat "${CRONTAB_FILE}")"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+rc14=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc14=$?
+if [ "${rc14}" -ne 0 ] && [ "$(cat "${CRONTAB_FILE}")" = "${before}" ]; then
+  ok "a stray END marker is refused with the crontab untouched"
+else
+  bad "a stray END marker was not refused safely (rc=${rc14})"
+fi
+
+# --- 15: environment assignments keep their exact position ------------------
+reset_crontab
+{
+  printf '%s\n' "MAILTO=ops@example.test"
+  printf '%s\n' "PATH=/usr/local/bin:/usr/bin:/bin"
+  cat "${CRONTAB_FILE}"
+} > "${WORK}/env" && mv "${WORK}/env" "${CRONTAB_FILE}"
+envbefore="$(cat "${CRONTAB_FILE}")"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+rootcron_pause "${STATE_DIR}" >/dev/null
+rootcron_resume "${STATE_DIR}" >/dev/null
+if [ "$(cat "${CRONTAB_FILE}")" = "${envbefore}" ]; then
+  ok "MAILTO/PATH assignments keep their exact position across pause+resume"
+else
+  bad "environment assignments moved across pause+resume"
+  diff <(printf '%s\n' "${envbefore}") "${CRONTAB_FILE}" | sed 's/^/        /' || true
+fi
+
 if [ "${failures}" -ne 0 ]; then
   echo "FAILED: ${failures} case(s)"
   exit 1

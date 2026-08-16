@@ -219,11 +219,11 @@ export function CommercialChangeHistory({ businessId }: { businessId: string }) 
         <h2 className={TITLE}>Change history</h2>
       </div>
       {isLoading ? (
-        <p className="m-0 px-4 py-3 text-[11.5px] text-[var(--adv-ink-4)]">
+        <p className="m-0 px-4 py-3 text-[12px] text-[var(--adv-ink-4)]">
           Loading revisions…
         </p>
       ) : entries.length === 0 ? (
-        <p className="m-0 px-4 py-3 text-[11.5px] text-[var(--adv-ink-4)]">
+        <p className="m-0 px-4 py-3 text-[12px] text-[var(--adv-ink-4)]">
           No saved revision yet — the first pack you save appears here.
         </p>
       ) : (
@@ -242,7 +242,7 @@ export function CommercialChangeHistory({ businessId }: { businessId: string }) 
               <p className="m-0 text-[12.5px] font-semibold text-[var(--adv-ink)]">
                 {entry.changes.join(" · ")}
               </p>
-              <p className="m-0 mt-0.5 text-[11.5px] text-[var(--adv-ink-3)]">
+              <p className="m-0 mt-0.5 text-[12px] text-[var(--adv-ink-3)]">
                 {entry.sourceLabel ?? "manual save"}
                 {entry.actor ? ` · ${entry.actor}` : ""}
               </p>
@@ -363,11 +363,11 @@ export function CommercialSpendBands({
             </div>
             <p className="m-0 mt-1.5 text-[17px] font-bold tabular-nums text-[var(--adv-ink)]">
               {currencyFormatter(band.spend)}
-              <span className="ml-1 text-[11px] font-medium text-[var(--adv-ink-3)]">
+              <span className="ml-1 text-[12px] font-medium text-[var(--adv-ink-3)]">
                 · {(band.share * 100).toFixed(0)}%
               </span>
             </p>
-            <p className="m-0 mt-[3px] text-[11px] text-[var(--adv-ink-3)]">
+            <p className="m-0 mt-[3px] text-[12px] text-[var(--adv-ink-3)]">
               {band.n} {band.n === 1 ? "campaign" : "campaigns"} →{" "}
               <b style={{ color: band.tone }}>{band.verdict}</b>
             </p>

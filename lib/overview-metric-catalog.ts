@@ -63,8 +63,7 @@ export function buildOverviewMetricCatalog(
 export const DEFAULT_PINNED_METRICS = [
   "revenue",
   "spend",
-  "mer",
   "blended_roas",
-  "conversion_rate",
   "orders",
+  "conversion_rate",
 ];

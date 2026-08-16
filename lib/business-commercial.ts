@@ -94,10 +94,21 @@ type TargetPackRow = {
 } & MetaRow;
 
 type TargetPackHistoryRow = TargetPackRow & {
+  id: string;
   operation: "upsert" | "delete";
   effective_at: string | Date;
   recorded_at: string | Date;
 };
+
+export interface BusinessTargetPackHistoryEntry {
+  id: string;
+  operation: "upsert" | "delete";
+  effectiveAt: string;
+  recordedAt: string;
+  sourceLabel: string | null;
+  updatedByUserId: string | null;
+  targetPack: BusinessTargetPackData | null;
+}
 
 type TargetPackReconfirmationRow = {
   result_status:
@@ -1698,6 +1709,55 @@ export async function getBusinessTargetPackHistoryAsOf(input: {
   const row = (rows as TargetPackHistoryRow[])[0];
   if (!row || row.operation !== "upsert") return null;
   return mapTargetPackRow(row);
+}
+
+export async function listBusinessTargetPackHistory(input: {
+  businessId: string;
+  limit?: number;
+}): Promise<BusinessTargetPackHistoryEntry[]> {
+  await assertDbSchemaReady({
+    tables: ["business_target_pack_history"],
+    context: "business_target_pack_history_list",
+  });
+
+  const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 20)));
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id::text,
+      target_cpa,
+      target_roas,
+      break_even_cpa,
+      break_even_roas,
+      contribution_margin_assumption,
+      aov_assumption,
+      new_customer_weight,
+      default_risk_posture,
+      cost_cogs_percent,
+      cost_shipping_percent,
+      cost_fulfillment_percent,
+      cost_payment_processing_percent,
+      source_label,
+      effective_at AS updated_at,
+      updated_by_user_id,
+      operation,
+      effective_at,
+      recorded_at
+    FROM business_target_pack_history
+    WHERE business_id = ${input.businessId}
+    ORDER BY effective_at DESC, recorded_at DESC, id DESC
+    LIMIT ${limit}
+  `;
+
+  return (rows as TargetPackHistoryRow[]).map((row) => ({
+    id: row.id,
+    operation: row.operation,
+    effectiveAt: normalizeTimestampValue(row.effective_at) ?? new Date(0).toISOString(),
+    recordedAt: normalizeTimestampValue(row.recorded_at) ?? new Date(0).toISOString(),
+    sourceLabel: normalizeString(row.source_label),
+    updatedByUserId: row.updated_by_user_id,
+    targetPack: row.operation === "upsert" ? mapTargetPackRow(row) : null,
+  }));
 }
 
 export async function reconfirmBusinessTargetPack(input: {

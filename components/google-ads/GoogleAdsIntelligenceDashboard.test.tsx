@@ -1,12 +1,15 @@
+// @vitest-environment jsdom
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { cleanup, render, waitFor } from "@testing-library/react";
 
 const mockUseQuery = vi.fn();
 const mockUseMutation = vi.fn();
 const mockGetPresetDatesForReferenceDate = vi.fn();
 const mockGetTodayIsoForTimeZone = vi.fn();
 const capturedPickerProps: Array<Record<string, unknown>> = [];
+const mockCanOpenGoogleAdsAdvisor = vi.fn((_input?: unknown) => false);
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => mockUseQuery(input),
@@ -82,7 +85,7 @@ vi.mock("@/components/google-ads/google-ads-dashboard-support", () => ({
   resolveTrendTimeline: () => ({ labelMode: "day" }),
 }));
 vi.mock("@/lib/google-ads/advisor-ux", () => ({
-  canOpenGoogleAdsAdvisor: () => false,
+  canOpenGoogleAdsAdvisor: (input: unknown) => mockCanOpenGoogleAdsAdvisor(input),
   getGoogleAdsAdvisorButtonLabel: () => "Analyze",
   getGoogleAdsAdvisorCtaState: () => "blocked",
   getGoogleAdsAdvisorHelperText: () => "Helper",
@@ -108,12 +111,16 @@ function baseQueryState(overrides: Record<string, unknown> = {}) {
 }
 
 describe("GoogleAdsIntelligenceDashboard timezone date selection", () => {
+  afterEach(() => cleanup());
+
   beforeEach(() => {
     capturedPickerProps.length = 0;
     mockUseQuery.mockReset();
     mockUseMutation.mockReset();
     mockGetPresetDatesForReferenceDate.mockReset();
     mockGetTodayIsoForTimeZone.mockReset();
+    mockCanOpenGoogleAdsAdvisor.mockReset();
+    mockCanOpenGoogleAdsAdvisor.mockReturnValue(false);
 
     mockUseMutation.mockReturnValue({
       mutate: vi.fn(),
@@ -160,6 +167,30 @@ describe("GoogleAdsIntelligenceDashboard timezone date selection", () => {
       }
       return baseQueryState();
     });
+  });
+
+  it("loads the persisted advisor snapshot when an Advisor-backed route opens", async () => {
+    const runAdvisor = vi.fn();
+    mockCanOpenGoogleAdsAdvisor.mockReturnValue(true);
+    mockUseMutation.mockReturnValue({
+      mutate: runAdvisor,
+      isPending: false,
+      isError: false,
+    });
+
+    const { GoogleAdsIntelligenceDashboard } = await import(
+      "@/components/google-ads/GoogleAdsIntelligenceDashboard"
+    );
+
+    render(
+      React.createElement(GoogleAdsIntelligenceDashboard, {
+        businessId: "biz",
+        panel: "insights",
+      }),
+    );
+
+    await waitFor(() => expect(runAdvisor).toHaveBeenCalledWith({ refresh: false }));
+    expect(runAdvisor).toHaveBeenCalledTimes(1);
   });
 
   it("uses provider timezone from base status for picker props and selected-range queries", async () => {

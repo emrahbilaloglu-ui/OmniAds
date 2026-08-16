@@ -75,7 +75,16 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
   if (!campaigns || campaigns.length === 0) return <TabEmpty message="No budget data found for this period." />;
 
   const spend = totalSpend ?? campaigns.reduce((s, c) => s + c.spend, 0);
-  const avgRoas = accountAvgRoas ?? (spend > 0 ? campaigns.reduce((s, c) => s + c.revenue, 0) / spend : 0);
+  const derivedAvgRoas = spend > 0
+    ? campaigns.reduce((s, c) => s + c.revenue, 0) / spend
+    : 0;
+  // A stale/missing summary used to force a visible 0.00x even while the same
+  // payload contained campaign revenue. Prefer the row-backed weighted value
+  // whenever the supplied summary is not a usable positive number.
+  const avgRoas =
+    typeof accountAvgRoas === "number" && Number.isFinite(accountAvgRoas) && accountAvgRoas > 0
+      ? accountAvgRoas
+      : derivedAvgRoas;
   const sorted = [...campaigns].sort((a, b) => b.spend - a.spend);
 
   // Scaling candidates: strong ROAS + losing IS to budget

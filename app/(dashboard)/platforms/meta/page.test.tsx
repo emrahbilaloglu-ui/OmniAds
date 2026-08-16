@@ -7,10 +7,8 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
   BusinessEmptyState: () => React.createElement("div", null, "business-empty"),
 }));
 
-// The route renders the Dashboard v2 Decision Center, superseding both
-// MetaPlatformPage and the Meta OS DecisionsOsView.
-vi.mock("@/components/meta/decision-center/DecisionCenterView", () => ({
-  DecisionCenterView: (props: {
+vi.mock("@/components/meta/redesign/MetaPlatformPage", () => ({
+  MetaPlatformPage: (props: {
     businessId: string;
     businessName?: string | null;
     currency?: string | null;
@@ -18,7 +16,7 @@ vi.mock("@/components/meta/decision-center/DecisionCenterView", () => ({
     React.createElement(
       "div",
       null,
-      `decision-center:${props.businessId}:${props.businessName ?? ""}:${props.currency ?? ""}`,
+      `meta-platform:${props.businessId}:${props.businessName ?? ""}:${props.currency ?? ""}`,
     ),
 }));
 
@@ -41,7 +39,7 @@ describe("MetaPage", () => {
    * is account-scoped beneath it. A route that mounted the view without the
    * selected business would read someone else's queue.
    */
-  it("renders the Decision Center for the selected business, with its scope", () => {
-    expect(renderToStaticMarkup(<MetaPage />)).toContain("decision-center:biz_1:TheSwaf:USD");
+  it("renders the full five-lane Decision Center for the selected business, with its scope", () => {
+    expect(renderToStaticMarkup(<MetaPage />)).toContain("meta-platform:biz_1:TheSwaf:USD");
   });
 });

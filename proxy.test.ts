@@ -126,8 +126,12 @@ describe("proxy internal sync auth", () => {
       }),
     );
 
-    expect(response.status).toBe(307);
-    expect(new URL(response.headers.get("location")!).pathname).toBe("/app/meta/decisions");
+    // The proxy used to redirect this path to /app/meta/decisions and hydrate
+    // the cookie on the way past. It now lets the page answer for itself, so
+    // the cookie has to survive on the pass-through — which is the branch that
+    // serves every other signed-in page request anyway.
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
     expect(response.cookies.get("adsecute_locale")?.value).toBe("en");
   });
 

@@ -97,7 +97,7 @@ export function GoogleBudgetScalingCard({
             <p className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[19px] font-bold tabular-nums text-[var(--adv-ink)]">
               {kpi.value}
             </p>
-            <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-3)]">{kpi.sub}</p>
+            <p className="m-0 mt-0.5 text-[12px] text-[var(--adv-ink-3)]">{kpi.sub}</p>
           </div>
         ))}
       </div>
@@ -116,7 +116,7 @@ export function GoogleBudgetScalingCard({
                     {item.campaign}
                   </span>
                   <span
-                    className="rounded-md px-2 py-0.5 text-[11.5px] font-bold tabular-nums"
+                    className="rounded-md px-2 py-0.5 text-[12px] font-bold tabular-nums"
                     style={
                       up
                         ? { background: "var(--adc-pos-bg)", color: "var(--adc-pos-fg)" }
@@ -129,7 +129,7 @@ export function GoogleBudgetScalingCard({
                       : currencyFormatter(Math.abs(item.suggestedBudgetChange))}
                   </span>
                 </div>
-                <p className="m-0 mt-1.5 text-[11.5px] leading-[1.5] text-[var(--adv-ink-3)]">
+                <p className="m-0 mt-1.5 text-[12px] leading-[1.5] text-[var(--adv-ink-3)]">
                   {item.reason}
                 </p>
               </div>

@@ -7,14 +7,28 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
   BusinessEmptyState: () => React.createElement("div", null, "business-empty"),
 }));
 
-// The route now supersedes MetaPlatformPage with the Meta OS DecisionsOsView.
-vi.mock("@/components/meta/os/DecisionsOsView", () => ({
-  DecisionsOsView: (props: { businessId: string; businessName?: string | null }) =>
-    React.createElement("div", null, `decisions-os:${props.businessId}:${props.businessName ?? ""}`),
+// The route renders the Dashboard v2 Decision Center, superseding both
+// MetaPlatformPage and the Meta OS DecisionsOsView.
+vi.mock("@/components/meta/decision-center/DecisionCenterView", () => ({
+  DecisionCenterView: (props: {
+    businessId: string;
+    businessName?: string | null;
+    currency?: string | null;
+  }) =>
+    React.createElement(
+      "div",
+      null,
+      `decision-center:${props.businessId}:${props.businessName ?? ""}:${props.currency ?? ""}`,
+    ),
 }));
 
 vi.mock("@/store/app-store", () => ({
-  useAppStore: (selector: (state: { selectedBusinessId: string | null; businesses: Array<{ id: string; name: string; currency: string }> }) => unknown) =>
+  useAppStore: (
+    selector: (state: {
+      selectedBusinessId: string | null;
+      businesses: Array<{ id: string; name: string; currency: string }>;
+    }) => unknown,
+  ) =>
     selector({
       selectedBusinessId: "biz_1",
       businesses: [{ id: "biz_1", name: "TheSwaf", currency: "USD" }],
@@ -22,7 +36,12 @@ vi.mock("@/store/app-store", () => ({
 }));
 
 describe("MetaPage", () => {
-  it("renders the Meta OS decisions view for the selected business", () => {
-    expect(renderToStaticMarkup(<MetaPage />)).toContain("decisions-os:biz_1:TheSwaf");
+  /**
+   * The business scope is not decoration: every decision, and the money on it,
+   * is account-scoped beneath it. A route that mounted the view without the
+   * selected business would read someone else's queue.
+   */
+  it("renders the Decision Center for the selected business, with its scope", () => {
+    expect(renderToStaticMarkup(<MetaPage />)).toContain("decision-center:biz_1:TheSwaf:USD");
   });
 });

@@ -35,6 +35,18 @@ export interface DecisionCenterBodyProps {
   /** Metrics window, owned by the shell picker. Scopes metrics only. */
   windowLabel: string | null;
   lastSyncLabel: string | null;
+  /**
+   * Set when the server downgraded this viewer's write controls. Stated rather
+   * than enacted silently: a command that is absent for a permission reason and
+   * a command the engine withheld look identical unless one of them says why.
+   */
+  readOnlyReason?: string | null;
+  /**
+   * Set when the canonical read model came back unavailable. The queue is then
+   * genuinely empty of *read* decisions, which is not the same as there being
+   * none — so it is labelled instead of being left to look like a clean slate.
+   */
+  unavailableReason?: string | null;
   canRunSnapshot: boolean;
   onRunSnapshot?: () => void;
   onNewCampaign?: () => void;
@@ -79,6 +91,8 @@ export function DecisionCenterBody({
   currency,
   windowLabel,
   lastSyncLabel,
+  readOnlyReason = null,
+  unavailableReason = null,
   canRunSnapshot,
   onRunSnapshot,
   onNewCampaign,
@@ -138,6 +152,25 @@ export function DecisionCenterBody({
           </button>
         </div>
       </header>
+
+      {(unavailableReason || readOnlyReason) && (
+        <div
+          className="rounded-[12px] border border-[#f0d8a8] bg-[#fdf7ec] px-4 py-3"
+          data-testid="decision-center-state-banner"
+          role="status"
+        >
+          {unavailableReason && (
+            <p className="m-0 text-[12.5px] leading-[1.5] text-[#7c4a03]">
+              <strong className="font-semibold">Canonical decisions unavailable.</strong>{" "}
+              {unavailableReason} An empty queue below means nothing was read, not that nothing
+              needs doing.
+            </p>
+          )}
+          {readOnlyReason && (
+            <p className="m-0 mt-1 text-[12.5px] leading-[1.5] text-[#7c4a03]">{readOnlyReason}</p>
+          )}
+        </div>
+      )}
 
       <section
         className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]"

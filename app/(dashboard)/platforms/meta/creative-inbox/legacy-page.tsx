@@ -1,8 +1,7 @@
 "use client";
 
-import { measuredAsOf } from "@/lib/tier-zero-as-of";
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
+import { StudioTabRow } from "@/components/creatives/StudioTabRow";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Inbox } from "lucide-react";
 import Link from "next/link";
@@ -34,16 +33,6 @@ type InboxCard = BriefingCreativeCard & {
 interface CreativeInboxResponse {
   inbox?: InboxCard[];
   errors?: Array<{ businessId: string; status: number; error: string }>;
-  /**
-   * The briefing route's provenance block. Only the measured observation time
-   * is read here: the surface needs to say how old its cards are, and the
-   * route's `asOf` is a request parameter rather than a measurement.
-   */
-  source?: {
-    measurementReconciliation?: {
-      snapshotLatest?: { observedAt?: string | null } | null;
-    } | null;
-  } | null;
 }
 
 async function fetchCreativeInbox(
@@ -125,26 +114,6 @@ export default function MetaCreativeInboxPage() {
     queryFn: () =>
       fetchCreativeInbox(selectedBusinessId ?? "", providerAccountId),
   });
-
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // query state this surface already has, so it cannot drift from what is
-  // actually on screen.
-  useTierZeroFreshness({
-    surface: "creative_studio",
-    isLoading: inboxQuery.isLoading,
-    isFetching: inboxQuery.isFetching,
-    error: inboxQuery.error ?? providerAccountsQuery.error,
-    // Per-account errors leave an inbox that looks complete and is not.
-    partialReason: (inboxQuery.data?.errors ?? []).length
-      ? "Some accounts could not be read; this inbox is incomplete"
-      : null,
-    asOf: measuredAsOf(
-      inboxQuery.data?.source?.measurementReconciliation?.snapshotLatest
-        ?.observedAt ?? null,
-    ),
-    businessId: selectedBusinessId ?? null,
-    onRetry: () => void inboxQuery.refetch(),
-  });
   const cards = inboxQuery.data?.inbox ?? [];
   const errors = (inboxQuery.data?.errors ?? []).filter(
     (error) => error.businessId === selectedBusinessId,
@@ -190,11 +159,12 @@ export default function MetaCreativeInboxPage() {
 
   return (
     <main
-      className="ad-final px-4 py-4"
+      className="ad-final"
       data-testid="creative-inbox-studio-page"
       data-inbox-state={inboxState}
     >
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
+          <StudioTabRow active="inbox" />
         <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
@@ -208,7 +178,7 @@ export default function MetaCreativeInboxPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-[var(--muted)]">
+              <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
                 Account
                 <select
                   value={providerAccountId}
@@ -225,7 +195,7 @@ export default function MetaCreativeInboxPage() {
                     }
                     setSelectedProviderAccountId(nextProviderAccountId);
                   }}
-                  className="max-w-[190px] border-0 bg-transparent font-mono text-[12px] text-[var(--ink)] outline-none"
+                  className="max-w-[190px] border-0 bg-transparent font-mono text-[11px] text-[var(--ink)] outline-none"
                   aria-label="Select Meta account for Creative Inbox"
                   disabled={providerAccountsQuery.isLoading}
                 >
@@ -245,10 +215,6 @@ export default function MetaCreativeInboxPage() {
                 <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
                 {countLabel}
               </span>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)}>Landing pages</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)}>Audiences</Link>
               <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta", routeScope)}>Decisions</Link>
             </div>
           </div>
@@ -310,7 +276,7 @@ export default function MetaCreativeInboxPage() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     {card.providerAccountId ?? card.accountId ?? "Account unavailable"}
                   </div>
                   <div className="mt-1 font-semibold text-[var(--ink)]">
@@ -321,7 +287,7 @@ export default function MetaCreativeInboxPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     Decision context
                   </div>
                   <div className="text-[12px] font-semibold text-[var(--ink)]">
@@ -358,7 +324,7 @@ export default function MetaCreativeInboxPage() {
         </div>
       )}
       {scoped.missingAccountCount > 0 ? (
-        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
           {scoped.missingAccountCount} {scoped.missingAccountCount === 1 ? "item was" : "items were"} withheld because provider account identity is missing.
         </div>
       ) : null}

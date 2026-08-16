@@ -1,6 +1,5 @@
 "use client";
 
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -21,6 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -138,6 +138,40 @@ interface LaunchDraft {
   updatedAt: string;
   lastError?: Record<string, unknown> | null;
 }
+
+/** The design's three launch-start cards; each enters the guarded workflow. */
+const DRAFT_HEAD =
+  "bg-[var(--adv-fill)] px-3 py-[9px] font-[family-name:var(--adv-font-mono)] text-[10px] font-medium uppercase tracking-[0.1em] whitespace-nowrap text-[var(--adv-ink-3)]";
+
+const LAUNCH_START_CARDS: Array<{
+  mode: LaunchpadMode;
+  chip: string;
+  title: string;
+  desc: string;
+  cta: string;
+}> = [
+  {
+    mode: "new_campaign",
+    chip: "New campaign",
+    title: "Build a campaign from scratch",
+    desc: "Pick creatives, set the budget and targeting, then review before the guarded write.",
+    cta: "Start a campaign",
+  },
+  {
+    mode: "add_to_existing",
+    chip: "Add to existing",
+    title: "Add ads to a live ad set",
+    desc: "Duplicate proven creatives into an ad set that is already running, without touching its budget.",
+    cta: "Choose an ad set",
+  },
+  {
+    mode: "manage_existing",
+    chip: "Manage existing",
+    title: "Act on ads already live",
+    desc: "Pause, resume or duplicate served ads — every change returns its own receipt.",
+    cta: "Pick ads to manage",
+  },
+];
 
 const LAUNCH_STEPS: Array<{
   id: Exclude<WizardStep, "progress">;
@@ -514,7 +548,6 @@ function makePlaceholderAdset(
 }
 
 export default function MetaLaunchpadPage() {
-
   const searchParams = useSearchParams();
   const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -557,18 +590,6 @@ export default function MetaLaunchpadPage() {
   const [creatives, setCreatives] = useState<MetaCreativeRow[]>([]);
   const [creativeLoading, setCreativeLoading] = useState(false);
   const [creativeError, setCreativeError] = useState<string | null>(null);
-
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // state this surface already has, so it cannot drift from what is on screen.
-  useTierZeroFreshness({
-    surface: "launchpad",
-    isLoading: providerAccountsLoading,
-    error: providerAccountsError ?? creativeError,
-    // Launchpad composes what it is about to publish from live reads; the
-    // accounts read is the one that gates the wizard.
-    asOf: null,
-    businessId: selectedBusinessId,
-  });
   const [decisions, setDecisions] = useState<DecisionOutput[]>([]);
   const [recentAdActions, setRecentAdActions] = useState<
     LaunchpadRecentAdAction[]
@@ -1673,6 +1694,21 @@ export default function MetaLaunchpadPage() {
             accountLoading={providerAccountsLoading}
             onProviderAccountChange={changeProviderAccount}
           />
+          {/* Standing write-boundary notice — the surface's contract, not a
+              transient state, so it renders on every Launchpad step. */}
+          <div
+            className={styles.scopeBlock}
+            data-testid="launchpad-write-boundary"
+          >
+            <ShieldCheck aria-hidden="true" className="h-4 w-4" />
+            <div>
+              <strong>Launches create PAUSED campaigns.</strong>
+              <p>
+                Activation is a separate manual step with its own confirmation.
+                Every write records an immutable receipt.
+              </p>
+            </div>
+          </div>
           <div className={styles.wizardFrame}>
             <div className={styles.wizardHeader}>
               <div className={styles.wizardIdentity}>
@@ -1728,8 +1764,12 @@ export default function MetaLaunchpadPage() {
             </div>
 
             <div className={styles.wizardGrid}>
-              <aside className={styles.stepRail} aria-label="Launch steps">
-                {step !== "progress" ? (
+              <aside
+                className={styles.stepRail}
+                aria-label="Launch steps"
+                hidden={step === "source"}
+              >
+                {step !== "progress" && step !== "source" ? (
                   <>
                     <LaunchpadModeChooser
                       mode={mode}
@@ -1746,7 +1786,7 @@ export default function MetaLaunchpadPage() {
                     <span className="chip chip--info">
                       Provider write receipt
                     </span>
-                    <p className="text-[12px] leading-relaxed text-[var(--muted)]">
+                    <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
                       Result state comes from the completed route response. No
                       simulated progress is shown.
                     </p>
@@ -1765,6 +1805,7 @@ export default function MetaLaunchpadPage() {
                   <LaunchpadSourceStep
                     businessId={businessId}
                     providerAccountId={providerAccountId}
+                    onStartMode={startMode}
                     drafts={drafts}
                     templates={templates}
                     launchIntents={launchIntents}
@@ -1991,7 +2032,7 @@ export default function MetaLaunchpadPage() {
                       </strong>
                     </div>
                     {selectionSummary.count > 0 ? (
-                      <div className="mt-0.5 text-[12px] text-[var(--muted-2)] tabular-nums">
+                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
                         selection · spend{" "}
                         {selectionSummary.totalSpend == null
                           ? "unavailable"
@@ -2005,7 +2046,7 @@ export default function MetaLaunchpadPage() {
                           : `${selectionSummary.averageRoas.toFixed(1)}x`}
                       </div>
                     ) : (
-                      <div className="mt-0.5 text-[12px] text-[var(--muted-2)]">
+                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)]">
                         Create changes provider state to PAUSED and cannot begin
                         delivery.
                       </div>
@@ -2160,20 +2201,24 @@ function LaunchpadContextBar({
   onProviderAccountChange: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--border)] pb-3">
+    <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pb-3">
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-[var(--ink)]">
+        {/* v2 page head: mono eyebrow over a display-weight title. */}
+        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+          Meta · Guarded write surface
+        </p>
+        <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
           Launchpad
-        </div>
-        <div className="mono mt-0.5 text-[12px] text-[var(--muted)]">
-          Meta · {businessName} · {currency ?? "currency unavailable"}
+        </h1>
+        <div className="mono mt-1 text-[11px] text-[var(--muted)]">
+          {businessName} · {currency ?? "currency unavailable"}
         </div>
       </div>
       <span className="chip chip--warn">
-        Guarded write surface — everything launches PAUSED
+        Everything launches PAUSED
       </span>
       <div className="min-w-0 flex-1" />
-      <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-[var(--muted)]">
+      <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
         Ad account
         <select
           aria-label="Meta ad account for Launchpad"
@@ -2396,9 +2441,11 @@ function LaunchpadSourceStep({
   onClearAppliedTemplate,
   onDeleteDraft,
   onDeleteTemplate,
+  onStartMode,
 }: {
   businessId: string;
   providerAccountId: string;
+  onStartMode: (mode: LaunchpadMode) => void;
   drafts: LaunchDraft[];
   templates: LaunchTemplate[];
   launchIntents: MetaLaunchIntent[];
@@ -2420,6 +2467,35 @@ function LaunchpadSourceStep({
   const applyBidUnsupported = legacyHandoff?.requestedMode === "apply_bid";
   return (
     <>
+      {/* The design's landing surface: the three ways a launch can start. Each
+          card enters the same guarded workflow, which takes over the frame from
+          the next step onward. */}
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(270px,1fr))]">
+        {LAUNCH_START_CARDS.map((card) => (
+          <article
+            key={card.mode}
+            className="flex flex-col gap-2 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4"
+          >
+            <span className="inline-flex w-fit rounded-md bg-[var(--adv-fill-2)] px-2 py-0.5 font-[family-name:var(--adv-font-mono)] text-[10.5px] font-bold uppercase tracking-[0.06em] text-[var(--adv-ink-2)]">
+              {card.chip}
+            </span>
+            <p className="m-0 text-[14.5px] font-semibold text-[var(--adv-ink)]">
+              {card.title}
+            </p>
+            <p className="m-0 text-[12.5px] leading-[1.5] text-[var(--adv-ink-2)]">
+              {card.desc}
+            </p>
+            <button
+              type="button"
+              onClick={() => onStartMode(card.mode)}
+              className="mt-auto w-fit text-[12.5px] font-semibold text-[var(--adv-accent)]"
+            >
+              {card.cta} →
+            </button>
+          </article>
+        ))}
+      </div>
+
       <section
         className={styles.sourcePanel}
         data-testid="launchpad-source-step"
@@ -2535,74 +2611,91 @@ function LaunchpadSourceStep({
               No drafts yet.
             </p>
           ) : null}
-          <div className="divide-y divide-[var(--border)]">
-            {drafts.map((draft) => {
-              const failed = draft.status === "failed";
-              const storedError = draftStoredError(draft);
-              return (
-                <div
-                  key={draft.id}
-                  className="group flex w-full flex-col gap-2 px-4 py-3 transition hover:bg-[var(--hover)]"
-                >
-                  <div className="flex w-full items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => onApplyDraft(draft)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                    >
-                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--surface-3)] text-[var(--ink-3)]">
-                        {draft.payload.mode === "add_to_existing" ? (
-                          <PlusCircle className="h-4 w-4" />
-                        ) : (
-                          <Rocket className="h-4 w-4" />
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-[var(--ink)]">
+          {/* The design lists drafts as a table: name, mode, validation state,
+              when it moved, and the one action that applies to it. */}
+          {drafts.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <th className={`${DRAFT_HEAD} px-4 text-left`}>Draft</th>
+                    <th className={`${DRAFT_HEAD} text-left`}>Mode</th>
+                    <th className={`${DRAFT_HEAD} text-left`}>Validation</th>
+                    <th className={`${DRAFT_HEAD} text-left`}>Updated</th>
+                    <th className={`${DRAFT_HEAD} px-4`} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {drafts.map((draft) => {
+                    const failed = draft.status === "failed";
+                    const storedError = draftStoredError(draft);
+                    return (
+                      <tr key={draft.id} className="border-t border-[var(--adv-hairline)]">
+                        <td className="px-4 py-[11px] font-semibold text-[var(--adv-ink)]">
                           {draft.name}
-                        </span>
-                        <span className="mt-0.5 block truncate text-[12px] text-[var(--muted)]">
-                          {summarizeDraft(draft)}
-                        </span>
-                      </span>
-                      <span className="hidden shrink-0 items-center gap-2 text-right text-[12px] text-[var(--muted)] sm:flex">
-                        {formatRelativeTime(draft.updatedAt)}
-                        {failed ? (
-                          <span className="chip chip--action">
-                            <span className="dot" />
-                            Failed
+                          <span className="mt-0.5 block text-[11px] font-normal text-[var(--adv-ink-4)]">
+                            {summarizeDraft(draft)}
                           </span>
-                        ) : (
-                          <span className="chip chip--ghost">Resume</span>
-                        )}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void onDeleteDraft(draft.id);
-                      }}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--muted-2)] opacity-80 transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] group-hover:opacity-100"
-                      aria-label={`Delete draft ${draft.name}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  {failed && storedError ? (
-                    <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-3 py-2">
-                      <div className="mono text-[12px] text-[var(--danger)]">
-                        stored error: {storedError}
-                      </div>
-                      <div className="mt-0.5 text-[12px] text-[var(--muted)]">
-                        The error is the server&apos;s, rendered verbatim. Fix
-                        it, then resume.
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+                          {failed && storedError ? (
+                            <span className="mt-1 block font-[family-name:var(--adv-font-mono)] text-[11px] font-normal text-[var(--adc-danger-fg)]">
+                              stored error: {storedError}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-[11px]">
+                          <span className="inline-flex rounded-md bg-[var(--adv-fill-2)] px-2 py-0.5 text-[11px] font-semibold text-[var(--adv-ink-2)]">
+                            {draft.payload.mode === "add_to_existing"
+                              ? "Add to existing"
+                              : "New campaign"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-[11px]">
+                          <span
+                            className="inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                            style={
+                              failed
+                                ? {
+                                    background: "var(--adc-danger-bg)",
+                                    color: "var(--adc-danger-fg)",
+                                  }
+                                : {
+                                    background: "var(--adc-pos-bg)",
+                                    color: "var(--adc-pos-fg)",
+                                  }
+                            }
+                          >
+                            {failed ? "Failed" : "Ready"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-[11px] text-[12.5px] text-[var(--adv-ink-3)]">
+                          {formatRelativeTime(draft.updatedAt)}
+                        </td>
+                        <td className="px-4 py-[11px] text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => onApplyDraft(draft)}
+                            className="inline-flex h-[30px] items-center rounded-lg bg-[var(--adv-accent)] px-[13px] text-[12px] font-semibold text-white"
+                          >
+                            Resume
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void onDeleteDraft(draft.id);
+                            }}
+                            className="ml-1.5 inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[var(--adv-ink-4)] transition hover:bg-[var(--adc-danger-bg)] hover:text-[var(--adc-danger-fg)]"
+                            aria-label={`Delete draft ${draft.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </LaunchpadLibraryCard>
 
         <LaunchpadLibraryCard
@@ -2655,21 +2748,21 @@ function LaunchpadSourceStep({
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-[var(--muted)]">
+                    <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
                       {template.description ?? summarizeTemplate(template)}
                     </span>
                     {template.source === "auto_recent" ? (
                       <span className="mt-1 flex flex-wrap gap-1.5">
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[12px] text-[var(--muted)]">
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
                           budget: placeholder — set at use
                         </span>
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[12px] text-[var(--muted)]">
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
                           countries: placeholder
                         </span>
                       </span>
                     ) : null}
                   </span>
-                  <span className="hidden shrink-0 text-right text-[12px] text-[var(--muted)] sm:block">
+                  <span className="hidden shrink-0 text-right text-[11px] text-[var(--muted)] sm:block">
                     <span className="chip chip--ghost">Use</span>
                   </span>
                 </button>
@@ -2692,7 +2785,7 @@ function LaunchpadSourceStep({
 
         <LaunchpadLibraryCard
           icon={<FileCheck2 className="h-4 w-4 text-[var(--muted)]" />}
-          title="Launch records"
+          title="Launch receipts"
           count={launchpadLibraryCount({
             rowCount: launchIntents.length,
             loading,
@@ -2717,7 +2810,7 @@ function LaunchpadSourceStep({
         </LaunchpadLibraryCard>
       </div>
 
-      <p className="text-[12px] leading-relaxed text-[var(--muted)]">
+      <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
         Launchpad currently supports Sales campaigns only. Create paths land
         PAUSED. Activation inside Adsecute is Proposed/contract required and no
         current one-click ACTIVE action is rendered.
@@ -2779,7 +2872,7 @@ function LaunchpadStepper({
             >
               <span
                 className={cn(
-                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[12px] font-semibold tabular-nums",
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
                   done
                     ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                     : active

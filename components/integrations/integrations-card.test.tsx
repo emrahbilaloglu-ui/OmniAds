@@ -2,7 +2,6 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
-import type { GoogleAdsFreshnessSummary } from "@/lib/google-ads/freshness-read";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { ProviderViewState } from "@/store/integrations-store";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
@@ -255,73 +254,6 @@ function buildGoogleStatus(
   };
 }
 
-function buildGoogleFreshness(
-  overrides: Partial<GoogleAdsFreshnessSummary> = {},
-): GoogleAdsFreshnessSummary {
-  return {
-    evidenceAvailable: true,
-    unavailableReason: null,
-    state: "provisional",
-    label: "Provisional",
-    percent: 42,
-    complete: false,
-    mayStopPolling: false,
-    detail: "4 of 7 days have not been re-read since they closed.",
-    startDate: "2026-04-13",
-    endDate: "2026-04-19",
-    totalDays: 7,
-    includesOpenDay: false,
-    timeZoneSource: "account",
-    conversionLookbackDays: 30,
-    scopes: [
-      {
-        scope: "campaign_daily",
-        state: "provisional",
-        label: "Provisional",
-        percent: 42,
-        complete: false,
-        mayStopPolling: false,
-        detail: "4 of 7 days have not been re-read since they closed.",
-        coveredDays: 7,
-        postCloseObservedDays: 3,
-        lookbackExhaustedDays: 0,
-        dueNowDays: 4,
-        oldestObservationAt: "2026-04-14T01:40:00.000Z",
-        latestObservationAt: "2026-04-17T01:40:00.000Z",
-      },
-    ],
-    ...overrides,
-  };
-}
-
-function renderGoogleCard(status: GoogleAdsStatusResponse) {
-  return renderToStaticMarkup(
-    <IntegrationsCard
-      businessId="biz-1"
-      provider="google"
-      language="en"
-      description="Link Google Ads to track performance and sync account data."
-      view={{
-        ...baseView,
-        provider: "google",
-        detailValue: "Healthy",
-        accountValue: "1 assigned",
-      }}
-      googleSyncStatus={status}
-      googleSyncLoading={false}
-      onConnect={() => undefined}
-      onReconnect={() => undefined}
-      onRetry={() => undefined}
-      onCancel={() => undefined}
-      onDisconnect={() => undefined}
-      onOpenAssignments={() => undefined}
-    />
-  );
-}
-
-/** The green pill markup, which only a self-consistent verdict may earn. */
-const GREEN_PILL = "border-emerald-200 bg-emerald-50 text-emerald-700";
-
 function buildShopifyStatus(
   overrides: Partial<ShopifyStatusResponse> = {},
 ): ShopifyStatusResponse {
@@ -378,7 +310,6 @@ describe("IntegrationsCard", () => {
   it("renders the compact Meta progress block in English without removing the existing pill and notice", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -408,7 +339,6 @@ describe("IntegrationsCard", () => {
   it("renders the compact Meta progress block in Turkish", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="meta"
         language="tr"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -461,7 +391,6 @@ describe("IntegrationsCard", () => {
 
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -507,7 +436,6 @@ describe("IntegrationsCard", () => {
 
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -531,7 +459,6 @@ describe("IntegrationsCard", () => {
   it("renders the compact Google progress block without surfacing stale sync attention when the control plane is closed", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="google"
         language="en"
         description="Link Google Ads to track performance and sync account data."
@@ -561,105 +488,9 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Analysis / advisor");
     expect(html).toContain("queue clear");
     expect(html).toContain("Cached accounts available while the latest refresh finishes.");
+    expect(html).toContain("Active");
     expect(html).not.toContain("Attention / recovery");
     expect(html).not.toContain("attention needed");
-
-    // This fixture carries no freshness evidence at all, so the card may not
-    // present the sync as done — it says so instead of going green.
-    expect(html).toContain("Data freshness");
-    expect(html).toContain("Unknown freshness");
-    expect(html).not.toContain(">Active<");
-  });
-
-  it("keeps the Google sync pill green only when the freshness verdict is steady", () => {
-    const settled = renderGoogleCard(
-      buildGoogleStatus({
-        freshness: buildGoogleFreshness({
-          state: "settled",
-          label: "Policy-settled",
-          percent: 100,
-          complete: true,
-          mayStopPolling: true,
-          detail: "All days re-read after closing and past the conversion window.",
-          scopes: [],
-        }),
-      }),
-    );
-
-    expect(settled).toContain(`${GREEN_PILL}">Active<`);
-    expect(settled).toContain("Policy-settled");
-    expect(settled).toContain(
-      "Settled against a 30-day conversion window; Google can still revise conversions inside it.",
-    );
-    // The strongest word we are allowed to use is "settled".
-    expect(settled).not.toMatch(/\b(Final|Immutable|100% synced)\b/);
-
-    // Converging: every day re-read after close, so still healthy and green,
-    // but the range is inside the conversion window and cannot be 100.
-    const converging = renderGoogleCard(
-      buildGoogleStatus({
-        freshness: buildGoogleFreshness({
-          state: "converging",
-          label: "Refreshing",
-          percent: 99,
-          detail:
-            "All days re-read after closing; conversions may still arrive within the conversion window.",
-          scopes: [],
-        }),
-      }),
-    );
-
-    expect(converging).toContain(`${GREEN_PILL}">Active<`);
-    expect(converging).toContain("Refreshing");
-  });
-
-  it("demotes the green Google pill when days were covered but never re-read", () => {
-    const html = renderGoogleCard(
-      buildGoogleStatus({ freshness: buildGoogleFreshness() }),
-    );
-
-    // The pill that used to read a green "Active" over a day captured once at
-    // 01:40 now states the verdict instead, in the neutral info tone.
-    expect(html).toContain('border-sky-200 bg-sky-50 text-sky-800">42% Provisional<');
-    expect(html).not.toContain(`${GREEN_PILL}">Active<`);
-    expect(html).not.toContain(">Active<");
-    expect(html).toContain("4 of 7 days have not been re-read since they closed.");
-    expect(html).toContain("3/7 days re-read after close • 4 days due now");
-
-    // Not an error state either: no amber, and no attention copy.
-    expect(html).not.toContain("Needs attention");
-    expect(html).not.toContain("attention needed");
-
-    // The only green left on the card is the connection badge, never the
-    // freshness verdict.
-    const greenPills = html.split(GREEN_PILL).length - 1;
-    expect(greenPills).toBeGreaterThan(0);
-    expect(html).not.toMatch(
-      new RegExp(`${GREEN_PILL}[^<]*">\\s*(Provisional|Unknown|Missing data)`),
-    );
-  });
-
-  it("renders unreadable Google freshness evidence as unknown, not as a failure", () => {
-    const html = renderGoogleCard(
-      buildGoogleStatus({
-        freshness: buildGoogleFreshness({
-          evidenceAvailable: false,
-          unavailableReason: "Google Ads freshness tables are not ready yet.",
-          state: "unknown",
-          label: "Unknown",
-          percent: 0,
-          scopes: [],
-        }),
-      }),
-    );
-
-    expect(html).toContain("Unknown freshness");
-    expect(html).toContain("Google Ads freshness tables are not ready yet.");
-    expect(html).toContain("still being polled");
-    expect(html).not.toContain(">Active<");
-    expect(html).not.toContain("Needs attention");
-    // Nothing anywhere claims the sync finished.
-    expect(html).not.toContain("100%");
   });
 
   it("does not show the Google provider badge as connected when sync is action-required", () => {
@@ -689,7 +520,6 @@ describe("IntegrationsCard", () => {
     });
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="google"
         language="en"
         description="Link Google Ads to track performance and sync account data."
@@ -718,7 +548,6 @@ describe("IntegrationsCard", () => {
   it("renders a compact Shopify status block without the Meta/Google staged breakdown", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
-      businessId="biz-1"
         provider="shopify"
         language="en"
         description="Sync storefront events and conversion data for attribution."

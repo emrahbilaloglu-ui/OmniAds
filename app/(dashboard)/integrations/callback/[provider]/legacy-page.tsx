@@ -1,6 +1,5 @@
 "use client";
 
-import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { Suspense, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
@@ -70,16 +69,6 @@ function IntegrationCallbackPageClient() {
       const integrationId = searchParams.get("integrationId") ?? undefined;
 
       if (statusParam === "success") {
-        // Section 9: recovery completed. Paired with the started event on the
-        // Integrations card, this is what makes a recovery rate measurable.
-        emitProductInstrumentation({
-          eventName: "provider_health_recovery_completed",
-          surface: "integrations",
-          outcome: "ok",
-          scope: "business",
-          businessId,
-          provider: provider === "google" ? "google" : "meta",
-        });
         const integrationResponse = await fetch(
           `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=${encodeURIComponent(provider)}`,
           { cache: "no-store", headers: { "Cache-Control": "no-store" } }

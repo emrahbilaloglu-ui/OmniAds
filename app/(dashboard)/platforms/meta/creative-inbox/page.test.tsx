@@ -2,7 +2,7 @@ import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import MetaCreativeInboxPage from "@/app/(dashboard)/platforms/meta/creative-inbox/legacy-page";
+import MetaCreativeInboxPage from "@/app/(dashboard)/platforms/meta/creative-inbox/page";
 
 const appState = vi.hoisted(() => ({
   businesses: [] as Array<{ id: string; name: string; currency: string }>,

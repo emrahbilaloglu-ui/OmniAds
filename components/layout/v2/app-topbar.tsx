@@ -145,14 +145,9 @@ function BusinessControl() {
 export function AppTopbar({
   userName,
   onOpenNav,
-  search,
-  notifications,
 }: {
   userName: string;
   onOpenNav: () => void;
-  /** The working search and notification controls, mounted by the frame. */
-  search?: React.ReactNode;
-  notifications?: React.ReactNode;
 }) {
   const router = useRouter();
   const [dateRange, setDateRange] = usePersistentDateRange();
@@ -189,18 +184,10 @@ export function AppTopbar({
           <Menu className="h-[15px] w-[15px]" aria-hidden="true" />
         </button>
 
-        {/* The shell contract asks every frame to expose brand, business and
-            platform regions by name; the v2 chrome has all three, so it carries
-            the same hooks rather than renaming the contract. */}
-        <span className="ad-console-business contents">
-          <BusinessControl />
-        </span>
+        <BusinessControl />
 
         <span className="adv-topbar-divider hidden sm:block" />
 
-        {/* The picker is main's, which drops the four comparison presets the
-            server never computed. Its v2 trigger variant is not ported yet, so
-            the chips render in the default layout. */}
         <DateRangePicker
           value={dateRange}
           onChange={setDateRange}
@@ -212,26 +199,20 @@ export function AppTopbar({
 
         <span className="flex-1" />
 
-        {search ? (
-          <div className="adv-search-slot">{search}</div>
-        ) : (
-          <button
-            type="button"
-            className="adv-search"
-            onClick={() => setPaletteOpen(true)}
-          >
-            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">Jump or act…</span>
-            <span className="adv-kbd">⌘K</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="adv-search"
+          onClick={() => setPaletteOpen(true)}
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-left">Jump or act…</span>
+          <span className="adv-kbd">⌘K</span>
+        </button>
 
         <span className="adv-pill" data-tone={SYNC_TONE[sync.tone]} title={sync.label}>
           <span className="adv-pill-dot" />
           <span data-topbar-secondary>{sync.label}</span>
         </span>
-
-        {notifications}
 
         <button
           type="button"

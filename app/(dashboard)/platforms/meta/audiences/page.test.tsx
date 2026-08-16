@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import MetaAudiencesPage from "./legacy-page";
+import MetaAudiencesPage from "./page";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () =>

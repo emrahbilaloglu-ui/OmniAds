@@ -329,3 +329,107 @@ describe("the evidence inspector's header chip", () => {
     expect(html).not.toContain("route launchpad duplicate");
   });
 });
+
+describe("the inspector header under a long server label", () => {
+  const LONG = "Reduce daily budget by 20% and reallocate the difference to the top-performing ad set";
+
+  function renderLong() {
+    return renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation({
+          structure: {
+            groups: [
+              {
+                id: "g1",
+                campaign: node({
+                  action: {
+                    code: "route_launchpad_rebuild",
+                    label: LONG,
+                    intent: "launchpad",
+                    targetLevel: "campaign",
+                    providerMutation: null,
+                    scopeNote: "Routed Launchpad write with confirmation",
+                  },
+                }),
+                adsets: [],
+                highestPriority: "high",
+                highestUrgency: "now",
+                urgentAdsetCount: 0,
+              },
+            ],
+            actCount: 1,
+            blockedCount: 0,
+            monitorCount: 0,
+            suppressedAlternativeCount: 0,
+          },
+        })}
+        accountLabel={null}
+        currency="USD"
+        windowLabel={null}
+        lastSyncLabel={null}
+        canRunSnapshot={false}
+      />,
+    );
+  }
+
+  /**
+   * The inspector column is 398px in the reference and narrower on mobile. A
+   * label the server is free to make long must wrap inside it rather than
+   * clipping — a truncated verdict is a different verdict.
+   */
+  it("keeps the whole label present and lets it wrap rather than clip", () => {
+    const html = renderLong();
+    expect(LONG.length).toBeGreaterThan(70);
+    expect(html).toContain(LONG);
+    expect(html).toContain("break-words");
+    expect(html).toContain("max-w-[55%]");
+    expect(html).not.toContain("shrink-0 rounded-full bg-[#0e9f6e]");
+  });
+
+  it("carries the full value as a title for assistive and hover access", () => {
+    expect(renderLong()).toContain(`title="${LONG}"`);
+  });
+});
+
+describe("evidence value colours", () => {
+  /**
+   * The reference never puts bare #0e9f6e on white: green appears only behind
+   * a tint (Confidence chip, 3.04:1) or as the intent chip's background. Its
+   * evidence values are ink #0e1526 (18.2:1) and its reasoning body #45526b
+   * (7.86:1). A positive value rendered in #0e9f6e on white measured 3.39:1
+   * and was this component's invention, not the design's.
+   */
+  it("renders a positive evidence value in reference ink, not invented green", () => {
+    const html = renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation({
+          structure: {
+            groups: [
+              {
+                id: "g1",
+                campaign: node({
+                  evidence: [{ label: "ROAS", value: "5.12", tone: "positive" }],
+                }),
+                adsets: [],
+                highestPriority: "high",
+                highestUrgency: "now",
+                urgentAdsetCount: 0,
+              },
+            ],
+            actCount: 1,
+            blockedCount: 0,
+            monitorCount: 0,
+            suppressedAlternativeCount: 0,
+          },
+        })}
+        accountLabel={null}
+        currency="USD"
+        windowLabel={null}
+        lastSyncLabel={null}
+        canRunSnapshot={false}
+      />,
+    );
+    expect(html).toContain("5.12");
+    expect(html).not.toContain("text-[#0e9f6e]");
+  });
+});

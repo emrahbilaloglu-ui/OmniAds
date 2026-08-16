@@ -458,7 +458,11 @@ export function DecisionCenterBody({
               restated in full in the Decision contract block below it.
             */}
             {selected ? (
-              <span className="shrink-0 rounded-full bg-[#0e9f6e] px-[10px] py-[3px] font-[family-name:var(--adv-font-body)] text-[11px] font-bold text-white">
+              <span
+                title={selected.actionLabel}
+                data-testid="decision-center-evidence-intent"
+                className="min-w-0 max-w-[55%] break-words rounded-[10px] bg-[#0e9f6e] px-[10px] py-[3px] text-right font-[family-name:var(--adv-font-body)] text-[11px] font-bold leading-[1.3] text-white"
+              >
                 {selected.actionLabel}
               </span>
             ) : null}
@@ -508,12 +512,15 @@ export function DecisionCenterBody({
                         <span className="text-[var(--adv-ink-3)]">{row.label}</span>
                         <span
                           className={cn(
+                            // The reference never puts bare green on white:
+                            // #0e9f6e appears only behind a tint (the Confidence
+                            // chip, 3.04) or as the intent chip's background.
+                            // Its evidence VALUES are ink -- #0e1526 at 18.2:1,
+                            // its reasoning body #45526b at 7.86:1. Rendering a
+                            // positive value in #0e9f6e on white was mine, not
+                            // the design's, and it measured 3.39:1.
                             "font-[family-name:var(--adv-font-mono)]",
-                            row.tone === "warning"
-                              ? "text-[#8a5106]"
-                              : row.tone === "positive"
-                                ? "text-[#0e9f6e]"
-                                : "text-[var(--adv-ink)]",
+                            row.tone === "warning" ? "text-[#8a5106]" : "text-[var(--adv-ink)]",
                           )}
                         >
                           {row.value}

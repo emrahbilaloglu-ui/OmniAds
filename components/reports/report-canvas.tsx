@@ -499,7 +499,11 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
             <p className="mt-1 text-xs text-[var(--adv-ink-3)]">{widget.subtitle}</p>
           ) : null}
         </div>
-        {widget.warning ? (
+        {widget.errorMessage ? (
+          <span className="rounded-full bg-[var(--adc-danger-bg)] px-2 py-1 text-[10px] font-medium text-[var(--adc-danger-fg)]">
+            Failed to load
+          </span>
+        ) : widget.warning ? (
           <span className="rounded-full bg-[var(--adc-caution-bg)] px-2 py-1 text-[10px] font-medium text-[var(--adc-caution-fg)]">
             Warning
           </span>
@@ -566,10 +570,18 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
         </div>
       ) : null}
 
-      {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
-        <p className="mt-4 text-xs text-[var(--adv-ink-4)]">{widget.emptyMessage}</p>
-      ) : null}
-      {widget.warning ? <p className="mt-4 text-xs text-[var(--adc-caution-fg)]">{widget.warning}</p> : null}
+      {/* A widget that failed says so. It never borrows the empty-state voice,
+          which would read as "this period had no data". */}
+      {widget.errorMessage ? (
+        <p className="mt-4 text-xs text-[var(--adc-danger-fg)]">{widget.errorMessage}</p>
+      ) : (
+        <>
+          {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
+            <p className="mt-4 text-xs text-[var(--adv-ink-4)]">{widget.emptyMessage}</p>
+          ) : null}
+          {widget.warning ? <p className="mt-4 text-xs text-[var(--adc-caution-fg)]">{widget.warning}</p> : null}
+        </>
+      )}
     </article>
   );
 }

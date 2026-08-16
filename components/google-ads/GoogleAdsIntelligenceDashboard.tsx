@@ -97,6 +97,10 @@ import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 import { newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
+import { MISSING_VALUE } from "@/lib/metric-format";
+import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -386,6 +390,7 @@ export function GoogleAdsIntelligenceDashboard({
   /** Page title for the routed screen; the design names each surface. */
   screenTitle?: string;
 }) {
+  const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
@@ -761,10 +766,13 @@ export function GoogleAdsIntelligenceDashboard({
     fullSyncPriorityRequired: syncStatus?.operations?.fullSyncPriorityRequired === true,
     advisorMissingSurfaces: syncStatus?.advisor?.missingSurfaces ?? [],
   });
-  const advisorExecutionAccountId =
-    (syncStatus?.assignedAccountIds?.length ?? 0) === 1
-      ? syncStatus?.assignedAccountIds?.[0] ?? null
-      : null;
+  // Blending several accounts is allowed, but it is now a stated mode with a
+  // chooser, rather than an unlabelled sum that also silently removed deep links.
+  const accountScope = resolveGoogleAccountScope({
+    assignedAccountIds: syncStatus?.assignedAccountIds ?? [],
+    selectedAccountId: selectedGoogleAccountId,
+  });
+  const advisorExecutionAccountId = accountScope.accountId;
   // The design's Activity card on Plan reads the guarded-write execution log.
   const { data: activityData, isLoading: isActivityLoading } = useQuery<{
     rows?: GoogleAdsActivityEntry[];
@@ -1346,6 +1354,42 @@ export function GoogleAdsIntelligenceDashboard({
         </div>
       </div>
 
+      {/* Scope receipt. With more than one account assigned every figure below
+          is a blend; the operator has to be able to see that, and narrow it,
+          before trusting any of them. Hidden at one account, where there is
+          nothing to disclose. */}
+      {accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
+        <div
+          role="status"
+          className={cn(
+            "flex flex-wrap items-center gap-2 rounded-[14px] border px-3 py-2 text-[11px]",
+            accountScope.mixedCurrency
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-3)]"
+          )}
+        >
+          <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em]">
+            {accountScope.mode === "blended" ? "Blended view" : "Scoped to one account"}
+          </span>
+          {accountScope.notice ? <span>{accountScope.notice}</span> : null}
+          <label className="ml-auto flex items-center gap-1.5">
+            <span className="sr-only">Google account</span>
+            <select
+              value={selectedGoogleAccountId ?? ""}
+              onChange={(event) => setSelectedGoogleAccountId(event.target.value || null)}
+              className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2 py-1 text-[11px] text-[var(--adv-ink-2)]"
+            >
+              <option value="">All assigned accounts (blended)</option>
+              {(syncStatus?.assignedAccountIds ?? []).map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {panel ? null : (
       <div className="flex flex-wrap gap-2">
         {PANEL_ITEMS.map((item) => (
@@ -1747,6 +1791,69 @@ export function GoogleAdsIntelligenceDashboard({
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
                 <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Negative {searchTermNegativeRows.length}</span>
                 <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Positive {searchTermPositiveRows.length}</span>
+              </div>
+
+              {/* Escape hatch. The design closes this screen on the served
+                  tables, but an operator who decides to act still needs a way
+                  out to Google Ads, and it has to be aimed at the account these
+                  numbers actually cover. */}
+              <div className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
+                      Escape hatch
+                    </p>
+                    <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-3)]">
+                      Read-only hop into Google Ads, scoped to the account in view.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
+                    {scopedSearchTerms.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
+                          Search terms
+                        </span>
+                        {/*
+                          Scoped deep link into Google Ads. Refused rather than
+                          guessed when the account cannot be named -- landing on
+                          the wrong account is worse than no link, because the
+                          operator then acts on someone else's data. The guard
+                          and the href call the same builder with the same
+                          target, so a refused link cannot render as an anchor
+                          pointing nowhere.
+                        */}
+                        {buildGoogleAdsDeepLink({
+                          accountId: advisorExecutionAccountId,
+                          target: { kind: "search_terms" },
+                        }) ? (
+                          <a
+                            href={
+                              buildGoogleAdsDeepLink({
+                                accountId: advisorExecutionAccountId,
+                                target: { kind: "search_terms" },
+                              }) ?? undefined
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-fill)] px-2 py-0.5 text-[var(--adv-ink-2)] hover:bg-[var(--adv-surface)]"
+                            onClick={() =>
+                              emitProductInstrumentation({
+                                eventName: "google_deep_link_used",
+                                surface: "google_ads",
+                                outcome: "ok",
+                                scope: "business",
+                                businessId,
+                                provider: "google",
+                              })
+                            }
+                          >
+                            {describeGoogleAdsDeepLink({ kind: "search_terms" })}
+                          </a>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
               {/* The design renders one served search-terms table, not two
@@ -2288,7 +2395,16 @@ function CampaignCard({
   };
 }) {
   const cfg = ACTION_CONFIG[campaign.actionState];
-  const roasUp = campaign.roas >= accountAvgRoas;
+  // A campaign with no ROAS is not a campaign performing badly. Comparing an
+  // absent value against the account average made it fail the comparison and
+  // render in the loss colour, so "we have no data for this" was displayed
+  // identically to "this is losing money".
+  const hasRoas = Number.isFinite(campaign.roas) && campaign.roas > 0;
+  const roasColor = !hasRoas
+    ? undefined
+    : campaign.roas >= accountAvgRoas
+      ? "text-emerald-700"
+      : "text-rose-600";
   return (
     <div className="h-full rounded-[14px] border bg-card p-3">
       <div className="flex items-center gap-2">
@@ -2313,7 +2429,7 @@ function CampaignCard({
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1 text-right">
         <Metric label="Spend" value={fmtCurrency(campaign.spend)} />
-        <Metric label="ROAS" value={campaign.roas > 0 ? fmtRoas(campaign.roas) : "-"} valueColor={roasUp ? "text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)]"} />
+        <Metric label="ROAS" value={hasRoas ? fmtRoas(campaign.roas) : MISSING_VALUE} valueColor={roasColor} />
         <Metric label="Revenue" value={fmtCurrency(campaign.revenue)} />
         <Metric label="Conv." value={campaign.conversions.toFixed(0)} />
       </div>

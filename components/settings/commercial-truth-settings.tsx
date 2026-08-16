@@ -42,6 +42,37 @@ interface CommercialTruthSettingsResponse {
   };
 }
 
+/**
+ * A payload is only renderable once every branch this component dereferences is
+ * actually present. A truthiness check on `snapshot` alone lets `{}` through,
+ * and the first `snapshot.sectionMeta.targetPack` read then throws during
+ * render — which takes the whole settings tree down instead of showing the
+ * load error this component already knows how to show.
+ */
+function isRenderableCommercialSnapshot(
+  value: unknown,
+): value is BusinessCommercialTruthSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<BusinessCommercialTruthSnapshot>;
+  const sectionMeta = snapshot.sectionMeta as
+    | Partial<BusinessCommercialTruthSnapshot["sectionMeta"]>
+    | undefined;
+  const isObject = (candidate: unknown) =>
+    Boolean(candidate && typeof candidate === "object");
+  return Boolean(
+    typeof snapshot.businessId === "string" &&
+      Array.isArray(snapshot.countryEconomics) &&
+      Array.isArray(snapshot.promoCalendar) &&
+      Array.isArray(snapshot.calibrationProfiles) &&
+      sectionMeta &&
+      isObject(sectionMeta.targetPack) &&
+      isObject(sectionMeta.countryEconomics) &&
+      isObject(sectionMeta.promoCalendar) &&
+      isObject(sectionMeta.operatingConstraints) &&
+      isObject(snapshot.coverage),
+  );
+}
+
 interface CommercialTruthReconfirmResponse {
   snapshot: BusinessCommercialTruthSnapshot;
   revision: string;
@@ -2156,9 +2187,11 @@ export function CommercialTruthSettingsSection({
         .catch(() => null)) as CommercialTruthSettingsResponse | null;
       if (
         !response.ok ||
-        !payload?.snapshot ||
+        !isRenderableCommercialSnapshot(payload?.snapshot) ||
+        typeof payload.revision !== "string" ||
         !payload.revision ||
-        !payload.permissions
+        !payload.permissions ||
+        typeof payload.permissions.canEdit !== "boolean"
       ) {
         throw new Error("Could not load commercial truth settings.");
       }

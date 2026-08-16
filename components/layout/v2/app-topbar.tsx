@@ -145,9 +145,14 @@ function BusinessControl() {
 export function AppTopbar({
   userName,
   onOpenNav,
+  search,
+  notifications,
 }: {
   userName: string;
   onOpenNav: () => void;
+  /** The working search and notification controls, mounted by the frame. */
+  search?: React.ReactNode;
+  notifications?: React.ReactNode;
 }) {
   const router = useRouter();
   const [dateRange, setDateRange] = usePersistentDateRange();
@@ -199,20 +204,29 @@ export function AppTopbar({
 
         <span className="flex-1" />
 
-        <button
-          type="button"
-          className="adv-search"
-          onClick={() => setPaletteOpen(true)}
-        >
-          <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-left">Jump or act…</span>
-          <span className="adv-kbd">⌘K</span>
-        </button>
+        {/* The design's own control is the palette trigger; when the frame
+            hands down the working entity search it takes the same slot rather
+            than sitting beside a second search affordance. */}
+        {search ? (
+          <div className="adv-search-slot">{search}</div>
+        ) : (
+          <button
+            type="button"
+            className="adv-search"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-left">Jump or act…</span>
+            <span className="adv-kbd">⌘K</span>
+          </button>
+        )}
 
         <span className="adv-pill" data-tone={SYNC_TONE[sync.tone]} title={sync.label}>
           <span className="adv-pill-dot" />
           <span data-topbar-secondary>{sync.label}</span>
         </span>
+
+        {notifications}
 
         <button
           type="button"

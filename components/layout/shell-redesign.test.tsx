@@ -1,5 +1,8 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+// The console frame renders the notification bell, which reads data. The app
+// mounts it under the root QueryProvider, so the test renders it the same way.
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { DashboardFrame } from "@/components/layout/dashboard-frame";
@@ -175,9 +178,11 @@ describe("dashboard v2 shell", () => {
     for (const pathname of ["/overview", "/platforms/meta"]) {
       state.pathname = pathname;
       const html = renderToStaticMarkup(
-        <DashboardFrame userName="Shopify App Reviewer">
-          <div>{pathname} body</div>
-        </DashboardFrame>,
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
       );
       expect(html).toContain("adv-shell");
       expect(html).toContain("adv-rail");
@@ -191,9 +196,11 @@ describe("dashboard v2 shell", () => {
     state.selectedBusinessId = "biz_1";
 
     const html = renderToStaticMarkup(
-      <DashboardFrame userName="Shopify App Reviewer">
-        <div>Meta body</div>
-      </DashboardFrame>,
+      <QueryClientProvider client={new QueryClient()}>
+        <DashboardFrame userName="Shopify App Reviewer">
+          <div>Meta body</div>
+        </DashboardFrame>
+      </QueryClientProvider>,
     );
 
     expect(html).not.toContain("ad-console-mobile-readonly");
@@ -212,9 +219,11 @@ describe("dashboard v2 shell", () => {
       state.selectedBusinessId = "biz_1";
 
       const html = renderToStaticMarkup(
-        <DashboardFrame userName="Shopify App Reviewer">
-          <div>{pathname} body</div>
-        </DashboardFrame>,
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
       );
 
       expect(html).toContain('data-mobile-surface="none"');
@@ -237,9 +246,11 @@ describe("dashboard v2 shell", () => {
       state.selectedBusinessId = "biz_1";
 
       const html = renderToStaticMarkup(
-        <DashboardFrame userName="Shopify App Reviewer">
-          <div>{pathname} responsive body</div>
-        </DashboardFrame>,
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} responsive body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
       );
 
       expect(html).toContain('data-mobile-surface="none"');

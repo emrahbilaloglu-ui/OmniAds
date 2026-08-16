@@ -36,6 +36,10 @@ import type {
   MetaCanonicalDecision,
   MetaDecisionQueueSection,
 } from "@/lib/meta/decisions-workspace-contract";
+import {
+  describeDecisionWorkspaceFailure,
+  MetaRequestFailure,
+} from "@/lib/meta/workspace-failure";
 import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
 import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
 import { cn } from "@/lib/utils";
@@ -281,11 +285,15 @@ async function readJson<T>(url: string): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const message =
+    const serverMessage =
       payload && typeof payload === "object" && "message" in payload
         ? String((payload as { message?: unknown }).message)
-        : `Request failed (${response.status})`;
-    throw new Error(message);
+        : null;
+    throw new MetaRequestFailure({
+      message: serverMessage ?? `Request failed (${response.status})`,
+      status: response.status,
+      hasServerReason: Boolean(serverMessage && serverMessage.trim()),
+    });
   }
   return payload as T;
 }
@@ -3307,7 +3315,7 @@ export function MetaPlatformPage({
               {briefingLoading
                 ? "Loading the latest persisted decision snapshot"
                 : briefingError
-                  ? "Decision workspace unavailable - counts are withheld"
+                  ? describeDecisionWorkspaceFailure(briefingError)
                   : `Snapshot ${laneSnapshotDate ?? "unavailable"} · date range scopes metrics, not decisions`}
             </p>
           </div>

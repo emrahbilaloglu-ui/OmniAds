@@ -8772,7 +8772,7 @@
   .adv-rail-version {
     margin-left: auto;
     font-family: var(--adv-font-mono);
-    font-size: 9.5px;
+    font-size: 12px;
     color: var(--adv-rail-ink-3);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 5px;
@@ -8791,7 +8791,7 @@
   .adv-rail-group {
     margin: 14px 6px 6px;
     font-family: var(--adv-font-mono);
-    font-size: 9.5px;
+    font-size: 12px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--adv-rail-ink-3);
@@ -8898,7 +8898,7 @@
   .adv-rail-count {
     margin-left: auto;
     font-family: var(--adv-font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 500;
     background: var(--adv-alert);
     color: #ffffff;
@@ -8919,7 +8919,7 @@
     margin-left: auto;
     flex-shrink: 0;
     font-family: var(--adv-font-mono);
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     border-radius: 5px;
@@ -8961,7 +8961,7 @@
     border-radius: 9999px;
     background: var(--adv-rail-raised);
     color: var(--adv-rail-avatar-fg);
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     flex-shrink: 0;
   }
@@ -9103,7 +9103,7 @@
   .adv-kbd {
     flex-shrink: 0;
     font-family: var(--adv-font-mono);
-    font-size: 10px;
+    font-size: 12px;
     border: 1px solid var(--adv-border);
     border-radius: 5px;
     padding: 1px 5px;
@@ -9169,7 +9169,7 @@
     gap: 4px;
     border-radius: 9999px;
     padding: 2px 8px;
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     background: var(--adv-fill-2);
@@ -9203,7 +9203,7 @@
 
   .adv-tag {
     font-family: var(--adv-font-mono);
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     border-radius: 5px;
@@ -9290,7 +9290,7 @@
   .adv-eyebrow {
     margin: 0;
     font-family: var(--adv-font-mono);
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--adv-ink-3);
@@ -9314,7 +9314,7 @@
   .adv-label {
     margin: 0;
     font-family: var(--adv-font-mono);
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--adv-ink-3);
@@ -9343,7 +9343,7 @@
     padding: 9px 12px;
     text-align: right;
     font-family: var(--adv-font-mono);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.1em;

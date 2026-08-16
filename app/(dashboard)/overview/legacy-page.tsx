@@ -5,7 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { FreshnessChip } from "@/components/states/FreshnessChip";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { compareModeForPreset } from "@/lib/comparison-preset-contract";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
 import { AttributionCard } from "@/components/overview/v2/attribution-card";
@@ -170,8 +172,16 @@ export default function OverviewPage() {
           dateRange.customStart,
           dateRange.customEnd
         );
+  // This route carries exactly two comparisons — `lib/overview-summary-support.ts`
+  // types CompareMode as "none" | "previous_period" — so the stored preset is
+  // narrowed through the shared contract rather than collapsed. Collapsing every
+  // non-"none" choice to previous_period is what put a year-over-year label on a
+  // previous-period delta; an unrecognised preset (a saved view, a hand-edited
+  // URL) now shows no comparison instead of a confident wrong one.
   const compareMode: CompareMode =
-    dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+    compareModeForPreset(dateRange.comparisonPreset) === "previous_period"
+      ? "previous_period"
+      : "none";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -285,6 +295,10 @@ export default function OverviewPage() {
       : withCurrent;
   }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
 
+  // The data's own timestamp, read once so the chip on screen and the freshness
+  // reading filed for this surface can never disagree.
+  const dataAsOf = measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null);
+
   // One freshness contract across every Tier-0 surface. Derived from the
   // query state this surface already has, so it cannot drift from what is
   // actually on screen. It sits with the other hooks, above the early
@@ -308,7 +322,7 @@ export default function OverviewPage() {
     // The data's own timestamp. `dataUpdatedAt` is when the *response landed*,
     // which is fresh by construction: it resets on every refetch no matter how
     // far behind the sync is.
-    asOf: measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null),
+    asOf: dataAsOf,
     businessId: businessId || null,
     // Re-runs every read the reading covers. A retry that refetches only the
     // primary query leaves the reported hole exactly where it was, so the
@@ -432,7 +446,18 @@ export default function OverviewPage() {
             selected {windowDayCount === null ? "" : `${windowDayCount}-day `}window.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Overview gave no cue at all about how old these numbers were, so a
+              tab left open since morning looked identical to a fresh load. The
+              chip states the age of the data itself and offers a refetch — not
+              a page reload, which would throw away every other query on screen. */}
+          <FreshnessChip
+            asOf={dataAsOf}
+            onRefresh={() => void query.refetch()}
+            refreshing={query.isFetching}
+            surface="overview"
+            businessId={businessId || null}
+          />
           <button
             type="button"
             className="adv-btn"
@@ -445,9 +470,7 @@ export default function OverviewPage() {
             businessId={businessId}
             businessName={activeBusiness?.name ?? null}
             rangePreset={snapshotRangePreset}
-            compareMode={
-              dateRange.comparisonPreset === "none" ? "none" : "previous_period"
-            }
+            compareMode={compareMode}
           />
         </div>
       </div>

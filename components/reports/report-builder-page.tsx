@@ -164,7 +164,9 @@ export function ReportBuilderPage({
         const response = await fetch(`/api/reports/${reportId}/share`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ expiryDays: 7 }),
+          // Share the window on screen, not the report's stored preset, so the
+          // client sees the same period that was just reviewed.
+          body: JSON.stringify({ expiryDays: 7, startDate: viewStart, endDate: viewEnd }),
         });
         const payload = await response.json().catch(() => null);
         if (response.ok) setShareUrl((payload as { url?: string })?.url ?? null);

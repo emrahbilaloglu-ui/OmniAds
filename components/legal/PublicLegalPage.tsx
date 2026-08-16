@@ -19,7 +19,10 @@ const LEGAL_LINKS = [
 
 export function PublicLegalPage({ title, subtitle, children }: PublicLegalPageProps) {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    // These six pages are public marketing surfaces: no session, no business
+    // scope, no workspace shell. The marketing root attribute is what says so,
+    // and it is the same root the scoped ledger presentation keys off.
+    <div data-adc-marketing className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="border-b border-border">
         <div className="mx-auto max-w-3xl px-5 sm:px-8 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
@@ -31,7 +34,7 @@ export function PublicLegalPage({ title, subtitle, children }: PublicLegalPagePr
         </div>
       </header>
 
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
       <div className="mx-auto w-full max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         <header className="mb-10">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

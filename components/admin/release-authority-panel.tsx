@@ -258,6 +258,17 @@ export function ReleaseAuthorityPanel({
           <div className="rounded-xl border border-gray-200 bg-white p-5">
             <h2 className="text-base font-semibold text-gray-900">Authority Source</h2>
             <div className="mt-4 space-y-3 text-sm text-gray-600">
+              {/* An operator reading this panel must be able to see which
+                  repository the running release claims to come from. */}
+              <p>
+                Repository:{" "}
+                <code className="font-mono text-xs">
+                  {report.release.repository.fullName}
+                </code>{" "}
+                <code className="font-mono text-xs">
+                  {report.release.repository.branch}
+                </code>
+              </p>
               <p>
                 Manifest:{" "}
                 <code className="font-mono text-xs">

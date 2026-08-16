@@ -150,6 +150,46 @@ else
   bad "an unterminated block was not refused safely (rc=${pause_rc})"
 fi
 
+# --- 8: a DIFFERENT live block must not silently discard the parked one -----
+reset_crontab
+rootcron_pause "${STATE_DIR}" >/dev/null
+# Someone re-adds a managed block, but not the one that was removed: a changed
+# cadence and a stale token. The parked copy is the only record of the original.
+{
+  cat "${CRONTAB_FILE}"
+  printf '%s\n' "# BEGIN adsecute-sync"
+  printf '%s\n' "*/30 * * * * curl -fsS -X POST http://127.0.0.1:3000/api/sync/cron -H \"Authorization: Bearer STALE\""
+  printf '%s\n' "# END adsecute-sync"
+} > "${WORK}/tampered" && mv "${WORK}/tampered" "${CRONTAB_FILE}"
+rc8=0
+rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc8=$?
+if [ "${rc8}" -ne 0 ]; then
+  ok "resume refuses when a DIFFERENT managed block is live"
+else
+  bad "resume accepted a different live block"
+fi
+if rootcron_is_paused "${STATE_DIR}"; then
+  ok "the original parked block is preserved, not discarded"
+else
+  bad "the original parked block was discarded while a different one was live"
+fi
+
+# --- 9: an IDENTICAL live block is a clean no-op ----------------------------
+reset_crontab
+rootcron_pause "${STATE_DIR}" >/dev/null
+# Restore by hand, byte-identical to what was parked.
+awk -v idx="$(cat "${STATE_DIR}/rootcron.index")" -v bf="${STATE_DIR}/rootcron.block" '
+  BEGIN{e=0} { if (NR-1==idx) { while((getline l < bf)>0) print l; close(bf); e=1 } print }
+  END{ if(!e){ while((getline l < bf)>0) print l; close(bf) } }
+' "${STATE_DIR}/rootcron.outside" > "${WORK}/manual" && mv "${WORK}/manual" "${CRONTAB_FILE}"
+rc9=0
+rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc9=$?
+if [ "${rc9}" -eq 0 ] && ! rootcron_is_paused "${STATE_DIR}"; then
+  ok "an identical live block clears the parked state without error"
+else
+  bad "an identical live block was not handled cleanly (rc=${rc9})"
+fi
+
 if [ "${failures}" -ne 0 ]; then
   echo "FAILED: ${failures} case(s)"
   exit 1

@@ -150,11 +150,23 @@ rootcron_resume() {
   fi
 
   if [ -s "${block}" ]; then
-    # Already back (a previous resume succeeded, or an operator restored it).
-    rootcron_log "a managed block is already present; clearing the parked copy"
-    rm -f "${saved_block}" "${saved_outside}" "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+    # A block is already present. It is only safe to drop the parked copy if
+    # the live one is byte-identical to it.
+    #
+    # Treating any non-empty block as "already restored" would discard the only
+    # copy of the original while a DIFFERENT schedule stayed active — a changed
+    # cadence, or a stale bearer token that now fails every run. The parked file
+    # is the sole record of what was removed, so a mismatch has to stop rather
+    # than clean up.
+    if cmp -s "${block}" "${saved_block}"; then
+      rootcron_log "the managed block is already present and identical to the parked copy; clearing state"
+      rm -f "${saved_block}" "${saved_outside}" "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+      rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
+      return 0
+    fi
     rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-    return 0
+    rootcron_die "a DIFFERENT managed block is live than the one parked at ${saved_block}; refusing to discard the original. Reconcile the two by hand."
+    return 1
   fi
 
   expected_outside_sha="$(cat "${state_dir}/rootcron.outside.sha256" 2>/dev/null || true)"

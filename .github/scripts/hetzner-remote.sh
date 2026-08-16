@@ -720,15 +720,13 @@ migration_failed_on_lock_contention() {
 # Where a paused cron block is parked between pause and resume.
 DEPLOY_SCHEDULER_STATE_DIR="${DEPLOY_SCHEDULER_STATE_DIR:-/var/lib/adsecute-deploy}"
 
-# shellcheck source=../../scripts/lib/rootcron.sh
+# The rootcron helper arrives CONCATENATED ahead of this script by
+# hetzner-ssh.sh, because the host has no repository to source it from --
+# `sync_compose_to_host` copies only docker-compose.yml and everything else
+# travels on stdin. These two hooks are (re)defined after it so the library's
+# `command -v ... ||` defaults lose to the deploy's own logging.
 rootcron_log() { log "$*"; }
 rootcron_die() { log "ABORT $*"; return 1; }
-if [ -r "${REMOTE_APP_DIR:-.}/scripts/lib/rootcron.sh" ]; then
-  . "${REMOTE_APP_DIR:-.}/scripts/lib/rootcron.sh"
-  ROOTCRON_AVAILABLE=1
-else
-  ROOTCRON_AVAILABLE=0
-fi
 
 # Stop new full sync runs from entering the migration window.
 #
@@ -738,9 +736,17 @@ fi
 # avoiding. The resume is also run BEFORE pausing, so a previous run that was
 # killed between the two leaves nothing stranded.
 deploy_scheduler_pause() {
-  if [ "${ROOTCRON_AVAILABLE}" != "1" ]; then
-    log "rootcron helper not found on the host; skipping scheduler quiesce (migrations will rely on contention retry alone)"
-    return 0
+  # Absence is a FAILURE, not a downgrade.
+  #
+  # The first version of this logged a line and carried on. That is the exact
+  # shape of the bug it was written to fix: the deploy would look like it had
+  # quiesced the scheduler, the cron would keep firing into the migration
+  # window, and the only evidence would be one line in a log nobody reads
+  # during a green deploy. If the helper did not arrive, the delivery is broken
+  # and that is worth stopping for.
+  if ! command -v rootcron_pause >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered with this script; refusing to migrate without the scheduler quiesce. Set DEPLOY_SKIP_SCHEDULER_QUIESCE=true to proceed deliberately."
+    return 1
   fi
   if [ "${DEPLOY_SKIP_SCHEDULER_QUIESCE:-false}" = "true" ]; then
     log "DEPLOY_SKIP_SCHEDULER_QUIESCE=true; leaving the scheduler running"

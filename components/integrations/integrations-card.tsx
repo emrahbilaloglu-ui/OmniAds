@@ -109,6 +109,14 @@ export function IntegrationsCard({
     (provider === "meta" && metaSyncLoading) ||
     (provider === "google" && googleSyncLoading) ||
     (provider === "shopify" && shopifySyncLoading);
+  const metaLine = [
+    view.connectionLabel,
+    view.detailValue ? `${view.detailLabel} ${view.detailValue}` : null,
+    view.lastSyncValue ? `${view.lastSyncLabel} ${formatDisplayValue(view.lastSyncValue)}` : null,
+    view.accountValue ? `${view.accountLabel} ${view.accountValue}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const syncNoticeClasses =
     syncNoticeTone === "warning"
       ? "border-amber-300/40 bg-amber-50 text-amber-800"
@@ -119,7 +127,9 @@ export function IntegrationsCard({
   return (
     <div
       className={cn(
-        "group flex h-full flex-col rounded-xl border bg-white p-3 transition-colors duration-200",
+        // Card geometry is the design's, to the pixel: 14px radius, 16px pad,
+        // white surface. Only the border carries state.
+        "group flex h-full flex-col gap-3 rounded-[14px] border bg-[var(--adv-surface)] p-4 transition-colors duration-200",
         syncActionRequired
           ? "border-amber-200"
           : isReady || isDegraded
@@ -128,40 +138,33 @@ export function IntegrationsCard({
             ? "border-blue-200"
             : isActionRequired
               ? "border-amber-200"
-              : "border-border",
+              : "border-[var(--adv-border)]",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-white dark:bg-muted/50">
-            {logoSrc ? (
-              <Image src={logoSrc} alt={providerLabel} width={20} height={20} className="object-contain" />
-            ) : null}
-          </div>
-          <div className="min-w-0 space-y-0.5">
-            <h2 className="truncate text-sm font-semibold tracking-tight text-foreground">
-              {providerLabel}
-            </h2>
-            <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">
-              {description}
-            </p>
-          </div>
-        </div>
-        {comingSoon ? (
-          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[12px] font-medium text-neutral-500">
-            Coming soon
-          </span>
-        ) : (
-          <StatusBadge status={visualStatus} />
-        )}
+      <div className="flex items-center gap-[10px]">
+        <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px] border border-[var(--adv-border)] bg-[var(--adv-fill-2)]">
+          {logoSrc ? (
+            <Image src={logoSrc} alt={providerLabel} width={19} height={19} className="object-contain" />
+          ) : null}
+        </span>
+        <h2 className="min-w-0 truncate text-[14.5px] font-semibold text-[var(--adv-ink)]">
+          {providerLabel}
+        </h2>
+        <span className="ml-auto shrink-0">
+          {comingSoon ? (
+            <span className="inline-flex items-center rounded-full bg-[var(--adv-fill-2)] px-[10px] py-[3px] text-[11px] font-bold text-[var(--adv-ink-3)]">
+              Coming soon
+            </span>
+          ) : (
+            <StatusBadge status={visualStatus} />
+          )}
+        </span>
       </div>
 
-      <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
-        <CompactMetaRow label="Connection" value={view.connectionLabel} />
-        <CompactMetaRow label={view.detailLabel} value={view.detailValue} />
-        <CompactMetaRow label={view.lastSyncLabel} value={formatDisplayValue(view.lastSyncValue)} />
-        <CompactMetaRow label={view.accountLabel} value={view.accountValue} />
-      </div>
+      <p className="text-[12.5px] leading-[1.5] text-[var(--adv-ink-2)]">
+        {description}
+      </p>
+
 
       {view.notice ? (
         <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[12px] leading-4 text-blue-800">
@@ -215,9 +218,19 @@ export function IntegrationsCard({
         </p>
       ) : null}
 
-      <div className="mt-3 border-t border-border/70 pt-3">
+      {/* The design gives the card one monospace meta line rather than a grid of
+          labelled cells. It carries the same four facts, joined -- dropping any
+          of them to fit the shape would have been the shape editing the data. */}
+      <p
+        className="truncate font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]"
+        title={metaLine}
+      >
+        {metaLine}
+      </p>
+
+      <div className="mt-auto flex flex-wrap items-center gap-2">
         {comingSoon ? (
-          <p className="text-[12px] leading-4 text-muted-foreground">
+          <p className="text-[12px] leading-4 text-[var(--adv-ink-4)]">
             {providerLabel} isn&apos;t connectable yet — no live authorization or data sync
             exists for it. This card is a visible roadmap placeholder, not a working connector.
           </p>
@@ -355,42 +368,31 @@ function withGoogleFreshnessTruth(
   };
 }
 
+/**
+ * The design gives status one shape: a full-radius pill, 3px/10px, 11px bold.
+ * Only the two colours change, so a state can never quietly restyle the card.
+ */
 function StatusBadge({ status }: { status: ProviderViewState["status"] }) {
   if (status === "ready") {
     return (
-      <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">
+      <Badge className="rounded-full border-0 bg-emerald-50 px-[10px] py-[3px] text-[11px] font-bold text-emerald-700">
         Connected
       </Badge>
     );
   }
   if (status === "degraded") {
-    return <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">Degraded</Badge>;
+    return <Badge className="rounded-full border-0 bg-emerald-50 px-[10px] py-[3px] text-[11px] font-bold text-emerald-700">Degraded</Badge>;
   }
   if (status === "loading_data") {
-    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Loading</Badge>;
+    return <Badge className="rounded-full border-0 bg-blue-50 px-[10px] py-[3px] text-[11px] font-bold text-blue-700">Loading</Badge>;
   }
   if (status === "needs_assignment") {
-    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Needs setup</Badge>;
+    return <Badge className="rounded-full border-0 bg-blue-50 px-[10px] py-[3px] text-[11px] font-bold text-blue-700">Needs setup</Badge>;
   }
   if (status === "action_required") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-[12px] text-amber-800">Action required</Badge>;
+    return <Badge className="rounded-full border-0 bg-amber-50 px-[10px] py-[3px] text-[11px] font-bold text-amber-800">Action required</Badge>;
   }
-  return <Badge className="border border-border bg-muted text-[12px] text-muted-foreground">Not connected</Badge>;
-}
-
-function CompactMetaRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="grid grid-cols-[auto_1fr] items-start gap-2 text-xs">
-      <p className="font-medium text-muted-foreground">{label}:</p>
-      <p className="truncate font-medium text-foreground">{value}</p>
-    </div>
-  );
+  return <Badge className="rounded-full border-0 bg-[var(--adv-fill-2)] px-[10px] py-[3px] text-[11px] font-bold text-[var(--adv-ink-3)]">Not connected</Badge>;
 }
 
 function formatDisplayValue(value: string) {
@@ -475,7 +477,8 @@ function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
   };
 }
 
-function getProviderLogo(provider: IntegrationProvider): string | null {
+/** Shared with the roadmap cards, which show the same marks greyed out. */
+export function getProviderLogo(provider: IntegrationProvider): string | null {
   switch (provider) {
     case "meta": return "/platform-logos/Meta.png";
     case "google": return "/platform-logos/googleAds.svg";

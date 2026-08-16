@@ -6,14 +6,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ProductSection, StateBanner } from "@/components/ui/product-surface";
-import {
-  WorkspacePill,
-  WorkspaceSurface,
-} from "@/components/workspace/workspace-surface";
+import { StateBanner } from "@/components/ui/product-surface";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import {
@@ -21,7 +16,8 @@ import {
   useIntegrationsStore,
 } from "@/store/integrations-store";
 import { deriveProviderViewStates } from "@/store/integrations-support";
-import { IntegrationsCard } from "@/components/integrations/integrations-card";
+import { IntegrationsCard, getProviderLogo } from "@/components/integrations/integrations-card";
+import { SoonCard } from "@/components/integrations/soon-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
@@ -31,7 +27,7 @@ import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { usePreferencesStore } from "@/store/preferences-store";
-import { ArrowRight, CheckCircle2, Link2, Sparkles } from "lucide-react";
+import { ArrowRight, Link2 } from "lucide-react";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
@@ -74,34 +70,6 @@ const DISPLAY_PROVIDERS: IntegrationProvider[] = [
   "tiktok",
   "pinterest",
   "snapchat",
-];
-
-const PROVIDER_GROUPS: Array<{
-  title: string;
-  description: string;
-  providers: IntegrationProvider[];
-}> = [
-  {
-    title: "Advertising Platforms",
-    description: "Connect ad channels and decide which accounts Adsecute should actively use.",
-    providers: ["meta", "google", "tiktok", "pinterest", "snapchat"],
-  },
-  {
-    title: "Analytics & Tracking",
-    description: "Bring in attribution, analytics, and organic search visibility.",
-    providers: ["ga4", "search_console"],
-  },
-  {
-    title: "Commerce",
-    description: "Link storefront and conversion data to complete the reporting picture.",
-    providers: ["shopify"],
-  },
-  {
-    title: "Lifecycle & Retention",
-    description:
-      "Connect your lifecycle marketing stack to monitor flow health, campaign revenue, and retention opportunities.",
-    providers: ["klaviyo"],
-  },
 ];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
@@ -657,61 +625,42 @@ export default function IntegrationsPage() {
     (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
   );
 
-  const connectedCount = providerCards.filter((item) => item.view.isConnected).length;
-  const needsSetupCount = providerCards.filter((item) =>
-    item.view.status === "disconnected" ||
-    item.view.status === "needs_assignment" ||
-    item.view.status === "action_required" ||
-    item.view.status === "loading_data"
-  ).length;
-  const assignedAccountsTotal = providerCards.reduce(
-    (sum, item) => sum + item.view.assignedCount,
-    0,
-  );
   const isDemoWorkspace = isDemoBusinessId(businessId);
+  // A provider is "live" when it has a real authorization flow. Everything else
+  // is roadmap, and the design keeps the two apart rather than greying a
+  // Connect button that would 404.
+  const liveCards = providerCards.filter((item) =>
+    CONNECTABLE_PROVIDERS.includes(item.provider),
+  );
+  const soonCards = providerCards.filter(
+    (item) => !CONNECTABLE_PROVIDERS.includes(item.provider),
+  );
 
   return (
-    <WorkspaceSurface
-      eyebrow="Integrations"
-      title="Connect and assign provider data"
-      description="Connect ad platforms, analytics tools, and storefronts once, then choose exactly which accounts Adsecute should use for this business."
-      meta={
-        <WorkspacePill tone={isDemoWorkspace ? "warning" : "positive"}>
-          {isDemoWorkspace ? "demo fixtures" : "live workspace"}
-        </WorkspacePill>
-      }
-      actions={
-        <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
-          <SummaryTile
-            label="Connected"
-            value={String(connectedCount)}
-            note={isDemoWorkspace ? "Fixture-backed integrations" : "Live integrations"}
-            tone="positive"
-          />
-          <SummaryTile
-            label="Needs setup"
-            value={String(needsSetupCount)}
-            note="Still disconnected or incomplete"
-            tone="neutral"
-          />
-          <SummaryTile
-            label="Assigned"
-            value={String(assignedAccountsTotal)}
-            note="Accounts, properties, and sites in use"
-            tone="accent"
-          />
-        </div>
-      }
-    >
-      <div className="inline-flex w-fit items-center gap-2 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-ink3)]">
-              <Sparkles className="h-3.5 w-3.5" />
-              Active business
-              <span className="text-[var(--adc-ink)]">{activeBusiness?.name ?? "Unknown"}</span>
-              {isDemoWorkspace ? (
-                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]">
-                  Demo fixtures active
-                </span>
-              ) : null}
+    <div className="flex flex-col gap-4">
+      {/* The design's header: an eyebrow, the name, and one sentence about how
+          sync actually behaves. It replaced the three summary tiles -- counts
+          the cards below already state, one card at a time. */}
+      <div>
+        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+          Workspace · Data sources
+        </p>
+        <h1 className="mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold tracking-[-0.02em] text-[var(--adv-ink)]">
+          Integrations
+        </h1>
+        <p className="mt-1.5 max-w-[640px] text-[12.5px] leading-[1.55] text-[var(--adv-ink-3)]">
+          Connected sources refresh themselves — a full sync runs nightly at 03:00 ET, deltas
+          land continuously. Sync progress appears once: while a new source runs its first
+          import.
+        </p>
+        <p className="mt-2 inline-flex w-fit items-center gap-2 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+          {activeBusiness?.name ?? "Unknown business"}
+          {isDemoWorkspace ? (
+            <span className="rounded-[4px] bg-[var(--adc-caution-bg)] px-1.5 py-[1.5px] text-[9.5px] font-semibold text-[var(--adc-caution-fg)]">
+              demo fixtures
+            </span>
+          ) : null}
+        </p>
       </div>
 
       {toast && (
@@ -723,83 +672,76 @@ export default function IntegrationsPage() {
         </StateBanner>
       )}
 
-      <div className="space-y-4">
-        {PROVIDER_GROUPS.map((group) => {
-          const cards = providerCards.filter((item) =>
-            group.providers.includes(item.provider),
-          );
-          if (cards.length === 0) return null;
-
-          return (
-            <ProductSection
-              key={group.title}
-              title={group.title}
-              description={group.description}
-              actions={
-                <div className="flex flex-wrap gap-2">
-                  {cards
-                    .filter((item) => item.view.isConnected)
-                    .slice(0, 3)
-                    .map((item) => (
-                      <Badge
-                        key={item.provider}
-                        className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
-                      >
-                        <CheckCircle2 className="h-3 w-3" />
-                        {getProviderLabel(item.provider)}
-                      </Badge>
-                    ))}
-                </div>
+      {/* One grid, not four titled groups: the design lists every live source
+          together and keeps the not-yet-built ones in their own section below,
+          so a roadmap card can never sit beside a working one. */}
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+        {liveCards.map((item) => (
+          <IntegrationsCard
+            key={item.provider}
+            provider={item.provider}
+            businessId={selectedBusinessId}
+            language={language}
+            description={DESCRIPTIONS[item.provider]}
+            view={item.view}
+            syncNotice={item.syncNotice}
+            syncNoticeTone={item.syncNoticeTone}
+            metaSyncStatus={item.metaSyncStatus}
+            metaSyncLoading={item.metaSyncLoading}
+            googleSyncStatus={item.googleSyncStatus}
+            googleSyncLoading={item.googleSyncLoading}
+            shopifySyncStatus={item.shopifySyncStatus}
+            shopifySyncLoading={item.shopifySyncLoading}
+            onConnect={handleConnect}
+            onReconnect={(p) => setActiveProvider(p)}
+            onRetry={handleRetry}
+            onCancel={(p) => cancel(p)}
+            onDisconnect={(p) => handleDisconnect(p)}
+            onOpenAssignments={(p) => {
+              if (p === "shopify") {
+                return;
               }
-            >
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {cards.map((item) => (
-                  <IntegrationsCard
-                    key={item.provider}
-                    provider={item.provider}
-                    businessId={selectedBusinessId}
-                    language={language}
-                    description={DESCRIPTIONS[item.provider]}
-                    view={item.view}
-                    syncNotice={item.syncNotice}
-                    syncNoticeTone={item.syncNoticeTone}
-                    metaSyncStatus={item.metaSyncStatus}
-                    metaSyncLoading={item.metaSyncLoading}
-                    googleSyncStatus={item.googleSyncStatus}
-                    googleSyncLoading={item.googleSyncLoading}
-                    shopifySyncStatus={item.shopifySyncStatus}
-                    shopifySyncLoading={item.shopifySyncLoading}
-                    comingSoon={!CONNECTABLE_PROVIDERS.includes(item.provider)}
-                    onConnect={handleConnect}
-                    onReconnect={(p) => setActiveProvider(p)}
-                    onRetry={handleRetry}
-                    onCancel={(p) => cancel(p)}
-                    onDisconnect={(p) => handleDisconnect(p)}
-                    onOpenAssignments={(p) => {
-                      if (p === "shopify") {
-                        return;
-                      }
-                      if (p === "ga4") {
-                        setGa4PickerOpen(true);
-                        return;
-                      }
-                      if (p === "search_console") {
-                        void openSearchConsoleSelector();
-                        return;
-                      }
-                      if (p === "klaviyo") {
-                        router.push("/platforms/klaviyo");
-                        return;
-                      }
-                      setAssignmentProvider(p);
-                    }}
-                  />
-                ))}
-              </div>
-            </ProductSection>
-          );
-        })}
+              if (p === "ga4") {
+                setGa4PickerOpen(true);
+                return;
+              }
+              if (p === "search_console") {
+                void openSearchConsoleSelector();
+                return;
+              }
+              if (p === "klaviyo") {
+                router.push("/platforms/klaviyo");
+                return;
+              }
+              setAssignmentProvider(p);
+            }}
+          />
+        ))}
       </div>
+
+      {soonCards.length > 0 ? (
+        <>
+          <div className="mt-1.5 flex items-baseline gap-2.5">
+            <h2 className="m-0 font-[family-name:var(--adv-font-display)] text-[16px] font-semibold text-[var(--adv-ink)]">
+              Coming soon
+            </h2>
+            <span className="font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+              these stay out of the sidebar until the integration is live — never simulated
+            </span>
+          </div>
+
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+            {soonCards.map((item) => (
+              <SoonCard
+                key={item.provider}
+                provider={item.provider}
+                logoSrc={getProviderLogo(item.provider)}
+                note="No live connector yet — no date scheduled."
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
 
       <ConnectModal
         provider={activeProvider}
@@ -929,7 +871,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ) : null}
-    </WorkspaceSurface>
+    </div>
   );
 }
 
@@ -1000,36 +942,3 @@ function IntegrationsPageSkeleton() {
   );
 }
 
-function SummaryTile({
-  label,
-  value,
-  note,
-  tone,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  tone: "positive" | "neutral" | "accent";
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-[10px] border px-3 py-2.5",
-        tone === "positive" && "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
-        tone === "neutral" && "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink2)]",
-        tone === "accent" && "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
-      )}
-    >
-      <p className="font-mono text-[10.5px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
-        {label}
-      </p>
-      <div className="mt-1 flex items-end gap-2">
-        <span className="font-mono text-[19px] font-semibold tracking-normal tabular-nums text-[var(--adc-ink)]">
-          {value}
-        </span>
-        <ArrowRight className="mb-0.5 h-3.5 w-3.5 text-current opacity-60" />
-      </div>
-      <p className="mt-1 text-[11.5px] leading-5 text-current">{note}</p>
-    </div>
-  );
-}

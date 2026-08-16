@@ -1055,3 +1055,69 @@
     scroll-behavior: auto;
   }
 }
+
+/**
+ * Autonomy ladder.
+ *
+ * One row per action kind, matching the design's four columns: kind, the tier
+ * it currently sits at, why it is held there, and when that was last changed.
+ * The design also shows a per-kind promotion count; promotion records are keyed
+ * by entity, not by action kind, so attributing them per row would be inventing
+ * a number. The real total sits in the section header instead.
+ *
+ * Type sits at the 12px floor rather than the design's 10.5-11.5px. That floor
+ * is a contract (lib/typography-floor.test.ts), written after an audit found
+ * essential content -- table headers, reasons, assessments -- shipped at sizes
+ * people cannot comfortably read. A tier and the reason it is held there is
+ * exactly that kind of content, so the floor wins over the type scale here.
+ */
+.ladderList {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--auto-border);
+}
+
+.ladderRow {
+  display: grid;
+  grid-template-columns: minmax(0, 120px) minmax(0, 110px) minmax(0, 1fr) minmax(0, auto);
+  align-items: baseline;
+  gap: 10px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--auto-border);
+  padding: 8px 12px;
+}
+
+.ladderKind {
+  color: var(--auto-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ladderTier {
+  font-family: var(--adv-font-mono), monospace;
+  font-size: 12px;
+  color: var(--auto-ink-2, var(--auto-ink));
+}
+
+.ladderWhy {
+  color: var(--auto-ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ladderWhen {
+  font-family: var(--adv-font-mono), monospace;
+  font-size: 12px;
+  color: var(--auto-ink-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ladderNote {
+  margin: 10px 12px 0;
+  font-family: var(--adv-font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--auto-ink-3);
+}

@@ -825,7 +825,7 @@ function CostStructureSection({
 }
 
 // ---------------------------------------------------------------------------
-// Section 3: ROAS Scenario Guide
+// Section 3: Spend × ROAS scenario guide
 // ---------------------------------------------------------------------------
 
 const DEFAULT_SPEND_LEVELS = [10000, 20000, 30000, 50000, 100000];
@@ -936,7 +936,7 @@ function RoasScenarioSection({
   return (
     <CtSection
       eyebrow="Section 3"
-      title="ROAS Scenario Guide"
+      title="Spend × ROAS scenario guide"
       subtitle="Compare how spend × ROAS combinations stack up. Edit spend levels in the header and ROAS per column — the table recalculates live."
       action={
         targetRoas != null && targetRoas > 0 ? (
@@ -1259,7 +1259,7 @@ export function TargetRoasSection({
   return (
     <CtSection
       eyebrow="Section 4"
-      title="Target ROAS & CPA"
+      title="Target pack"
       subtitle="The efficiency anchors the engine uses for revenue and acquisition objectives. Empty fields remain unconfigured."
       tooltip="ROAS anchors are used for revenue objectives; CPA anchors are used for acquisition objectives. Values are persisted as Commercial Truth and never inferred by this screen."
       action={

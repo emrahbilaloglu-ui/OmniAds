@@ -7,9 +7,9 @@ import { fmtCurrency, fmtNumber, fmtRoas, TabSkeleton, TabEmpty, SimpleTable, Co
 type Intent = "transactional" | "commercial" | "informational" | "navigational";
 
 const INTENT_CONFIG: Record<Intent, string> = {
-  transactional: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  commercial: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  informational: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
+  transactional: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
+  commercial: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  informational: "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)] dark:bg-[var(--adc-auto-fg)]/40 dark:text-[var(--adc-auto-fg)]",
   navigational: "bg-muted text-muted-foreground",
 };
 
@@ -74,11 +74,11 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
         <div className="max-w-[200px]">
           <p className="text-xs font-medium truncate" title={r.searchTerm}>{r.searchTerm}</p>
           <div className="flex items-center gap-1 mt-0.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
               {r.intent}
             </span>
             {!r.isKeyword && r.conversions >= 2 && (
-              <span className="rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[12px] font-semibold">
+              <span className="rounded-full bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)] dark:bg-[var(--adc-auto-fg)]/40 dark:text-[var(--adc-auto-fg)] px-1.5 py-0.5 text-[9px] font-semibold">
                 + KW opp
               </span>
             )}
@@ -92,21 +92,21 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
     {
       key: "cpa", header: "CPA", accessor: (r) => r.cpa === 0 ? 99999 : r.cpa, align: "right",
       render: (r) => r.conversions === 0
-        ? <span className="text-rose-600 dark:text-rose-400">—</span>
+        ? <span className="text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]">—</span>
         : fmtCurrency(r.cpa),
     },
     { key: "revenue", header: "Conv. Value", accessor: (r) => r.revenue, align: "right", render: (r) => fmtCurrency(r.revenue) },
     {
       key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
       render: (r) => r.roas === 0 ? "—" : (
-        <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : "")}>{fmtRoas(r.roas)}</span>
+        <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : "")}>{fmtRoas(r.roas)}</span>
       ),
     },
     { key: "ctr", header: "CTR", accessor: (r) => r.ctr, align: "right", render: (r) => `${r.ctr.toFixed(1)}%` },
     {
       key: "spend", header: "Spend", accessor: (r) => r.spend, align: "right",
       render: (r) => (
-        <span className={cn(r.spend > 50 && r.conversions === 0 ? "text-rose-600 dark:text-rose-400 font-semibold" : "")}>
+        <span className={cn(r.spend > 50 && r.conversions === 0 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)] font-semibold" : "")}>
           {fmtCurrency(r.spend)}
         </span>
       ),
@@ -120,7 +120,7 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
         <div className="flex flex-wrap gap-3 rounded-xl border bg-muted/30 px-4 py-3">
           {summary.wastefulSpend > 0 && (
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-rose-500" />
+              <span className="h-2 w-2 rounded-full bg-[var(--adc-danger-fg)]" />
               <span className="text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">{fmtCurrency(summary.wastefulSpend)}</span> wasted on zero-conv terms
               </span>
@@ -128,7 +128,7 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
           )}
           {summary.keywordOpportunities > 0 && (
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-violet-500" />
+              <span className="h-2 w-2 rounded-full bg-[var(--adc-auto-fg)]" />
               <span className="text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">{summary.keywordOpportunities}</span> converting terms not yet keywords
               </span>
@@ -136,7 +136,7 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
           )}
           {summary.highPerformingCount > 0 && (
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="h-2 w-2 rounded-full bg-[var(--adc-pos-fg)]" />
               <span className="text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">{summary.highPerformingCount}</span> high-performing terms
               </span>

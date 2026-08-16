@@ -13,7 +13,7 @@ function statusTone(status: MetaAnalysisStatus["decisionOsStatus"]) {
       return "border-slate-200 bg-slate-50 text-slate-700";
     case "error":
     case "mismatch":
-      return "border-rose-200 bg-rose-50 text-rose-800";
+      return "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]";
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
@@ -22,13 +22,13 @@ function statusTone(status: MetaAnalysisStatus["decisionOsStatus"]) {
 function sourceTone(source: MetaAnalysisStatus["recommendationSource"]) {
   switch (source) {
     case "snapshot_fallback":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
     case "snapshot_persistent":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
     case "snapshot_live":
-      return "border-sky-200 bg-sky-50 text-sky-800";
+      return "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]";
     case "demo":
-      return "border-violet-200 bg-violet-50 text-violet-800";
+      return "border-[var(--adc-auto-bd)] bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]";
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
@@ -51,7 +51,7 @@ export function MetaAnalysisStatusCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             Analysis status
           </p>
           <p className="mt-1 text-sm font-semibold text-slate-950">{status.message}</p>
@@ -59,26 +59,26 @@ export function MetaAnalysisStatusCard({
         <div className="flex flex-wrap gap-2">
           {status.isAnalysisRunning ? (
             <span
-              className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-sky-800"
+              className="rounded-full border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--adc-info-fg)]"
               data-testid="meta-analysis-running-label"
             >
               Analysis: Running
             </span>
           ) : null}
           <span
-            className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide ${statusTone(status.decisionOsStatus)}`}
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(status.decisionOsStatus)}`}
             data-testid="meta-analysis-decision-os-label"
           >
             Decision OS: {status.decisionOsLabel}
           </span>
           <span
-            className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide ${sourceTone(status.recommendationSource)}`}
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${sourceTone(status.recommendationSource)}`}
             data-testid="meta-analysis-source-label"
           >
             Recommendation source: {status.recommendationSourceLabel}
           </span>
           <span
-            className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-slate-700"
+            className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700"
             data-testid="meta-analysis-presentation-label"
           >
             Presentation: {status.presentationModeLabel}
@@ -94,7 +94,7 @@ export function MetaAnalysisStatusCard({
       ) : null}
 
       {status.safeErrorMessage ? (
-        <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+        <p className="mt-3 rounded-xl border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] px-3 py-2 text-xs text-[var(--adc-danger-fg)]">
           {status.safeErrorMessage}
         </p>
       ) : null}

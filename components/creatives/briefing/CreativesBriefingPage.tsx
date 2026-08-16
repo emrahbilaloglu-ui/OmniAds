@@ -230,9 +230,9 @@ class SectionErrorBoundary extends Component<
   render() {
     if (!this.state.hasError) return this.props.children;
     return (
-      <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[12.5px] text-amber-950">
+      <section className="mt-8 rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/70 px-5 py-4 text-[12.5px] text-[var(--adc-caution-fg)]">
         <div className="font-semibold">{this.props.title}</div>
-        <div className="mt-1 text-amber-900/80">
+        <div className="mt-1 text-[var(--adc-caution-fg)]/80">
           This section received an unexpected creative data shape. The rest of
           the briefing remains available.
         </div>
@@ -243,17 +243,17 @@ class SectionErrorBoundary extends Component<
 
 function CreativeDataSetupNotice({ notice }: { notice: CreativeDataNotice }) {
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 mb-4 flex items-start gap-3">
+    <div className="rounded-lg border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/70 px-4 py-3 mb-4 flex items-start gap-3">
       <AlertTriangle
-        className="text-amber-600 mt-0.5 inline-block shrink-0"
+        className="text-[var(--adc-caution-fg)] mt-0.5 inline-block shrink-0"
         size={18}
         aria-hidden="true"
       />
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold text-amber-950 leading-snug">
+        <div className="text-[13px] font-semibold text-[var(--adc-caution-fg)] leading-snug">
           {notice.title}
         </div>
-        <div className="text-[12px] text-amber-900/80 mt-0.5">
+        <div className="text-[12px] text-[var(--adc-caution-fg)]/80 mt-0.5">
           {notice.body}
         </div>
       </div>
@@ -580,22 +580,22 @@ function CreativeEngineProfileStrip({
           aria-hidden="true"
         />
         <span className="font-semibold text-neutral-900">Engine profile</span>
-        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
           {profile.scope.type}:{profile.scope.id}
         </span>
-        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
           preset {profile.preset}
         </span>
         {dataSource ? (
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
+          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
             {dataSource}
           </span>
         ) : null}
         {asOf ? (
-          <span className="text-[12px] text-neutral-400">as of {asOf}</span>
+          <span className="text-[11px] text-neutral-400">as of {asOf}</span>
         ) : null}
       </div>
-      <div className="mt-2 grid gap-2 text-[12px] text-neutral-600 md:grid-cols-5">
+      <div className="mt-2 grid gap-2 text-[11.5px] text-neutral-600 md:grid-cols-5">
         <div>
           <span className="text-neutral-400">Hard actions</span>
           <div className="font-medium text-neutral-900">{hardActions}</div>
@@ -626,7 +626,7 @@ function CreativeEngineProfileStrip({
         </div>
       </div>
       {profile.scope.fallbackReason ? (
-        <div className="mt-2 text-[12px] text-amber-700">
+        <div className="mt-2 text-[11.5px] text-[var(--adc-caution-fg)]">
           Scope fallback: {profile.scope.fallbackReason.replace(/_/g, " ")}
         </div>
       ) : null}
@@ -1207,7 +1207,7 @@ function LaneSummaryHeader({
   const watching = summary.watching;
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-neutral-500"
+      className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-500"
       data-creative-lane-summary
     >
       <span className="font-semibold text-neutral-700">
@@ -1354,19 +1354,19 @@ function CreativePulseFinal({
         <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend, topCreative?.currency)} · {topContext}</div>
       </div>
       <div className="cell">
-        <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 12 }}><span className="dot" />scoped</span></div>
+        <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />scoped</span></div>
         <div className="value" style={{ fontSize: 14 }}>{profileLabel}</div>
         <div className="micro">scale floor · {profile?.thresholds.scaleMinPurchases ?? "—"} purchases / 7d</div>
       </div>
       <div className="cell">
-        <div className="label"><span>Parent labels</span><span className="chip chip--healthy" style={{ height: 16, padding: "0 6px", fontSize: 12 }}><span className="dot" />server</span></div>
+        <div className="label"><span>Parent labels</span><span className="chip chip--healthy" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />server</span></div>
         <div className="value" style={{ fontSize: 14 }}>{labelStatus}</div>
         <div className="micro">{trackingAnomalyActive ? "tracking confirmation required" : "briefing payload active"}</div>
       </div>
       <div className="cell">
         <div className="label">
           <span>Insights data</span>
-          <span className="chip" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
+          <span className="chip" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
             <span className="dot" />read-only
           </span>
         </div>
@@ -2669,7 +2669,7 @@ function WorkspaceButton({
       </span>
       <span
         className={[
-          "mt-0.5 block whitespace-nowrap font-mono text-[12px]",
+          "mt-0.5 block whitespace-nowrap font-mono text-[10.5px]",
           active ? "text-neutral-300" : "text-neutral-400",
         ].join(" ")}
       >
@@ -2726,9 +2726,9 @@ function BriefingToastViewport({ toast }: { toast: BriefingToast | null }) {
     <div
       className={`fixed bottom-5 right-5 z-[120] max-w-md rounded-xl border px-4 py-3 text-sm shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] ${
         toast.type === "success"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
           : toast.type === "error"
-            ? "border-rose-200 bg-rose-50 text-rose-900"
+            ? "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
             : "border-neutral-200 bg-white text-neutral-900"
       }`}
     >
@@ -2797,7 +2797,7 @@ function PulseCenter({
           viewBox="0 0 60 16"
           width="60"
           height="16"
-          className="text-blue-600"
+          className="text-[var(--adc-info-fg)]"
           aria-hidden="true"
         >
           <path
@@ -2820,7 +2820,7 @@ function PulseCenter({
           {formatRoas(roas)}
         </span>
         <span
-          className={`${roasDelta >= 0 ? "text-emerald-600" : "text-rose-600"} inline-flex items-center gap-0.5`}
+          className={`${roasDelta >= 0 ? "text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)]"} inline-flex items-center gap-0.5`}
         >
           <DeltaIcon
             className="inline-block shrink-0"
@@ -2873,14 +2873,14 @@ function PulseRight({
         className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap"
       >
         <span
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[12px] font-semibold uppercase tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
             engineLive
-              ? "bg-emerald-500/15 text-emerald-700 border border-emerald-200"
-              : "bg-amber-500/15 text-amber-800 border border-amber-200"
+              ? "bg-[var(--adc-pos-fg)]/15 text-[var(--adc-pos-fg)] border border-[var(--adc-pos-bd)]"
+              : "bg-[var(--adc-caution-fg)]/15 text-[var(--adc-caution-fg)] border border-[var(--adc-caution-bd)]"
           }`}
         >
           <span
-            className={`w-1.5 h-1.5 rounded-full ${engineLive ? "bg-emerald-500" : "bg-amber-500"}`}
+            className={`w-1.5 h-1.5 rounded-full ${engineLive ? "bg-[var(--adc-pos-fg)]" : "bg-[var(--adc-caution-fg)]"}`}
           />
           {engineLive ? "Live" : "Syncing"}
         </span>
@@ -2896,19 +2896,19 @@ function PulseRight({
       >
         {trackingAnomalyActive ? (
           <AlertTriangle
-            className="inline-block shrink-0 text-rose-600"
+            className="inline-block shrink-0 text-[var(--adc-danger-fg)]"
             size={13}
             aria-hidden="true"
           />
         ) : (
           <ShieldCheck
-            className="inline-block shrink-0 text-emerald-600"
+            className="inline-block shrink-0 text-[var(--adc-pos-fg)]"
             size={13}
             aria-hidden="true"
           />
         )}
         <span
-          className={trackingAnomalyActive ? "text-rose-700" : "text-neutral-700"}
+          className={trackingAnomalyActive ? "text-[var(--adc-danger-fg)]" : "text-neutral-700"}
         >
           {trackingAnomalyActive
             ? "Tracking anomaly active"

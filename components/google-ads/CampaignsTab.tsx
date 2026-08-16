@@ -24,12 +24,12 @@ interface Campaign {
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
-  Search: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  Shopping: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  "Performance Max": "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
-  Display: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
-  Video: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-  App: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  Search: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  Shopping: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
+  "Performance Max": "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)] dark:bg-[var(--adc-auto-fg)]/40 dark:text-[var(--adc-auto-fg)]",
+  Display: "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  Video: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",
+  App: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
 };
 
 const cols: ColDef<Campaign>[] = [
@@ -41,7 +41,7 @@ const cols: ColDef<Campaign>[] = [
       <div className="max-w-[180px]">
         <p className="font-medium truncate text-xs" title={r.name}>{r.name}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", CHANNEL_COLORS[r.channel] ?? "bg-muted text-muted-foreground")}>
+          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", CHANNEL_COLORS[r.channel] ?? "bg-muted text-muted-foreground")}>
             {r.channel}
           </span>
           <StatusBadge status={r.status} />
@@ -60,7 +60,7 @@ const cols: ColDef<Campaign>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn("font-semibold", r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn("font-semibold", r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]" : r.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {fmtRoas(r.roas)}
       </span>
     ),
@@ -76,13 +76,13 @@ const cols: ColDef<Campaign>[] = [
   {
     key: "lostIsBudget", header: "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
     render: (r) => r.lostIsBudget != null && r.lostIsBudget > 0
-      ? <span className="text-amber-600 dark:text-amber-400">{fmtPercent(r.lostIsBudget * 100)}</span>
+      ? <span className="text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]">{fmtPercent(r.lostIsBudget * 100)}</span>
       : "—",
   },
   {
     key: "lostIsRank", header: "Lost IS (Rank)", accessor: (r) => r.lostIsRank ?? 0, align: "right",
     render: (r) => r.lostIsRank != null && r.lostIsRank > 0
-      ? <span className="text-rose-600 dark:text-rose-400">{fmtPercent(r.lostIsRank * 100)}</span>
+      ? <span className="text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]">{fmtPercent(r.lostIsRank * 100)}</span>
       : "—",
   },
 ];

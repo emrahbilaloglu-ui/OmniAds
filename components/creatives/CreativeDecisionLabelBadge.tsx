@@ -31,7 +31,7 @@ export function CreativeDecisionLabelBadge({
         label={label}
         appearance="unstyled"
         className={cn(
-          "rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none",
+          "rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none",
           DECISION_LABEL_PALETTE[label].legacyClassName,
         )}
       >

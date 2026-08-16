@@ -90,11 +90,11 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
             <PerfBadge label={r.perf} />
           </div>
           <p className="text-xs font-medium truncate" title={r.headline || r.id}>{r.headline || r.id || "—"}</p>
-          {r.description && <p className="text-[12px] text-muted-foreground truncate">{r.description}</p>}
+          {r.description && <p className="text-[10px] text-muted-foreground truncate">{r.description}</p>}
           <div className="flex items-center gap-1 mt-0.5">
             <StatusBadge status={r.status} />
-            <span className="text-[12px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
-            {r.adStrength && <span className="text-[12px] text-muted-foreground">· {r.adStrength}</span>}
+            <span className="text-[9px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
+            {r.adStrength && <span className="text-[9px] text-muted-foreground">· {r.adStrength}</span>}
           </div>
         </div>
       ),
@@ -107,8 +107,8 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
       render: (r) => (
         <span className={cn(
           "font-medium",
-          r.ctr >= avgCtr * 1.5 ? "text-emerald-600 dark:text-emerald-400"
-          : r.ctr < avgCtr * 0.5 && r.impressions >= 100 ? "text-rose-600 dark:text-rose-400"
+          r.ctr >= avgCtr * 1.5 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]"
+          : r.ctr < avgCtr * 0.5 && r.impressions >= 100 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]"
           : ""
         )}>
           {r.ctr.toFixed(1)}%
@@ -120,7 +120,7 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
     {
       key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
       render: (r) => r.roas === 0 ? "—" : (
-        <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "")}>
+        <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : "")}>
           {fmtRoas(r.roas)}
         </span>
       ),
@@ -135,20 +135,20 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
     <div className="space-y-5">
       {/* Performance summary */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-3">
+        <div className="rounded-xl border border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50 bg-[var(--adc-pos-bg)] dark:bg-[var(--adc-pos-fg)]/30 p-3">
           <p className="text-xs text-muted-foreground">Top Performing</p>
-          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{topCount}</p>
-          <p className="text-[12px] text-muted-foreground">CTR ≥ {(avgCtr * 1.5).toFixed(1)}%</p>
+          <p className="text-2xl font-bold text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]">{topCount}</p>
+          <p className="text-[10px] text-muted-foreground">CTR ≥ {(avgCtr * 1.5).toFixed(1)}%</p>
         </div>
         <div className="rounded-xl border bg-card p-3">
           <p className="text-xs text-muted-foreground">Average</p>
           <p className="text-2xl font-bold">{labeled.filter((a) => a.perf === "average").length}</p>
-          <p className="text-[12px] text-muted-foreground">Avg CTR {avgCtr.toFixed(1)}%</p>
+          <p className="text-[10px] text-muted-foreground">Avg CTR {avgCtr.toFixed(1)}%</p>
         </div>
-        <div className={cn("rounded-xl border p-3", underCount > 0 ? "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30" : "bg-card")}>
+        <div className={cn("rounded-xl border p-3", underCount > 0 ? "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30" : "bg-card")}>
           <p className="text-xs text-muted-foreground">Underperforming</p>
-          <p className={cn("text-2xl font-bold", underCount > 0 ? "text-rose-600 dark:text-rose-400" : "")}>{underCount}</p>
-          <p className="text-[12px] text-muted-foreground">CTR &lt; {(avgCtr * 0.5).toFixed(1)}%</p>
+          <p className={cn("text-2xl font-bold", underCount > 0 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>{underCount}</p>
+          <p className="text-[10px] text-muted-foreground">CTR &lt; {(avgCtr * 0.5).toFixed(1)}%</p>
         </div>
       </div>
 
@@ -160,7 +160,7 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
             {needsAttention.slice(0, 3).map((a, i) => {
               const hint = getHint(a, avgCtr);
               return (
-                <div key={i} className="rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 px-4 py-3">
+                <div key={i} className="rounded-xl border border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50 bg-[var(--adc-danger-bg)] dark:bg-[var(--adc-danger-fg)]/30 px-4 py-3">
                   <p className="text-xs font-semibold truncate">{a.headline || a.id}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     CTR {a.ctr.toFixed(1)}% · {fmtCurrency(a.spend)} spent

@@ -1,5 +1,13 @@
 export type PlanId = "starter" | "growth" | "pro" | "scale";
 
+/** Display names for a plan id, shared by the shell and the plan-gate trails. */
+export const PLAN_LABELS: Record<PlanId, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+  scale: "Scale",
+};
+
 export type ModuleId =
   | "overview"
   | "creatives"

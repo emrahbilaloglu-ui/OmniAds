@@ -26,12 +26,12 @@ interface AudienceSummary {
 }
 
 const TYPE_CONFIG: Record<string, string> = {
-  Remarketing: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
-  "In-Market": "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  Affinity: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  "Custom Intent": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  "Life Events": "bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300",
-  "Similar Audiences": "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+  Remarketing: "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)] dark:bg-[var(--adc-auto-fg)]/40 dark:text-[var(--adc-auto-fg)]",
+  "In-Market": "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
+  Affinity: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
+  "Custom Intent": "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
+  "Life Events": "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",
+  "Similar Audiences": "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] dark:bg-[var(--adc-info-fg)]/40 dark:text-[var(--adc-info-fg)]",
 };
 
 const cols: ColDef<AudienceRow>[] = [
@@ -50,7 +50,7 @@ const cols: ColDef<AudienceRow>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "")}>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -77,7 +77,7 @@ export function AudiencesTab({ audiences, insights, summary, isLoading }: Audien
       {insights && insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((ins, i) => (
-            <div key={i} className="rounded-xl border border-violet-200 dark:border-violet-900/50 bg-violet-50 dark:bg-violet-950/30 px-4 py-3">
+            <div key={i} className="rounded-xl border border-[var(--adc-auto-bd)] dark:border-[var(--adc-auto-bd)]/50 bg-[var(--adc-auto-bg)] dark:bg-[var(--adc-auto-fg)]/30 px-4 py-3">
               <p className="text-xs text-foreground">◈ {ins}</p>
             </div>
           ))}
@@ -93,7 +93,7 @@ export function AudiencesTab({ audiences, insights, summary, isLoading }: Audien
                 {s.type}
               </span>
               <p className="text-sm font-bold mt-2">{fmtRoas(s.roas)}</p>
-              <p className="text-[12px] text-muted-foreground">ROAS · {fmtNumber(s.conversions)} conv</p>
+              <p className="text-[10px] text-muted-foreground">ROAS · {fmtNumber(s.conversions)} conv</p>
             </div>
           ))}
         </div>

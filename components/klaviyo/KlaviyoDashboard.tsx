@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -35,7 +34,6 @@ import {
   Activity,
   ArrowRight,
   Bot,
-  ChevronRight,
   HeartPulse,
   Mail,
   MessageSquare,
@@ -44,6 +42,9 @@ import {
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
+
+const KLAVIYO_HEAD =
+  "bg-[var(--adv-fill)] px-3 py-[9px] font-[family-name:var(--adv-font-mono)] text-[10px] font-medium uppercase tracking-[0.1em] whitespace-nowrap text-[var(--adv-ink-3)]";
 
 export function KlaviyoDashboard({ businessId }: { businessId: string }) {
   const [preset, setPreset] = useState<KlaviyoDateRangePreset>("30d");
@@ -121,77 +122,56 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-[28px] border border-border/70 bg-gradient-to-br from-card via-card to-muted/35 p-6 shadow-sm">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <Mail className="h-3.5 w-3.5" />
-              Lifecycle intelligence
-              <span className="text-foreground">Klaviyo</span>
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight">
-                Klaviyo Intelligence
-              </h1>
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                Monitor flows, compare periods, benchmark lifecycle performance, and
-                turn email and SMS signals into clear optimization actions.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[420px]">
-            <SummaryPill
-              label="Top warnings"
-              value={String(data.overview.warnings.length)}
-              note="Needs attention"
-              tone="risk"
-            />
-            <SummaryPill
-              label="Flow opportunities"
-              value={String(data.overview.opportunities.length)}
-              note="Scale candidates"
-              tone="positive"
-            />
-            <SummaryPill
-              label="Recommendations"
-              value={String(data.recommendations.length)}
-              note="Prioritized next steps"
-              tone="neutral"
-            />
-          </div>
+    <div className="flex flex-col gap-4">
+      {/* The design opens Klaviyo on a plain page head — mono eyebrow, display
+          title, and the beta chip on the right — not a gradient hero. */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+            Klaviyo · Email &amp; SMS
+          </p>
+          <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold tracking-[-0.02em] text-[var(--adv-ink)]">
+            Lifecycle
+          </h1>
         </div>
+        <span className="inline-flex rounded-full bg-[var(--adc-caution-bg)] px-3 py-1 text-[12px] font-bold text-[var(--adc-caution-fg)]">
+          BETA — read-only analysis
+        </span>
+      </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {KLAVIYO_PRESETS.map((item) => (
-            <Button
-              key={item}
-              variant={item === preset ? "default" : "outline"}
-              size="sm"
-              onClick={() => setPreset(item)}
-            >
-              {item === "custom" ? "Custom" : item.toUpperCase()}
-            </Button>
-          ))}
-          <Badge variant="outline" className="ml-auto gap-1 border-border/70 bg-background/70">
-            <RefreshCw className="h-3 w-3" />
-            {data.overview.compareLabel}
-          </Badge>
-        </div>
-      </section>
+      <div className="flex flex-wrap items-center gap-2">
+        {KLAVIYO_PRESETS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setPreset(item)}
+            className={cn(
+              "inline-flex h-[30px] shrink-0 items-center whitespace-nowrap rounded-[var(--adv-r-chip)] border px-3 text-[12px] font-semibold transition-colors",
+              item === preset
+                ? "border-[var(--adv-accent-bd)] bg-[var(--adv-accent-bg)] text-[var(--adv-accent)]"
+                : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]",
+            )}
+          >
+            {item === "custom" ? "Custom" : item.toUpperCase()}
+          </button>
+        ))}
+        <span className="ml-auto inline-flex items-center gap-1.5 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+          {data.overview.compareLabel}
+        </span>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-sm">
+      <div className="flex flex-wrap gap-2">
         {KLAVIYO_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+              "inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-[13px] text-[12.5px] font-semibold transition-colors",
               activeTab === tab.id
-                ? "bg-background shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "border-[var(--adv-accent-bd)] bg-[var(--adv-accent-bg)] text-[var(--adv-accent)]"
+                : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]",
             )}
           >
             {tab.label}
@@ -245,7 +225,7 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
                     Lifecycle performance snapshot
                   </h2>
                 </div>
-                <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+                <Badge className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]">
                   Healthy sync
                 </Badge>
               </div>
@@ -302,55 +282,60 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
       ) : null}
 
       {activeTab === "flows" ? (
-        <div className="rounded-2xl border border-border/70 bg-card shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">Flows</h2>
-              <p className="text-sm text-muted-foreground">
-                Highest-impact lifecycle flows with benchmark and trend context.
-              </p>
-            </div>
-            <Badge variant="outline" className="border-border/70 bg-background/70">
-              {data.flows.length} active flows
-            </Badge>
-          </div>
-          <div className="divide-y divide-border/70">
-            {data.flows.map((flow) => (
-              <button
-                key={flow.id}
-                type="button"
-                onClick={() => setSelectedFlowId(flow.id)}
-                className="grid w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/25 md:grid-cols-[1.2fr_repeat(5,minmax(0,0.8fr))_auto]"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-foreground">{flow.name}</p>
-                    <HealthBadge status={flow.status} />
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {flow.flowType} • {flow.channel.toUpperCase()}
-                  </p>
-                  {flow.warning ? (
-                    <p className="mt-2 text-xs text-amber-700">{flow.warning}</p>
-                  ) : null}
-                </div>
-                <FlowStat label="Revenue" value={flow.revenue.formatted} delta={flow.revenue.deltaLabel} />
-                <FlowStat label="Sends" value={flow.sends.formatted} delta={flow.sends.deltaLabel} />
-                <FlowStat label="Open rate" value={flow.openRate.formatted} delta={flow.openRate.deltaLabel} />
-                <FlowStat label="Click rate" value={flow.clickRate.formatted} delta={flow.clickRate.deltaLabel} />
-                <div className="space-y-1">
-                  <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    Benchmark
-                  </p>
-                  <BenchmarkBadge status={flow.benchmark.status}>
-                    {benchmarkLabel(flow.benchmark.status)}
-                  </BenchmarkBadge>
-                </div>
-                <ChevronRight className="hidden h-4 w-4 self-center text-muted-foreground md:block" />
-              </button>
-            ))}
-          </div>
-        </div>
+        <>
+          {/* The design carries five columns here; message-level detail,
+              benchmark and click rate live in the flow drawer a row opens. */}
+          <article className="overflow-x-auto rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)]">
+            <table className="w-full min-w-[640px] border-collapse text-[13px] tabular-nums">
+              <thead>
+                <tr>
+                  <th className={`${KLAVIYO_HEAD} px-4 text-left`}>Flow</th>
+                  <th className={`${KLAVIYO_HEAD} text-left`}>Status</th>
+                  <th className={`${KLAVIYO_HEAD} text-right`}>Revenue · {data.overview.compareLabel}</th>
+                  <th className={`${KLAVIYO_HEAD} text-right`}>Open rate</th>
+                  <th className={`${KLAVIYO_HEAD} px-4 text-right`}>Recipients</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.flows.map((flow) => (
+                  <tr
+                    key={flow.id}
+                    onClick={() => setSelectedFlowId(flow.id)}
+                    className="cursor-pointer border-t border-[var(--adv-hairline)] transition-colors hover:bg-[var(--adv-fill)]"
+                  >
+                    <td className="px-4 py-[11px] font-semibold text-[var(--adv-ink)]">
+                      {flow.name}
+                      <span className="mt-0.5 block font-[family-name:var(--adv-font-mono)] text-[10px] font-normal text-[var(--adv-ink-4)]">
+                        {flow.flowType} · {flow.channel.toUpperCase()}
+                      </span>
+                      {flow.warning ? (
+                        <span className="mt-0.5 block text-[11px] font-normal text-[var(--adc-caution-fg)]">
+                          {flow.warning}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-[11px]">
+                      <HealthBadge status={flow.status} />
+                    </td>
+                    <td className="px-3 py-[11px] text-right font-semibold text-[var(--adv-ink)]">
+                      {flow.revenue.formatted}
+                    </td>
+                    <td className="px-3 py-[11px] text-right text-[var(--adv-ink-2)]">
+                      {flow.openRate.formatted}
+                    </td>
+                    <td className="px-4 py-[11px] text-right text-[var(--adv-ink-2)]">
+                      {flow.sends.formatted}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </article>
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
+            Klaviyo stays a read in this release — flow drafts and sends are
+            authored in Klaviyo itself.
+          </p>
+        </>
       ) : null}
 
       {activeTab === "campaigns" ? (
@@ -378,8 +363,8 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
                     className={cn(
                       "border",
                       campaign.channel === "sms"
-                        ? "border-sky-200 bg-sky-50 text-sky-700"
-                        : "border-violet-200 bg-violet-50 text-violet-700",
+                        ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
+                        : "border-[var(--adc-auto-bd)] bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]",
                     )}
                   >
                     {campaign.channel === "sms" ? (
@@ -525,7 +510,7 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
                           </p>
                         </div>
                         {message.bottleneck ? (
-                          <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
+                          <Badge className="border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]">
                             Main drop-off
                           </Badge>
                         ) : null}
@@ -565,35 +550,6 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
   );
 }
 
-function SummaryPill({
-  label,
-  value,
-  note,
-  tone,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  tone: "risk" | "positive" | "neutral";
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border p-4 shadow-sm",
-        tone === "risk" && "border-amber-200 bg-amber-50/70",
-        tone === "positive" && "border-emerald-200 bg-emerald-50/70",
-        tone === "neutral" && "border-border/70 bg-background/85",
-      )}
-    >
-      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{note}</p>
-    </div>
-  );
-}
-
 function MetricCard({
   label,
   value,
@@ -614,7 +570,7 @@ function MetricCard({
       <p
         className={cn(
           "mt-2 text-sm",
-          tone === "positive" ? "text-emerald-700" : "text-muted-foreground",
+          tone === "positive" ? "text-[var(--adc-pos-fg)]" : "text-muted-foreground",
         )}
       >
         {deltaLabel ?? "No comparison"}
@@ -659,9 +615,9 @@ function ListPanel({
         {items.map((item) => (
           <div key={item} className="flex items-start gap-2">
             {tone === "risk" ? (
-              <TriangleAlert className="mt-0.5 h-4 w-4 text-amber-700" />
+              <TriangleAlert className="mt-0.5 h-4 w-4 text-[var(--adc-caution-fg)]" />
             ) : (
-              <ArrowRight className="mt-0.5 h-4 w-4 text-emerald-700" />
+              <ArrowRight className="mt-0.5 h-4 w-4 text-[var(--adc-pos-fg)]" />
             )}
             <p className="text-sm text-muted-foreground">{item}</p>
           </div>
@@ -671,30 +627,10 @@ function ListPanel({
   );
 }
 
-function FlowStat({
-  label,
-  value,
-  delta,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="text-sm font-medium text-foreground">{value}</p>
-      <p className="text-xs text-muted-foreground">{delta ?? "No change"}</p>
-    </div>
-  );
-}
-
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-2">
-      <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </p>
       <p className="mt-1 text-sm font-medium">{value}</p>
@@ -715,12 +651,12 @@ function MiniPanel({ label, value }: { label: string; value: string }) {
 
 function HealthBadge({ status }: { status: KlaviyoFlowSummary["status"] }) {
   if (status === "healthy") {
-    return <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">Healthy</Badge>;
+    return <Badge className="border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]">Healthy</Badge>;
   }
   if (status === "watch") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-amber-800">Watch</Badge>;
+    return <Badge className="border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]">Watch</Badge>;
   }
-  return <Badge className="border border-red-200 bg-red-50 text-red-700">At risk</Badge>;
+  return <Badge className="border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]">At risk</Badge>;
 }
 
 function BenchmarkBadge({
@@ -734,10 +670,10 @@ function BenchmarkBadge({
     <Badge
       className={cn(
         "border",
-        status === "above" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+        status === "above" && "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
         status === "near" && "border-border bg-muted text-muted-foreground",
-        status === "below" && "border-amber-200 bg-amber-50 text-amber-800",
-        status === "significantly_below" && "border-red-200 bg-red-50 text-red-700",
+        status === "below" && "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+        status === "significantly_below" && "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",
       )}
     >
       {children}
@@ -778,7 +714,7 @@ function RecommendationCard({
               key={item.label}
               className="rounded-xl border border-border/70 bg-background/70 p-3"
             >
-              <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 {item.label}
               </p>
               <p className="mt-1 text-sm font-medium">{item.value}</p>
@@ -801,8 +737,8 @@ function SeverityBadge({ severity }: { severity: KlaviyoRecommendation["severity
     <Badge
       className={cn(
         "border",
-        severity === "high" && "border-red-200 bg-red-50 text-red-700",
-        severity === "medium" && "border-amber-200 bg-amber-50 text-amber-800",
+        severity === "high" && "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",
+        severity === "medium" && "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
         severity === "low" && "border-border bg-muted text-muted-foreground",
       )}
     >

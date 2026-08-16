@@ -92,7 +92,7 @@ export function OverviewSection({
       {/* New vs Returning Comparison */}
       {!isLoading && newVsReturning && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
               New Visitors
             </p>
@@ -111,11 +111,11 @@ export function OverviewSection({
               </div>
             </div>
           </div>
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
+          <div className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
               Returning Visitors
               {multiplier >= 1.5 && (
-                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <span className="ml-2 rounded-full bg-[var(--adc-pos-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--adc-pos-fg)] ">
                   {multiplier.toFixed(1)}× better CVR
                 </span>
               )}
@@ -128,7 +128,7 @@ export function OverviewSection({
                 <p className="text-xs text-muted-foreground">sessions</p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-semibold text-emerald-600 dark:text-emerald-400">
+                <p className="text-xl font-semibold text-[var(--adc-pos-fg)] ">
                   {fmt(returningCvr, "percent")}
                 </p>
                 <p className="text-xs text-muted-foreground">purchase CVR</p>

@@ -7,12 +7,12 @@ describe("MetaCampaignRoleChip", () => {
   it("renders the engine-driven role tone and label", () => {
     const html = renderToStaticMarkup(<MetaCampaignRoleChip role="prospecting_scale" />);
     expect(html).toContain("Prospecting Scale");
-    expect(html).toContain("emerald");
+    expect(html).toContain("--adc-pos-");
   });
 
   it("renders decommission as a supported role alias", () => {
     const html = renderToStaticMarkup(<MetaCampaignRoleChip role="decommission" />);
     expect(html).toContain("Decommission");
-    expect(html).toContain("rose");
+    expect(html).toContain("--adc-danger-");
   });
 });

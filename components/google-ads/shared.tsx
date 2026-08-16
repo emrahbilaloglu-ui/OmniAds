@@ -65,10 +65,10 @@ export function GadsKpiCard({ label, value, sub, highlight, isLoading, trend }: 
 type Severity = "critical" | "warning" | "opportunity" | "positive";
 
 const SEVERITY_CONFIG: Record<Severity, { border: string; icon: string; iconCls: string }> = {
-  critical: { border: "border-rose-200 dark:border-rose-900/50", icon: "⚠", iconCls: "text-rose-500" },
-  warning: { border: "border-amber-200 dark:border-amber-900/50", icon: "△", iconCls: "text-amber-500" },
-  opportunity: { border: "border-blue-200 dark:border-blue-900/50", icon: "◈", iconCls: "text-blue-500" },
-  positive: { border: "border-emerald-200 dark:border-emerald-900/50", icon: "✓", iconCls: "text-emerald-500" },
+  critical: { border: "border-[var(--adc-danger-bd)] dark:border-[var(--adc-danger-bd)]/50", icon: "⚠", iconCls: "text-[var(--adc-danger-fg)]" },
+  warning: { border: "border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50", icon: "△", iconCls: "text-[var(--adc-caution-fg)]" },
+  opportunity: { border: "border-[var(--adc-info-bd)] dark:border-[var(--adc-info-bd)]/50", icon: "◈", iconCls: "text-[var(--adc-info-fg)]" },
+  positive: { border: "border-[var(--adc-pos-bd)] dark:border-[var(--adc-pos-bd)]/50", icon: "✓", iconCls: "text-[var(--adc-pos-fg)]" },
 };
 
 interface InsightCardProps {
@@ -89,7 +89,7 @@ export function GadsInsightCard({ severity, title, description, evidence, recomm
       </div>
       <p className="text-xs text-muted-foreground pl-6">{description}</p>
       {evidence && (
-        <p className="text-[12px] text-muted-foreground pl-6 italic">{evidence}</p>
+        <p className="text-[10px] text-muted-foreground pl-6 italic">{evidence}</p>
       )}
       {recommendation && (
         <p className="text-xs text-foreground/80 pl-6">→ {recommendation}</p>
@@ -104,14 +104,14 @@ type EffortLevel = "low" | "medium" | "high";
 type PriorityLevel = "high" | "medium" | "low";
 
 const EFFORT_CONFIG: Record<EffortLevel, string> = {
-  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  high: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  low: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
+  medium: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
+  high: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",
 };
 
 const PRIORITY_DOT: Record<PriorityLevel, string> = {
-  high: "bg-rose-500",
-  medium: "bg-amber-400",
+  high: "bg-[var(--adc-danger-fg)]",
+  medium: "bg-[var(--adc-caution-fg)]",
   low: "bg-muted-foreground",
 };
 
@@ -143,24 +143,24 @@ export function GadsOpportunityCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={cn("h-2 w-2 rounded-full shrink-0", PRIORITY_DOT[priority])} />
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {TYPE_LABELS[type] ?? type}
           </span>
         </div>
-        <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold shrink-0", EFFORT_CONFIG[effort])}>
+        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0", EFFORT_CONFIG[effort])}>
           {effort} effort
         </span>
       </div>
       <p className="text-sm font-semibold leading-snug">{title}</p>
       <p className="text-xs text-muted-foreground">{whyItMatters}</p>
       {evidence && (
-        <p className="text-[12px] text-muted-foreground italic rounded bg-muted px-2 py-1">
+        <p className="text-[10px] text-muted-foreground italic rounded bg-muted px-2 py-1">
           {evidence}
         </p>
       )}
       <div className="flex items-center gap-1.5 text-xs">
         <span className="text-muted-foreground">Expected impact:</span>
-        <span className="font-medium text-emerald-600 dark:text-emerald-400">{expectedImpact}</span>
+        <span className="font-medium text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)]">{expectedImpact}</span>
       </div>
     </div>
   );
@@ -171,12 +171,12 @@ export function GadsOpportunityCard({
 export function StatusBadge({ status }: { status: string }) {
   const cls =
     status === "active"
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]"
       : status === "paused"
-      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]"
       : "bg-muted text-muted-foreground";
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase", cls)}>
+    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cls)}>
       {status}
     </span>
   );
@@ -185,11 +185,11 @@ export function StatusBadge({ status }: { status: string }) {
 // ── Campaign Badge ────────────────────────────────────────────────────
 
 const BADGE_CONFIG: Record<string, { label: string; cls: string }> = {
-  strong_performer: { label: "✦ Strong", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300" },
-  budget_limited: { label: "⊘ Budget", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" },
-  low_roas: { label: "↓ Low ROAS", cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300" },
-  high_cpa: { label: "↑ High CPA", cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300" },
-  wasted_spend: { label: "✕ Wasted Spend", cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300" },
+  strong_performer: { label: "✦ Strong", cls: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]" },
+  budget_limited: { label: "⊘ Budget", cls: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]" },
+  low_roas: { label: "↓ Low ROAS", cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]" },
+  high_cpa: { label: "↑ High CPA", cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]" },
+  wasted_spend: { label: "✕ Wasted Spend", cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]" },
 };
 
 export function CampaignBadges({ badges }: { badges: string[] }) {
@@ -199,7 +199,7 @@ export function CampaignBadges({ badges }: { badges: string[] }) {
         const cfg = BADGE_CONFIG[b];
         if (!cfg) return null;
         return (
-          <span key={b} className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold whitespace-nowrap", cfg.cls)}>
+          <span key={b} className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap", cfg.cls)}>
             {cfg.label}
           </span>
         );
@@ -244,9 +244,9 @@ export function TabAlert({
 
   const styles =
     tone === "error"
-      ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-100"
+      ? "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:border-[var(--adc-danger-bd)]/50 dark:bg-[var(--adc-danger-fg)]/30 dark:text-[var(--adc-danger-fg)]"
       : tone === "warning"
-      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+      ? "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:border-[var(--adc-caution-bd)]/50 dark:bg-[var(--adc-caution-fg)]/30 dark:text-[var(--adc-caution-fg)]"
       : "border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-100";
 
   return (
@@ -364,16 +364,16 @@ export function SimpleTable<T extends object>({
 export type HealthState = "healthy" | "warning" | "critical" | "neutral";
 
 const HEALTH_CFG: Record<HealthState, string> = {
-  healthy: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  warning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  critical: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  healthy: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]",
+  warning: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)] dark:bg-[var(--adc-caution-fg)]/40 dark:text-[var(--adc-caution-fg)]",
+  critical: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]",
   neutral: "bg-muted text-muted-foreground",
 };
 
 export function HealthBadge({ state, label }: { state: HealthState; label?: string }) {
   const defaultLabel = state === "healthy" ? "Healthy" : state === "warning" ? "Warning" : state === "critical" ? "Critical" : "Neutral";
   return (
-    <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold uppercase", HEALTH_CFG[state])}>
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase", HEALTH_CFG[state])}>
       {label ?? defaultLabel}
     </span>
   );
@@ -385,13 +385,13 @@ export type PerfLabel = "top" | "average" | "underperforming";
 
 export function PerfBadge({ label }: { label: PerfLabel }) {
   const cfg: Record<PerfLabel, { cls: string; text: string }> = {
-    top: { cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300", text: "✦ Top" },
+    top: { cls: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] dark:bg-[var(--adc-pos-fg)]/40 dark:text-[var(--adc-pos-fg)]", text: "✦ Top" },
     average: { cls: "bg-muted text-muted-foreground", text: "Average" },
-    underperforming: { cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300", text: "↓ Under" },
+    underperforming: { cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] dark:bg-[var(--adc-danger-fg)]/40 dark:text-[var(--adc-danger-fg)]", text: "↓ Under" },
   };
   const c = cfg[label];
   return (
-    <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", c.cls)}>{c.text}</span>
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", c.cls)}>{c.text}</span>
   );
 }
 

@@ -62,10 +62,10 @@ export function formatDeltaPercent(value: number | null, invert = false) {
 }
 
 export function getDeltaTone(value: number | null, invert = false) {
-  if (value === null) return "text-sky-600";
+  if (value === null) return "text-[var(--adc-info-fg)]";
   const effective = invert ? -value : value;
-  if (effective > 0.02) return "text-emerald-600";
-  if (effective < -0.02) return "text-rose-600";
+  if (effective > 0.02) return "text-[var(--adc-pos-fg)]";
+  if (effective < -0.02) return "text-[var(--adc-danger-fg)]";
   return "text-muted-foreground";
 }
 
@@ -305,7 +305,7 @@ export function SeoMonthlyAiActionsPanel(props: {
 function StatusMeta(props: { label: string; value: string }) {
   return (
     <div className="rounded-xl border bg-background px-3 py-2">
-      <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {props.label}
       </p>
       <p className="mt-1 text-sm font-medium">{props.value}</p>
@@ -348,7 +348,7 @@ function AiUnavailableState({ analysis }: { analysis: SeoAiAnalysis }) {
           {analysis.unavailableReason}
         </div>
       )}
-      <div className="mt-5 rounded-xl border bg-neutral-950 px-4 py-4 text-sm text-neutral-100">
+      <div className="mt-5 rounded-xl border bg-[var(--adv-ink)] px-4 py-4 text-sm text-[var(--adv-fill-2)]">
         <span className="font-medium">Commerce context:</span> {analysis.ecommerceContext}
       </div>
     </div>
@@ -434,12 +434,12 @@ function PriorityQuadrant(props: {
 }) {
   const className =
     props.tone === "quick"
-      ? "border-emerald-300/60 bg-emerald-50"
+      ? "border-[var(--adc-pos-bd)]/60 bg-[var(--adc-pos-bg)]"
       : props.tone === "strategic"
-        ? "border-sky-300/60 bg-sky-50"
+        ? "border-[var(--adc-info-bd)]/60 bg-[var(--adc-info-bg)]"
         : props.tone === "supporting"
-          ? "border-amber-300/60 bg-amber-50"
-          : "border-neutral-200 bg-neutral-50";
+          ? "border-[var(--adc-caution-bd)]/60 bg-[var(--adc-caution-bg)]"
+          : "border-[var(--adv-border)] bg-[var(--adv-fill)]";
 
   return (
     <div className={cn("rounded-xl border p-4", className)}>
@@ -488,7 +488,7 @@ function AiActionPlanTimeline({ steps }: { steps: SeoAiActionStep[] }) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 rounded-xl border bg-neutral-950 px-3 py-3 text-sm text-neutral-100">
+            <div className="mt-4 rounded-xl border bg-[var(--adv-ink)] px-3 py-3 text-sm text-[var(--adv-fill-2)]">
               <span className="font-medium">Success metric:</span> {step.successMetric}
             </div>
           </div>
@@ -503,18 +503,23 @@ export function AiBriefCard({ brief }: { brief: SeoAiBrief }) {
     <div className="rounded-xl border bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--adc-info-fg)] dark:text-[var(--adc-info-fg)]">
             SEO Intelligence Brief
           </p>
-          <h3 className="mt-1 text-lg font-semibold">What changed and what to do next</h3>
+          <h3 className="mt-1 text-lg font-semibold">Monthly AI analysis</h3>
         </div>
         <Badge variant="secondary">{brief.source === "ai" ? "AI" : "Rules"}</Badge>
       </div>
+      {/* The design labels these three blocks "What changed", "Likely causes"
+          and "30-day plan"; each carries one field the model returns. */}
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <BriefBlock label="Summary" value={brief.summary} />
-        <BriefBlock label="Likely Cause" value={brief.likelyCause} />
-        <BriefBlock label="Next Step" value={brief.nextStep} />
+        <BriefBlock label="What changed" value={brief.summary} />
+        <BriefBlock label="Likely causes" value={brief.likelyCause} />
+        <BriefBlock label="30-day plan" value={brief.nextStep} />
       </div>
+      <p className="m-0 mt-3 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
+        One analysis per month · saved as the team&apos;s planning artifact
+      </p>
     </div>
   );
 }
@@ -552,11 +557,11 @@ export function CauseCards({ causes }: { causes: SeoCauseCandidate[] }) {
 function ToneBadge({ label }: { label: string }) {
   const tone =
     label === "high"
-      ? "bg-rose-100 text-rose-700"
+      ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
       : label === "medium"
-        ? "bg-amber-100 text-amber-700"
+        ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
         : "bg-muted text-muted-foreground";
-  return <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium capitalize", tone)}>{label}</span>;
+  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", tone)}>{label}</span>;
 }
 
 export function RecommendationsList({
@@ -585,7 +590,10 @@ export function EntityTable(props: {
   rows: SeoEntityChange[];
   emptyLabel: string;
   scrollHeightClass?: string;
+  /** The design names this column for what the rows are: Query or Page. */
+  nameLabel?: string;
 }) {
+  const nameLabel = props.nameLabel ?? "Name";
   const [sortKey, setSortKey] = useState<EntitySortKey>("clickDelta");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
@@ -620,7 +628,7 @@ export function EntityTable(props: {
           <thead className="sticky top-0 z-10 bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <SortableHeader
-                label="Name"
+                label={nameLabel}
                 sortKey="label"
                 activeKey={sortKey}
                 direction={sortDirection}
@@ -636,7 +644,7 @@ export function EntityTable(props: {
                 className="px-4 py-3"
               />
               <SortableHeader
-                label="Impr."
+                label="Impressions"
                 sortKey="impressions"
                 activeKey={sortKey}
                 direction={sortDirection}
@@ -652,7 +660,7 @@ export function EntityTable(props: {
                 className="px-4 py-3"
               />
               <SortableHeader
-                label="Pos."
+                label="Position"
                 sortKey="position"
                 activeKey={sortKey}
                 direction={sortDirection}
@@ -720,7 +728,7 @@ function SortableHeader(props: {
         className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
       >
         <span>{props.label}</span>
-        <span className={cn("text-[12px]", isActive ? "text-foreground" : "text-muted-foreground")}>
+        <span className={cn("text-[10px]", isActive ? "text-foreground" : "text-muted-foreground")}>
           {indicator}
         </span>
       </button>
@@ -759,31 +767,31 @@ function ClassificationBadge(props: {
 }) {
   const className =
     props.tone === "informational"
-      ? "bg-sky-100 text-sky-700"
+      ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
       : props.tone === "commercial"
-        ? "bg-violet-100 text-violet-700"
+        ? "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]"
         : props.tone === "transactional"
-          ? "bg-emerald-100 text-emerald-700"
+          ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
           : props.tone === "navigational"
-            ? "bg-neutral-100 text-neutral-700"
+            ? "bg-[var(--adv-fill-2)] text-[var(--adv-ink-2)]"
             : props.tone === "comparative"
-              ? "bg-amber-100 text-amber-700"
+              ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
               : props.tone === "inspirational"
-                ? "bg-pink-100 text-pink-700"
+                ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
                 : props.tone === "product"
-                  ? "bg-emerald-100 text-emerald-700"
+                  ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
                   : props.tone === "category"
-                    ? "bg-orange-100 text-orange-700"
+                    ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
                     : props.tone === "editorial"
-                      ? "bg-sky-100 text-sky-700"
+                      ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
                       : props.tone === "utility"
-                        ? "bg-neutral-100 text-neutral-700"
+                        ? "bg-[var(--adv-fill-2)] text-[var(--adv-ink-2)]"
                         : props.tone === "home"
-                          ? "bg-indigo-100 text-indigo-700"
+                          ? "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]"
                           : "bg-muted text-muted-foreground";
 
   return (
-    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[12px] font-medium", className)}>
+    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", className)}>
       {props.label}
     </span>
   );
@@ -810,10 +818,10 @@ function FindingSummaryCard(props: {
 }) {
   const toneClass =
     props.tone === "critical"
-      ? "text-rose-700 bg-rose-50"
+      ? "text-[var(--adc-danger-fg)] bg-[var(--adc-danger-bg)]"
       : props.tone === "warning"
-        ? "text-amber-700 bg-amber-50"
-        : "text-sky-700 bg-sky-50";
+        ? "text-[var(--adc-caution-fg)] bg-[var(--adc-caution-bg)]"
+        : "text-[var(--adc-info-fg)] bg-[var(--adc-info-bg)]";
 
   return (
     <div className="rounded-xl border bg-white p-4">
@@ -873,12 +881,12 @@ export function TechnicalFindingsList({ findings }: { findings: SeoFindingsRespo
 function SeverityBadge({ severity }: { severity: SeoTechnicalFindingsPayload["findings"][number]["severity"] }) {
   const className =
     severity === "critical"
-      ? "bg-rose-100 text-rose-700"
+      ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
       : severity === "warning"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-sky-100 text-sky-700";
+        ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
+        : "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]";
 
-  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[12px] font-medium capitalize", className)}>{severity}</span>;
+  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", className)}>{severity}</span>;
 }
 
 export function ConfirmedExcludedPagesList({

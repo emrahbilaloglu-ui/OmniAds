@@ -12,6 +12,12 @@ export type CopyMotionRow = MetaCreativeRow & {
   copyAssetType: MetaCopyApiRow["copy_asset_type"];
   normalizedCopyKey: string | null;
   unresolvedReason: string | null;
+  /**
+   * Messaging angle for this line. The engine auto-tags it from the creative;
+   * until that backend step ships the field is absent and every angle surface
+   * renders an em dash rather than a guess.
+   */
+  copyAngle: string | null;
 };
 
 const EMPTY_PREVIEW: MetaCreativePreview = {
@@ -143,6 +149,12 @@ export function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     copyAssetType: row.copy_asset_type ?? null,
     normalizedCopyKey: row.normalized_copy_key ?? null,
     unresolvedReason: row.unresolved_reason ?? null,
+    // Populated once the engine's angle tagging ships; null until then.
+    copyAngle:
+      (row as { copy_angle?: string | null; ai_tags?: { angle?: string | null } | null })
+        .copy_angle ??
+      (row as { ai_tags?: { angle?: string | null } | null }).ai_tags?.angle ??
+      null,
     usedInCampaigns: row.campaign_name ? [row.campaign_name] : [],
     usedInAds: row.name ? [row.name] : [],
   };

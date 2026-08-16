@@ -108,6 +108,7 @@ export const translations = {
     },
     navigation: {
       main: "Main",
+      growth: "Growth",
       platforms: "Platforms",
       launchpad: "Launchpad",
       assets: "Assets",
@@ -215,6 +216,8 @@ export const translations = {
     },
     aiBrief: {
       title: "Today's AI Brief",
+      dailyTitle: "AI Daily Brief",
+      regenerateBrief: "Regenerate brief",
       errorPrefix: "Could not load AI daily brief.",
       empty:
         "No AI brief available yet. Once the scheduled AI run completes, this section will populate automatically.",

@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 
-// Google Ads has no launch/write surface built yet, and the intelligence dashboard is
-// the single live Google workspace, so this legacy sub-route folds back into it rather
-// than advertising a "coming soon" surface that isn't wired.
-export default function GoogleLaunchpadRedirect() {
-  redirect("/platforms/google");
+// v2 gives Google Ads routed surfaces; this legacy sub-route folds into the
+// plan & activity screen that now owns its content.
+export default function GoogleLegacyRedirect() {
+  redirect("/platforms/google/plan");
 }

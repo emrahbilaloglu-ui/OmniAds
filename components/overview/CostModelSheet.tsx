@@ -100,7 +100,7 @@ export function CostModelSheet({
             onChange={setFixedCost}
             suffix="$"
           />
-          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+          {error ? <p className="text-sm text-[var(--adc-danger-fg)]">{error}</p> : null}
         </div>
 
         <SheetFooter>

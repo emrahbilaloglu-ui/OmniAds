@@ -77,10 +77,10 @@ export function PresetBar({
           aria-expanded={popoverOpen}
           onClick={() => setPopoverOpen((next) => !next)}
           data-testid={`${testId}-preset-trigger`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100"
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
         >
           <span>{activePreset?.label ?? "Preset"}</span>
-          <span className="text-blue-500">· {activePreset?.metricsCount ?? 0} KPIs</span>
+          <span className="text-[var(--adc-info-fg)]">· {activePreset?.metricsCount ?? 0} KPIs</span>
           <ChevronDown size={12} aria-hidden="true" />
         </button>
         {popoverOpen ? (
@@ -108,23 +108,23 @@ export function PresetBar({
                     (preset.unavailable
                       ? "cursor-not-allowed text-neutral-400"
                       : active
-                        ? "bg-blue-50 text-blue-700"
+                        ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
                         : "text-neutral-700 hover:bg-neutral-50")
                   }
                 >
                   <div className="flex items-center gap-1.5 font-semibold">
                     <span>{preset.label}</span>
                     {preset.unavailable ? (
-                      <span className="rounded bg-neutral-100 px-1.5 py-px font-mono text-[12px] text-neutral-500">
+                      <span className="rounded bg-neutral-100 px-1.5 py-px font-mono text-[9.5px] text-neutral-500">
                         backend-dep
                       </span>
                     ) : (
-                      <span className="text-[12px] font-mono text-neutral-500">
+                      <span className="text-[10.5px] font-mono text-neutral-500">
                         · {preset.metricsCount} KPIs
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[12px] text-neutral-500">
+                  <div className="mt-0.5 text-[11.5px] text-neutral-500">
                     {preset.description}
                   </div>
                   {preset.metricChips.length > 0 ? (
@@ -132,7 +132,7 @@ export function PresetBar({
                       {preset.metricChips.slice(0, 5).map((chip) => (
                         <span
                           key={chip}
-                          className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[12px] text-neutral-600"
+                          className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[9.5px] text-neutral-600"
                         >
                           {chip}
                         </span>
@@ -140,7 +140,7 @@ export function PresetBar({
                     </div>
                   ) : null}
                   {preset.unavailable && preset.unavailableReason ? (
-                    <div className="mt-1 text-[12px] text-amber-700">
+                    <div className="mt-1 text-[10.5px] text-[var(--adc-caution-fg)]">
                       {preset.unavailableReason}
                     </div>
                   ) : null}
@@ -168,7 +168,7 @@ export function PresetBar({
       <div className="ml-1 flex items-center gap-1.5">{labelFilter}</div>
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[12px] text-neutral-500">
+        <span className="font-mono text-[11.5px] text-neutral-500">
           {countLabel}
           {selectedCount > 0 ? ` · ${selectedCount} sel` : null}
         </span>
@@ -196,7 +196,7 @@ export function PresetBar({
           <button
             type="button"
             onClick={onShareView}
-            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-1 rounded-md bg-[var(--adc-info-fg)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--adc-info-fg)]"
             data-testid={`${testId}-share-view`}
           >
             <Share2 size={12} aria-hidden="true" />

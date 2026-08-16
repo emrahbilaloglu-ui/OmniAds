@@ -38,12 +38,12 @@ const cols: ColDef<Ad>[] = [
       <div className="max-w-[220px]">
         <p className="text-xs font-medium truncate" title={r.headline || r.id}>{r.headline || r.id || "—"}</p>
         {r.description && (
-          <p className="text-[12px] text-muted-foreground truncate" title={r.description}>{r.description}</p>
+          <p className="text-[10px] text-muted-foreground truncate" title={r.description}>{r.description}</p>
         )}
         <div className="flex items-center gap-1 mt-0.5">
           <StatusBadge status={r.status} />
-          <span className="text-[12px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
-          {r.adStrength ? <span className="text-[12px] text-muted-foreground">· {r.adStrength}</span> : null}
+          <span className="text-[9px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
+          {r.adStrength ? <span className="text-[9px] text-muted-foreground">· {r.adStrength}</span> : null}
         </div>
       </div>
     ),
@@ -53,7 +53,7 @@ const cols: ColDef<Ad>[] = [
   {
     key: "ctr", header: "CTR", accessor: (r) => r.ctr, align: "right",
     render: (r) => (
-      <span className={cn(r.ctr >= 5 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "")}>
+      <span className={cn(r.ctr >= 5 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : "")}>
         {r.ctr.toFixed(1)}%
       </span>
     ),
@@ -90,7 +90,7 @@ export function AdsTab({ ads, insights, isLoading }: AdsTabProps) {
       </p>
 
       {insights && insights.topPerformerCtr > insights.bottomPerformerCtr * 1.3 && (
-        <div className="rounded-xl border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/50 p-4">
+        <div className="rounded-xl border bg-[var(--adc-caution-bg)] dark:bg-[var(--adc-caution-fg)]/30 border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50 p-4">
           <p className="text-sm font-semibold">Top ads CTR ({insights.topPerformerCtr.toFixed(1)}%) vs bottom ({insights.bottomPerformerCtr.toFixed(1)}%)</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Pause bottom-quartile ads and test new copy inspired by your best performers.

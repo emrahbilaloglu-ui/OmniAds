@@ -36,7 +36,7 @@ const cols: ColDef<DeviceRow>[] = [
   {
     key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
     render: (r) => (
-      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+      <span className={cn(r.roas >= 3 ? "text-[var(--adc-pos-fg)] dark:text-[var(--adc-pos-fg)] font-semibold" : r.roas < 1 ? "text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]" : "")}>
         {r.roas === 0 ? "—" : fmtRoas(r.roas)}
       </span>
     ),
@@ -71,7 +71,7 @@ export function DevicesTab({ devices, insights, isLoading }: DevicesTabProps) {
       {insights && insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((ins, i) => (
-            <div key={i} className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+            <div key={i} className="rounded-xl border border-[var(--adc-caution-bd)] dark:border-[var(--adc-caution-bd)]/50 bg-[var(--adc-caution-bg)] dark:bg-[var(--adc-caution-fg)]/30 px-4 py-3">
               <p className="text-xs text-foreground">△ {ins}</p>
             </div>
           ))}

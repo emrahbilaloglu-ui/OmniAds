@@ -36,11 +36,44 @@ export interface SeoTechnicalFinding {
   affectedPages: SeoTechnicalFindingPage[];
 }
 
+export type SeoUrlInspectionStatus =
+  "not_requested" | "complete" | "partial" | "failed";
+
+export type SeoUrlInspectionFailureKind =
+  | "timeout"
+  | "provider"
+  | "transport"
+  | "invalid_response"
+  | "quota_exhausted"
+  | "quota_state_unavailable"
+  | "cooldown"
+  | "governance_state_unavailable";
+
+export interface SeoUrlInspectionFailure {
+  path: string;
+  kind: SeoUrlInspectionFailureKind;
+  status: number | null;
+}
+
+/**
+ * Per-run evidence for the URL Inspection pass. Optional because this builder
+ * does not emit it yet — the panel that reads it renders its absent state
+ * rather than showing counts that were never measured.
+ */
+export interface SeoUrlInspectionEvidence {
+  status: SeoUrlInspectionStatus;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  failures: SeoUrlInspectionFailure[];
+}
+
 export interface SeoTechnicalFindingsPayload {
   meta: {
     siteUrl: string;
     auditedPageCount: number;
     generatedAt: string;
+    urlInspection?: SeoUrlInspectionEvidence;
   };
   summary: {
     critical: number;

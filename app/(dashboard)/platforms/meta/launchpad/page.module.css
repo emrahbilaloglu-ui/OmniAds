@@ -3,8 +3,7 @@
   overflow-x: clip;
   background: var(--bg);
   color: var(--ink);
-  font-family:
-    var(--font-ibm-plex-sans), var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--adv-font-body);
 }
 
 .desktopSurface {
@@ -13,11 +12,9 @@
 
 .workspace {
   display: flex;
-  width: min(100%, 1320px);
-  margin: 0 auto;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px clamp(14px, 2vw, 24px) 32px;
+  gap: 16px;
+  padding: 0;
 }
 
 .scopeBlock {
@@ -25,7 +22,7 @@
   align-items: flex-start;
   gap: 9px;
   border: 1px solid var(--warn-bd);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--warn-bg);
   color: var(--warn);
   padding: 12px 13px;
@@ -50,7 +47,7 @@
   min-width: 0;
   overflow: clip;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 14px;
   background: var(--surface);
 }
 
@@ -252,7 +249,7 @@
   max-width: 920px;
   margin: 0 auto;
   background: var(--bg);
-  padding: 18px clamp(14px, 2vw, 24px) 26px;
+  padding: 0;
 }
 
 .editorStack {
@@ -266,7 +263,7 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 14px;
   background: var(--surface);
 }
 
@@ -412,7 +409,7 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 14px;
   background: var(--surface);
 }
 
@@ -535,7 +532,7 @@
     align-items: flex-start;
     gap: 8px;
     border: 1px solid var(--warn-bd);
-    border-radius: 6px;
+    border-radius: 14px;
     background: var(--warn-bg);
     color: var(--warn);
     font-size: 12px;
@@ -600,7 +597,7 @@
     justify-content: center;
     gap: 7px;
     border: 1px solid var(--ink);
-    border-radius: 6px;
+    border-radius: 9px;
     background: var(--ink);
     color: var(--surface);
     font-size: 12px;

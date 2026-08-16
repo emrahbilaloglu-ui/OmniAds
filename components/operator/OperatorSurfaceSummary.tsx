@@ -78,7 +78,7 @@ function OperatorRowCard({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span
             className={cn(
-              "rounded-full px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
+              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
               tones.action,
             )}
           >
@@ -86,7 +86,7 @@ function OperatorRowCard({
           </span>
           <span
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
+              "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
               tones.pill,
             )}
           >
@@ -94,7 +94,7 @@ function OperatorRowCard({
           </span>
           <span
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
+              "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
               confidenceTone(item.confidence),
             )}
           >
@@ -108,7 +108,7 @@ function OperatorRowCard({
           {item.secondaryLabels.slice(0, 3).map((label) => (
             <span
               key={`${item.id}:${label}`}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-medium uppercase tracking-wide text-slate-700"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700"
             >
               {label}
             </span>
@@ -129,7 +129,7 @@ function OperatorRowCard({
           {item.metrics.map((metric) => (
             <span
               key={`${item.id}:${metric.label}`}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] text-slate-700"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-700"
             >
               <span className="font-semibold text-slate-900">{metric.label}</span> {metric.value}
             </span>
@@ -170,7 +170,7 @@ export function OperatorSurfaceSummary({
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="max-w-3xl">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               {model.surfaceLabel} {model.heading}
             </p>
             <h3 className={cn("mt-1 font-semibold text-slate-950", compact ? "text-base" : "text-lg")}>
@@ -203,7 +203,7 @@ export function OperatorSurfaceSummary({
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {bucket.label}
               </p>
               <p className="mt-1 text-sm text-slate-600">{bucket.summary}</p>

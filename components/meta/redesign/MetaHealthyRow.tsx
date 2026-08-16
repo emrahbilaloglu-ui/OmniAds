@@ -70,9 +70,9 @@ function ConfigChip({
     <span
       title={`${label}: ${value}`}
       className={cn(
-        "inline-flex min-w-0 max-w-[220px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px]",
+        "inline-flex min-w-0 max-w-[220px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px]",
         tone === "violet"
-          ? "border-violet-200 bg-violet-50 text-violet-700"
+          ? "border-[var(--adc-auto-bd)] bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]"
           : "border-slate-200 bg-slate-50 text-slate-600",
         className,
       )}
@@ -94,7 +94,7 @@ function BidConfigChip({ strategy, bid }: { strategy: string | null; bid: string
   return (
     <span
       title={`Bid: ${displayValue}`}
-      className="inline-flex min-w-0 max-w-[260px] shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] text-slate-600"
+      className="inline-flex min-w-0 max-w-[260px] shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] text-slate-600"
     >
       <SlidersHorizontal className="inline-block shrink-0" size={10} aria-hidden="true" />
       <span className="shrink-0 text-slate-400">Bid</span>
@@ -158,11 +158,11 @@ export function MetaHealthyRow({
       data-healthy-level={row.level}
       data-healthy-depth={depth}
     >
-      <CheckCircle2 className="inline-block shrink-0 text-emerald-600" size={15} aria-hidden="true" />
+      <CheckCircle2 className="inline-block shrink-0 text-[var(--adc-pos-fg)]" size={15} aria-hidden="true" />
       <MetaScopeChip level={row.level} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12.5px] font-medium text-slate-900">{row.name}</div>
-        {!hideCampaignName && row.campaignName ? <div className="truncate text-[12px] text-slate-500">{row.campaignName}</div> : null}
+        {!hideCampaignName && row.campaignName ? <div className="truncate text-[11px] text-slate-500">{row.campaignName}</div> : null}
       </div>
       <div className="hidden min-w-0 max-w-[58%] shrink-0 items-center justify-end gap-1.5 xl:flex" data-healthy-config={row.id}>
         {hideOptimization ? null : (
@@ -178,8 +178,8 @@ export function MetaHealthyRow({
           />
         ) : null}
       </div>
-      <div className="font-mono tabular-nums text-[12px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
-      <div className="font-mono tabular-nums text-[12px] text-emerald-700">{formatRoas(row.roas)}</div>
+      <div className="font-mono tabular-nums text-[11.5px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
+      <div className="font-mono tabular-nums text-[11.5px] text-[var(--adc-pos-fg)]">{formatRoas(row.roas)}</div>
     </div>
   );
 }

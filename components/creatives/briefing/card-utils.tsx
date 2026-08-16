@@ -207,7 +207,7 @@ export function Thumb({
         bg,
         fg,
         size === "xs" ? "rounded-md" : "rounded-xl",
-        size === "xs" ? "w-7 h-7 text-[12px]" : "",
+        size === "xs" ? "w-7 h-7 text-[10px]" : "",
         "grid place-items-center font-semibold tracking-tight shrink-0 select-none",
         className,
       ]
@@ -224,7 +224,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "unlabeled_campaign_context") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800"
+        className="inline-flex items-center gap-1 rounded border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--adc-caution-fg)]"
         title="Campaign label missing. Mark this campaign as Main, Test, or Mixed before hard actions."
       >
         <AlertTriangle
@@ -240,7 +240,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "scale_readiness_blocked") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[12px] font-medium text-blue-700"
+        className="inline-flex items-center gap-1 rounded border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--adc-info-fg)]"
         title="This is a scale-zone creative, but the engine withheld hard scale until all scale readiness gates are met."
       >
         <Target
@@ -256,7 +256,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "scale_calibration_thin") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800"
+        className="inline-flex items-center gap-1 rounded border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--adc-caution-fg)]"
         title="Hard scale is blocked because the account winner benchmark is missing or the calibration sample is too thin."
       >
         <Database
@@ -299,7 +299,7 @@ export function CampaignKindChip({
       : "Campaign label missing.";
     return (
       <span
-        className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold text-amber-800"
+        className="inline-flex items-center rounded border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]"
         title={detail}
       >
         Unlabeled
@@ -317,9 +317,9 @@ export function CampaignKindChip({
         : "Mixed";
   const tone =
     card.campaignKind === "main"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
       : card.campaignKind === "test"
-        ? "border-blue-200 bg-blue-50 text-blue-700"
+        ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
         : "border-neutral-200 bg-neutral-50 text-neutral-700";
   const detail = card.campaignTestDimension
     ? `${label}: ${card.campaignTestDimension}`
@@ -327,7 +327,7 @@ export function CampaignKindChip({
 
   return (
     <span
-      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[12px] font-semibold ${tone}`}
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${tone}`}
       title={detail}
     >
       {label}
@@ -401,11 +401,11 @@ export function CtrBar({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[12px] text-neutral-500">CTR</span>
+      <span className="text-[10.5px] text-neutral-500">CTR</span>
       <div className="relative w-20 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 ${
-            hasCtr ? (isAbove ? "bg-emerald-500" : "bg-rose-500") : "bg-neutral-300"
+            hasCtr ? (isAbove ? "bg-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-fg)]") : "bg-neutral-300"
           }`}
           style={{ width: hasCtr ? `${pct}%` : "0%" }}
         />
@@ -415,13 +415,13 @@ export function CtrBar({
         />
       </div>
       <span
-        className={`font-mono tabular-nums text-[12px] font-medium ${
-          hasCtr ? (isAbove ? "text-emerald-700" : "text-rose-700") : "text-neutral-500"
+        className={`font-mono tabular-nums text-[10.5px] font-medium ${
+          hasCtr ? (isAbove ? "text-[var(--adc-pos-fg)]" : "text-[var(--adc-danger-fg)]") : "text-neutral-500"
         }`}
       >
         {hasCtr ? `${ctr.toFixed(2)}%` : "—"}
       </span>
-      <span className="font-mono tabular-nums text-[12px] text-neutral-400">
+      <span className="font-mono tabular-nums text-[10px] text-neutral-400">
         P50 {hasP50 ? `${midpoint.toFixed(2)}%` : "—"}
       </span>
     </div>
@@ -431,12 +431,12 @@ export function CtrBar({
 export function FatigueDot({ active }: { active?: boolean | null }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[12px] ${
-        active ? "text-amber-700" : "text-neutral-400"
+      className={`inline-flex items-center gap-1 text-[10.5px] ${
+        active ? "text-[var(--adc-caution-fg)]" : "text-neutral-400"
       }`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${active ? "bg-amber-500" : "bg-neutral-300"}`}
+        className={`w-1.5 h-1.5 rounded-full ${active ? "bg-[var(--adc-caution-fg)]" : "bg-neutral-300"}`}
       />
       {active ? "Fatigued" : "Stable"}
     </span>
@@ -472,8 +472,8 @@ export function PrimaryActionButton({
 
   if (isCut) {
     toneClass = isFilled
-      ? "bg-rose-600 text-white border-rose-600 hover:bg-rose-700"
-      : "border-rose-300 text-rose-700 hover:bg-rose-50";
+      ? "bg-[var(--adc-danger-fg)] text-white border-[var(--adc-danger-bd)] hover:bg-[var(--adc-danger-fg)]"
+      : "border-[var(--adc-danger-bd)] text-[var(--adc-danger-fg)] hover:bg-[var(--adc-danger-bg)]";
   } else if (
     actionKind === "promote" ||
     actionKind === "scale" ||
@@ -481,16 +481,16 @@ export function PrimaryActionButton({
     actionKind === "controlled_scale"
   ) {
     toneClass = isFilled
-      ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
-      : "border-emerald-300 text-emerald-700 hover:bg-emerald-50";
+      ? "bg-[var(--adc-pos-fg)] text-white border-[var(--adc-pos-bd)] hover:bg-[var(--adc-pos-fg)]"
+      : "border-[var(--adc-pos-bd)] text-[var(--adc-pos-fg)] hover:bg-[var(--adc-pos-bg)]";
   } else if (actionKind === "review_placements") {
     toneClass = isFilled
       ? "bg-neutral-800 text-white border-neutral-800 hover:bg-neutral-900"
       : "border-neutral-300 text-neutral-700 hover:bg-neutral-50";
   } else {
     toneClass = isFilled
-      ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
-      : "border-blue-300 text-blue-700 hover:bg-blue-50";
+      ? "bg-[var(--adc-info-fg)] text-white border-[var(--adc-info-bd)] hover:bg-[var(--adc-info-fg)]"
+      : "border-[var(--adc-info-bd)] text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]";
   }
 
   return (
@@ -550,7 +550,7 @@ export function SecondaryButton({
 function Kv({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
+      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
         {label}
       </div>
       <div className="font-mono tabular-nums text-neutral-900 text-[12.5px] font-medium">
@@ -595,7 +595,7 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
 
   return (
     <div className="overflow-hidden rounded-md border border-neutral-200">
-      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
+      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
         <span>Predicate</span>
         <span>Observed</span>
         <span>Threshold</span>
@@ -607,11 +607,11 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
           className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-100 px-2 py-1.5 text-[12px] last:border-b-0"
         >
           <div>
-            <div className="font-mono text-[12px] text-neutral-900">
+            <div className="font-mono text-[11.5px] text-neutral-900">
               {blocker.predicate}
             </div>
             {blocker.reason ? (
-              <div className="mt-0.5 text-[12px] leading-snug text-neutral-500">
+              <div className="mt-0.5 text-[11px] leading-snug text-neutral-500">
                 {blocker.reason}
               </div>
             ) : null}
@@ -646,7 +646,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
   return (
     <div className="space-y-3">
       {thresholdProvenance ? (
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-neutral-600">
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-600">
           <span className="inline-flex items-center rounded border border-neutral-200 bg-white px-2 py-1 font-medium">
             Calibration{" "}
             {thresholdProvenance.calibrationComputedAt
@@ -716,7 +716,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
       {proof &&
       (typeof proof.empiricalSampleSize !== "number" ||
         proof.empiricalSampleSize < MIN_RELIABLE_CALIBRATION_SAMPLE) ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-800">
+        <div className="rounded-md border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2.5 py-2 text-[12px] text-[var(--adc-caution-fg)]">
           Calibration not proven:{" "}
           {typeof proof.empiricalSampleSize === "number"
             ? `only ${proof.empiricalSampleSize.toLocaleString("en-US")} hard-action outcome${proof.empiricalSampleSize === 1 ? "" : "s"}`
@@ -737,7 +737,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             <span className="text-neutral-400">·</span>
             <span>{priority.reason}</span>
           </div>
-          <div className="mt-1 text-[12px] text-neutral-500">
+          <div className="mt-1 text-[11px] text-neutral-500">
             spend at risk {formatCurrency(priority.inputs.spendAtRisk, card.currency)} ·
             opportunity {formatCurrency(priority.inputs.opportunityValue, card.currency)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
@@ -745,7 +745,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {nearMisses.length > 0 ? (
-        <div className="rounded-md border border-blue-100 bg-blue-50/70 px-2.5 py-2 text-[12px] text-neutral-700">
+        <div className="rounded-md border border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)]/70 px-2.5 py-2 text-[12px] text-neutral-700">
           <div className="font-semibold text-neutral-900">
             What would flip this decision?
           </div>
@@ -757,7 +757,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {missingEvidence.length > 0 ? (
-        <div className="text-[12px] text-neutral-500">
+        <div className="text-[11.5px] text-neutral-500">
           Missing proof: {missingEvidence.join(", ").replace(/_/g, " ")}
         </div>
       ) : null}
@@ -782,7 +782,7 @@ function TrailItem({
       <div className="flex items-center gap-2 text-neutral-900 font-medium text-[12px]">
         {label}
       </div>
-      <div className="text-[12px] text-neutral-500 flex items-center gap-2">
+      <div className="text-[11px] text-neutral-500 flex items-center gap-2">
         <span className="font-mono tabular-nums">{date}</span>
         <span className="text-neutral-300">·</span>
         <span>{version}</span>
@@ -846,7 +846,7 @@ function FunnelBody({ card }: { card: BriefingCreativeCard }) {
           <span className="w-24 text-neutral-500">{stage.name}</span>
           <div className="flex-1 h-2 bg-neutral-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500"
+              className="h-full bg-[var(--adc-info-fg)]"
               style={{ width: `${stage.pct}%` }}
             />
           </div>
@@ -894,7 +894,7 @@ export function buildEvidenceSections(
       content: (
         <div className="grid grid-cols-2 gap-3 text-[12px]">
           <div>
-            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Engine label
             </div>
             <div className="flex items-center gap-2">
@@ -903,14 +903,14 @@ export function buildEvidenceSections(
             </div>
           </div>
           <div>
-            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Recommended action
             </div>
             <div className="text-neutral-900 font-medium">{primaryLabel}</div>
           </div>
           {priority ? (
             <div className="col-span-2 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
-              <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
+              <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
                 Priority model
               </div>
               <div className="mt-0.5 text-neutral-700">
@@ -925,12 +925,12 @@ export function buildEvidenceSections(
             </div>
           ) : null}
           <div className="col-span-2">
-            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Reason
             </div>
             <div className="text-neutral-700 leading-snug">{reason}</div>
             {card.labelTransform ? (
-              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800">
+              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--adc-caution-fg)]">
                 <SkipForward
                   className="inline-block shrink-0"
                   size={11}

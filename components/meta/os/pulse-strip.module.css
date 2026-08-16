@@ -1,0 +1,151 @@
+/* Dashboard v2 pulse strip — five equal-weight server-truth cells. */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.cell {
+  min-width: 0;
+  border: 1px solid var(--adv-border);
+  border-radius: 14px;
+  background: var(--adv-surface);
+  padding: 14px;
+}
+
+.label {
+  margin: 0;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--adv-ink);
+  font-family: var(--adv-font-display);
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.valueNote {
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-body);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.valueNote[data-tone="pos"] {
+  color: var(--adc-pos-fg);
+}
+
+.valueNote[data-tone="neg"] {
+  color: var(--adc-danger-fg);
+}
+
+.valueNote[data-tone="warn"] {
+  color: var(--adc-caution-fg);
+}
+
+.foot {
+  margin: 6px 0 0;
+  color: var(--adv-ink-3);
+  font-size: 12px;
+}
+
+.pill {
+  display: inline-flex;
+  margin-top: 8px;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  background: var(--adv-fill-2);
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pill[data-tone="pos"] {
+  background: var(--adc-pos-bg);
+  color: var(--adc-pos-fg);
+}
+
+.pill[data-tone="warn"] {
+  background: var(--adc-caution-bg);
+  color: var(--adc-caution-fg);
+}
+
+.link {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--adv-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mode {
+  margin: 8px 0 0;
+  color: var(--adv-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.tag {
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: var(--adv-fill-2);
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tag[data-tone="pos"] {
+  background: var(--adc-pos-bg);
+  color: var(--adc-pos-fg);
+}
+
+.tag[data-tone="warn"] {
+  background: var(--adc-caution-bg);
+  color: var(--adc-caution-fg);
+}
+
+.tag[data-tone="neg"] {
+  background: var(--adc-danger-bg);
+  color: var(--adc-danger-fg);
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin-top: 6px;
+}
+
+@media (max-width: 767px) {
+  .strip {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+  }
+
+  .cell {
+    padding: 12px;
+  }
+
+  .value {
+    font-size: 20px;
+  }
+}

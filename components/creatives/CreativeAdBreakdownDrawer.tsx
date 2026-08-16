@@ -333,10 +333,10 @@ function PlacementCard({
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-            <span className="font-mono text-[12px] text-neutral-600">{copyValue}</span>
+            <span className="font-mono text-[11px] text-neutral-600">{copyValue}</span>
             <button
               type="button"
-              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
+              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
               onClick={(event) => {
                 event.stopPropagation();
                 onCopy(copyValue);
@@ -350,7 +350,7 @@ function PlacementCard({
                 href={metaUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
+                className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
                 onClick={(event) => event.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
@@ -358,7 +358,7 @@ function PlacementCard({
               </a>
             ) : null}
             {daysActive !== null ? (
-              <span className="ml-auto font-mono text-[12px] text-neutral-500">
+              <span className="ml-auto font-mono text-[11px] text-neutral-500">
                 {daysActive}d active
               </span>
             ) : null}
@@ -372,7 +372,7 @@ function PlacementCard({
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-neutral-100 bg-neutral-50 px-2 py-1.5">
-      <p className="text-[12px] font-semibold uppercase text-neutral-500">{label}</p>
+      <p className="text-[10px] font-semibold uppercase text-neutral-500">{label}</p>
       <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-950">{value}</p>
     </div>
   );
@@ -384,9 +384,9 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[12px] font-semibold",
+        "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
         active
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]"
           : "border-neutral-200 bg-neutral-100 text-neutral-600",
       )}
     >
@@ -397,7 +397,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function BelowBreakevenBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
+    <span className="inline-flex rounded-full border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]">
       {label || "Below breakeven"}
     </span>
   );

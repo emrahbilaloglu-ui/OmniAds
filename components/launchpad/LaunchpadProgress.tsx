@@ -83,7 +83,7 @@ export function LaunchpadProgress({
             : mode === "add_to_existing"
               ? "Submitting PAUSED ad creation to the selected ad sets..."
               : "Submitting PAUSED campaign, ad set, and ad creation..."}
-          <span className="text-[12px] text-[var(--muted)]">No simulated per-object progress is available.</span>
+          <span className="text-[11px] text-[var(--muted)]">No simulated per-object progress is available.</span>
         </div>
       ) : null}
 
@@ -132,7 +132,7 @@ export function LaunchpadProgress({
             </p>
             {result.launchIntentId ? (
               <div
-                className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-[var(--muted)]"
+                className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-[var(--muted)]"
                 data-testid="launchpad-intent-receipt"
               >
                 <span>Launch record</span>
@@ -142,7 +142,7 @@ export function LaunchpadProgress({
                 <span>status {result.launchIntentStatus ?? "unavailable"}</span>
               </div>
             ) : (
-              <p className="mt-2 text-[12px] text-[var(--warn)]">
+              <p className="mt-2 text-[10.5px] text-[var(--warn)]">
                 Launch record unavailable for this response.
               </p>
             )}
@@ -169,9 +169,9 @@ export function LaunchpadProgress({
                       {step.kind} · {step.name}
                     </p>
                     {step.error ? (
-                      <p className="mono text-[12px] text-[var(--danger)]">{step.error.code} — {step.error.message}</p>
+                      <p className="mono text-[11px] text-[var(--danger)]">{step.error.code} — {step.error.message}</p>
                     ) : (
-                      <p className="mono text-[12px] text-[var(--muted)]">{step.id ?? "pending"}</p>
+                      <p className="mono text-[11px] text-[var(--muted)]">{step.id ?? "pending"}</p>
                     )}
                   </div>
                 </div>
@@ -180,7 +180,7 @@ export function LaunchpadProgress({
                     href={step.adsManagerUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex max-w-[220px] shrink-0 items-center gap-1 text-right text-[12px] leading-tight text-[var(--info)] hover:underline"
+                    className="inline-flex max-w-[220px] shrink-0 items-center gap-1 text-right text-[11px] leading-tight text-[var(--info)] hover:underline"
                   >
                     Open Ads Manager · link built from provider-returned ID ↗
                   </a>
@@ -196,7 +196,7 @@ export function LaunchpadProgress({
           <p className="text-[12px] font-semibold text-[var(--danger)]">Write-time validation blocked the request</p>
           <div className="mt-2 space-y-1.5">
             {result.blockers.map((blocker) => (
-              <p key={`${blocker.code}-${blocker.message}`} className="mono text-[12px] text-[var(--danger)]">
+              <p key={`${blocker.code}-${blocker.message}`} className="mono text-[11px] text-[var(--danger)]">
                 {blocker.code} — {blocker.message}
               </p>
             ))}
@@ -230,12 +230,12 @@ export function LaunchpadProgress({
       ) : null}
 
       {hasProviderLinks ? (
-        <p className="text-[12px] text-[var(--muted)]">
+        <p className="text-[11.5px] text-[var(--muted)]">
           Ads Manager navigation links are built from provider-returned IDs. They are not represented as verified permalinks.
         </p>
       ) : null}
 
-      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[12px] leading-relaxed text-[var(--muted)]">
+      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[11.5px] leading-relaxed text-[var(--muted)]">
         <span className="font-semibold text-[var(--warn)]">Publish ACTIVE · Proposed/contract required.</span>{" "}
         Everything created above remains PAUSED. No activation, undo, rollback, or retry control is available in this receipt.
       </div>

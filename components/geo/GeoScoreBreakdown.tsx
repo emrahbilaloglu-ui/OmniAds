@@ -20,14 +20,14 @@ export function GeoScoreBreakdown({ breakdown, total, className }: ScoreBreakdow
       {Object.entries(breakdown).map(([key, value]) => (
         <span
           key={key}
-          className="inline-flex items-center gap-0.5 rounded bg-muted/70 px-1.5 py-0.5 text-[12px] text-muted-foreground"
+          className="inline-flex items-center gap-0.5 rounded bg-muted/70 px-1.5 py-0.5 text-[9px] text-muted-foreground"
           title={`${formatKey(key)}: ${value} pts`}
         >
           <span className="capitalize">{formatKey(key)}</span>
           <span className="font-semibold text-foreground/80">{value}</span>
         </span>
       ))}
-      <span className="inline-flex items-center rounded bg-foreground/10 px-1.5 py-0.5 text-[12px] font-semibold text-foreground/70">
+      <span className="inline-flex items-center rounded bg-foreground/10 px-1.5 py-0.5 text-[9px] font-semibold text-foreground/70">
         = {total}
       </span>
     </div>
@@ -53,10 +53,10 @@ interface MomentumBadgeProps {
 }
 
 const MOMENTUM_STYLES: Record<MomentumStatus, string> = {
-  breakout: "text-violet-600 dark:text-violet-400 font-semibold",
-  rising:   "text-emerald-600 dark:text-emerald-400",
+  breakout: "text-[var(--adc-auto-fg)]  font-semibold",
+  rising:   "text-[var(--adc-pos-fg)] ",
   stable:   "text-muted-foreground",
-  declining:"text-amber-600 dark:text-amber-400",
+  declining:"text-[var(--adc-caution-fg)] ",
 };
 
 export function GeoMomentumBadge({ status, label, className }: MomentumBadgeProps) {
@@ -79,9 +79,9 @@ interface TrafficValueBadgeProps {
 }
 
 const VALUE_STYLES: Record<TrafficValueLabel, string> = {
-  elite:     "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
-  strong:    "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  promising: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  elite:     "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]  ",
+  strong:    "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  ",
+  promising: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
   weak:      "bg-muted text-muted-foreground",
 };
 
@@ -107,10 +107,10 @@ interface ReadinessBadgeProps {
 }
 
 const READINESS_STYLES: Record<ReadinessLabel, string> = {
-  excellent: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  strong:    "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  developing:"bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  weak:      "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  excellent: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  ",
+  strong:    "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]  ",
+  developing:"bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
+  weak:      "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
 };
 
 export function PageReadinessBadge({ label, score, className }: ReadinessBadgeProps) {
@@ -135,23 +135,23 @@ interface IntentBadgeV3Props {
 }
 
 const INTENT_STYLES: Record<string, string> = {
-  informational: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
-  commercial:    "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  comparative:   "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  transactional: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  informational: "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]  ",
+  commercial:    "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]  ",
+  comparative:   "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
+  transactional: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  ",
   navigational:  "bg-muted text-muted-foreground",
   inspirational: "bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300",
 };
 
 export function QueryIntentBadge({ intent, format, confidence, isAiStyle, className }: IntentBadgeV3Props) {
   const cls = INTENT_STYLES[intent] ?? INTENT_STYLES["navigational"];
-  const confidenceDot = confidence === "high" ? "bg-emerald-500" : confidence === "medium" ? "bg-amber-400" : "bg-muted-foreground";
+  const confidenceDot = confidence === "high" ? "bg-[var(--adc-pos-fg)]" : confidence === "medium" ? "bg-[var(--adc-caution-fg)]" : "bg-muted-foreground";
   return (
     <div className={cn("flex items-center gap-1", className)}>
       <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize", cls)}>
         {isAiStyle ? "✦ " : ""}{intent}
       </span>
-      <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground capitalize">
+      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground capitalize">
         {format.replace(/_/g, "-")}
       </span>
       <span className={cn("h-1.5 w-1.5 rounded-full", confidenceDot)} title={`${confidence} confidence`} />

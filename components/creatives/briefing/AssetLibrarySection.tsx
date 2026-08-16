@@ -1169,7 +1169,7 @@ export function AssetLibrarySection({
                     {visibleMetricColumns.map((column) => (
                       <td key={column.id} className={column.className}>{column.value(row)}</td>
                     ))}
-                    <td><span className={gapClass} style={{ fontSize: 12 }}>{typeof gap === "string" ? gap : gap.label}</span></td>
+                    <td><span className={gapClass} style={{ fontSize: 9.5 }}>{typeof gap === "string" ? gap : gap.label}</span></td>
                     <td style={{ textAlign: "right" }}>
                       <button
                         type="button"
@@ -1533,7 +1533,7 @@ export function ShareViewModal({
           <span>Snapshot · <b>{snapshotLabel}</b></span>
           <span>Open count · <b>0</b></span>
         </div>
-        {actionStatus === "error" ? <p className="mt-2 text-[12px] text-rose-700">Share link could not be created.</p> : null}
+        {actionStatus === "error" ? <p className="mt-2 text-[12px] text-[var(--adc-danger-fg)]">Share link could not be created.</p> : null}
         <div className="share-modal__footer">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <div className="share-modal__footer-actions">

@@ -69,7 +69,7 @@ export function EvidenceAccordion({
                 </>
               )}
               {section.count != null ? (
-                <span className="ml-auto text-[12px] text-neutral-400 font-mono">{section.count}</span>
+                <span className="ml-auto text-[10.5px] text-neutral-400 font-mono">{section.count}</span>
               ) : null}
               {variant !== "legacy" ? (
                 <span

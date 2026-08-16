@@ -88,7 +88,7 @@ export function BulkCutConfirmModal({
       >
         <div className="w-full max-w-[520px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
           <div className="px-5 py-4 border-b border-neutral-200 flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-rose-100 grid place-items-center text-rose-600 shrink-0">
+            <div className="w-9 h-9 rounded-full bg-[var(--adc-danger-bg)] grid place-items-center text-[var(--adc-danger-fg)] shrink-0">
               <AlertTriangle className="inline-block shrink-0" size={18} aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
@@ -120,14 +120,14 @@ export function BulkCutConfirmModal({
                     <div className="text-[12.5px] font-medium text-neutral-900 truncate">
                       {name}
                     </div>
-                    <div className="text-[12px] text-neutral-500 truncate">
+                    <div className="text-[11px] text-neutral-500 truncate">
                       {card.campaign || card.campaignName || "Campaign"}
                     </div>
                   </div>
-                  <span className="font-mono tabular-nums text-[12px] text-neutral-600">
+                  <span className="font-mono tabular-nums text-[11.5px] text-neutral-600">
                     {formatOptionalCurrency(card.spend, card.currency)}
                   </span>
-                  <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
+                  <span className="font-mono tabular-nums text-[11.5px] font-medium text-neutral-900">
                     {formatOptionalRoas(card.roas)}
                   </span>
                 </div>
@@ -136,7 +136,7 @@ export function BulkCutConfirmModal({
           </div>
 
           <div className="px-5 py-3 border-t border-neutral-200 bg-neutral-50 flex items-center gap-4">
-            <div className="text-[12px] text-neutral-500">
+            <div className="text-[11.5px] text-neutral-500">
               Total spend{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
                 {totals.mixedCurrency
@@ -148,7 +148,7 @@ export function BulkCutConfirmModal({
                   : formatOptionalCurrency(totals.spend, totals.currency)}
               </span>
             </div>
-            <div className="text-[12px] text-neutral-500">
+            <div className="text-[11.5px] text-neutral-500">
               Avg ROAS{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
                 {formatOptionalRoas(totals.avgRoas)}
@@ -165,7 +165,7 @@ export function BulkCutConfirmModal({
               </button>
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 text-[12.5px] font-medium"
+                className="px-3 py-1.5 rounded-md bg-[var(--adc-danger-fg)] text-white hover:bg-[var(--adc-danger-fg)] text-[12.5px] font-medium"
                 data-confirm-bulk-cut
                 onClick={handleConfirm}
               >

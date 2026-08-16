@@ -96,27 +96,27 @@ export function CreativeDecisionEngineV3Surface(
   }
 
   return (
-    <section className="mb-6 rounded-lg border border-amber-500/40 bg-amber-50/50 p-4 dark:bg-amber-950/10">
+    <section className="mb-6 rounded-lg border border-[var(--adc-caution-bd)]/40 bg-[var(--adc-caution-bg)]/50 p-4 dark:bg-[var(--adc-caution-fg)]/10">
       <header className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className="rounded-md border-amber-500 bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-amber-500">
+          <Badge className="rounded-md border-[var(--adc-caution-bd)] bg-[var(--adc-caution-fg)] px-2 py-0.5 text-xs font-semibold text-white hover:bg-[var(--adc-caution-fg)]">
             Engine v3 — in development
           </Badge>
           <span className="text-xs text-muted-foreground">
             {props.engineVersion ?? "..."}
           </span>
           {props.flags.shadowOnly && (
-            <Badge className="rounded-md border-sky-500 bg-sky-500 px-2 py-0.5 text-xs font-semibold text-white hover:bg-sky-500">
+            <Badge className="rounded-md border-[var(--adc-info-bd)] bg-[var(--adc-info-fg)] px-2 py-0.5 text-xs font-semibold text-white hover:bg-[var(--adc-info-fg)]">
               Shadow mode (advisory only)
             </Badge>
           )}
           {props.dataHealth && props.dataHealth.worstTier !== "none" && (
             <span
               className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-medium",
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
                 displayHealthTier === "warning"
-                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                  : "bg-rose-500/15 text-rose-700 dark:text-rose-400",
+                  ? "bg-[var(--adc-caution-fg)]/15 text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]"
+                  : "bg-[var(--adc-danger-fg)]/15 text-[var(--adc-danger-fg)] dark:text-[var(--adc-danger-fg)]",
               )}
               data-health-tier={props.dataHealth.worstTier}
               title={`Data health: ${props.dataHealth.worstTier} (calibration ${props.dataHealth.calibration.staleTier}, lifecycle ${props.dataHealth.lifecycle.staleTier}, decisions ${props.dataHealth.decisions.staleTier})`}
@@ -255,7 +255,7 @@ function PresetOverrideControl({
       {hasOverride && (
         <button
           type="button"
-          className="mt-1 text-[12px] font-medium text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline disabled:cursor-not-allowed disabled:text-neutral-400"
+          className="mt-1 text-[11px] font-medium text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline disabled:cursor-not-allowed disabled:text-neutral-400"
           disabled={mutation.isPending || !businessId}
           onClick={() => mutation.mutate(null)}
         >
@@ -263,10 +263,10 @@ function PresetOverrideControl({
         </button>
       )}
       {mutation.isPending && (
-        <span className="mt-1 text-[12px] text-neutral-500">Saving...</span>
+        <span className="mt-1 text-[11px] text-neutral-500">Saving...</span>
       )}
       {errorVisible && (
-        <span className="mt-1 text-[12px] font-medium text-rose-600">
+        <span className="mt-1 text-[11px] font-medium text-[var(--adc-danger-fg)]">
           Failed to update preset
         </span>
       )}
@@ -290,7 +290,7 @@ function ScopeProfileDisclosure({
         Scope profile ({profile.scope.type})
       </summary>
       {profile.scope.fallbackReason && (
-        <p className="mt-2 text-[12px] font-medium text-amber-700">
+        <p className="mt-2 text-[11px] font-medium text-[var(--adc-caution-fg)]">
           Falling back to account scope: {formatScopeFallbackReason(profile.scope.fallbackReason)}
         </p>
       )}
@@ -357,7 +357,7 @@ function ScopeProfileDisclosure({
         <div className="md:col-span-2 xl:col-span-3">
           <div className="rounded border border-neutral-200 bg-white px-2.5 py-2">
             <span className="font-medium text-neutral-500">Multipliers</span>
-            <span className="ml-2 font-mono text-[12px] text-neutral-800">
+            <span className="ml-2 font-mono text-[11px] text-neutral-800">
               {formatMultipliers(profile.multipliers)}
             </span>
           </div>
@@ -384,7 +384,7 @@ function ProfileRow({
       <div className={cn("mt-0.5 break-words text-neutral-900", mono && "font-mono")}>
         {value}
       </div>
-      {detail && <div className="mt-0.5 text-[12px] text-neutral-500">{detail}</div>}
+      {detail && <div className="mt-0.5 text-[11px] text-neutral-500">{detail}</div>}
     </div>
   );
 }
@@ -410,7 +410,7 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
         {creativeName ?? decision.creativeId}
       </span>
       {creativeName && (
-        <span className="max-w-[10rem] shrink-0 truncate font-mono text-[12px] text-muted-foreground/70">
+        <span className="max-w-[10rem] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">
           {decision.creativeId}
         </span>
       )}
@@ -421,9 +421,9 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
             <span
               key={`${badge.type}-${idx}`}
               className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-medium",
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
                 badge.severity === "warning"
-                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                  ? "bg-[var(--adc-caution-fg)]/15 text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]"
                   : "bg-muted text-muted-foreground",
               )}
               data-badge-severity={badge.severity}
@@ -440,7 +440,7 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
       </span>
       {confidenceCopy && (
         <span
-          className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] font-medium text-amber-700 dark:text-amber-400"
+          className="shrink-0 rounded bg-[var(--adc-caution-fg)]/15 px-1.5 py-0.5 text-[10px] font-medium text-[var(--adc-caution-fg)] dark:text-[var(--adc-caution-fg)]"
           data-confidence-copy="source_freshness_cap"
           title={confidenceCopy}
         >

@@ -33,7 +33,7 @@ describe("KpiSummaryTiles", () => {
     expect(html).toContain("Median ROAS");
     expect(html).toContain("2.10");
     expect(html).toContain(">×<");
-    expect(html).toContain("border-emerald-200");
+    expect(html).toContain("--adc-pos-bd");
   });
 
   it("renders nothing when tile list is empty", () => {
@@ -47,6 +47,6 @@ describe("KpiSummaryTiles", () => {
       />,
     );
 
-    expect(html).toContain("border-amber-200");
+    expect(html).toContain("--adc-caution-bd");
   });
 });

@@ -49,21 +49,21 @@ function strategyLayerMeta(
 }
 
 function badgeTone(input: MetaRecommendation["lens"]) {
-  if (input === "volume") return "bg-blue-500/10 text-blue-700";
-  if (input === "profitability") return "bg-emerald-500/10 text-emerald-700";
-  return "bg-amber-500/10 text-amber-700";
+  if (input === "volume") return "bg-[var(--adc-info-fg)]/10 text-[var(--adc-info-fg)]";
+  if (input === "profitability") return "bg-[var(--adc-pos-fg)]/10 text-[var(--adc-pos-fg)]";
+  return "bg-[var(--adc-caution-fg)]/10 text-[var(--adc-caution-fg)]";
 }
 
 function decisionTone(input: MetaRecommendation["decisionState"]) {
   if (input === "act") return "bg-foreground text-background";
-  if (input === "test") return "bg-violet-500/10 text-violet-700";
+  if (input === "test") return "bg-[var(--adc-auto-fg)]/10 text-[var(--adc-auto-fg)]";
   return "bg-muted text-muted-foreground";
 }
 
 function LensIcon({ lens }: { lens: MetaRecommendation["lens"] }) {
-  if (lens === "volume") return <TrendingUp className="h-4 w-4 text-blue-600" />;
-  if (lens === "profitability") return <ShieldAlert className="h-4 w-4 text-emerald-600" />;
-  return <Workflow className="h-4 w-4 text-amber-600" />;
+  if (lens === "volume") return <TrendingUp className="h-4 w-4 text-[var(--adc-info-fg)]" />;
+  if (lens === "profitability") return <ShieldAlert className="h-4 w-4 text-[var(--adc-pos-fg)]" />;
+  return <Workflow className="h-4 w-4 text-[var(--adc-caution-fg)]" />;
 }
 
 function RecommendationCard({
@@ -108,7 +108,7 @@ function RecommendationCard({
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2.5">
           <span
-            className={`rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}
           >
             {decisionLabel}
           </span>
@@ -116,7 +116,7 @@ function RecommendationCard({
             <p className="truncate text-xs font-semibold text-foreground">
               {recommendation.campaignName ?? t.accountLevelRecommendation}
             </p>
-            <p className="truncate text-[12px] text-muted-foreground">
+            <p className="truncate text-[11px] text-muted-foreground">
               {recommendation.title}
             </p>
           </div>
@@ -127,7 +127,7 @@ function RecommendationCard({
             <button
               type="button"
               onClick={() => onOpenCampaign?.(recommendation.campaignId!)}
-              className="text-[12px] font-medium text-blue-700 hover:underline"
+              className="text-[11px] font-medium text-[var(--adc-info-fg)] hover:underline"
             >
               {t.jumpToCampaign}
             </button>
@@ -149,7 +149,7 @@ function RecommendationCard({
                 key={`${recommendation.id}-${item.label}`}
                 className="rounded-lg border bg-background px-2.5 py-1.5"
               >
-                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {item.label}
                 </p>
                 <p className="text-xs font-semibold">{item.value}</p>
@@ -160,22 +160,22 @@ function RecommendationCard({
 
         {/* ── Meta badges ────────────────────────────────────────────── */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className={`rounded-full px-2 py-1 text-[12px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
+          <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
             {lensLabel}
           </span>
-          <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {confidenceLabel} {t.confidenceSuffix}
           </span>
-          <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {priorityLabel} {t.prioritySuffix}
           </span>
           {recommendation.comparisonCohort ? (
-            <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               {t.comparedWithin} {recommendation.comparisonCohort}
             </span>
           ) : null}
           {recommendation.historicalRegime ? (
-            <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               {t.historicalRegimePrefix} {recommendation.historicalRegime}
             </span>
           ) : null}
@@ -185,7 +185,7 @@ function RecommendationCard({
         <button
           type="button"
           onClick={() => setShowDetails((v) => !v)}
-          className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
         >
           <span>{showDetails ? "Hide details" : "Analysis details"}</span>
           {showDetails ? (
@@ -209,7 +209,7 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.defensiveBidBand ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.defensiveBidBand}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.defensiveBidBand}</p>
@@ -217,7 +217,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.scaleBidBand ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.scaleBidBand}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.scaleBidBand}</p>
@@ -225,7 +225,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.requiresRebuild ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.rebuild}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? t.recommended}</p>
@@ -239,12 +239,12 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.promoteCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.promoteToScaling}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.promoteCreatives.join(", ")}</p>
                     {recommendation.targetScalingLane ? (
-                      <p className="mt-1 text-[12px] text-muted-foreground">
+                      <p className="mt-1 text-[10px] text-muted-foreground">
                         {t.targetLane}: {recommendation.targetScalingLane}
                       </p>
                     ) : null}
@@ -252,7 +252,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.keepTestingCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepInTest}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.keepTestingCreatives.join(", ")}</p>
@@ -260,7 +260,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.doNotDeployCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepOutOfScaling}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.doNotDeployCreatives.join(", ")}</p>
@@ -274,7 +274,7 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.scalingGeoCluster?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.scalingGeoCluster}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.scalingGeoCluster.join(", ")}</p>
@@ -282,7 +282,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.testingGeoCluster?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.testGeoCluster}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.testingGeoCluster.join(", ")}</p>
@@ -290,7 +290,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.matureGeoSplit?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepSeparate}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.matureGeoSplit.join(", ")}</p>
@@ -301,23 +301,23 @@ function RecommendationCard({
 
             {/* Decision model / timeframe context */}
             <div className="rounded-lg border border-dashed px-3 py-2">
-              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
               <div className="mt-2 space-y-2">
                 <div>
-                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
                   <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.coreVerdict}</p>
                 </div>
                 <div>
-                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
                   <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.selectedRangeOverlay}</p>
                 </div>
                 <div>
-                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{recommendation.timeframeContext.historicalSupport}</p>
                 </div>
               </div>
               {recommendation.timeframeContext.note ? (
-                <p className="mt-1 text-xs text-amber-700">{recommendation.timeframeContext.note}</p>
+                <p className="mt-1 text-xs text-[var(--adc-caution-fg)]">{recommendation.timeframeContext.note}</p>
               ) : null}
             </div>
           </div>
@@ -347,8 +347,8 @@ export function MetaInsightPanel({
     return (
       <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-violet-500/10 p-2">
-            <BrainCircuit className="h-4 w-4 text-violet-600" />
+          <div className="rounded-lg bg-[var(--adc-auto-fg)]/10 p-2">
+            <BrainCircuit className="h-4 w-4 text-[var(--adc-auto-fg)]" />
           </div>
           <div>
             <p className="text-sm font-semibold">{t.title}</p>
@@ -374,8 +374,8 @@ export function MetaInsightPanel({
       <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-violet-500/10 p-2">
-              <BrainCircuit className="h-4 w-4 text-violet-600" />
+            <div className="rounded-lg bg-[var(--adc-auto-fg)]/10 p-2">
+              <BrainCircuit className="h-4 w-4 text-[var(--adc-auto-fg)]" />
             </div>
             <div>
               <p className="text-sm font-semibold">{t.title}</p>
@@ -398,8 +398,8 @@ export function MetaInsightPanel({
     return (
       <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-violet-500/10 p-2">
-            <BrainCircuit className="h-4 w-4 text-violet-600" />
+          <div className="rounded-lg bg-[var(--adc-auto-fg)]/10 p-2">
+            <BrainCircuit className="h-4 w-4 text-[var(--adc-auto-fg)]" />
           </div>
           <div>
             <p className="text-sm font-semibold">{t.title}</p>
@@ -424,8 +424,8 @@ export function MetaInsightPanel({
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-violet-500/10 p-2">
-            <BrainCircuit className="h-4 w-4 text-violet-600" />
+          <div className="rounded-lg bg-[var(--adc-auto-fg)]/10 p-2">
+            <BrainCircuit className="h-4 w-4 text-[var(--adc-auto-fg)]" />
           </div>
           <div>
             <p className="text-sm font-semibold">{t.title}</p>
@@ -434,14 +434,14 @@ export function MetaInsightPanel({
             </p>
           </div>
         </div>
-        <div className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           <TestTube2 className="mr-1 inline h-3.5 w-3.5" />
           {t.conservativeRules}
         </div>
       </div>
 
       <div className="mt-4 rounded-xl border bg-muted/25 p-4">
-        <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           {t.accountSummary}
         </p>
         <p className="mt-1 text-base font-semibold">{data.summary.title}</p>
@@ -450,7 +450,7 @@ export function MetaInsightPanel({
           <div className="mt-3 grid gap-2 md:grid-cols-3">
             {data.summary.operatingMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.operatingMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.operatingMode}</p>
@@ -458,7 +458,7 @@ export function MetaInsightPanel({
             ) : null}
             {data.summary.currentRegime ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.currentRegime}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.currentRegime}</p>
@@ -466,7 +466,7 @@ export function MetaInsightPanel({
             ) : null}
             {data.summary.recommendedMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.recommendedMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.recommendedMode}</p>
@@ -484,7 +484,7 @@ export function MetaInsightPanel({
                 <p className="text-sm font-semibold">{group.title}</p>
                 <p className="text-xs text-muted-foreground">{group.description}</p>
               </div>
-              <div className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 {group.recommendations.length} {group.recommendations.length > 1 ? t.cards : t.card}
               </div>
             </div>

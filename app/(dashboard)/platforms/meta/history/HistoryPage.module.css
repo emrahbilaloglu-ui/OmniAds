@@ -6,14 +6,7 @@
   --history-line-strong: #bcc5c5;
   --history-ink: #171b1b;
   --history-ink-2: #485252;
-  /*
-   * Raised from #6c7777, which measured 4.31:1 against the page and 4.11:1
-   * against the muted surface -- both under the 4.5:1 floor, and this token
-   * carries the History column headers: Kind, Entity, Label, Source,
-   * Persisted ID, Account scope. Those are how a reader knows what each
-   * column is, not decoration.
-   */
-  --history-ink-3: #5a6666;
+  --history-ink-3: #6c7777;
   --history-focus: #176b68;
   --history-focus-bg: #e4f2f0;
   --history-focus-line: #a9cfca;

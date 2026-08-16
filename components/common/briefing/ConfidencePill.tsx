@@ -51,8 +51,8 @@ export function ConfidencePill({
   const numeric = typeof confidence === "number" && Number.isFinite(confidence) ? Math.round(confidence) : null;
   const sizeClassName =
     size === "sm"
-      ? "font-mono tabular-nums text-[12px] text-neutral-500 px-1 py-0.5 rounded border border-neutral-200"
-      : "font-mono tabular-nums text-[12px] text-neutral-500 px-1.5 py-0.5 rounded-md border border-neutral-200";
+      ? "font-mono tabular-nums text-[10px] text-neutral-500 px-1 py-0.5 rounded border border-neutral-200"
+      : "font-mono tabular-nums text-[10.5px] text-neutral-500 px-1.5 py-0.5 rounded-md border border-neutral-200";
 
   return (
     <span className={[sizeClassName, className].filter(Boolean).join(" ")}>

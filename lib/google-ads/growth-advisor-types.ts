@@ -650,6 +650,12 @@ export interface GooglePotentialContribution {
   estimatedRevenueLiftRange?: string;
   estimatedWasteRecoveryRange?: string;
   estimatedEfficiencyLiftRange?: string;
+  /**
+   * Currency midpoint of the range above, when the advisor expressed one.
+   * Absent means "not quantified" — the Advisor tiles exclude such a
+   * recommendation from money-at-stake rather than estimating a number.
+   */
+  estimatedValueMidpoint?: number;
 }
 
 export interface GoogleCampaignRoleRow {

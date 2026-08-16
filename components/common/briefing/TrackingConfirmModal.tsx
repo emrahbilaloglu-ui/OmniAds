@@ -25,9 +25,9 @@ export function TrackingConfirmModal({
       aria-modal="true"
       aria-labelledby="tracking-confirm-title"
     >
-      <div className="w-full max-w-[440px] rounded-2xl bg-white shadow-[0_8px_32px_rgba(16,21,28,0.18)] overflow-hidden border-t-4 border-rose-500">
+      <div className="w-full max-w-[440px] rounded-2xl bg-white shadow-[0_8px_32px_rgba(16,21,28,0.18)] overflow-hidden border-t-4 border-[var(--adc-danger-bd)]">
         <div className="px-5 py-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-full bg-rose-100 grid place-items-center text-rose-600 shrink-0">
+          <div className="w-9 h-9 rounded-full bg-[var(--adc-danger-bg)] grid place-items-center text-[var(--adc-danger-fg)] shrink-0">
             <AlertTriangle className="inline-block shrink-0" size={18} aria-hidden="true" />
           </div>
           <div className="flex-1">
@@ -50,7 +50,7 @@ export function TrackingConfirmModal({
           </button>
           <button
             type="button"
-            className="px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 text-[12.5px] font-medium"
+            className="px-3 py-1.5 rounded-md bg-[var(--adc-danger-fg)] text-white hover:bg-[var(--adc-danger-fg)] text-[12.5px] font-medium"
             data-tracking-continue
             onClick={onConfirm}
           >

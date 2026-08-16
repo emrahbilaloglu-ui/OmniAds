@@ -54,9 +54,9 @@ function GeoScorePill({
   const [expanded, setExpanded] = useState(false);
   const cls =
     score >= 60
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  "
       : score >= 30
-      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  "
       : "bg-muted text-muted-foreground";
   return (
     <div className="text-right">
@@ -80,12 +80,12 @@ function GeoScorePill({
 
 function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
   const cls = {
-    high: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
-    medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+    high: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
+    medium: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
     low: "bg-muted text-muted-foreground",
   }[priority];
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase", cls)}>
+    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cls)}>
       {priority}
     </span>
   );
@@ -94,7 +94,7 @@ function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
 const columns: ColumnDef<GeoPage>[] = [
   {
     key: "path",
-    header: "Landing Page",
+    header: "Page",
     accessor: (r) => r.path,
     sticky: true,
     render: (r) => (
@@ -104,8 +104,15 @@ const columns: ColumnDef<GeoPage>[] = [
     ),
   },
   {
+    key: "purchaseCvr",
+    header: "Purchase CVR",
+    accessor: (r) => r.purchaseCvr,
+    align: "right",
+    render: (r) => fmt(r.purchaseCvr, "percent"),
+  },
+  {
     key: "geoScore",
-    header: "GEO Score",
+    header: "AIV score",
     accessor: (r) => r.geoScore,
     align: "right",
     render: (r) => <GeoScorePill score={r.geoScore} breakdown={r.geoScoreBreakdown} />,
@@ -122,7 +129,7 @@ const columns: ColumnDef<GeoPage>[] = [
   },
   {
     key: "aiTrafficValueLabel",
-    header: "AI Value",
+    header: "AI value",
     accessor: (r) => ({ weak: 0, promising: 1, strong: 2, elite: 3 }[r.aiTrafficValueLabel ?? "weak"]),
     align: "right",
     render: (r) =>
@@ -142,7 +149,7 @@ const columns: ColumnDef<GeoPage>[] = [
   },
   {
     key: "aiSessions",
-    header: "AI Sessions",
+    header: "AI sessions",
     accessor: (r) => r.aiSessions,
     align: "right",
     render: (r) => fmt(r.aiSessions),
@@ -170,7 +177,7 @@ const columns: ColumnDef<GeoPage>[] = [
     render: (r) =>
       r.recommendation ? (
         <span
-          className="rounded bg-muted px-1.5 py-0.5 text-[12px] block truncate max-w-[150px]"
+          className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate max-w-[150px]"
           title={r.recommendation}
         >
           {r.recommendation}

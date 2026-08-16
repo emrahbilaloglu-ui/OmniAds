@@ -58,7 +58,7 @@ export function CompareDrawerHost({
           {weakest ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-600 text-white border border-rose-600 hover:bg-rose-700 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--adc-danger-fg)] text-white border border-[var(--adc-danger-bd)] hover:bg-[var(--adc-danger-fg)] text-[12.5px] font-medium"
               data-compare-action="cut-weakest"
               onClick={() => onCutCard(weakest)}
             >
@@ -68,7 +68,7 @@ export function CompareDrawerHost({
           {strongest ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--adc-pos-fg)] text-white border border-[var(--adc-pos-bd)] hover:bg-[var(--adc-pos-fg)] text-[12.5px] font-medium"
               data-compare-action="scale-strongest"
               onClick={() => onLaunchpad([strongest], "promote")}
             >
@@ -78,7 +78,7 @@ export function CompareDrawerHost({
           {canLaunchSelectedFreshTest ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 text-[12.5px] font-medium"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-[var(--adc-info-bd)] bg-white text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)] text-[12.5px] font-medium"
               data-compare-action="launch-test"
               onClick={() => onLaunchpad(drawerCards, "fresh_test")}
             >

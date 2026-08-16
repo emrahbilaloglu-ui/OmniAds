@@ -42,28 +42,28 @@ function fmt(n: number): string {
 
 const STRENGTH_CONFIG = {
   Strong: {
-    cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-    bar: "bg-emerald-500",
+    cls: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  ",
+    bar: "bg-[var(--adc-pos-fg)]",
   },
   Moderate: {
-    cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-    bar: "bg-amber-400",
+    cls: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
+    bar: "bg-[var(--adc-caution-fg)]",
   },
   Weak: {
-    cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-    bar: "bg-rose-400",
+    cls: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
+    bar: "bg-[var(--adc-danger-fg)]",
   },
 };
 
 const COVERAGE_GAP_CONFIG: Record<"high" | "medium" | "low", string> = {
-  high: "text-rose-600 dark:text-rose-400",
-  medium: "text-amber-600 dark:text-amber-400",
+  high: "text-[var(--adc-danger-fg)] ",
+  medium: "text-[var(--adc-caution-fg)] ",
   low: "text-muted-foreground",
 };
 
 const PRIORITY_COLOR = {
-  high: "text-rose-600 dark:text-rose-400",
-  medium: "text-amber-600 dark:text-amber-400",
+  high: "text-[var(--adc-danger-fg)] ",
+  medium: "text-[var(--adc-caution-fg)] ",
   low: "text-muted-foreground",
 };
 
@@ -77,9 +77,9 @@ function GeoScorePill({
   const [expanded, setExpanded] = useState(false);
   const cls =
     score >= 60
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  "
       : score >= 35
-      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      ? "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  "
       : "bg-muted text-muted-foreground";
   return (
     <div>
@@ -142,7 +142,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
           const cfg = STRENGTH_CONFIG[topic.coverageStrength];
           const barWidth = Math.min(100, (topic.impressions / maxImpressions) * 100);
           return (
-            <div key={topic.topic} className="rounded-xl border border-neutral-200 bg-white p-4">
+            <div key={topic.topic} className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   {/* Topic name + badges */}
@@ -165,7 +165,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                     {topic.coverageGap && topic.coverageGap !== "low" && (
                       <span
                         className={cn(
-                          "text-[12px] font-medium uppercase tracking-wide",
+                          "text-[10px] font-medium uppercase tracking-wide",
                           COVERAGE_GAP_CONFIG[topic.coverageGap]
                         )}
                       >
@@ -191,7 +191,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                       {topic.queries.slice(0, 3).map((q, i) => (
                         <span
                           key={i}
-                          className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground"
+                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
                         >
                           {q}
                         </span>
@@ -202,11 +202,11 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                   {/* Recommendation */}
                   {topic.recommendation && (
                     <div className="mt-2 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5">
-                      <p className="text-[12px] font-medium text-foreground">
+                      <p className="text-[10px] font-medium text-foreground">
                         {topic.recommendation.title}
                       </p>
-                      <p className="mt-0.5 text-[12px] text-muted-foreground">
-                        <span className="text-emerald-600 dark:text-emerald-400">
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        <span className="text-[var(--adc-pos-fg)] ">
                           {topic.recommendation.impact}
                         </span>
                         {" · "}
@@ -231,7 +231,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                     avg pos {topic.avgPosition.toFixed(1)}
                   </p>
                   {topic.authorityStrength && (
-                    <p className="text-[12px] text-muted-foreground capitalize">
+                    <p className="text-[10px] text-muted-foreground capitalize">
                       {topic.authorityStrength} authority
                     </p>
                   )}

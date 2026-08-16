@@ -52,15 +52,15 @@ function fmt(n: number, type: "number" | "percent" | "score" = "number"): string
 const PRIORITY_CONFIG = {
   high: {
     label: "High",
-    dot: "bg-rose-500",
-    badge: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
-    border: "border-rose-200 dark:border-rose-900/50",
+    dot: "bg-[var(--adc-danger-fg)]",
+    badge: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
+    border: "border-[var(--adc-danger-bd)] ",
   },
   medium: {
     label: "Medium",
-    dot: "bg-amber-400",
-    badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-    border: "border-amber-200 dark:border-amber-900/50",
+    dot: "bg-[var(--adc-caution-fg)]",
+    badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
+    border: "border-[var(--adc-caution-bd)] ",
   },
   low: {
     label: "Low",
@@ -139,7 +139,7 @@ export function GeoOverviewSection({
           {kpis.totalQueryCount > 0 && (
             <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden min-w-[80px]">
               <div
-                className="h-full rounded-full bg-violet-500"
+                className="h-full rounded-full bg-[var(--adc-auto-fg)]"
                 style={{
                   width: `${Math.min(100, (kpis.aiStyleQueryCount / kpis.totalQueryCount) * 100)}%`,
                 }}
@@ -168,15 +168,15 @@ export function GeoOverviewSection({
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <span className={cn("h-2 w-2 rounded-full shrink-0", cfg.dot)} />
-                    <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase", cfg.badge)}>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cfg.badge)}>
                       {cfg.label}
                     </span>
                   </div>
                   <p className="text-sm font-semibold leading-snug mb-1">{p.title}</p>
                   <p className="text-xs text-muted-foreground leading-relaxed mb-2">{p.description}</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">{p.impact}</span>
-                    <span className="text-[12px] text-muted-foreground">{p.effort} effort</span>
+                    <span className="text-[10px] text-[var(--adc-pos-fg)]  font-medium">{p.impact}</span>
+                    <span className="text-[10px] text-muted-foreground">{p.effort} effort</span>
                   </div>
                 </div>
               );
@@ -189,8 +189,8 @@ export function GeoOverviewSection({
       {!isLoading && highlights && (highlights.strongestGeoQuery || highlights.strongestGeoTopic || highlights.highestAiValueSource) && (
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {highlights.strongestGeoQuery && (
-            <div className="rounded-xl border bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-900/50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400 mb-1">
+            <div className="rounded-xl border bg-[var(--adc-auto-bg)]  border-[var(--adc-auto-bd)]  p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--adc-auto-fg)]  mb-1">
                 Strongest GEO Query
               </p>
               <p className="font-semibold text-sm truncate" title={highlights.strongestGeoQuery.query}>
@@ -200,15 +200,15 @@ export function GeoOverviewSection({
                 <span className="text-xs text-muted-foreground">
                   {highlights.strongestGeoQuery.impressions.toLocaleString()} impressions
                 </span>
-                <span className="rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-0.5 text-xs font-semibold text-violet-800 dark:text-violet-300">
+                <span className="rounded-full bg-[var(--adc-auto-bg)]  px-2 py-0.5 text-xs font-semibold text-[var(--adc-auto-fg)] ">
                   GEO {highlights.strongestGeoQuery.geoScore}
                 </span>
               </div>
             </div>
           )}
           {highlights.strongestGeoTopic && (
-            <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400 mb-1">
+            <div className="rounded-xl border bg-[var(--adc-pos-bg)]  border-[var(--adc-pos-bd)]  p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--adc-pos-fg)]  mb-1">
                 Strongest GEO Topic
               </p>
               <p className="font-semibold text-sm capitalize">{highlights.strongestGeoTopic.topic}</p>
@@ -217,15 +217,15 @@ export function GeoOverviewSection({
                   {highlights.strongestGeoTopic.impressions.toLocaleString()} impressions ·{" "}
                   {highlights.strongestGeoTopic.coverageStrength} coverage
                 </span>
-                <span className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                <span className="rounded-full bg-[var(--adc-pos-bg)]  px-2 py-0.5 text-xs font-semibold text-[var(--adc-pos-fg)] ">
                   GEO {highlights.strongestGeoTopic.geoScore}
                 </span>
               </div>
             </div>
           )}
           {highlights.highestAiValueSource && (
-            <div className="rounded-xl border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400 mb-1">
+            <div className="rounded-xl border bg-[var(--adc-info-bg)]  border-[var(--adc-info-bd)]  p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--adc-info-fg)]  mb-1">
                 Highest AI Value Source
               </p>
               <p className="font-semibold text-sm">{highlights.highestAiValueSource.engine}</p>
@@ -233,10 +233,10 @@ export function GeoOverviewSection({
                 <span className={cn(
                   "rounded-full px-2 py-0.5 text-xs font-semibold capitalize",
                   highlights.highestAiValueSource.label === "elite"
-                    ? "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300"
+                    ? "bg-[var(--adc-auto-bg)] text-[var(--adc-auto-fg)]  "
                     : highlights.highestAiValueSource.label === "strong"
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                    ? "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  "
+                    : "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  "
                 )}>
                   {highlights.highestAiValueSource.label}
                 </span>

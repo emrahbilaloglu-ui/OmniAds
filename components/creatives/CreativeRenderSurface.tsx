@@ -126,7 +126,7 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
       <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--adc-b2,#cdcdc7)] bg-white text-xs font-semibold">
         {initials || "NA"}
       </div>
-      <div className="line-clamp-2 px-1 text-center text-[12px] font-medium">
+      <div className="line-clamp-2 px-1 text-center text-[10px] font-medium">
         No media preview
       </div>
     </div>
@@ -158,7 +158,7 @@ function PreviewPendingState({
       )}
     >
       <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-[var(--adc-ink3,#7d838c)]" aria-hidden="true" />
-      <div className="text-center text-[12px] font-medium">{label}</div>
+      <div className="text-center text-[11px] font-medium">{label}</div>
     </div>
   );
 }

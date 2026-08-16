@@ -150,7 +150,7 @@ export function MetricSourceLogos({
       })}
       {overflow.length > 0 ? (
         <span
-          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-neutral-200 bg-white px-1.5 text-[12px] font-semibold text-neutral-500"
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-neutral-200 bg-white px-1.5 text-[10px] font-semibold text-neutral-500"
           title={overflow.map((source) => BRAND_META[source].label).join(", ")}
           aria-label={`Additional sources: ${overflow
             .map((source) => BRAND_META[source].label)
@@ -203,7 +203,7 @@ function SourceMonogram({
   return (
     <span
       className={cn(
-        "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 ring-1 text-[12px] font-semibold tracking-tight",
+        "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 ring-1 text-[9px] font-semibold tracking-tight",
         BRAND_META[source].className
       )}
       title={title}

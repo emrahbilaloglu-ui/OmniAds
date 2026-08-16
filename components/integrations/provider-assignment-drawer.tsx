@@ -367,8 +367,8 @@ export function ProviderAssignmentDrawer({
             <div
               className={`mb-3 rounded-md border px-3 py-2 text-sm ${
                 domain?.discovery.sourceHealth === "healthy_cached"
-                  ? "border-sky-200 bg-sky-50 text-sky-900"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
+                  ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]"
+                  : "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]"
               }`}
             >
               <div className="flex items-center justify-between gap-3">

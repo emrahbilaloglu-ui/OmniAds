@@ -225,7 +225,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
       'class="max-w-[14rem] shrink-0 truncate font-medium">WallArtCatalog</span>',
     );
     expect(html).toContain(
-      'class="max-w-[10rem] shrink-0 truncate font-mono text-[12px] text-muted-foreground/70">mock-creative-001</span>',
+      'class="max-w-[10rem] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">mock-creative-001</span>',
     );
     expect(html).toContain("Engine v3 stub - real gate logic not yet implemented.");
     expect(html).toContain("conf 50");
@@ -297,7 +297,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
     });
 
     expect(html).toContain('data-health-tier="warning"');
-    expect(html).toContain("bg-amber-500/15");
+    expect(html).toContain("bg-[var(--adc-caution-fg)]/15");
     expect(html).toContain("data: stale");
     expect(html).toContain(
       "Data health: warning (calibration none, lifecycle warning, decisions none)",
@@ -317,7 +317,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
     });
 
     expect(html).toContain('data-health-tier="disabled"');
-    expect(html).toContain("bg-rose-500/15");
+    expect(html).toContain("bg-[var(--adc-danger-fg)]/15");
     expect(html).toContain("data: degraded");
   });
 
@@ -333,7 +333,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
     });
 
     expect(html).toContain('data-health-tier="unknown"');
-    expect(html).toContain("bg-amber-500/15");
+    expect(html).toContain("bg-[var(--adc-caution-fg)]/15");
     expect(html).toContain("data: freshness unknown");
     expect(html).not.toContain("data: degraded");
   });
@@ -373,7 +373,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
     const html = renderSurface();
 
     expect(html).toContain('data-badge-severity="warning"');
-    expect(html).toContain("bg-amber-500/15");
+    expect(html).toContain("bg-[var(--adc-caution-fg)]/15");
     expect(html).toContain('title="Recent 7d data missing"');
   });
 

@@ -86,8 +86,7 @@ export function SortableTable<T extends object>({
             {columns.map((col) => (
               <th
                 key={String(col.key)}
-                className={cn(
-                  "py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+                className={cn( "py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-muted-foreground",
                   col.align === "right" ? "text-right" : "text-left",
                   col.sticky && "sticky left-0 bg-white z-10",
                   col.sortable !== false && "cursor-pointer select-none hover:text-foreground"
@@ -131,17 +130,16 @@ export function SortableTable<T extends object>({
                 let heatClass = "";
                 if (ratio !== null) {
                   const effective = col.heatmapInvert ? 1 - ratio : ratio;
-                  if (effective >= 0.7) heatClass = "text-emerald-600 dark:text-emerald-400 font-medium";
+                  if (effective >= 0.7) heatClass = "text-[var(--adc-pos-fg)]  font-medium";
                   else if (effective >= 0.4) heatClass = "text-foreground";
-                  else if (effective >= 0.15) heatClass = "text-amber-600 dark:text-amber-400";
-                  else heatClass = "text-rose-600 dark:text-rose-400";
+                  else if (effective >= 0.15) heatClass = "text-[var(--adc-caution-fg)] ";
+                  else heatClass = "text-[var(--adc-danger-fg)] ";
                 }
 
                 return (
                   <td
                     key={String(col.key)}
-                    className={cn(
-                      "py-2.5 pr-4",
+                    className={cn( "py-2.5 pr-4",
                       col.align === "right" ? "text-right tabular-nums" : "",
                       col.sticky && "sticky left-0 bg-white z-10",
                       heatClass

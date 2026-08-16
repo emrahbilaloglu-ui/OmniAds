@@ -25,48 +25,48 @@ const TYPE_CONFIG = {
   content: {
     icon: <TrendingUp className="h-4 w-4" />,
     label: "Content",
-    color: "text-violet-600 dark:text-violet-400",
-    border: "border-violet-200 dark:border-violet-900/50",
-    bg: "bg-violet-50 dark:bg-violet-950/30",
+    color: "text-[var(--adc-auto-fg)] ",
+    border: "border-[var(--adc-auto-bd)] ",
+    bg: "bg-[var(--adc-auto-bg)] ",
   },
   traffic: {
     icon: <Zap className="h-4 w-4" />,
     label: "Traffic",
-    color: "text-blue-600 dark:text-blue-400",
-    border: "border-blue-200 dark:border-blue-900/50",
-    bg: "bg-blue-50 dark:bg-blue-950/30",
+    color: "text-[var(--adc-info-fg)] ",
+    border: "border-[var(--adc-info-bd)] ",
+    bg: "bg-[var(--adc-info-bg)] ",
   },
   conversion: {
     icon: <AlertTriangle className="h-4 w-4" />,
     label: "Conversion",
-    color: "text-amber-600 dark:text-amber-400",
-    border: "border-amber-200 dark:border-amber-900/50",
-    bg: "bg-amber-50 dark:bg-amber-950/30",
+    color: "text-[var(--adc-caution-fg)] ",
+    border: "border-[var(--adc-caution-bd)] ",
+    bg: "bg-[var(--adc-caution-bg)] ",
   },
   coverage: {
     icon: <Globe className="h-4 w-4" />,
     label: "Coverage",
-    color: "text-emerald-600 dark:text-emerald-400",
-    border: "border-emerald-200 dark:border-emerald-900/50",
-    bg: "bg-emerald-50 dark:bg-emerald-950/30",
+    color: "text-[var(--adc-pos-fg)] ",
+    border: "border-[var(--adc-pos-bd)] ",
+    bg: "bg-[var(--adc-pos-bg)] ",
   },
 };
 
 const PRIORITY_BADGE: Record<string, string> = {
-  high: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  high: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
+  medium: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
   low: "bg-muted text-muted-foreground",
 };
 
 const EFFORT_BADGE: Record<string, string> = {
-  low: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  high: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+  low: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]  ",
+  medium: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]  ",
+  high: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]  ",
 };
 
 const CONFIDENCE_DOT: Record<string, string> = {
-  high: "bg-emerald-500",
-  medium: "bg-amber-400",
+  high: "bg-[var(--adc-pos-fg)]",
+  medium: "bg-[var(--adc-caution-fg)]",
   low: "bg-muted-foreground",
 };
 
@@ -150,7 +150,7 @@ export function GeoOpportunitiesSection({
                 )}
               >
                 {f.label}
-                <span className="ml-1.5 text-[12px] opacity-60">{count}</span>
+                <span className="ml-1.5 text-[10px] opacity-60">{count}</span>
               </button>
             );
           })}
@@ -189,11 +189,11 @@ export function GeoOpportunitiesSection({
                 <div className="flex flex-wrap items-center gap-2 mb-1.5">
                   <span className="font-semibold text-sm">{op.title}</span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase ${PRIORITY_BADGE[op.priority]}`}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[op.priority]}`}
                   >
                     {op.priority}
                   </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[12px] text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
                     {cfg.label}
                   </span>
                 </div>
@@ -202,14 +202,14 @@ export function GeoOpportunitiesSection({
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                   {op.impact && (
                     <span className="text-xs font-medium text-foreground">
-                      Impact: <span className="text-emerald-600 dark:text-emerald-400">{op.impact}</span>
+                      Impact: <span className="text-[var(--adc-pos-fg)] ">{op.impact}</span>
                     </span>
                   )}
-                  <span className={cn("rounded px-1.5 py-0.5 text-[12px] font-medium", EFFORT_BADGE[op.effort])}>
+                  <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", EFFORT_BADGE[op.effort])}>
                     {op.effort.charAt(0).toUpperCase() + op.effort.slice(1)} effort
                   </span>
                   {op.confidence && (
-                    <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                       <span className={cn("h-1.5 w-1.5 rounded-full", CONFIDENCE_DOT[op.confidence])} />
                       {op.confidence.charAt(0).toUpperCase() + op.confidence.slice(1)} confidence
                     </span>

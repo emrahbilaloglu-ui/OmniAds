@@ -59,7 +59,7 @@ export function CreativeDrawerHeader({
         <div className="flex items-center gap-2">
           <div className="flex h-6 items-center rounded-md bg-primary/10 px-2">
             <Layers className="mr-1.5 h-3 w-3 text-primary" />
-            <span className="text-[12px] font-semibold uppercase tracking-wider text-primary">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
               Ad breakdown
             </span>
           </div>
@@ -99,39 +99,39 @@ export function CreativeDrawerHeader({
             {creative?.name ?? "Creative"}
           </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+            <span className="inline-flex items-center rounded-md bg-[var(--adc-info-fg)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--adc-info-fg)] dark:text-[var(--adc-info-fg)]">
               Meta
             </span>
             {formatLabel ? (
-              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
+              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {formatLabel}
               </span>
             ) : null}
-            <span className="text-[12px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               {adsLabel}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Placements{" "}
               <strong className="font-mono text-neutral-950">{windowAdsCount || lifetimeAdsCount}</strong>
               {lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount ? (
                 <span className="ml-1 text-neutral-500">/ {lifetimeAdsCount} lifetime</span>
               ) : null}
             </span>
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Spend{" "}
               <strong className="font-mono text-neutral-950">
                 {formatMoney(totalSpend, currency, defaultCurrency)}
               </strong>
             </span>
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
               Weighted ROAS{" "}
               <strong className="font-mono text-neutral-950">{weightedRoas.toFixed(2)}x</strong>
             </span>
           </div>
           {creative?.launchDate && (
-            <p className="mt-1 text-[12px] text-muted-foreground/70">
+            <p className="mt-1 text-[11px] text-muted-foreground/70">
               Launched {creative.launchDate}
             </p>
           )}
@@ -163,27 +163,27 @@ export function CreativeSummaryCards({
       <SummaryCard
         label="Placements"
         value={adsCount.toString()}
-        icon={<Layers className="h-3.5 w-3.5 text-blue-500" />}
+        icon={<Layers className="h-3.5 w-3.5 text-[var(--adc-info-fg)]" />}
       />
       <SummaryCard
         label="Total Spend"
         value={formatMoney(totalSpend, currency, defaultCurrency)}
-        icon={<span className="text-amber-500">$</span>}
+        icon={<span className="text-[var(--adc-caution-fg)]">$</span>}
       />
       <SummaryCard
         label="Weighted ROAS"
         value={`${weightedRoas.toFixed(2)}x`}
-        icon={weightedRoas >= 1 ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-red-400" />}
+        icon={weightedRoas >= 1 ? <TrendingUp className="h-3.5 w-3.5 text-[var(--adc-pos-fg)]" /> : <TrendingDown className="h-3.5 w-3.5 text-[var(--adc-danger-fg)]" />}
       />
       <SummaryCard
         label="Total Purchases"
         value={Math.round(totalPurchases).toLocaleString()}
-        icon={<span className="text-xs font-bold text-blue-500">#</span>}
+        icon={<span className="text-xs font-bold text-[var(--adc-info-fg)]">#</span>}
       />
       <SummaryCard
         label="Weighted CTR"
         value={`${weightedCtr.toFixed(2)}%`}
-        icon={<Minus className="h-3.5 w-3.5 text-orange-400" />}
+        icon={<Minus className="h-3.5 w-3.5 text-[var(--adc-caution-fg)]" />}
       />
     </div>
   );
@@ -194,7 +194,7 @@ function SummaryCard({ label, value, icon }: { label: string; value: string; ico
     <div className="rounded-xl border border-neutral-200 bg-white p-3">
       <div className="flex items-center gap-1.5">
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60">{icon}</div>
-        <p className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
       <p className="mt-1.5 font-mono text-lg font-bold tabular-nums tracking-tight">{value}</p>
     </div>
@@ -235,7 +235,7 @@ export function CreativePerformanceChart({
           <h4 className="text-[13px] font-semibold">
             Performance by Ad
             {rows.length > 0 ? (
-              <span className="ml-2 font-mono text-[12px] font-normal text-muted-foreground">
+              <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
                 ({rows.length})
               </span>
             ) : null}
@@ -248,7 +248,7 @@ export function CreativePerformanceChart({
               type="button"
               onClick={() => onMetricChange(metricOption.key)}
               className={cn(
-                "rounded-lg px-2.5 py-1 text-[12px] font-medium transition-colors",
+                "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors",
                 metric === metricOption.key
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -282,18 +282,18 @@ export function CreativePerformanceChart({
                   <div className="mb-0.5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p
-                        className="max-w-[20rem] truncate text-[12px] font-medium text-foreground"
+                        className="max-w-[20rem] truncate text-[11px] font-medium text-foreground"
                         data-chart-row-label={label}
                       >
                         {label}
                       </p>
                       {sublabel ? (
-                        <p className="max-w-[18rem] truncate text-[12px] text-muted-foreground">
+                        <p className="max-w-[18rem] truncate text-[10px] text-muted-foreground">
                           {sublabel}
                         </p>
                       ) : null}
                     </div>
-                    <span className="text-[12px] font-semibold tabular-nums text-foreground">{displayValue}</span>
+                    <span className="text-[11px] font-semibold tabular-nums text-foreground">{displayValue}</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
                     <div
@@ -305,7 +305,7 @@ export function CreativePerformanceChart({
               );
             })}
             {rows.length > 8 && (
-              <p className="pt-1 text-center text-[12px] text-muted-foreground">+{rows.length - 8} more ads</p>
+              <p className="pt-1 text-center text-[10px] text-muted-foreground">+{rows.length - 8} more ads</p>
             )}
           </div>
         )}

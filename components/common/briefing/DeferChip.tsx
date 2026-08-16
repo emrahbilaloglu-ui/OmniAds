@@ -246,7 +246,7 @@ export function DeferChip({
   return (
     <div
       className={[
-        "mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-neutral-50 border border-neutral-200 text-[12px] text-neutral-600",
+        "mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-neutral-50 border border-neutral-200 text-[11px] text-neutral-600",
         className,
       ]
         .filter(Boolean)
@@ -259,7 +259,7 @@ export function DeferChip({
           {" · "}
           <button
             type="button"
-            className="text-blue-600 hover:underline"
+            className="text-[var(--adc-info-fg)] hover:underline"
             data-action="undefer"
             data-id={id}
             onClick={() => onUndo?.(id)}

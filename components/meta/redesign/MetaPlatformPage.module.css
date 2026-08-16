@@ -1049,15 +1049,15 @@
   color: var(--adc-ink);
 }
 
+/* Dashboard v2 page header: an eyebrow / display title / as-of stack sitting
+   directly on the canvas, with the command cluster bottom-aligned beside it. */
 .osHeader {
   display: flex;
-  min-height: 92px;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  border-bottom: 1px solid var(--adc-b1);
-  background: var(--adc-s2);
-  padding: 16px 18px 14px;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0 0 4px;
 }
 
 .osIdentity {
@@ -1065,9 +1065,11 @@
 }
 
 .osEyebrow {
-  color: var(--adc-ink3);
-  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  display: block;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
   font-size: 12px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -1076,15 +1078,17 @@
   min-width: 0;
   align-items: baseline;
   gap: 10px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .osTitleRow h1 {
   margin: 0;
-  color: var(--adc-ink);
-  font-size: 22px;
-  font-weight: 680;
-  line-height: 1.2;
+  color: var(--adv-ink);
+  font-family: var(--adv-font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
 .osTitleRow span {
@@ -1097,8 +1101,9 @@
 }
 
 .osIdentity p {
-  margin: 5px 0 0;
-  color: var(--adc-ink3);
+  margin: 4px 0 0;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -1109,6 +1114,10 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+}
+
+.osHeaderCommands {
+  flex-wrap: wrap;
 }
 
 .osHeaderCommands {

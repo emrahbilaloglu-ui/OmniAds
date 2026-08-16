@@ -67,108 +67,6 @@ const WIDGET_ICONS: Record<CustomReportWidgetType, React.ReactNode> = {
 
 
 
-function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
-  if (type === "metric") {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">KPI</div>
-        <div className="mt-2 text-lg font-semibold leading-none text-neutral-950">$12.4K</div>
-        <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[12px] font-medium text-emerald-700">
-          +12.4%
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "trend") {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="flex h-12 items-end gap-1">
-          {[20, 28, 24, 36, 30, 41].map((point, index) => (
-            <div key={index} className="relative flex-1">
-              {index > 0 ? (
-                <div
-                  className="absolute -left-1/2 top-1/2 h-[2px] w-full -translate-y-1/2 rounded-full bg-blue-500"
-                  style={{ transform: `translateY(${18 - point / 3}px) rotate(${index % 2 === 0 ? "-8deg" : "8deg"})` }}
-                />
-              ) : null}
-              <div
-                className="mx-auto h-1.5 w-1.5 rounded-full bg-blue-600"
-                style={{ marginTop: `${44 - point}px` }}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex justify-between text-[12px] text-neutral-400">
-          <span>Mar</span>
-          <span>Apr</span>
-          <span>May</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "bar") {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="flex h-12 items-end gap-2">
-          {[38, 26, 44, 31].map((height, index) => (
-            <div key={index} className="flex-1 rounded-t-xl bg-[linear-gradient(180deg,#60a5fa,#2563eb)]" style={{ height }} />
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
-          <BarChart3 className="h-3.5 w-3.5" />
-          <span>Ranked comparison</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "table") {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="grid grid-cols-3 gap-1">
-          {Array.from({ length: 9 }).map((_, index) => (
-            <div
-              key={index}
-              className={`h-3 rounded-md ${index < 3 ? "bg-neutral-200" : "bg-neutral-100"}`}
-            />
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
-          <Table2 className="h-3.5 w-3.5" />
-          <span>Detailed rows</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "text") {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="space-y-2">
-          <div className="h-2 rounded-full bg-neutral-200" />
-          <div className="h-2 w-5/6 rounded-full bg-neutral-200" />
-          <div className="h-2 w-2/3 rounded-full bg-neutral-100" />
-        </div>
-        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
-          <TextCursorInput className="h-3.5 w-3.5" />
-          <span>Narrative block</span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-      <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 px-3 py-4 text-center">
-        <LayoutPanelTop className="mx-auto h-5 w-5 text-neutral-500" />
-        <div className="mt-2 text-[12px] font-medium text-neutral-500">Section divider</div>
-      </div>
-    </div>
-  );
-}
-
 function PlatformLogoStack({ channels }: { channels: Array<CustomReportPlatform> }) {
   return (
     <span className="flex items-center">
@@ -499,25 +397,10 @@ export function ReportBuilder({
     name: deferredName,
     description: deferredDescription,
   });
-  /**
-   * Whether the last render of this same preview left widgets failed.
-   *
-   * The server counts a retry only when told one is happening, and no caller
-   * was ever telling it -- so `report_widget_retried` could not fire at all and
-   * the recovery rate read as a permanent zero, which is indistinguishable from
-   * "nobody ever retries" and from "retries always fail".
-   *
-   * A ref rather than state: this must not itself trigger a re-render, and it
-   * is keyed to the preview so editing the report starts a fresh attempt rather
-   * than inheriting the previous one's failure.
-   */
-  const lastFailedPreviewKey = useRef<string | null>(null);
-
   const previewQuery = useQuery({
     queryKey: ["custom-report-preview", businessId, previewKey],
     enabled: shouldRenderPreview,
     queryFn: async () => {
-      const retryOfFailedRender = lastFailedPreviewKey.current === previewKey;
       const response = await fetch("/api/reports/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -526,22 +409,13 @@ export function ReportBuilder({
           name: deferredName,
           description: deferredDescription,
           definition: deferredDefinition,
-          retryOfFailedRender,
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme başarısız oldu."));
       }
-      const report = (payload as { report: RenderedReportPayload }).report;
-      // Remember whether this render left anything failed, so the next attempt
-      // at the same preview is reported as the retry it is.
-      const failed = (report.widgets ?? []).some(
-        (widget: { errorMessage?: string | null }) =>
-          Boolean(widget.errorMessage),
-      );
-      lastFailedPreviewKey.current = failed ? previewKey : null;
-      return report;
+      return (payload as { report: RenderedReportPayload }).report;
     },
   });
 
@@ -996,26 +870,26 @@ export function ReportBuilder({
                 <ChevronDown className="h-3.5 w-3.5" />
               </Button>
               {actionsMenuOpen ? (
-                <div className="absolute right-0 top-full z-30 mt-1.5 w-52 rounded-xl border border-neutral-200 bg-white py-1.5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
+                <div className="absolute right-0 top-full z-30 mt-1.5 w-52 rounded-xl border border-[var(--adv-border)] bg-white py-1.5 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)]">
                   <button
                     type="button"
                     onClick={() => { handleExport(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
                   >
-                    <Download className="h-4 w-4 text-neutral-400" />
+                    <Download className="h-4 w-4 text-[var(--adv-ink-4)]" />
                     Export CSV
                   </button>
                   <button
                     type="button"
                     onClick={() => { handlePrint(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
                   >
-                    <Download className="h-4 w-4 text-neutral-400" />
+                    <Download className="h-4 w-4 text-[var(--adv-ink-4)]" />
                     Export PDF
                   </button>
                   <div className="my-1 border-t" />
                   <div className="px-4 py-2">
-                    <div className="mb-1.5 text-[12px] font-semibold uppercase tracking-widest text-neutral-400">Share expiry</div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--adv-ink-4)]">Share expiry</div>
                     <select
                       value={String(shareExpiryDays)}
                       onChange={(event) => setShareExpiryDays(Number(event.target.value))}
@@ -1029,9 +903,9 @@ export function ReportBuilder({
                   <button
                     type="button"
                     onClick={() => { void handleShare(); setActionsMenuOpen(false); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
                   >
-                    <Share2 className="h-4 w-4 text-neutral-400" />
+                    <Share2 className="h-4 w-4 text-[var(--adv-ink-4)]" />
                     Copy share link
                   </button>
                 </div>
@@ -1043,13 +917,13 @@ export function ReportBuilder({
           </div>
         </div>
         {toolbarMessage ? (
-          <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+          <div className="mt-2 rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-4 py-2 text-sm text-[var(--adc-caution-fg)]">
             {toolbarMessage}
           </div>
         ) : null}
         {shareUrl ? (
           <div className="mt-2">
-            <a href={shareUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 underline">
+            <a href={shareUrl} target="_blank" rel="noreferrer" className="text-sm text-[var(--adc-info-fg)] underline">
               Open shared report
             </a>
           </div>
@@ -1057,71 +931,391 @@ export function ReportBuilder({
       </div>
 
 
-      <div className="grid gap-6 px-6 py-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
-
+      {/* The design lays the builder out in three columns: the block
+          palette, the page canvas, and the settings panel — both side
+          panels stay pinned while the canvas scrolls. */}
+      <div className="grid items-start gap-3 px-6 py-6 [grid-template-columns:236px_minmax(430px,1fr)_264px] max-[1180px]:[grid-template-columns:minmax(0,1fr)]">
+        <aside className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
           {/* Widgets — always visible, compact icon grid */}
-          {!selectedWidget ? (
-            <section className="rounded-xl border border-neutral-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-neutral-900">Widgets</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Drag and drop onto the canvas.
-              </p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {WIDGET_LIBRARY.map((widget) => (
-                  <div
-                    key={widget.type}
-                    role="button"
-                    tabIndex={0}
-                    draggable
-                    onDragStart={(event) => {
-                      setDraggedWidgetType(widget.type);
-                      event.dataTransfer.setData("text/report-widget-type", widget.type);
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onDragEnd={() => {
-                      setDraggedWidgetType(null);
-                      setHoveredSlot(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        addWidget(widget.type, selectedSlot ?? 0);
-                      }
-                    }}
-                    className="group relative flex flex-col items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-2 py-3 text-neutral-600 transition hover:border-neutral-400 hover:bg-white cursor-grab active:cursor-grabbing"
-                  >
+          <section className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
+            <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[9.5px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+              Blocks — drag to page, or click
+            </p>
+            <div className="mt-3 flex flex-col gap-1">
+              {WIDGET_LIBRARY.map((widget) => (
+                <div
+                  key={widget.type}
+                  role="button"
+                  tabIndex={0}
+                  draggable
+                  title={widget.detail}
+                  onDragStart={(event) => {
+                    setDraggedWidgetType(widget.type);
+                    event.dataTransfer.setData("text/report-widget-type", widget.type);
+                    event.dataTransfer.effectAllowed = "copy";
+                  }}
+                  onDragEnd={() => {
+                    setDraggedWidgetType(null);
+                    setHoveredSlot(null);
+                  }}
+                  // The design offers click as an equal path to dragging.
+                  onClick={() => addWidget(widget.type, selectedSlot ?? 0)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      addWidget(widget.type, selectedSlot ?? 0);
+                    }
+                  }}
+                  className="flex cursor-grab items-center gap-2 rounded-[9px] border border-[var(--adv-hairline)] bg-[var(--adv-fill)] px-[9px] py-[7px] transition hover:border-[var(--adv-ink-4)] hover:bg-[var(--adv-surface)] active:cursor-grabbing"
+                >
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[var(--adv-accent-bg)] text-[var(--adv-accent)] [&_svg]:h-[11px] [&_svg]:w-[11px]">
                     {WIDGET_ICONS[widget.type]}
-                    <span className="text-[12px] font-medium text-neutral-500">{widget.label}</span>
-                    {/* Tooltip */}
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] group-hover:block">
-                      <div className="text-xs font-semibold text-neutral-900">{widget.label}</div>
-                      <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">{widget.detail}</div>
-                      <div className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-neutral-200 bg-white" />
+                  </span>
+                  <span className="text-[12px] font-semibold text-[var(--adv-ink)]">
+                    {widget.label}
+                  </span>
+                  <span className="ml-auto font-[family-name:var(--adv-font-mono)] text-[8.5px] uppercase tracking-[0.06em] text-[var(--adv-ink-4)]">
+                    {widget.eyebrow}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+        </aside>
+
+
+        <section className="space-y-5">
+          <div className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <h2 className="text-lg font-semibold">{tr("Canvas", "Tuval")}</h2>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={1}
+                  className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-[var(--adv-ink-4)] focus:outline-none focus:ring-0"
+                  placeholder={tr("Add a description for this report...", "Bu rapor için bir açıklama ekleyin...")}
+                />
+              </div>
+              {templateId ? (
+                <span className="shrink-0 rounded-full bg-[var(--adv-fill-2)] px-3 py-1 text-xs font-medium text-[var(--adv-ink-2)]">
+                  Template: {templateId}
+                </span>
+              ) : null}
+            </div>
+            {canvasWidgets.length === 0 ? (
+              <div className="mb-4 rounded-xl border border-dashed border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] px-5 py-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--adv-ink)]">{tr("Start with your first widget", "İlk widget'inizle başlayın")}</div>
+                    <p className="mt-1 max-w-2xl text-sm text-[var(--adv-ink-2)]">
+                      Drag a metric, chart, table, or section from the left palette into the canvas. Once it lands,
+                      click the widget to configure its source, account, and content.
+                    </p>
+                  </div>
+                    <div className="rounded-xl border border-[var(--adv-border)] bg-white px-4 py-3 text-xs font-medium text-[var(--adv-ink-2)]">
+                      {tr("Drag from left", "Soldan sürükleyin")}
+                    </div>
+                </div>
+                <div className="mt-3 text-xs text-[var(--adv-ink-3)]">
+                  Tip: select a widget and use <span className="font-semibold text-[var(--adv-ink-2)]">Delete</span> to remove
+                  , <span className="font-semibold text-[var(--adv-ink-2)]">Cmd/Ctrl + D</span> to duplicate it, or{" "}
+                  <span className="font-semibold text-[var(--adv-ink-2)]">Shift + Arrow</span> to move it around the grid.
+                </div>
+              </div>
+            ) : null}
+            <div className="relative">
+              <div
+                className="grid gap-3"
+                style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gridAutoRows: "140px" }}
+              >
+                {Array.from({ length: REPORT_GRID_SLOT_COUNT }).map((_, slot) => {
+                  const widget = definition.widgets.find((item) => item.slot === slot) ?? null;
+                  const slotCovered = occupiedSlots.has(slot);
+                  const selected = selectedSlot === slot || selectedWidgetId === widget?.id;
+                  return (
+                    <div
+                      key={slot}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        const incomingType =
+                          event.dataTransfer.getData("text/report-widget-type") || draggedWidgetType;
+                        event.dataTransfer.dropEffect = incomingType ? "copy" : "move";
+                        setHoveredSlot(slot);
+                      }}
+                      onDragLeave={() => {
+                        setHoveredSlot((current) => (current === slot ? null : current));
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const widgetType = (
+                          event.dataTransfer.getData("text/report-widget-type") || draggedWidgetType || ""
+                        ) as CustomReportWidgetType | "";
+                        if (widgetType) {
+                          addWidget(widgetType, slot);
+                          setDraggedWidgetType(null);
+                          setHoveredSlot(null);
+                          return;
+                        }
+                        const movingId =
+                          event.dataTransfer.getData("text/report-widget-id") || draggedWidgetId;
+                        if (!movingId) return;
+                        moveWidgetToSlot(movingId, slot);
+                        setDraggedWidgetId(null);
+                        setDraggedWidgetType(null);
+                        setHoveredSlot(null);
+                      }}
+                      className={`relative rounded-xl p-4 text-left transition ${
+                        slotCovered
+                          ? "border border-transparent bg-transparent"
+                          : hoveredSlot === slot
+                            ? "border-2 border-[var(--adc-pos-bd)] border-dashed bg-[var(--adc-pos-bg)]/70 shadow-[0_0_0_4px_rgba(16,185,129,0.08)]"
+                            : (draggedWidgetType || draggedWidgetId)
+                              ? "border-2 border-dashed border-[var(--adv-border)] bg-[var(--adv-fill)]/40"
+                              : selected
+                                ? "border-2 border-[var(--adc-info-bd)] border-dashed bg-[var(--adc-info-bg)]/40"
+                                : "border border-transparent bg-transparent"
+                      }`}
+                    >
+                      {!slotCovered ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSlot(slot);
+                              setSelectedWidgetId(widget?.id ?? null);
+                            }}
+                            className="absolute inset-0 rounded-xl"
+                            aria-label={`Target slot ${slot + 1}`}
+                          />
+                          {hoveredSlot === slot ? (
+                            <div className="relative z-10 flex h-full min-h-[64px] flex-col items-center justify-center">
+                              <div className="text-sm font-semibold text-[var(--adc-pos-fg)]">
+                                {draggedWidgetType ? tr("Drop to create", "Oluşturmak için bırak") : tr("Drop here", "Buraya birak")}
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <div
+                ref={canvasOverlayRef}
+                className="pointer-events-none absolute inset-0 grid gap-3"
+                style={{
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gridAutoRows: "140px",
+                }}
+              >
+                {canvasWidgets.map((widget) => (
+                  (() => {
+                    const renderedWidget = renderedWidgetsById.get(widget.id);
+                    const previewSummary = getWidgetPreviewSummary(renderedWidget);
+                    const widgetChannel = resolveWidgetPlatform(widget);
+                    const widgetMetricLabel =
+                      widget.type === "metric" || widget.type === "trend" || widget.type === "bar"
+                        ? getMetricOptionsForPlatform(widgetChannel, widget.type).find((metric) => metric.value === widget.metricKey)?.label ?? null
+                        : null;
+                    return (
+                      <div
+                        key={widget.id}
+                        draggable
+                        onDragStart={(event) => {
+                          setDraggedWidgetId(widget.id);
+                          setDraggedWidgetType(null);
+                          event.dataTransfer.setData("text/report-widget-id", widget.id);
+                          event.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => {
+                          setDraggedWidgetId(null);
+                          setHoveredSlot(null);
+                        }}
+                        onClick={() => {
+                          setSelectedWidgetId(widget.id);
+                          setSelectedSlot(widget.slot);
+                        }}
+                        style={getCanvasWidgetStyle(widget)}
+                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-xl border-2 border-[var(--adv-border)] bg-white text-left transition ${
+                          selectedWidgetId === widget.id
+                            ? "border-[var(--adc-info-bd)] shadow-blue-100"
+                            : "border-[var(--adv-border)] hover:border-[var(--adv-scroll-thumb)]"
+                        }`}
+                      >
+                        {/* Rendered widget content fills the card */}
+                        <div className="h-full w-full">
+                          {renderedWidget ? (
+                            <ReportWidgetCard widget={renderedWidget} embedded />
+                          ) : (
+                            <div className="flex h-full items-center justify-center p-4">
+                              <div className="text-center">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--adv-ink-4)]">{widget.type}</div>
+                                <div className="mt-2 text-sm font-medium text-[var(--adv-ink-2)]">{widget.title}</div>
+                                <div className="mt-2 h-1 w-16 animate-pulse rounded-full bg-[var(--adv-border)] mx-auto" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div
+                          className={`absolute right-3 top-3 flex items-center gap-1 rounded-full border border-[var(--adv-border)] bg-white/95 px-1.5 py-1 transition ${
+                            selectedWidgetId === widget.id
+                              ? "opacity-100"
+                              : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedWidgetId(widget.id);
+                              setSelectedSlot(widget.slot);
+                        }}
+                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill-2)]"
+                            title={tr("Edit widget", "Widget'i düzenle")}
+                          >
+                            {tr("Edit", "Düzenle")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              duplicateWidget(widget.id);
+                            }}
+                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill-2)]"
+                            title={tr("Duplicate widget", "Widget'i kopyala")}
+                          >
+                            {tr("Copy", "Kopyala")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeWidget(widget.id);
+                            }}
+                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-[var(--adc-danger-fg)] hover:bg-[var(--adc-danger-bg)]"
+                            title={tr("Remove widget", "Widget'i kaldir")}
+                          >
+                            Del
+                          </button>
+                        </div>
+                        {/* Right-edge resize handle */}
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            setActiveResize({
+                              widgetId: widget.id,
+                              mode: "col",
+                              startX: event.clientX,
+                              startY: event.clientY,
+                              originColSpan: widget.colSpan,
+                              originRowSpan: widget.rowSpan,
+                            });
+                          }}
+                          className="absolute bottom-8 right-0 top-8 w-2 cursor-ew-resize opacity-0 transition-opacity group-hover:opacity-100"
+                          title={tr("Drag to resize width", "Genişliği yeniden boyutlandırmak için sürükleyin")}
+                        >
+                          <span className="block h-full w-1 mx-auto rounded-full bg-[var(--adc-info-fg)]/60 hover:bg-[var(--adc-info-fg)]" />
+                        </button>
+                        {/* Bottom-edge resize handle */}
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            setActiveResize({
+                              widgetId: widget.id,
+                              mode: "row",
+                              startX: event.clientX,
+                              startY: event.clientY,
+                              originColSpan: widget.colSpan,
+                              originRowSpan: widget.rowSpan,
+                            });
+                          }}
+                          className="absolute bottom-0 left-8 right-8 h-2 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
+                          title={tr("Drag to resize height", "Yüksekliği yeniden boyutlandırmak için sürükleyin")}
+                        >
+                          <span className="block h-1 w-full my-auto rounded-full bg-[var(--adc-info-fg)]/60 hover:bg-[var(--adc-info-fg)]" />
+                        </button>
+                        {/* Bottom-right corner resize handle */}
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            setActiveResize({
+                              widgetId: widget.id,
+                              mode: "both",
+                              startX: event.clientX,
+                              startY: event.clientY,
+                              originColSpan: widget.colSpan,
+                              originRowSpan: widget.rowSpan,
+                            });
+                          }}
+                          className="absolute bottom-0 right-0 h-5 w-5 cursor-se-resize opacity-0 transition-opacity group-hover:opacity-100 flex items-end justify-end p-1"
+                          title={tr("Drag to resize", "Yeniden boyutlandırmak için sürükleyin")}
+                        >
+                          <span className="block h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-[var(--adc-info-bd)]/80" />
+                        </button>
+                      </div>
+                    );
+                  })()
+                ))}
+                {dragPreview ? (
+                  <div
+                    style={getCanvasWidgetStyle(dragPreview)}
+                    className="rounded-xl border-2 border-dashed border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]/70 p-4"
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--adc-pos-fg)]">
+                      {dragPreview.mode === "create"
+                        ? dragPreview.snapped
+                          ? tr("Create Preview", "Oluşturma Önizlemesi")
+                          : "Drop to Create"
+                        : dragPreview.snapped
+                          ? "Snap Preview"
+                          : tr("Drop Preview", "Birakma Onizlemesi")}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-[var(--adc-pos-fg)]">
+                      {dragPreview.title}
+                    </div>
+                    <div className="mt-2 text-xs text-[var(--adc-pos-fg)]">
+                      {dragPreview.snapped
+                        ? `Nearest open slot: ${dragPreview.slot + 1}`
+                        : `${dragPreview.mode === "create" ? "Create" : "Drop"} into slot ${dragPreview.slot + 1}`}
                     </div>
                   </div>
-                ))}
+                ) : null}
               </div>
-            </section>
-          ) : null}
+            </div>
+          </div>
 
-          {/* Transparent overlay — closes open dropdowns when clicking outside */}
-          {(openMetricRowIndex !== null || breakdownMenuOpen || columnMenuOpen) ? (
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => {
-                setOpenMetricRowIndex(null);
-                setMetricSearch("");
-                setBreakdownMenuOpen(false);
-                setBreakdownSearch("");
-                setColumnMenuOpen(false);
-                setColumnSearch("");
-              }}
-            />
+          {previewQuery.error ? (
+            <div className="rounded-xl border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-4 text-sm text-[var(--adc-danger-fg)]">
+              {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme başarısız oldu.")}
+            </div>
           ) : null}
+        </section>
 
+        <aside className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
+        {/* Transparent overlay — closes open dropdowns when clicking outside */}
+        {(openMetricRowIndex !== null || breakdownMenuOpen || columnMenuOpen) ? (
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => {
+              setOpenMetricRowIndex(null);
+              setMetricSearch("");
+              setBreakdownMenuOpen(false);
+              setBreakdownSearch("");
+              setColumnMenuOpen(false);
+              setColumnSearch("");
+            }}
+          />
+        ) : null}
           {selectedWidget ? (
-            <section className="rounded-xl border border-neutral-200 bg-white overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
+            <section className="rounded-xl border border-[var(--adv-border)] bg-white overflow-hidden" style={{ position: "relative", zIndex: 11 }}>
               {/* Header */}
               <div className="flex items-center gap-2 border-b px-4 py-3">
                 <button
@@ -1135,11 +1329,11 @@ export function ReportBuilder({
                     setOpenMetricRowIndex(null);
                     setBreakdownMenuOpen(false);
                   }}
-                  className="shrink-0 text-xs font-medium text-neutral-500 hover:text-neutral-900"
+                  className="shrink-0 text-xs font-medium text-[var(--adv-ink-3)] hover:text-[var(--adv-ink)]"
                 >
                   ← Back
                 </button>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-900">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--adv-ink)]">
                   {selectedWidget.title}
                 </span>
               </div>
@@ -1151,7 +1345,7 @@ export function ReportBuilder({
                     key={w.type}
                     type="button"
                     onClick={() => addWidget(w.type, selectedSlot ?? 0)}
-                    className="rounded-xl border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[12px] font-medium text-neutral-600 hover:border-neutral-300 hover:bg-white transition"
+                    className="rounded-xl border border-[var(--adv-border)] bg-[var(--adv-fill)] px-2.5 py-1 text-[11px] font-medium text-[var(--adv-ink-2)] hover:border-[var(--adv-scroll-thumb)] hover:bg-white transition"
                   >
                     + {w.label}
                   </button>
@@ -1176,7 +1370,7 @@ export function ReportBuilder({
                   return (
                     <div className="px-4 py-3">
                       <div className="mb-3 flex items-center justify-between">
-                        <p className="font-semibold text-neutral-900">Metrics</p>
+                        <p className="font-semibold text-[var(--adv-ink)]">Metrics</p>
                       </div>
 
                       {/* Channel logo strip */}
@@ -1206,8 +1400,8 @@ export function ReportBuilder({
                               }}
                               className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
                                 isActive
-                                  ? "border-blue-400 bg-blue-50 ring-1 ring-blue-300"
-                                  : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
+                                  ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] ring-1 ring-blue-300"
+                                  : "border-[var(--adv-border)] bg-white hover:border-[var(--adv-scroll-thumb)] hover:bg-[var(--adv-fill)]"
                               }`}
                             >
                               {ch.id === "all" ? (
@@ -1230,7 +1424,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[12px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[9px] font-bold text-[var(--adv-ink-3)]">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1252,7 +1446,7 @@ export function ReportBuilder({
                             : [];
 
                           return (
-                            <div key={rowIndex} className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                            <div key={rowIndex} className="rounded-xl border border-[var(--adv-border)] bg-white overflow-hidden">
                               <div className="flex items-center">
                                 <button
                                   type="button"
@@ -1260,10 +1454,10 @@ export function ReportBuilder({
                                     setOpenMetricRowIndex(rowOpen ? null : rowIndex);
                                     setMetricSearch("");
                                   }}
-                                  className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
+                                  className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-[var(--adv-fill)] transition"
                                 >
-                                  <span className="truncate text-neutral-900">{metricLabel || tr("Select metric", "Metrik sec")}</span>
-                                  <ChevronDown className={`ml-2 h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${rowOpen ? "rotate-180" : ""}`} />
+                                  <span className="truncate text-[var(--adv-ink)]">{metricLabel || tr("Select metric", "Metrik sec")}</span>
+                                  <ChevronDown className={`ml-2 h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)] transition-transform ${rowOpen ? "rotate-180" : ""}`} />
                                 </button>
                                 {canAddMore && metricKeys.length > 1 ? (
                                   <button
@@ -1276,7 +1470,7 @@ export function ReportBuilder({
                                       });
                                       setOpenMetricRowIndex(null);
                                     }}
-                                    className="flex h-full items-center border-l border-neutral-100 px-2.5 text-neutral-300 hover:text-red-400 transition"
+                                    className="flex h-full items-center border-l border-[var(--adv-fill-2)] px-2.5 text-[var(--adv-scroll-thumb)] hover:text-[var(--adc-danger-fg)] transition"
                                     title={tr("Remove metric", "Metrigi kaldir")}
                                   >
                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
@@ -1286,15 +1480,15 @@ export function ReportBuilder({
 
                               {/* Metric dropdown */}
                               {rowOpen ? (
-                                <div className="border-t border-neutral-100">
-                                  <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
-                                    <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <div className="border-t border-[var(--adv-fill-2)]">
+                                  <div className="flex items-center gap-2 border-b border-[var(--adv-fill-2)] px-3 py-2">
+                                    <svg className="h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                     <input
                                       autoFocus
                                       value={metricSearch}
                                       onChange={(e) => setMetricSearch(e.target.value)}
                                       placeholder={tr("Search", "Ara")}
-                                      className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
+                                      className="w-full bg-transparent text-sm outline-none text-[var(--adv-ink)] placeholder:text-[var(--adv-ink-4)]"
                                     />
                                   </div>
                                   <div className="max-h-52 overflow-y-auto">
@@ -1318,8 +1512,8 @@ export function ReportBuilder({
                                         }}
                                         className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
                                           metric.value === metricKey
-                                            ? "bg-blue-50 text-blue-700 font-medium"
-                                            : "text-neutral-800 hover:bg-neutral-50"
+                                            ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] font-medium"
+                                            : "text-[var(--adv-ink)] hover:bg-[var(--adv-fill)]"
                                         }`}
                                       >
                                         {metric.label}
@@ -1344,7 +1538,7 @@ export function ReportBuilder({
                               metricKey: updated[0],
                             });
                           }}
-                          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 py-2.5 text-sm font-medium text-neutral-500 hover:border-neutral-400 hover:text-neutral-700 transition"
+                          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--adv-scroll-thumb)] py-2.5 text-sm font-medium text-[var(--adv-ink-3)] hover:border-[var(--adv-ink-4)] hover:text-[var(--adv-ink-2)] transition"
                         >
                           {tr("+ Metric", "+ Metrik")}
                         </button>
@@ -1396,8 +1590,8 @@ export function ReportBuilder({
                               }}
                               className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
                                 isActive
-                                  ? "border-blue-400 bg-blue-50 ring-1 ring-blue-300"
-                                  : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
+                                  ? "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] ring-1 ring-blue-300"
+                                  : "border-[var(--adv-border)] bg-white hover:border-[var(--adv-scroll-thumb)] hover:bg-[var(--adv-fill)]"
                               }`}
                             >
                               {ch.id === "all" ? (
@@ -1420,7 +1614,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[12px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[9px] font-bold text-[var(--adv-ink-3)]">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1430,11 +1624,11 @@ export function ReportBuilder({
                       {/* Dimension picker */}
                       {dimensionOptions.length > 0 && (
                         <div>
-                          <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Dimension", "Boyut")}</p>
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--adv-ink-4)]">{tr("Dimension", "Boyut")}</p>
                           <select
                             value={tableDimension}
                             onChange={(e) => updateWidget(selectedWidget.id, { tableDimension: e.target.value, columns: [] })}
-                            className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            className="w-full rounded-xl border border-[var(--adv-border)] bg-white px-3 py-2 text-sm text-[var(--adv-ink)] focus:outline-none focus:ring-2 focus:ring-blue-300"
                           >
                             {(() => {
                               const groups = Array.from(new Set(dimensionOptions.map((d) => d.group ?? "")));
@@ -1456,11 +1650,11 @@ export function ReportBuilder({
                       {/* Metrics section */}
                       <div>
                         <div className="mb-2 flex items-center justify-between">
-                          <p className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Metrics", "Metrikler")}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--adv-ink-4)]">{tr("Metrics", "Metrikler")}</p>
                           <select
                             value={selectedWidget.limit ?? 8}
                             onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
-                            className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700"
+                            className="rounded-lg border border-[var(--adv-border)] bg-white px-2 py-1 text-xs text-[var(--adv-ink-2)]"
                           >
                             <option value="5">5 rows</option>
                             <option value="8">8 rows</option>
@@ -1478,7 +1672,7 @@ export function ReportBuilder({
                               return (
                                 <span
                                   key={col}
-                                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-medium text-blue-700"
+                                  className="inline-flex items-center gap-1 rounded-full bg-[var(--adc-info-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--adc-info-fg)]"
                                 >
                                   {label}
                                   <button
@@ -1487,7 +1681,7 @@ export function ReportBuilder({
                                       const next = activeMetrics.filter((c) => c !== col);
                                       updateWidget(selectedWidget.id, { columns: next });
                                     }}
-                                    className="ml-0.5 text-blue-400 hover:text-blue-700"
+                                    className="ml-0.5 text-[var(--adc-info-fg)] hover:text-[var(--adc-info-fg)]"
                                   >
                                     ×
                                   </button>
@@ -1498,28 +1692,28 @@ export function ReportBuilder({
                         )}
 
                         {/* Add metric dropdown */}
-                        <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                        <div className="rounded-xl border border-[var(--adv-border)] bg-white overflow-hidden">
                           <button
                             type="button"
                             onClick={() => {
                               setColumnMenuOpen((o) => !o);
                               setColumnSearch("");
                             }}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-[var(--adv-fill)] transition"
                           >
-                            <span className="text-neutral-500">{tr("+ Add metric", "+ Metrik ekle")}</span>
-                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
+                            <span className="text-[var(--adv-ink-3)]">{tr("+ Add metric", "+ Metrik ekle")}</span>
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)] transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
                           </button>
                           {columnMenuOpen && (
-                            <div className="border-t border-neutral-100">
-                              <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
-                                <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            <div className="border-t border-[var(--adv-fill-2)]">
+                              <div className="flex items-center gap-2 border-b border-[var(--adv-fill-2)] px-3 py-2">
+                                <svg className="h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 <input
                                   autoFocus
                                   value={columnSearch}
                                   onChange={(e) => setColumnSearch(e.target.value)}
                                   placeholder={tr("Search metrics", "Metrik ara")}
-                                  className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
+                                  className="w-full bg-transparent text-sm outline-none text-[var(--adv-ink)] placeholder:text-[var(--adv-ink-4)]"
                                 />
                               </div>
                               <div className="max-h-52 overflow-y-auto">
@@ -1536,11 +1730,11 @@ export function ReportBuilder({
                                         updateWidget(selectedWidget.id, { columns: next });
                                       }}
                                       className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition ${
-                                        active ? "bg-blue-50 text-blue-700 font-medium" : "text-neutral-800 hover:bg-neutral-50"
+                                        active ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] font-medium" : "text-[var(--adv-ink)] hover:bg-[var(--adv-fill)]"
                                       }`}
                                     >
                                       <span>{metric.label}</span>
-                                      {active && <span className="h-4 w-4 rounded-full bg-blue-500 text-white text-[12px] flex items-center justify-center">✓</span>}
+                                      {active && <span className="h-4 w-4 rounded-full bg-[var(--adc-info-fg)] text-white text-[9px] flex items-center justify-center">✓</span>}
                                     </button>
                                   );
                                 })}
@@ -1557,7 +1751,7 @@ export function ReportBuilder({
                 {(selectedWidget.type === "trend" || selectedWidget.type === "bar") ? (
                   <div className="px-4 py-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <p className="font-semibold text-neutral-900">{tr("Breakdown", "Kirilim")}</p>
+                      <p className="font-semibold text-[var(--adv-ink)]">{tr("Breakdown", "Kirilim")}</p>
                     </div>
                     {(() => {
                       const breakdownOptions = getBreakdownOptionsForPlatform(selectedWidgetChannel, selectedWidget.type);
@@ -1570,28 +1764,28 @@ export function ReportBuilder({
                           )
                         : [];
                       return (
-                        <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                        <div className="rounded-xl border border-[var(--adv-border)] bg-white overflow-hidden">
                           <button
                             type="button"
                             onClick={() => {
                               setBreakdownMenuOpen((o) => !o);
                               setBreakdownSearch("");
                             }}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50 transition"
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-[var(--adv-fill)] transition"
                           >
-                            <span className="text-neutral-900">{currentLabel}</span>
-                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${breakdownMenuOpen ? "rotate-180" : ""}`} />
+                            <span className="text-[var(--adv-ink)]">{currentLabel}</span>
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)] transition-transform ${breakdownMenuOpen ? "rotate-180" : ""}`} />
                           </button>
                           {breakdownMenuOpen ? (
-                            <div className="border-t border-neutral-100">
-                              <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
-                                <svg className="h-3.5 w-3.5 shrink-0 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            <div className="border-t border-[var(--adv-fill-2)]">
+                              <div className="flex items-center gap-2 border-b border-[var(--adv-fill-2)] px-3 py-2">
+                                <svg className="h-3.5 w-3.5 shrink-0 text-[var(--adv-ink-4)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 <input
                                   autoFocus
                                   value={breakdownSearch}
                                   onChange={(e) => setBreakdownSearch(e.target.value)}
                                   placeholder={tr("Search", "Ara")}
-                                  className="w-full bg-transparent text-sm outline-none text-neutral-900 placeholder:text-neutral-400"
+                                  className="w-full bg-transparent text-sm outline-none text-[var(--adv-ink)] placeholder:text-[var(--adv-ink-4)]"
                                 />
                               </div>
                               <div className="max-h-48 overflow-y-auto">
@@ -1607,7 +1801,7 @@ export function ReportBuilder({
                                     return (
                                       <div key={opt.value}>
                                         {showGroupHeader && (
-                                          <p className="px-3 pt-2 pb-0.5 text-[12px] font-semibold uppercase tracking-wider text-neutral-400">
+                                          <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--adv-ink-4)]">
                                             {opt.group}
                                           </p>
                                         )}
@@ -1620,8 +1814,8 @@ export function ReportBuilder({
                                           }}
                                           className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
                                             opt.value === currentBreakdown
-                                              ? "bg-blue-50 text-blue-700 font-medium"
-                                              : "text-neutral-800 hover:bg-neutral-50"
+                                              ? "bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] font-medium"
+                                              : "text-[var(--adv-ink)] hover:bg-[var(--adv-fill)]"
                                           }`}
                                         >
                                           {opt.label}
@@ -1642,30 +1836,30 @@ export function ReportBuilder({
                 {/* Body (text / section) */}
                 {(selectedWidget.type === "text" || selectedWidget.type === "section") ? (
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Body", "İçerik")}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--adv-ink-4)]">{tr("Body", "İçerik")}</p>
                     <textarea
                       value={selectedWidget.text ?? ""}
                       onChange={(e) => updateWidget(selectedWidget.id, { text: e.target.value })}
                       rows={5}
-                      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
+                      className="w-full rounded-xl border border-[var(--adv-border)] bg-white px-3 py-2 text-sm text-[var(--adv-ink)]"
                     />
                   </div>
                 ) : null}
 
                 {/* Copy */}
                 <div className="px-4 py-3 space-y-2">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Copy", "Metin")}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--adv-ink-4)]">{tr("Copy", "Metin")}</p>
                   <input
                     value={selectedWidget.title}
                     onChange={(e) => updateWidget(selectedWidget.id, { title: e.target.value })}
                     placeholder={tr("Title", "Başlık")}
-                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
+                    className="w-full rounded-xl border border-[var(--adv-border)] bg-white px-3 py-2 text-sm text-[var(--adv-ink)]"
                   />
                   <input
                     value={selectedWidget.subtitle ?? ""}
                     onChange={(e) => updateWidget(selectedWidget.id, { subtitle: e.target.value || undefined })}
                     placeholder={tr("Subtitle (optional)", "Alt başlık (opsiyonel)")}
-                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"
+                    className="w-full rounded-xl border border-[var(--adv-border)] bg-white px-3 py-2 text-sm text-[var(--adv-ink)]"
                   />
                 </div>
 
@@ -1674,7 +1868,7 @@ export function ReportBuilder({
           ) : null}
 
           {true ? (
-            <section className="rounded-xl border border-neutral-200 bg-white p-4">
+            <section className="rounded-xl border border-[var(--adv-border)] bg-white p-4">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 {tr("Templates", "Template'ler")}
               </h2>
@@ -1686,8 +1880,8 @@ export function ReportBuilder({
                     onClick={() => setTemplateFilter(category)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                       templateFilter === category
-                        ? "bg-neutral-900 text-white"
-                        : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                        ? "bg-[var(--adv-ink)] text-white"
+                        : "bg-[var(--adv-fill-2)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-border)]"
                     }`}
                   >
                     {category}
@@ -1700,11 +1894,11 @@ export function ReportBuilder({
                     key={template.id}
                     type="button"
                     onClick={() => applyTemplate(template)}
-                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-3 text-left transition hover:border-neutral-300 hover:bg-neutral-50"
+                    className="w-full rounded-xl border border-[var(--adv-border)] bg-white px-3 py-3 text-left transition hover:border-[var(--adv-scroll-thumb)] hover:bg-[var(--adv-fill)]"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="text-sm font-semibold">{template.name}</div>
-                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[12px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+                      <span className="rounded-full bg-[var(--adv-fill-2)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--adv-ink-3)]">
                         {template.category}
                       </span>
                     </div>
@@ -1715,321 +1909,13 @@ export function ReportBuilder({
               </div>
             </section>
           ) : null}
+          {selectedWidget ? null : (
+            <p className="m-0 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3.5 text-[11.5px] leading-[1.6] text-[var(--adv-ink-3)]">
+              Select a block on the page to edit its title, metric, source and
+              width — or drag new blocks in from the left.
+            </p>
+          )}
         </aside>
-
-        <section className="space-y-5">
-          <div className="rounded-xl border border-neutral-200 bg-white p-4">
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <h2 className="text-lg font-semibold">{tr("Canvas", "Tuval")}</h2>
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  rows={1}
-                  className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-neutral-400 focus:outline-none focus:ring-0"
-                  placeholder={tr("Add a description for this report...", "Bu rapor için bir açıklama ekleyin...")}
-                />
-              </div>
-              {templateId ? (
-                <span className="shrink-0 rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
-                  Template: {templateId}
-                </span>
-              ) : null}
-            </div>
-            {canvasWidgets.length === 0 ? (
-              <div className="mb-4 rounded-xl border border-dashed border-blue-200 bg-blue-50 px-5 py-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-neutral-950">{tr("Start with your first widget", "İlk widget'inizle başlayın")}</div>
-                    <p className="mt-1 max-w-2xl text-sm text-neutral-600">
-                      Drag a metric, chart, table, or section from the left palette into the canvas. Once it lands,
-                      click the widget to configure its source, account, and content.
-                    </p>
-                  </div>
-                    <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-xs font-medium text-neutral-700">
-                      {tr("Drag from left", "Soldan sürükleyin")}
-                    </div>
-                </div>
-                <div className="mt-3 text-xs text-neutral-500">
-                  Tip: select a widget and use <span className="font-semibold text-neutral-700">Delete</span> to remove
-                  , <span className="font-semibold text-neutral-700">Cmd/Ctrl + D</span> to duplicate it, or{" "}
-                  <span className="font-semibold text-neutral-700">Shift + Arrow</span> to move it around the grid.
-                </div>
-              </div>
-            ) : null}
-            <div className="relative">
-              <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gridAutoRows: "140px" }}
-              >
-                {Array.from({ length: REPORT_GRID_SLOT_COUNT }).map((_, slot) => {
-                  const widget = definition.widgets.find((item) => item.slot === slot) ?? null;
-                  const slotCovered = occupiedSlots.has(slot);
-                  const selected = selectedSlot === slot || selectedWidgetId === widget?.id;
-                  return (
-                    <div
-                      key={slot}
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        const incomingType =
-                          event.dataTransfer.getData("text/report-widget-type") || draggedWidgetType;
-                        event.dataTransfer.dropEffect = incomingType ? "copy" : "move";
-                        setHoveredSlot(slot);
-                      }}
-                      onDragLeave={() => {
-                        setHoveredSlot((current) => (current === slot ? null : current));
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const widgetType = (
-                          event.dataTransfer.getData("text/report-widget-type") || draggedWidgetType || ""
-                        ) as CustomReportWidgetType | "";
-                        if (widgetType) {
-                          addWidget(widgetType, slot);
-                          setDraggedWidgetType(null);
-                          setHoveredSlot(null);
-                          return;
-                        }
-                        const movingId =
-                          event.dataTransfer.getData("text/report-widget-id") || draggedWidgetId;
-                        if (!movingId) return;
-                        moveWidgetToSlot(movingId, slot);
-                        setDraggedWidgetId(null);
-                        setDraggedWidgetType(null);
-                        setHoveredSlot(null);
-                      }}
-                      className={`relative rounded-xl p-4 text-left transition ${
-                        slotCovered
-                          ? "border border-transparent bg-transparent"
-                          : hoveredSlot === slot
-                            ? "border-2 border-emerald-400 border-dashed bg-emerald-50/70 shadow-[0_0_0_4px_rgba(16,185,129,0.08)]"
-                            : (draggedWidgetType || draggedWidgetId)
-                              ? "border-2 border-dashed border-neutral-200 bg-neutral-50/40"
-                              : selected
-                                ? "border-2 border-blue-400 border-dashed bg-blue-50/40"
-                                : "border border-transparent bg-transparent"
-                      }`}
-                    >
-                      {!slotCovered ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedSlot(slot);
-                              setSelectedWidgetId(widget?.id ?? null);
-                            }}
-                            className="absolute inset-0 rounded-xl"
-                            aria-label={`Target slot ${slot + 1}`}
-                          />
-                          {hoveredSlot === slot ? (
-                            <div className="relative z-10 flex h-full min-h-[64px] flex-col items-center justify-center">
-                              <div className="text-sm font-semibold text-emerald-700">
-                                {draggedWidgetType ? tr("Drop to create", "Oluşturmak için bırak") : tr("Drop here", "Buraya birak")}
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              <div
-                ref={canvasOverlayRef}
-                className="pointer-events-none absolute inset-0 grid gap-3"
-                style={{
-                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                  gridAutoRows: "140px",
-                }}
-              >
-                {canvasWidgets.map((widget) => (
-                  (() => {
-                    const renderedWidget = renderedWidgetsById.get(widget.id);
-                    const previewSummary = getWidgetPreviewSummary(renderedWidget);
-                    const widgetChannel = resolveWidgetPlatform(widget);
-                    const widgetMetricLabel =
-                      widget.type === "metric" || widget.type === "trend" || widget.type === "bar"
-                        ? getMetricOptionsForPlatform(widgetChannel, widget.type).find((metric) => metric.value === widget.metricKey)?.label ?? null
-                        : null;
-                    return (
-                      <div
-                        key={widget.id}
-                        draggable
-                        onDragStart={(event) => {
-                          setDraggedWidgetId(widget.id);
-                          setDraggedWidgetType(null);
-                          event.dataTransfer.setData("text/report-widget-id", widget.id);
-                          event.dataTransfer.effectAllowed = "move";
-                        }}
-                        onDragEnd={() => {
-                          setDraggedWidgetId(null);
-                          setHoveredSlot(null);
-                        }}
-                        onClick={() => {
-                          setSelectedWidgetId(widget.id);
-                          setSelectedSlot(widget.slot);
-                        }}
-                        style={getCanvasWidgetStyle(widget)}
-                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-xl border-2 border-neutral-200 bg-white text-left transition ${
-                          selectedWidgetId === widget.id
-                            ? "border-blue-500 shadow-blue-100"
-                            : "border-neutral-200 hover:border-neutral-300"
-                        }`}
-                      >
-                        {/* Rendered widget content fills the card */}
-                        <div className="h-full w-full">
-                          {renderedWidget ? (
-                            <ReportWidgetCard widget={renderedWidget} embedded />
-                          ) : (
-                            <div className="flex h-full items-center justify-center p-4">
-                              <div className="text-center">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">{widget.type}</div>
-                                <div className="mt-2 text-sm font-medium text-neutral-600">{widget.title}</div>
-                                <div className="mt-2 h-1 w-16 animate-pulse rounded-full bg-neutral-200 mx-auto" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div
-                          className={`absolute right-3 top-3 flex items-center gap-1 rounded-full border border-neutral-200 bg-white/95 px-1.5 py-1 transition ${
-                            selectedWidgetId === widget.id
-                              ? "opacity-100"
-                              : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedWidgetId(widget.id);
-                              setSelectedSlot(widget.slot);
-                        }}
-                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100"
-                            title={tr("Edit widget", "Widget'i düzenle")}
-                          >
-                            {tr("Edit", "Düzenle")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              duplicateWidget(widget.id);
-                            }}
-                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100"
-                            title={tr("Duplicate widget", "Widget'i kopyala")}
-                          >
-                            {tr("Copy", "Kopyala")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              removeWidget(widget.id);
-                            }}
-                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-red-600 hover:bg-red-50"
-                            title={tr("Remove widget", "Widget'i kaldir")}
-                          >
-                            Del
-                          </button>
-                        </div>
-                        {/* Right-edge resize handle */}
-                        <button
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                            event.preventDefault();
-                            setActiveResize({
-                              widgetId: widget.id,
-                              mode: "col",
-                              startX: event.clientX,
-                              startY: event.clientY,
-                              originColSpan: widget.colSpan,
-                              originRowSpan: widget.rowSpan,
-                            });
-                          }}
-                          className="absolute bottom-8 right-0 top-8 w-2 cursor-ew-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title={tr("Drag to resize width", "Genişliği yeniden boyutlandırmak için sürükleyin")}
-                        >
-                          <span className="block h-full w-1 mx-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
-                        </button>
-                        {/* Bottom-edge resize handle */}
-                        <button
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                            event.preventDefault();
-                            setActiveResize({
-                              widgetId: widget.id,
-                              mode: "row",
-                              startX: event.clientX,
-                              startY: event.clientY,
-                              originColSpan: widget.colSpan,
-                              originRowSpan: widget.rowSpan,
-                            });
-                          }}
-                          className="absolute bottom-0 left-8 right-8 h-2 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title={tr("Drag to resize height", "Yüksekliği yeniden boyutlandırmak için sürükleyin")}
-                        >
-                          <span className="block h-1 w-full my-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
-                        </button>
-                        {/* Bottom-right corner resize handle */}
-                        <button
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                            event.preventDefault();
-                            setActiveResize({
-                              widgetId: widget.id,
-                              mode: "both",
-                              startX: event.clientX,
-                              startY: event.clientY,
-                              originColSpan: widget.colSpan,
-                              originRowSpan: widget.rowSpan,
-                            });
-                          }}
-                          className="absolute bottom-0 right-0 h-5 w-5 cursor-se-resize opacity-0 transition-opacity group-hover:opacity-100 flex items-end justify-end p-1"
-                          title={tr("Drag to resize", "Yeniden boyutlandırmak için sürükleyin")}
-                        >
-                          <span className="block h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-blue-400/80" />
-                        </button>
-                      </div>
-                    );
-                  })()
-                ))}
-                {dragPreview ? (
-                  <div
-                    style={getCanvasWidgetStyle(dragPreview)}
-                    className="rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-100/70 p-4"
-                  >
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                      {dragPreview.mode === "create"
-                        ? dragPreview.snapped
-                          ? tr("Create Preview", "Oluşturma Önizlemesi")
-                          : "Drop to Create"
-                        : dragPreview.snapped
-                          ? "Snap Preview"
-                          : tr("Drop Preview", "Birakma Onizlemesi")}
-                    </div>
-                    <div className="mt-2 text-sm font-semibold text-emerald-900">
-                      {dragPreview.title}
-                    </div>
-                    <div className="mt-2 text-xs text-emerald-700">
-                      {dragPreview.snapped
-                        ? `Nearest open slot: ${dragPreview.slot + 1}`
-                        : `${dragPreview.mode === "create" ? "Create" : "Drop"} into slot ${dragPreview.slot + 1}`}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          {previewQuery.error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme başarısız oldu.")}
-            </div>
-          ) : null}
-        </section>
       </div>
     </div>
   );

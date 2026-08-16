@@ -125,7 +125,7 @@ export function CreativesTableLegacy({
                   onClick={() => onOpenRow(row.id)}
                   className={cn(
                     "group cursor-pointer transition-colors hover:bg-muted/30",
-                    isHighlighted && "bg-emerald-500/10"
+                    isHighlighted && "bg-[var(--adc-pos-fg)]/10"
                   )}
                 >
                   <td className={cn("px-4", density === "compact" ? "py-2" : "py-4")}>
@@ -158,7 +158,7 @@ export function CreativesTableLegacy({
                   <td className="px-4">
                     <div className="flex flex-wrap gap-1">
                       {(row.tags || []).slice(0, 2).map((tag: string) => (
-                        <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[12px] font-normal">
+                        <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
                           {tag}
                         </Badge>
                       ))}
@@ -238,7 +238,7 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">{row.name}</p>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {formatLabel ? <span className="capitalize">{formatLabel}</span> : null}
           {associatedAdsCount > 1 && (
             <span className="flex items-center gap-1.5">

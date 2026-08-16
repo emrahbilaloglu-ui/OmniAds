@@ -64,10 +64,10 @@ export function PlacementBreakdownChart({
           // ROAS colour thresholds: green >2.5, amber 1.5–2.5, red <1.5
           const roasCls =
             row.roas > 2.5
-              ? "bg-emerald-500/15 text-emerald-600"
+              ? "bg-[var(--adc-pos-fg)]/15 text-[var(--adc-pos-fg)]"
               : row.roas >= 1.5
-              ? "bg-amber-500/15 text-amber-600"
-              : "bg-red-500/15 text-red-500";
+              ? "bg-[var(--adc-caution-fg)]/15 text-[var(--adc-caution-fg)]"
+              : "bg-[var(--adc-danger-fg)]/15 text-[var(--adc-danger-fg)]";
 
           return (
             <div key={row.key} className="space-y-0.5">
@@ -80,7 +80,7 @@ export function PlacementBreakdownChart({
                   {row.label}
                 </span>
                 <span
-                  className={`shrink-0 rounded-full px-1.5 py-px text-[12px] font-semibold leading-none ${roasCls}`}
+                  className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold leading-none ${roasCls}`}
                 >
                   {row.roas.toFixed(2)}×
                 </span>
@@ -90,14 +90,14 @@ export function PlacementBreakdownChart({
               <div className="flex items-center gap-1.5">
                 <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted">
                   <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-blue-500/55"
+                    className="absolute inset-y-0 left-0 rounded-full bg-[var(--adc-info-fg)]/55"
                     style={{ width: `${sharePct.toFixed(2)}%` }}
                   />
                 </div>
-                <span className="w-8 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
+                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
                   {sharePct.toFixed(0)}%
                 </span>
-                <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
+                <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
                   {fmtSpend(row.spend)}
                 </span>
               </div>
@@ -108,7 +108,7 @@ export function PlacementBreakdownChart({
 
       {/* Overflow hint — only shown when rows were truncated */}
       {hiddenCount > 0 && (
-        <p className="mt-2 text-[12px] text-muted-foreground/60">
+        <p className="mt-2 text-[10px] text-muted-foreground/60">
           +{hiddenCount} more placement{hiddenCount !== 1 ? "s" : ""} not shown
         </p>
       )}

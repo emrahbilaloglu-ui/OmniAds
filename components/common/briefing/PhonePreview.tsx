@@ -42,7 +42,7 @@ export function PhonePreview({
       className="flex flex-col items-center gap-3"
       data-testid={testId}
     >
-      <div className="flex items-center gap-1.5 text-[12px] text-neutral-500">
+      <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
         {(Object.keys(PLACEMENT_LABELS) as PhonePreviewPlacement[]).map((key) => (
           <span
             key={key}
@@ -108,12 +108,12 @@ export function PhonePreview({
               {name}
             </div>
             {meta ? (
-              <div className="line-clamp-1 text-[12px] text-white/80">
+              <div className="line-clamp-1 text-[10.5px] text-white/80">
                 {meta}
               </div>
             ) : null}
           </div>
-          <span className="absolute right-2 top-2 rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[12px] font-semibold tracking-wider text-white">
+          <span className="absolute right-2 top-2 rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tracking-wider text-white">
             {format} · {shape === "portrait" ? "9:16" : "1:1"}
           </span>
         </div>

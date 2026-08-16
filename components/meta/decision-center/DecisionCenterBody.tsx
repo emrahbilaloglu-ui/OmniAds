@@ -118,9 +118,9 @@ function Tile({ fact }: { fact: DecisionCenterHeaderFact }) {
   return (
     <article
       data-testid={`decision-center-kpi-${fact.key}`}
-      className="flex min-w-0 flex-col gap-1 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4"
+      className="flex min-w-0 flex-col gap-1 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-[14px]"
     >
-      <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+      <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
         {fact.label}
       </p>
       {fact.value ? (
@@ -138,7 +138,7 @@ function Tile({ fact }: { fact: DecisionCenterHeaderFact }) {
             {fact.value}
           </span>
           {fact.adjunct && (
-            <span className="text-[12.5px] font-semibold text-[var(--adv-ink-3)]">{fact.adjunct}</span>
+            <span className="font-[family-name:var(--adv-font-display)] text-[12px] font-semibold text-[var(--adv-ink-3)]">{fact.adjunct}</span>
           )}
         </p>
       ) : (
@@ -164,7 +164,11 @@ function Tile({ fact }: { fact: DecisionCenterHeaderFact }) {
         </p>
       )}
       {fact.spark && <Spark points={fact.spark} />}
-      {fact.note && <p className="m-0 text-[12px] leading-[1.4] text-[var(--adv-ink-3)]">{fact.note}</p>}
+      {fact.note && (
+        <p className="m-0 font-[family-name:var(--adv-font-body)] text-[12px] leading-[1.4] text-[var(--adv-ink-3)]">
+          {fact.note}
+        </p>
+      )}
     </article>
   );
 }
@@ -228,7 +232,7 @@ export function DecisionCenterBody({
           <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
             Decision Center
           </h1>
-          <p className="m-0 mt-1 font-[family-name:var(--adv-font-mono)] text-[12px] text-[var(--adv-ink-4)]">
+          <p className="m-0 mt-1 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-3)]">
             {[
               lastSyncLabel ? `synced ${lastSyncLabel}` : null,
               snapshot ? `snapshot ${snapshot}` : "no snapshot",
@@ -245,7 +249,7 @@ export function DecisionCenterBody({
             onClick={onRunSnapshot}
             disabled={!canRunSnapshot}
             data-testid="decision-center-run-snapshot"
-            className="h-[34px] rounded-[9px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-3 text-[12.5px] font-semibold text-[var(--adv-ink-2)] disabled:opacity-50"
+            className="h-[36px] rounded-[9px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-[13px] font-[family-name:var(--adv-font-body)] text-[13px] font-semibold text-[var(--adv-ink)] disabled:opacity-50"
           >
             Run snapshot
           </button>
@@ -253,7 +257,7 @@ export function DecisionCenterBody({
             type="button"
             onClick={onNewCampaign}
             data-testid="decision-center-new-campaign"
-            className="h-[34px] rounded-[9px] bg-[var(--adv-accent)] px-3 text-[12.5px] font-semibold text-white"
+            className="h-[36px] rounded-[9px] bg-[var(--adv-accent)] px-[14px] font-[family-name:var(--adv-font-body)] text-[13px] font-semibold text-white"
           >
             + New campaign
           </button>
@@ -306,8 +310,8 @@ export function DecisionCenterBody({
                 setSelectedId(null);
               }}
               className={cn(
-                "h-[30px] rounded-[8px] px-3 text-[12.5px] font-semibold",
-                layer === key ? "bg-[var(--adv-surface)] text-[var(--adv-ink)] shadow-sm" : "text-[var(--adv-ink-3)]",
+                "rounded-[8px] px-[13px] py-[6px] font-[family-name:var(--adv-font-body)] text-[12.5px] font-semibold",
+                layer === key ? "bg-[var(--adv-rail)] text-white" : "text-[var(--adv-ink-3)]",
               )}
             >
               {label} <span className="font-[family-name:var(--adv-font-mono)] text-[12px]">{count}</span>
@@ -346,10 +350,10 @@ export function DecisionCenterBody({
             }}
             data-testid={`decision-center-queue-${key}`}
             className={cn(
-              "inline-flex h-[30px] items-center gap-2 rounded-full px-3 text-[12.5px] font-semibold",
+              "inline-flex h-[34px] items-center gap-[7px] rounded-full border px-[14px] font-[family-name:var(--adv-font-body)] text-[13px] font-semibold",
               queue === key
-                ? "bg-[var(--adv-accent)] text-white"
-                : "border border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)]",
+                ? "border-[var(--adv-accent)] bg-[var(--adv-accent)] text-white"
+                : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)]",
             )}
           >
             {label}
@@ -372,13 +376,15 @@ export function DecisionCenterBody({
                 data-testid="decision-center-card"
                 onClick={() => setSelectedId(item.id)}
                 className={cn(
-                  "cursor-pointer rounded-[14px] border bg-[var(--adv-surface)] p-4",
+                  "cursor-pointer rounded-[14px] border bg-[var(--adv-surface)] px-4 py-[14px]",
                   selected?.id === item.id ? "border-[var(--adv-accent-bd)]" : "border-[var(--adv-border)]",
                 )}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="m-0 text-[14.5px] font-semibold text-[var(--adv-ink)]">{item.name}</p>
+                    <p className="m-0 font-[family-name:var(--adv-font-body)] text-[14px] font-semibold text-[var(--adv-ink)]">
+                      {item.name}
+                    </p>
                     <p className="m-0 mt-1 flex flex-wrap gap-1.5 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.08em] text-[var(--adv-ink-4)]">
                       <span>{item.levelLabel}</span>
                       {item.contextName ? <span>· {item.contextName}</span> : null}
@@ -424,71 +430,125 @@ export function DecisionCenterBody({
           )}
         </div>
 
+        {/*
+          A white panel under a dark header strip, measured from the reference
+          (aside #fff, 1px #e4e8f0, radius 16px, body padding 16px, gap 14px).
+          It was previously painted `--adv-rail` end to end, which read as a
+          different component entirely beside the white cards it belongs to.
+        */}
         <aside
           data-testid="decision-center-evidence"
-          className="rounded-[14px] bg-[var(--adv-rail)] p-4 text-[var(--adv-rail-ink)]"
+          className="h-fit overflow-hidden rounded-[16px] border border-[var(--adv-border)] bg-[var(--adv-surface)]"
         >
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.12em] text-[var(--adv-rail-ink-2)]">
-            Evidence inspector
-          </p>
-          {selected ? (
-            <>
-              <p className="m-0 mt-2 text-[14.5px] font-semibold">{selected.name}</p>
-              <p className="m-0 mt-0.5 font-[family-name:var(--adv-font-mono)] text-[12px] text-[var(--adv-rail-ink-3)]">
-                {selected.levelLabel}
-                {selected.contextName ? ` · ${selected.contextName}` : ""}
-              </p>
+          <div className="flex items-center justify-between gap-3 bg-[var(--adv-rail)] px-4 py-[10px]">
+            <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-rail-ink-2)]">
+              Evidence inspector
+            </p>
+            {/*
+              The chip shows the server's operator-facing wording, never
+              `actionCode`. `code` is a routing key produced for the command
+              router -- `route_launchpad_duplicate`, `review_drill` -- and
+              rendering it here put implementation jargon directly above the
+              panel's own "Server verdict: <label>" line, contradicting it.
 
-              <div className="mt-3 rounded-[11px] bg-[var(--adv-rail-raised)] p-3">
-                <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.1em] text-[var(--adv-rail-ink-2)]">
-                  Decision contract
-                </p>
-                <p className="m-0 mt-1 text-[12.5px] leading-[1.5]">
-                  Server verdict: <strong>{selected.actionLabel}</strong>. {selected.scopeNote}. The UI never
-                  computes this action.
-                </p>
-              </div>
+              Colour is the reference's, measured: white on #0e9f6e at 11px/700
+              (contrast 3.39). See the PR discussion -- that is below AA for
+              normal text, and it is what the authoritative design specifies.
+              The verdict is not carried by this chip alone: the same words are
+              restated in full in the Decision contract block below it.
+            */}
+            {selected ? (
+              <span
+                title={selected.actionLabel}
+                data-testid="decision-center-evidence-intent"
+                className="min-w-0 max-w-[55%] break-words rounded-[10px] bg-[#0e9f6e] px-[10px] py-[3px] text-right font-[family-name:var(--adv-font-body)] text-[11px] font-bold leading-[1.3] text-white"
+              >
+                {selected.actionLabel}
+              </span>
+            ) : null}
+          </div>
 
-              {selected.whyNow ? (
-                <>
-                  <p className="m-0 mt-3 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.1em] text-[var(--adv-rail-ink-2)]">
-                    Why now
+          <div className="flex flex-col gap-[14px] p-4">
+            {selected ? (
+              <>
+                <div>
+                  <p className="m-0 font-[family-name:var(--adv-font-body)] text-[14px] font-semibold text-[var(--adv-ink)]">
+                    {selected.name}
                   </p>
-                  <p className="m-0 mt-1 text-[12.5px] leading-[1.5]">{selected.whyNow}</p>
-                </>
-              ) : null}
-
-              {selected.evidence.length > 0 ? (
-                <ul className="m-0 mt-3 flex list-none flex-col gap-1.5 p-0">
-                  {selected.evidence.map((row) => (
-                    <li key={`${row.label}-${row.value}`} className="flex items-baseline justify-between gap-3 text-[12.5px]">
-                      <span className="text-[var(--adv-rail-ink-2)]">{row.label}</span>
-                      <span className={cn("font-[family-name:var(--adv-font-mono)]", row.tone === "warning" && "text-[#fbbf24]")}>
-                        {row.value}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              {selected.blockers.length > 0 ? (
-                <>
-                  <p className="m-0 mt-3 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.1em] text-[var(--adv-rail-ink-2)]">
-                    Blockers
+                  <p className="m-0 mt-1 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-3)]">
+                    {selected.levelLabel.toLowerCase()}
+                    {selected.contextName ? ` \u00b7 ${selected.contextName}` : ""}
                   </p>
-                  <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0 text-[12.5px]">
-                    {selected.blockers.map((blocker) => (
-                      <li key={blocker.code}>{blocker.label}</li>
+                </div>
+
+                <div className="rounded-[11px] border border-[var(--adv-border)] bg-[var(--adv-fill)] p-3">
+                  <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+                    Decision contract
+                  </p>
+                  <p className="m-0 mt-1 font-[family-name:var(--adv-font-body)] text-[12.5px] leading-[1.5] text-[var(--adv-ink-2)]">
+                    Server verdict: <strong className="text-[var(--adv-ink)]">{selected.actionLabel}</strong>.{" "}
+                    {selected.scopeNote}. The UI never computes this action.
+                  </p>
+                </div>
+
+                {selected.whyNow ? (
+                  <div>
+                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+                      Why now
+                    </p>
+                    <p className="m-0 mt-1 font-[family-name:var(--adv-font-body)] text-[12.5px] leading-[1.5] text-[var(--adv-ink-2)]">
+                      {selected.whyNow}
+                    </p>
+                  </div>
+                ) : null}
+
+                {selected.evidence.length > 0 ? (
+                  <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                    {selected.evidence.map((row) => (
+                      <li
+                        key={`${row.label}-${row.value}`}
+                        className="flex items-baseline justify-between gap-3 font-[family-name:var(--adv-font-body)] text-[12.5px]"
+                      >
+                        <span className="text-[var(--adv-ink-3)]">{row.label}</span>
+                        <span
+                          className={cn(
+                            // The reference never puts bare green on white:
+                            // #0e9f6e appears only behind a tint (the Confidence
+                            // chip, 3.04) or as the intent chip's background.
+                            // Its evidence VALUES are ink -- #0e1526 at 18.2:1,
+                            // its reasoning body #45526b at 7.86:1. Rendering a
+                            // positive value in #0e9f6e on white was mine, not
+                            // the design's, and it measured 3.39:1.
+                            "font-[family-name:var(--adv-font-mono)]",
+                            row.tone === "warning" ? "text-[#8a5106]" : "text-[var(--adv-ink)]",
+                          )}
+                        >
+                          {row.value}
+                        </span>
+                      </li>
                     ))}
                   </ul>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <p className="m-0 mt-2 text-[12.5px] text-[var(--adv-rail-ink-2)]">
-              Select a decision to read the evidence the server used.
-            </p>
-          )}
+                ) : null}
+
+                {selected.blockers.length > 0 ? (
+                  <div>
+                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+                      Blockers
+                    </p>
+                    <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0 font-[family-name:var(--adv-font-body)] text-[12.5px] text-[var(--adv-ink-2)]">
+                      {selected.blockers.map((blocker) => (
+                        <li key={blocker.code}>{blocker.label}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="m-0 font-[family-name:var(--adv-font-body)] text-[12.5px] text-[var(--adv-ink-3)]">
+                Select a decision to read the evidence the server used.
+              </p>
+            )}
+          </div>
         </aside>
       </div>
     </div>

@@ -278,3 +278,54 @@ describe("the Decision Center header KPI strip", () => {
     expect(html).toContain("nothing was read, not that nothing");
   });
 });
+
+describe("the evidence inspector's header chip", () => {
+  /**
+   * `action.code` is a routing key for the command router
+   * (`route_launchpad_duplicate`, `review_drill`); `action.label` is the
+   * server's operator-facing wording. Rendering the code put implementation
+   * jargon directly above the panel's own "Server verdict: <label>" line,
+   * where the two then disagreed about the same decision.
+   */
+  it("shows the server's operator-facing label, never the routing code", () => {
+    const html = renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation({
+          structure: {
+            groups: [
+              {
+                id: "g1",
+                campaign: node({
+                  action: {
+                    code: "route_launchpad_duplicate",
+                    label: "Duplicate into EU",
+                    intent: "launchpad",
+                    targetLevel: "campaign",
+                    providerMutation: null,
+                    scopeNote: "Routed Launchpad write with confirmation",
+                  },
+                }),
+                adsets: [],
+                highestPriority: "high",
+                highestUrgency: "now",
+                urgentAdsetCount: 0,
+              },
+            ],
+            actCount: 1,
+            blockedCount: 0,
+            monitorCount: 0,
+            suppressedAlternativeCount: 0,
+          },
+        })}
+        accountLabel={null}
+        currency="USD"
+        windowLabel={null}
+        lastSyncLabel={null}
+        canRunSnapshot={false}
+      />,
+    );
+    expect(html).toContain("Duplicate into EU");
+    expect(html).not.toContain("route_launchpad_duplicate");
+    expect(html).not.toContain("route launchpad duplicate");
+  });
+});

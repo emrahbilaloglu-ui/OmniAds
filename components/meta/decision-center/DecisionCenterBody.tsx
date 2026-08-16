@@ -444,9 +444,22 @@ export function DecisionCenterBody({
             <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-rail-ink-2)]">
               Evidence inspector
             </p>
+            {/*
+              The chip shows the server's operator-facing wording, never
+              `actionCode`. `code` is a routing key produced for the command
+              router -- `route_launchpad_duplicate`, `review_drill` -- and
+              rendering it here put implementation jargon directly above the
+              panel's own "Server verdict: <label>" line, contradicting it.
+
+              Colour is the reference's, measured: white on #0e9f6e at 11px/700
+              (contrast 3.39). See the PR discussion -- that is below AA for
+              normal text, and it is what the authoritative design specifies.
+              The verdict is not carried by this chip alone: the same words are
+              restated in full in the Decision contract block below it.
+            */}
             {selected ? (
-              <span className="shrink-0 rounded-full bg-[#0e9f6e] px-[10px] py-[3px] font-[family-name:var(--adv-font-body)] text-[11.5px] font-semibold text-white">
-                {selected.actionCode.replace(/_/g, " ")}
+              <span className="shrink-0 rounded-full bg-[#0e9f6e] px-[10px] py-[3px] font-[family-name:var(--adv-font-body)] text-[11px] font-bold text-white">
+                {selected.actionLabel}
               </span>
             ) : null}
           </div>

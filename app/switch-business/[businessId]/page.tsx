@@ -21,8 +21,13 @@ export default async function SwitchBusinessPage({
   const query = await searchParams;
   const raw = query?.next;
   const requested = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
-  const next = sanitizeNextPath(requested) ?? "/app/home";
-  const baseDestination = next.startsWith("/app/") || next === "/app" ? next : "/app/home";
+  // `sanitizeNextPath` is what keeps this safe: it resolves the value and proves
+  // the origin did not move, so a post-authentication open redirect cannot get
+  // through. The extra `/app/` narrowing on top of it was a surface preference,
+  // not a security control, and it quietly overrode every caller that asked for
+  // a dashboard path — `select-business` asks for `/overview` and landed on
+  // `/app/home` regardless. A sanitized local path is now honoured as asked.
+  const baseDestination = sanitizeNextPath(requested) ?? "/overview";
   const rawReturn = query?.[AGENCY_RETURN_PARAM];
   const requestedReturn =
     typeof rawReturn === "string" ? rawReturn : Array.isArray(rawReturn) ? rawReturn[0] : null;

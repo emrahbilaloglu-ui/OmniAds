@@ -106,10 +106,20 @@ jobs:
             exit 1
           fi
 
+          # Asked WITHOUT the cache-buster the style checks above use.
+          #
+          # This probe reads a 307, not a document, so it has nothing to bust --
+          # and the buster is what broke it. The login bounce preserves the
+          # original query on purpose, because an OAuth `?code=` or a saved
+          # `?range=` has to survive the round trip, so appending
+          # `?post_deploy_style=<sha>` made the location
+          # `/login?next=%2Fapp%2Fhome%3Fpost_deploy_style%3D<sha>` and the exact
+          # match below failed against the gate's own parameter rather than
+          # against anything the deploy did.
           workspace_status="$(curl -sS --retry 4 --retry-all-errors \
             -D .artifacts/workspace-redirect.headers \
             -w '%{http_code}' \
-            "https://adsecute.com/app/home?post_deploy_style=${EXPECTED_SHA}" \
+            "https://adsecute.com/app/home" \
             -o .artifacts/workspace-redirect.html)"
 
           if [ "${workspace_status}" != "307" ]; then

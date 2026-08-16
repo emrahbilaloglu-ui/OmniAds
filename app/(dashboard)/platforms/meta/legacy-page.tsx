@@ -1,11 +1,7 @@
 "use client";
 
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-// MetaPlatformPage and DecisionsOsView are intentionally kept on disk (other
-// surfaces still reference them, and DecisionsOsView remains the source of the
-// canonical read contract this view consumes) but neither is rendered from this
-// route: `/platforms/meta` is the Dashboard v2 Decision Center.
-import { DecisionCenterView } from "@/components/meta/decision-center/DecisionCenterView";
+import { MetaPlatformPage } from "@/components/meta/redesign/MetaPlatformPage";
 import { useAppStore } from "@/store/app-store";
 
 export default function MetaPage() {
@@ -16,7 +12,7 @@ export default function MetaPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
-    <DecisionCenterView
+    <MetaPlatformPage
       businessId={selectedBusinessId}
       businessName={business?.name}
       currency={business?.currency}

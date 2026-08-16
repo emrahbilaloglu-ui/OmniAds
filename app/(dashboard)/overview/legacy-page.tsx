@@ -383,7 +383,18 @@ export default function OverviewPage() {
 
   useEffect(() => {
     if (metricCatalog.length === 0) return;
-    if ((storedPins ?? []).length > 0) return;
+    const legacyDashboardPins = [
+      "revenue",
+      "spend",
+      "mer",
+      "blended_roas",
+      "conversion_rate",
+      "orders",
+    ];
+    const isLegacyDefault =
+      storedPins?.length === legacyDashboardPins.length &&
+      legacyDashboardPins.every((key, index) => storedPins[index] === key);
+    if ((storedPins ?? []).length > 0 && !isLegacyDefault) return;
     const defaults = DEFAULT_PINNED_METRICS.filter((key) =>
       metricCatalog.some((entry) => entry.key === key)
     );

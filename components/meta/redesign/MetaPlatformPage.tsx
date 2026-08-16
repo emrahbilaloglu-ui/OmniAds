@@ -59,6 +59,8 @@ import {
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
@@ -2461,6 +2463,15 @@ export function MetaPlatformPage({
         selectedStatusFilter,
         selectedDateRange,
       ),
+  });
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    isLoading: workspaceQuery.isLoading,
+    isFetching: workspaceQuery.isFetching,
+    error: workspaceQuery.error,
+    asOf: measuredAsOf(workspaceQuery.data?.pulse.lastSyncAt ?? null),
+    businessId,
+    onRetry: () => void workspaceQuery.refetch(),
   });
   const briefingLoading =
     providerAccountsQuery.isLoading ||

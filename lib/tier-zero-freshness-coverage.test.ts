@@ -24,7 +24,7 @@ const TIER_ZERO_SURFACES: Array<{
   {
     label: "Decisions and inspector",
     route: "app/(dashboard)/platforms/meta/legacy-page.tsx",
-    file: "components/meta/os/DecisionsOsView.tsx",
+    file: "components/meta/redesign/MetaPlatformPage.tsx",
   },
   {
     label: "History",

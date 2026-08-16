@@ -7,9 +7,8 @@ import type { SearchIntelligenceRow } from "@/components/google-ads/google-ads-d
  * the keyword-opportunity flag under the term itself, and the ROAS chip carrying
  * the only colour in the row.
  *
- * Clicks are not on the search-intelligence row, so that column renders an em
- * dash rather than a derived stand-in. CPA is spend / conversions, which the
- * same report already implies.
+ * Clicks and CTR come directly from the search-intelligence report. CPA is
+ * spend / conversions, which the same report already implies.
  */
 
 const HEAD =
@@ -103,7 +102,9 @@ export function GoogleSearchTermsTable({
                     <td className="px-3 py-2.5 text-[12px] text-[var(--adv-ink-3)]">
                       {row.campaign ?? "—"}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-[var(--adv-ink-2)]">—</td>
+                    <td className="px-3 py-2.5 text-right text-[var(--adv-ink-2)]">
+                      {typeof row.clicks === "number" ? row.clicks.toLocaleString() : "—"}
+                    </td>
                     <td className="px-3 py-2.5 text-right font-semibold text-[var(--adv-ink)]">
                       {conversions.toLocaleString()}
                     </td>
@@ -124,7 +125,7 @@ export function GoogleSearchTermsTable({
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-right text-[var(--adv-ink-2)]">
-                      {typeof row.ctr === "number" ? `${(row.ctr * 100).toFixed(2)}%` : "—"}
+                      {typeof row.ctr === "number" ? `${row.ctr.toFixed(2)}%` : "—"}
                     </td>
                     <td
                       className="px-4 py-2.5 text-right"

@@ -142,6 +142,7 @@ export interface SearchIntelligenceRow {
   spend: number;
   revenue: number;
   conversions: number;
+  clicks?: number;
   roas: number;
   ctr?: number;
   status?: string;

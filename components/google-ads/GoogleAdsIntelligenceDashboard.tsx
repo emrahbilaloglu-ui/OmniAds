@@ -354,11 +354,13 @@ function filterAdvisorByTypes(
 
 function buildAdvisorQueryParams(input: {
   businessId: string;
+  accountId?: string | null;
   startDate?: string;
   endDate?: string;
   refresh?: boolean;
 }) {
   const params = new URLSearchParams({ businessId: input.businessId });
+  if (input.accountId) params.set("accountId", input.accountId);
   if (input.startDate && input.endDate) {
     params.set("dateRange", "custom");
     params.set("customStart", input.startDate);
@@ -572,7 +574,12 @@ export function GoogleAdsIntelligenceDashboard({
   // Overview's campaign table shows the design's Daily budget column, which only
   // the budget report carries, so it loads there as well.
   const needsBudgetData = activePanel === "plan" || activePanel === "summary";
-  const currentAdvisorKey = businessId;
+  const currentAdvisorKey = [
+    businessId,
+    selectedGoogleAccountId ?? "all",
+    startDate,
+    endDate,
+  ].join(":");
 
   const {
     data,
@@ -593,6 +600,7 @@ export function GoogleAdsIntelligenceDashboard({
 
   const [advisorData, setAdvisorData] = useState<GoogleAdvisorResponse | undefined>(undefined);
   const [advisorAnalysisKey, setAdvisorAnalysisKey] = useState<string | null>(null);
+  const [autoRequestedAdvisorKey, setAutoRequestedAdvisorKey] = useState<string | null>(null);
   const [lastAnalyzedLabel, setLastAnalyzedLabel] = useState<string | null>(null);
   const {
     mutate: runAdvisorAnalysis,
@@ -602,6 +610,7 @@ export function GoogleAdsIntelligenceDashboard({
     mutationFn: async ({ refresh }) => {
       const params = buildAdvisorQueryParams({
         businessId,
+        accountId: selectedGoogleAccountId,
         startDate,
         endDate,
         refresh,
@@ -833,6 +842,31 @@ export function GoogleAdsIntelligenceDashboard({
     selectedAccountId: selectedGoogleAccountId,
   });
   const advisorExecutionAccountId = accountScope.accountId;
+  useEffect(() => {
+    if (
+      !needsAdvisorData ||
+      !advisorCanOpen ||
+      isAdvisorLoading ||
+      advisorAnalysisKey === currentAdvisorKey ||
+      autoRequestedAdvisorKey === currentAdvisorKey
+    ) {
+      return;
+    }
+
+    // Opening an Advisor-backed surface should read the persisted snapshot.
+    // `refresh: false` never starts a provider refresh; the explicit refresh
+    // control remains the only path that can request a new snapshot.
+    setAutoRequestedAdvisorKey(currentAdvisorKey);
+    runAdvisorAnalysis({ refresh: false });
+  }, [
+    advisorAnalysisKey,
+    advisorCanOpen,
+    autoRequestedAdvisorKey,
+    currentAdvisorKey,
+    isAdvisorLoading,
+    needsAdvisorData,
+    runAdvisorAnalysis,
+  ]);
   // The design's Activity card on Plan reads the guarded-write execution log.
   const { data: activityData, isLoading: isActivityLoading } = useQuery<{
     rows?: GoogleAdsActivityEntry[];

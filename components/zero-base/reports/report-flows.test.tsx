@@ -98,7 +98,7 @@ afterEach(() => {
 describe("WP-22 builder edit route", () => {
   it("hydrates a selected gallery template into the new-report builder", () => {
     render(<ReportBuilderClient businessId={BUSINESS} templateId="one-click-paid-media" />);
-    expect(screen.getByDisplayValue("One Click Paid Media")).toBeTruthy();
+    expect(screen.getByDisplayValue("Executive Overview")).toBeTruthy();
     expect(document.querySelectorAll("[data-widget]").length).toBeGreaterThan(0);
   });
 

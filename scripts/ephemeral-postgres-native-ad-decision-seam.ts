@@ -11,6 +11,7 @@ import {
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
 } from "@/lib/creative-decision-engine/ad-evaluation-schema";
+import { NATIVE_AD_DB_BATCH_SIZE } from "@/lib/creative-decision-engine/batching";
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
@@ -1579,7 +1580,7 @@ async function verifyRunAdDecisionsJobSecondEventBatchRollback(
   assert(
     attemptSequence.rows[0]?.is_called === true &&
       attemptSequence.rows[0]?.last_value === "501",
-    "The forced failure did not occur after the first 500-row event batch.",
+    "The forced failure did not occur on the last row of the manifest.",
   );
 
   const statementSequence = await client.query<{
@@ -1589,10 +1590,19 @@ async function verifyRunAdDecisionsJobSecondEventBatchRollback(
     `SELECT last_value::text AS last_value, is_called
      FROM native_ad_rollback_event_statement_seq`,
   );
+  // What this proves is that the write is batched at all, and that the failure
+  // landed in the last batch rather than in one giant statement. The batch size
+  // itself is a production tuning decision -- it was lowered from 500 to 100
+  // because a 500-identity batch exceeds the 30-second statement budget on large
+  // accounts -- so the expectation is derived from the constant instead of
+  // restating it. Restating it is what let the two drift silently.
+  const expectedStatements = Math.ceil(
+    currentInputs.length / NATIVE_AD_DB_BATCH_SIZE,
+  );
   assert(
     statementSequence.rows[0]?.is_called === true &&
-      statementSequence.rows[0]?.last_value === "2",
-    "The rollback seam did not execute distinct 500-row and 1-row event batches.",
+      statementSequence.rows[0]?.last_value === String(expectedStatements),
+    `The rollback seam did not execute ${expectedStatements} event batches of up to ${NATIVE_AD_DB_BATCH_SIZE} rows (saw ${statementSequence.rows[0]?.last_value ?? "none"}).`,
   );
 
   const failedRun = await client.query<{

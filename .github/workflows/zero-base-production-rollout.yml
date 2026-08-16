@@ -142,6 +142,10 @@ jobs:
 
           {
             echo "PRIMARY_DEPLOY_HOST=${primary_deploy_host}"
+            # Deploy writes the environment to both hosts; a rollout that only
+            # reached the primary left the host actually serving adsecute.com on
+            # the previous mode, so the flag looked applied and changed nothing.
+            echo "PUBLIC_DEPLOY_HOST=${public_deploy_host_ip:-${public_deploy_host}}"
             echo "HETZNER_SSH_USER=${HETZNER_USER}"
             echo "HETZNER_SSH_PORT=${HETZNER_PORT:-22}"
           } >> "${GITHUB_ENV}"
@@ -546,15 +550,27 @@ jobs:
           echo "remote_script_bytes=${remote_script_bytes}"
 
           remote_path="/tmp/adsecute-zero-base-rollout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
-          scp \
-            -i ~/.ssh/id_ed25519 \
-            -P "${HETZNER_SSH_PORT}" \
-            -o BatchMode=yes \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=6 \
-            "${remote_script}" \
-            "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}:${remote_path}"
-
           remote_path_q="$(printf '%q' "${remote_path}")"
-          ssh -T "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "set -euo pipefail; trap 'rm -f ${remote_path_q}' EXIT; test \"\$(wc -c < ${remote_path_q} | tr -d ' ')\" = ${remote_script_bytes}; EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -eu -o pipefail ${remote_path_q}"
+
+          # Every host that serves the app has to end on the same mode. Applying
+          # to one of two leaves the fleet split: the flag reads as applied while
+          # half the requests still resolve on the old surface.
+          rollout_hosts=("${PRIMARY_DEPLOY_HOST}")
+          if [ -n "${PUBLIC_DEPLOY_HOST:-}" ] && [ "${PUBLIC_DEPLOY_HOST}" != "${PRIMARY_DEPLOY_HOST}" ]; then
+            rollout_hosts+=("${PUBLIC_DEPLOY_HOST}")
+          fi
+
+          for rollout_host in "${rollout_hosts[@]}"; do
+            echo "rollout_host=${rollout_host}"
+            scp \
+              -i ~/.ssh/id_ed25519 \
+              -P "${HETZNER_SSH_PORT}" \
+              -o BatchMode=yes \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=6 \
+              "${remote_script}" \
+              "${HETZNER_SSH_USER}@${rollout_host}:${remote_path}"
+
+            ssh -T "${SSH_OPTS[@]}" "${HETZNER_SSH_USER}@${rollout_host}" \
+              "set -euo pipefail; trap 'rm -f ${remote_path_q}' EXIT; test \"\$(wc -c < ${remote_path_q} | tr -d ' ')\" = ${remote_script_bytes}; EXPECTED_SHA=${expected_sha_q} ROLLOUT_ACTION=${rollout_action_q} OWNER_EMAIL=${owner_email_q} BUSINESS_ID=${business_id_q} bash -eu -o pipefail ${remote_path_q}"
+          done

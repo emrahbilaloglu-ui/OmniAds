@@ -126,3 +126,5 @@ For V1, the honest release boundary is:
 - operator-first decision surface enabled
 - write-back disabled
 - suppressed unsafe recommendations visible and explainable
+
+<!-- CI baseline probe: no code change; opened to establish whether database-seams fails on main itself. -->

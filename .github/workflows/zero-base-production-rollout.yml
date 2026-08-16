@@ -17,7 +17,11 @@ on:
           - recover-worker
           - allowlist
           - "on"
-          - off
+          # Quoted for the same reason "on" is: YAML 1.1 reads a bare off as the
+          # boolean false, so the choice list offered `false` while the script
+          # below matches the string `off` -- which made the rollback action the
+          # one action that could not be dispatched.
+          - "off"
       owner_email:
         description: Account email used to prove active access to the allowlisted business
         required: true

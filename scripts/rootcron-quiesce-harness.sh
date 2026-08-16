@@ -16,6 +16,7 @@ trap 'rm -rf "${WORK}"' EXIT
 
 CRONTAB_FILE="${WORK}/crontab"
 STATE_DIR="${WORK}/state"
+ROOTCRON_LOCK_FILE="${WORK}/cutover.lock"
 mkdir -p "${STATE_DIR}"
 
 # Stand in for the real crontab so nothing on this machine is touched.

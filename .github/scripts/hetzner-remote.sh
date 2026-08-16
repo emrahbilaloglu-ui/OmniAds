@@ -677,11 +677,70 @@ run_migrations_service() {
 
   if [ "${status}" -ne 0 ]; then
     docker compose ps migrate || true
-    docker compose logs --tail=200 migrate || true
+    docker compose logs --tail=200 migrate >"${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}" 2>&1 || true
+    cat "${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}" || true
   fi
 
   docker compose rm -f migrate >/dev/null 2>&1 || true
   return "${status}"
+}
+
+# Was this migration attempt refused by lock contention rather than by the
+# migration itself?
+#
+# 55P03 is lock_not_available and "canceling statement due to statement
+# timeout" is its sibling: both mean some other session held what the DDL
+# needed for longer than the bound allowed. Neither says anything about the
+# migration being wrong.
+migration_failed_on_contention() {
+  log_path="${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}"
+  [ -f "${log_path}" ] || return 1
+  grep -qE "canceling statement due to (lock|statement) timeout|55P03|lock_not_available" "${log_path}"
+}
+
+# Run migrations, retrying ONLY contention.
+#
+# The deploy stops the worker first, but the web container keeps serving and
+# keeps running its scheduled sync cron, whose per-business jobs hold row and
+# relation locks for tens of seconds. `MIGRATION_LOCK_TIMEOUT_MS` is 15s by
+# design -- a DDL statement allowed to block indefinitely queues every
+# subsequent request behind it, which is the classic migration-takes-the-site-
+# down shape -- so the right answer is not a longer bound but another attempt
+# at the same bound once the cron's transaction has finished.
+#
+# Each migration is its own BEGIN/COMMIT, so an attempt cancelled by a lock
+# timeout rolls back and leaves nothing half-applied; re-running resumes from
+# the last committed migration. Anything that is NOT contention fails on the
+# first attempt with its own error, exactly as before -- a retry loop that
+# swallowed real migration failures would be worse than the flake it replaced.
+run_migrations_service_with_contention_retry() {
+  attempts="${DEPLOY_MIGRATION_CONTENTION_ATTEMPTS:-4}"
+  is_positive_integer "${attempts}" || attempts=4
+  attempt=1
+
+  while : ; do
+    set +e
+    run_migrations_service
+    status="$?"
+    set -e
+
+    [ "${status}" -eq 0 ] && return 0
+
+    if ! migration_failed_on_contention; then
+      log "Migration failed for a reason other than lock contention; not retrying."
+      return "${status}"
+    fi
+
+    if [ "${attempt}" -ge "${attempts}" ]; then
+      log "Migration still blocked by lock contention after ${attempts} attempts. Failing loudly rather than deploying a half-migrated release."
+      return "${status}"
+    fi
+
+    backoff=$((attempt * 30))
+    log "Migration attempt ${attempt}/${attempts} lost a lock race (concurrent sync cron). Retrying in ${backoff}s."
+    sleep "${backoff}"
+    attempt=$((attempt + 1))
+  done
 }
 
 export APP_IMAGE_TAG="${DEPLOY_SHA}"
@@ -1780,7 +1839,7 @@ case "${phase}" in
     docker compose stop worker || true
 
     log "Running migrations for ${DEPLOY_SHA}"
-    run_migrations_service
+    run_migrations_service_with_contention_retry
     ;;
 
   recreate_services)

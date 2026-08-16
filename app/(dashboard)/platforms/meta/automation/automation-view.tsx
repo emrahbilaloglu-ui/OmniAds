@@ -24,7 +24,6 @@ import type {
   MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
-import { META_AUTOMATION_DECISION_TYPES } from "@/lib/meta/automation-control-plane";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
@@ -64,6 +63,23 @@ const READINESS_LABELS: Record<MetaAutomationReadinessControlTier, string> = {
   backtest_candidate: "Backtest candidate",
   auto_execute: "Auto-execute",
 };
+
+/**
+ * The four action kinds the ladder lists.
+ *
+ * Declared here rather than imported from `automation-control-plane`. That
+ * module reaches the database, so a *value* import from this client component
+ * drags `pg` -- and with it `fs`, `net`, `tls`, `dns` -- into the browser
+ * bundle and the build fails to compile. The type import above stays, and it
+ * is what keeps this list honest: adding a kind server-side without adding it
+ * here is a type error.
+ */
+const LADDER_ACTION_KINDS: MetaAutomationDecisionType[] = [
+  "pause",
+  "bid",
+  "budget",
+  "creative",
+];
 
 /** The ladder's rung names, in the design's wording. */
 const LADDER_TIER_LABELS: Record<MetaAutomationDecisionMode, string> = {
@@ -1267,7 +1283,7 @@ export function MetaAutomationView({
                 </div>
 
                 <div className={styles.ladderList}>
-                  {META_AUTOMATION_DECISION_TYPES.map((decisionType) => {
+                  {LADDER_ACTION_KINDS.map((decisionType) => {
                     const stored = modeRow(payload, decisionType);
                     const mode = stored?.mode ?? "manual";
                     return (

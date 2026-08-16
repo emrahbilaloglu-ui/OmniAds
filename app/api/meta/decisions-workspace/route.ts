@@ -1290,7 +1290,18 @@ export async function GET(request: NextRequest) {
         statusFilter: payload.statusFilter,
         startDate: payload.startDate,
         endDate: payload.endDate,
-        pulse: { lastSyncAt: payload.pulse.lastSyncAt ?? null },
+        // Forwarded, not recomputed: the pulse was already loaded above, and
+        // the Decision Center header reports these directly.
+        pulse: {
+          lastSyncAt: payload.pulse.lastSyncAt ?? null,
+          pacing: payload.pulse.pacing,
+          roas: payload.pulse.roas,
+          roasHistory: payload.pulse.roasHistory,
+          operatingMode: payload.pulse.operatingMode,
+          seasonalRegime: payload.pulse.seasonalRegime,
+          trackingHealth: payload.pulse.trackingHealth,
+          labelCoverage: payload.pulse.labelCoverage ?? null,
+        },
         system: payload.system,
         viewer: payload.viewer,
         banners: payload.banners,

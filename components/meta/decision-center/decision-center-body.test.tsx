@@ -195,3 +195,86 @@ describe("the Decision Center body", () => {
     expect(html).toContain("legacy creative · review only");
   });
 });
+
+describe("the Decision Center header KPI strip", () => {
+  function renderWithPulse() {
+    return renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation()}
+        accountLabel="Ad account 2841…09"
+        currency="USD"
+        windowLabel="Last 28 days"
+        windowShortLabel="28D"
+        pulse={{
+          pacing: { spendToday: 4120, avg7dSpend: 3887, conversionsToday: 138, avg7dConversions: 129 },
+          roas: { selected: 4.26, d28: 4.26, target: 3.8 },
+          roasHistory: [3.9, 4.05, 4.26],
+          labelCoverage: { activeCampaigns: 22, labeledCampaigns: 18 },
+          operatingMode: "standard",
+          seasonalRegime: "high_season",
+          trackingHealth: { status: "healthy", detail: "ok" },
+        }}
+        snapshotHealth={{ status: "fresh", ageHours: 2 }}
+        lastSyncLabel="12m ago"
+        canRunSnapshot
+      />,
+    );
+  }
+
+  it("renders all five reference tiles from the account pulse", () => {
+    const html = renderWithPulse();
+    for (const key of ["spend", "roas", "snapshot", "labels", "mode"]) {
+      expect(html).toContain(`data-testid="decision-center-kpi-${key}"`);
+    }
+  });
+
+  it("shows the measured figures rather than the queue counts", () => {
+    const html = renderWithPulse();
+    expect(html).toContain("4.26");
+    expect(html).toContain("target 3.80");
+    expect(html).toContain("18/22");
+    expect(html).toContain("138 conversions");
+    expect(html).toContain("Tracking OK");
+  });
+
+  /**
+   * A read-only viewer's missing buttons and an engine-withheld command look
+   * identical on screen. Only one of them is about permissions, and the banner
+   * is what tells them apart.
+   */
+  it("states a downgrade reason when the server marked the viewer read-only", () => {
+    const html = renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation()}
+        accountLabel={null}
+        currency="USD"
+        windowLabel={null}
+        lastSyncLabel={null}
+        readOnlyReason="Your workspace role is Guest: write controls are downgraded to review."
+        canRunSnapshot={false}
+      />,
+    );
+    expect(html).toContain('data-testid="decision-center-state-banner"');
+    expect(html).toContain("workspace role is Guest");
+  });
+
+  /**
+   * The canonical read failing returns cards-less success, not an error. Left
+   * unlabelled the queue below would read as a clean slate.
+   */
+  it("labels an unavailable canonical read instead of showing a clean slate", () => {
+    const html = renderToStaticMarkup(
+      <DecisionCenterBody
+        presentation={presentation()}
+        accountLabel={null}
+        currency="USD"
+        windowLabel={null}
+        lastSyncLabel={null}
+        unavailableReason="The account-scoped decision sources could not be read."
+        canRunSnapshot={false}
+      />,
+    );
+    expect(html).toContain("Canonical decisions unavailable");
+    expect(html).toContain("nothing was read, not that nothing");
+  });
+});

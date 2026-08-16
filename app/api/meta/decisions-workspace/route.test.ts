@@ -750,7 +750,10 @@ describe("GET /api/meta/decisions-workspace", () => {
       expect(requestUrl.searchParams.get("workspace_surface")).toBe("os");
       if (requestUrl.pathname === "/api/meta/account-pulse") {
         return jsonResponse(
-          metaPulse({ lastSyncAt: "2026-07-13T03:05:00.000Z" }),
+          metaPulse({
+            lastSyncAt: "2026-07-13T03:05:00.000Z",
+            roasHistory: [3.9, 4.05, 4.26],
+          }),
         );
       }
       if (requestUrl.pathname === "/api/meta/lane-classify") {
@@ -769,7 +772,21 @@ describe("GET /api/meta/decisions-workspace", () => {
 
     expect(response.status).toBe(200);
     expect(payload.os).toBeDefined();
-    expect(payload.pulse).toEqual({ lastSyncAt: "2026-07-13T03:05:00.000Z" });
+    // The compact surface carries the account facts the Decision Center header
+    // states -- a projection of the pulse already loaded, not a second read.
+    expect(payload.pulse.lastSyncAt).toBe("2026-07-13T03:05:00.000Z");
+    expect(payload.pulse.roasHistory).toEqual([3.9, 4.05, 4.26]);
+    expect(Object.keys(payload.pulse).sort()).toEqual([
+      "labelCoverage",
+      "lastSyncAt",
+      "operatingMode",
+      "pacing",
+      "roas",
+      "roasHistory",
+      "seasonalRegime",
+      "trackingHealth",
+    ].sort());
+    // Still compact: the heavy lane/queue/digest sections stay stripped.
     expect(payload.decisionReadModel).toEqual({
       status: "available",
       unavailable: null,

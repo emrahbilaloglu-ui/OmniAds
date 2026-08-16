@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decisionCenterHasCommand,
+  decisionCenterHeaderFacts,
   decisionCenterItems,
   decisionCenterMoneyAtStake,
   decisionCenterQueueCounts,
@@ -166,5 +167,109 @@ describe("the Decision Center body reads the server, never decides", () => {
       expect(decisionCenterHasCommand({ ...base, lane: "blocked", actionIntent: "execute" })).toBe(false);
       expect(decisionCenterHasCommand({ ...base, lane: "monitor", actionIntent: "execute" })).toBe(false);
     });
+  });
+});
+
+describe("the header KPI strip", () => {
+  const money = (value: number | null | undefined, currency: string | null) =>
+    typeof value === "number" ? `${currency === "USD" ? "$" : ""}${value.toFixed(0)}` : "—";
+
+  const full = () =>
+    decisionCenterHeaderFacts({
+      pacing: { spendToday: 4120, avg7dSpend: 3887, conversionsToday: 138, avg7dConversions: 129 },
+      roas: { selected: 4.26, d28: 4.26, target: 3.8 },
+      roasHistory: [3.9, 4.1, 4.26],
+      labelCoverage: { activeCampaigns: 22, labeledCampaigns: 18 },
+      operatingMode: "standard",
+      seasonalRegime: "high_season",
+      trackingHealth: { status: "healthy", detail: "ok" },
+      snapshotHealth: { status: "fresh", ageHours: 2 },
+      engineVersion: "v3.2",
+      lastSyncLabel: "12m ago",
+      currency: "USD",
+      windowLabel: "28D",
+      formatMoney: money,
+    });
+
+  const byKey = (key: string) => full().find((fact) => fact.key === key)!;
+
+  it("reports today's spend against the measured 7-day baseline", () => {
+    expect(byKey("spend")).toMatchObject({
+      value: "$4120",
+      adjunct: "+6% vs 7d avg",
+      note: "138 conversions · 7d avg 129",
+    });
+  });
+
+  /**
+   * The window heading and the number have to agree. `roas.selected` is the
+   * server's figure for the window being shown; `d28` under a "7D" heading
+   * would be a 28-day answer to a 7-day question.
+   */
+  it("reads ROAS for the selected window, and names the window it read", () => {
+    const roas = decisionCenterHeaderFacts({
+      roas: { selected: 5.4, d28: 4.26, target: 3.8 },
+      windowLabel: "7D",
+      formatMoney: money,
+    }).find((fact) => fact.key === "roas")!;
+    expect(roas.value).toBe("5.40");
+    expect(roas.label).toBe("ROAS · 7D");
+    expect(roas.adjunct).toBe("target 3.80");
+  });
+
+  it("states label coverage as the ratio the server counted", () => {
+    expect(byKey("labels")).toMatchObject({ value: "18/22", adjunct: "82%", tone: "warn" });
+  });
+
+  it("carries the operating mode with its season and tracking chips", () => {
+    const mode = byKey("mode");
+    expect(mode.value).toBe("Standard");
+    expect(mode.chips.map((chip) => chip.text)).toEqual(["High Season", "Tracking OK"]);
+  });
+
+  it("shows snapshot freshness and its age", () => {
+    expect(byKey("snapshot").chips[0]).toMatchObject({ text: "fresh · 2h old", tone: "ok" });
+  });
+
+  /**
+   * The strip is the first thing read on this surface. A missing measurement
+   * printed as 0 -- $0 spent, 0.00 ROAS, 0/0 labelled -- is indistinguishable
+   * from a real one, and every one of those zeros would read as an emergency.
+   */
+  describe("when the pulse did not measure something", () => {
+    const empty = decisionCenterHeaderFacts({ formatMoney: money });
+    const key = (name: string) => empty.find((fact) => fact.key === name)!;
+
+    it("prints an em dash rather than a zero", () => {
+      expect(key("spend").value).toBe("—");
+      expect(key("roas").value).toBe("—");
+      expect(key("labels").value).toBe("—");
+      expect(key("mode").value).toBe("—");
+    });
+
+    it("says the measurement is absent instead of implying none happened", () => {
+      expect(key("spend").note).toBe("conversions not measured");
+      expect(key("labels").note).toBe("label coverage not measured");
+    });
+
+    it("does not claim a target that was never configured", () => {
+      expect(key("roas").adjunct).toBe("no target set");
+    });
+
+    it("does not invent a trend line from a single point", () => {
+      expect(key("roas").spark).toBeNull();
+    });
+
+    it("reports unknown snapshot freshness as unknown, not fresh", () => {
+      expect(key("snapshot").chips[0]).toMatchObject({ text: "unknown · age unknown", tone: "warn" });
+    });
+  });
+
+  it("suppresses a percentage when the baseline is zero rather than dividing by it", () => {
+    const spend = decisionCenterHeaderFacts({
+      pacing: { spendToday: 400, avg7dSpend: 0 },
+      formatMoney: money,
+    }).find((fact) => fact.key === "spend")!;
+    expect(spend.adjunct).toBeNull();
   });
 });

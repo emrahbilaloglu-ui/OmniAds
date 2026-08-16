@@ -320,7 +320,27 @@ export interface MetaDecisionsOsWorkspacePayload {
   statusFilter?: BriefingStatusFilter;
   startDate: string;
   endDate: string;
-  pulse: Pick<MetaPulsePayload, "lastSyncAt">;
+  /**
+   * The account facts the Decision Center header states.
+   *
+   * A projection of the pulse the route already loaded — no extra query and no
+   * new source. It is widened past `lastSyncAt` because the header's KPI strip
+   * reports today's spend, ROAS against target, label coverage and operating
+   * mode, and a surface that cannot read them would have to either omit them or
+   * invent them. Every field stays optional at the source, so "unknown" remains
+   * expressible and is never rendered as a zero.
+   */
+  pulse: Pick<
+    MetaPulsePayload,
+    | "lastSyncAt"
+    | "pacing"
+    | "roas"
+    | "roasHistory"
+    | "operatingMode"
+    | "seasonalRegime"
+    | "trackingHealth"
+    | "labelCoverage"
+  >;
   system: MetaDecisionsWorkspacePayload["system"];
   viewer: MetaDecisionsWorkspaceViewer | null;
   banners: MetaDecisionsWorkspaceBanner[];

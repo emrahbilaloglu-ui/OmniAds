@@ -1,5 +1,8 @@
 import { readActiveBusinesses } from "@/lib/sync/active-businesses";
-import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import {
+  assertSyncGrowthBoundary,
+  DbGrowthFenceRefusal,
+} from "@/lib/sync/db-growth-fence";
 import {
   assertSyncLaneEnabled,
   type SyncLane,
@@ -861,15 +864,46 @@ export async function runDurableWorkerRuntime(
   try {
     // The growth boundary is NOT part of the staging concession. Being over
     // budget is a reason not to write to the database at all, and a heartbeat
-    // is a write. This stays fatal in every mode.
+    // is a write. This stays fatal in every mode -- for the AGGREGATE budget.
+    //
+    // A single table's ceiling is a different fact and must not take the
+    // process down. The ceilings exist, in the fence's own words, "to catch a
+    // single relation running away inside" the aggregate, and the fence already
+    // learned this once: 2026-08-08, meta_entity_state_history sat 0.005% over
+    // its ceiling and Google Ads and Shopify sync -- which cannot write a byte
+    // of it -- were stopped for 26 hours. That was fixed for per-operation
+    // admission (`collateralOnly`) and this boot path was never revisited.
+    //
+    // Refusing boot is strictly worse than refusing a write: the worker cannot
+    // run ANY provider's sync, cannot run scheduled work, and cannot report the
+    // condition -- it just exits and is restarted forever. Meta writes still
+    // refuse, one operation at a time, which is what the ceiling is for.
     await assertSyncGrowthBoundary("durable_worker_boot", { fresh: true });
   } catch (error) {
-    console.error("[durable-worker] boot_refused", {
-      workerId,
-      message: error instanceof Error ? error.message : String(error),
-      refusal: describeSyncSafetyRefusal(error),
-    });
-    throw error;
+    const fenceRefusal =
+      error instanceof DbGrowthFenceRefusal ? error : null;
+    const tableCeilingOnly =
+      fenceRefusal !== null &&
+      fenceRefusal.decision.reason === "table_budget_exceeded" &&
+      fenceRefusal.decision.offender != null &&
+      fenceRefusal.decision.offender.table !== "database";
+
+    if (tableCeilingOnly) {
+      console.error("[durable-worker] boot_over_table_ceiling", {
+        workerId,
+        offender: fenceRefusal.decision.offender,
+        note:
+          "Booting anyway: a single relation's ceiling does not put the database at risk, " +
+          "and every write to that relation's provider still refuses at its own boundary.",
+      });
+    } else {
+      console.error("[durable-worker] boot_refused", {
+        workerId,
+        message: error instanceof Error ? error.message : String(error),
+        refusal: describeSyncSafetyRefusal(error),
+      });
+      throw error;
+    }
   }
 
   if (laneRefusal && !stagingIdle) {

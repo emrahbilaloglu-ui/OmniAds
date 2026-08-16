@@ -3,6 +3,7 @@
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useDeferredValue, useMemo, useState } from "react";
+import { StudioTabRow } from "@/components/creatives/StudioTabRow";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import Link from "next/link";
@@ -174,11 +175,12 @@ export default function LandingPagesPage() {
   if (showBootstrapGuard) {
     return (
       <div
-        className="ad-final px-4 py-4"
+        className="ad-final"
         data-testid="landing-pages-studio-page"
         data-landing-state="loading"
       >
-        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+        <div className="flex w-full flex-col gap-4">
+          <StudioTabRow active="landers" />
         <LandingPageHeader propertyName={undefined} routeScope={routeScope} />
         <LoadingSkeleton rows={5} />
         </div>
@@ -189,11 +191,12 @@ export default function LandingPagesPage() {
   if (!ga4Connected) {
     return (
       <div
-        className="ad-final px-4 py-4"
+        className="ad-final"
         data-testid="landing-pages-studio-page"
         data-landing-state="integration_required"
       >
-        <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+        <div className="flex w-full flex-col gap-4">
+          <StudioTabRow active="landers" />
         <LandingPageHeader propertyName={undefined} routeScope={routeScope} />
         <IntegrationEmptyState
           providerLabel="GA4"
@@ -209,28 +212,20 @@ export default function LandingPagesPage() {
   return (
     <PlanGate requiredPlan="growth">
       <div
-        className="ad-final px-4 py-4"
+        className="ad-final"
         data-testid="landing-pages-studio-page"
         data-landing-state={query.isLoading ? "loading" : query.isError ? "error" : "ready"}
       >
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
+          <StudioTabRow active="landers" />
         <LandingPageHeader
           propertyName={query.data?.meta.propertyName}
           routeScope={routeScope}
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          {/*
-            This surface reads no comparison, so it does not offer one. The
-            Compare control was rendered here and never read: an operator could
-            pick "Previous year", watch the chip turn active and print the
-            year-ago dates, and change nothing at all.
-          */}
           <DateRangePicker
-            value={dateRange}
-            onChange={setDateRange}
-            showComparisonTrigger={false}
-          />
+            showComparisonTrigger={false} value={dateRange} onChange={setDateRange} />
           <label className="relative block min-w-[260px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--adc-ink3,#7d838c)]" />
             <input
@@ -323,11 +318,6 @@ function LandingPageHeader({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
-          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
-          <span className="btn btn--sm btn--primary" aria-current="page">Landing pages</span>
-          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)}>Inbox</Link>
-          <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/audiences", routeScope)}>Audiences</Link>
         </div>
       </div>
     </header>

@@ -27,6 +27,7 @@ import type {
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useAppStore } from "@/store/app-store";
 import styles from "./automation.module.css";
 
@@ -497,7 +498,20 @@ export function MetaAutomationView({
     // Automation fails closed on an unreadable control, so the freshness
     // reading must say "unreadable" rather than leave the last state showing.
     error,
-    asOf: payload?.businessControl.updatedAt ?? null,
+    // When the control row was persisted, its updated_at is the moment the
+    // authority on screen was last written. A default-sourced control was
+    // never written, so it dates nothing and the age stays unknown.
+    asOf:
+      payload?.businessControl.source === "persisted"
+        ? measuredAsOf(payload.businessControl.updatedAt)
+        : null,
+    // A default-sourced control is a read that returned no stored authority.
+    // Saying so is the difference between "nothing is configured" and
+    // "we could not prove what is configured".
+    partialReason:
+      payload && payload.businessControl.source !== "persisted"
+        ? "persisted business control not proven"
+        : null,
     businessId: scopedBusinessId ?? null,
     onRetry,
   });
@@ -723,8 +737,7 @@ export function MetaAutomationView({
         <header className={styles.pageHeader}>
           <div className={styles.titleBlock}>
             <div className={styles.eyebrow}>
-              <Badge>Stage B</Badge>
-              <span>Meta supervision</span>
+              <span>Meta · Supervision control plane</span>
             </div>
             <h1>Automation</h1>
             <p>Authority, evidence, guardrails, and persisted activity.</p>
@@ -1367,7 +1380,6 @@ export function MetaAutomationView({
 }
 
 export default function MetaAutomationPage() {
-
   const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);

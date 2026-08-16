@@ -78,7 +78,7 @@ function ChartTooltip({
   const flipX = pixelX > 260;
   return (
     <div
-      className="pointer-events-none absolute z-20 rounded-xl border border-neutral-200 bg-white/95 px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] backdrop-blur-sm"
+      className="pointer-events-none absolute z-20 rounded-xl border border-[var(--adv-border)] bg-white/95 px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] backdrop-blur-sm"
       style={{
         left: flipX ? undefined : pixelX + 12,
         right: flipX ? `calc(100% - ${pixelX - 12}px)` : undefined,
@@ -86,14 +86,14 @@ function ChartTooltip({
         minWidth: 160,
       }}
     >
-      <p className="mb-1.5 font-semibold text-neutral-500">{label}</p>
+      <p className="mb-1.5 font-semibold text-[var(--adv-ink-3)]">{label}</p>
       {entries.map((e, i) => (
         <div key={i} className="flex items-center justify-between gap-4">
-          <span className="flex items-center gap-1.5 text-neutral-600 truncate">
+          <span className="flex items-center gap-1.5 text-[var(--adv-ink-2)] truncate">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: e.color }} />
             {e.name || "Value"}
           </span>
-          <span className="font-semibold text-neutral-900 tabular-nums">{formatTooltipValue(e.value)}</span>
+          <span className="font-semibold text-[var(--adv-ink)] tabular-nums">{formatTooltipValue(e.value)}</span>
         </div>
       ))}
     </div>
@@ -135,14 +135,13 @@ function MiniChart({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [tooltipPixel, setTooltipPixel] = useState<{ x: number; y: number } | null>(null);
 
-  // Above the empty-data guard on purpose. It used to sit below it, so a chart
-  // that went from having points to having none rendered a different number of
-  // hooks than the render before it -- React throws "Rendered fewer hooks than
-  // expected" and the widget crashes rather than saying it has no data.
+  // With the other hooks: below the empty-series return this fires only on
+  // some renders, which is a hook-order violation React tears the tree down for.
   const handleMouseLeave = useCallback(() => {
     setHoveredIdx(null);
     setTooltipPixel(null);
   }, []);
+
 
   const activeSeries = series?.length ? series : [{ key: "default", label: "", color: "#2563eb", points }];
   if (!activeSeries.some((item) => item.points.length > 0)) {
@@ -259,15 +258,15 @@ function MiniChart({
             pixelY={tooltipPixel.y}
           />
         ) : null}
-        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
           {activeSeries.map((item) => (
-            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
+            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-[var(--adv-fill-2)] px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
             </span>
           ))}
           {numSeries > 1 && (
-            <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-600">independently scaled</span>
+            <span className="rounded-full bg-[var(--adc-caution-bg)] px-2 py-1 text-[var(--adc-caution-fg)]">independently scaled</span>
           )}
         </div>
       </div>
@@ -457,13 +456,13 @@ function MiniChart({
       ) : null}
 
       {activeSeries.length > 1 && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground shrink-0">
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground shrink-0">
           {activeSeries.map((item) => (
-            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
+            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-[var(--adv-fill-2)] px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
               {dualAxis && rightSeries.includes(item) && (
-                <span className="text-[12px] opacity-50" title="Shared right-axis scale">~</span>
+                <span className="text-[9px] opacity-50" title="Shared right-axis scale">~</span>
               )}
             </span>
           ))}
@@ -476,17 +475,17 @@ function MiniChart({
 export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportWidget; embedded?: boolean }) {
   if (widget.type === "section") {
     return (
-      <article className={embedded ? "p-4 h-full" : "rounded-xl border border-neutral-200 bg-white p-6"}>
+      <article className={embedded ? "p-4 h-full" : "rounded-xl border border-[var(--adv-border)] bg-white p-6"}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-neutral-400">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--adv-ink-4)]">
               Section
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--adv-ink)]">
               {widget.title}
             </h2>
             {widget.subtitle ? (
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">{widget.subtitle}</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--adv-ink-2)]">{widget.subtitle}</p>
             ) : null}
           </div>
         </div>
@@ -495,20 +494,20 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
   }
 
   return (
-    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-xl border border-neutral-200 bg-white p-4 h-full flex flex-col"}>
+    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-xl border border-[var(--adv-border)] bg-white p-4 h-full flex flex-col"}>
       <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
-          <h3 className="text-sm font-semibold text-neutral-900">{widget.title}</h3>
+          <h3 className="text-sm font-semibold text-[var(--adv-ink)]">{widget.title}</h3>
           {widget.subtitle ? (
-            <p className="mt-1 text-xs text-neutral-500">{widget.subtitle}</p>
+            <p className="mt-1 text-xs text-[var(--adv-ink-3)]">{widget.subtitle}</p>
           ) : null}
         </div>
         {widget.errorMessage ? (
-          <span className="rounded-full bg-rose-50 px-2 py-1 text-[12px] font-medium text-rose-700">
+          <span className="rounded-full bg-[var(--adc-danger-bg)] px-2 py-1 text-[10px] font-medium text-[var(--adc-danger-fg)]">
             Failed to load
           </span>
         ) : widget.warning ? (
-          <span className="rounded-full bg-amber-50 px-2 py-1 text-[12px] font-medium text-amber-700">
+          <span className="rounded-full bg-[var(--adc-caution-bg)] px-2 py-1 text-[10px] font-medium text-[var(--adc-caution-fg)]">
             Warning
           </span>
         ) : null}
@@ -516,11 +515,11 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
 
       {widget.type === "metric" ? (
         <div className="mt-6 shrink-0">
-          <div className="text-3xl font-semibold tracking-tight text-neutral-950">
+          <div className="text-3xl font-semibold tracking-tight text-[var(--adv-ink)]">
             {widget.value ?? "-"}
           </div>
           {widget.deltaLabel ? (
-            <div className="mt-2 text-xs text-neutral-500">{widget.deltaLabel}</div>
+            <div className="mt-2 text-xs text-[var(--adv-ink-3)]">{widget.deltaLabel}</div>
           ) : null}
         </div>
       ) : null}
@@ -540,12 +539,12 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
         <div className="mt-5 overflow-hidden rounded-xl border flex flex-col min-h-0 flex-1">
           <div className="overflow-auto flex-1">
             <table className="min-w-full text-sm">
-              <thead className="bg-neutral-50 sticky top-0 z-10">
+              <thead className="bg-[var(--adv-fill)] sticky top-0 z-10">
                 <tr>
                   {(widget.columns ?? []).map((column) => (
                     <th
                       key={column}
-                      className="px-3 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-neutral-500"
+                      className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[var(--adv-ink-3)]"
                     >
                       {getColumnLabel(column)}
                     </th>
@@ -556,7 +555,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
                 {(widget.rows ?? []).map((row, index) => (
                   <tr key={index} className="border-t">
                     {(widget.columns ?? []).map((column) => (
-                      <td key={column} className="px-3 py-2 text-neutral-700">
+                      <td key={column} className="px-3 py-2 text-[var(--adv-ink-2)]">
                         {String(row[column] ?? "-")}
                       </td>
                     ))}
@@ -569,7 +568,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       ) : null}
 
       {widget.type === "text" ? (
-        <div className="mt-5 whitespace-pre-wrap text-sm leading-6 text-neutral-700">
+        <div className="mt-5 whitespace-pre-wrap text-sm leading-6 text-[var(--adv-ink-2)]">
           {widget.text || "Add commentary, summary, or next steps here."}
         </div>
       ) : null}
@@ -577,13 +576,13 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       {/* A widget that failed says so. It never borrows the empty-state voice,
           which would read as "this period had no data". */}
       {widget.errorMessage ? (
-        <p className="mt-4 text-xs text-rose-700">{widget.errorMessage}</p>
+        <p className="mt-4 text-xs text-[var(--adc-danger-fg)]">{widget.errorMessage}</p>
       ) : (
         <>
           {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
-            <p className="mt-4 text-xs text-neutral-400">{widget.emptyMessage}</p>
+            <p className="mt-4 text-xs text-[var(--adv-ink-4)]">{widget.emptyMessage}</p>
           ) : null}
-          {widget.warning ? <p className="mt-4 text-xs text-amber-700">{widget.warning}</p> : null}
+          {widget.warning ? <p className="mt-4 text-xs text-[var(--adc-caution-fg)]">{widget.warning}</p> : null}
         </>
       )}
     </article>

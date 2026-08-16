@@ -1,13 +1,5 @@
 "use client";
 
-import { newestObservation } from "@/lib/tier-zero-as-of";
-import {
-  compareModeForPreset,
-  customComparisonIsComplete,
-} from "@/lib/comparison-preset-contract";
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
-import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
@@ -20,13 +12,36 @@ import {
 } from "@/components/sync/sync-status-pill";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
-import { MISSING_VALUE } from "@/lib/metric-format";
-import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
 import {
-  buildNegativeKeywordList,
-  buildSearchTermCsv,
-} from "@/lib/google-ads/search-term-export";
+  BudgetScalingTab,
+  type BudgetCampaign,
+  type BudgetRec,
+} from "@/components/google-ads/BudgetScalingTab";
+import { GoogleCampaignsTable } from "@/components/google-ads/GoogleCampaignsTable";
+import { GoogleWhereToLookFirst } from "@/components/google-ads/GoogleWhereToLookFirst";
+import { GoogleSearchTermsTable } from "@/components/google-ads/GoogleSearchTermsTable";
+import {
+  GoogleKeywordsTable,
+  type GoogleKeywordRow,
+} from "@/components/google-ads/GoogleKeywordsTable";
+import { GoogleAdvisorTiles } from "@/components/google-ads/GoogleAdvisorTiles";
+import { GoogleFeedTiles } from "@/components/google-ads/GoogleFeedTiles";
+import { GoogleProductsTable } from "@/components/google-ads/GoogleProductsTable";
+import { GoogleActivityTable } from "@/components/google-ads/GoogleActivityTable";
+import type { GoogleAdsActivityEntry } from "@/lib/google-ads/advisor-memory";
+import {
+  GoogleAssetGroupsTable,
+  GoogleAssetPair,
+  GoogleAudiencesTable,
+} from "@/components/google-ads/GoogleAssetSurfaces";
+import { GoogleBudgetScalingCard } from "@/components/google-ads/GoogleBudgetScalingCard";
+import { GoogleAllocationRead } from "@/components/google-ads/GoogleAllocationRead";
+import { GoogleExecutionQueue } from "@/components/google-ads/GoogleExecutionQueue";
+import {
+  GoogleSearchStats,
+  type SearchTermFilter,
+} from "@/components/google-ads/GoogleSearchStats";
+import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
   getPresetDatesForReferenceDate,
@@ -41,8 +56,12 @@ import {
   fmtPct,
   fmtRoas,
   isCampaignActive,
+  ASSET_VIEWS,
+  normaliseBudgetRecommendations,
   PANEL_ITEMS,
   resolveTrendTimeline,
+  type AssetViewKey,
+  type GoogleBudgetInsights,
   type Campaign,
   type CampaignsResponse,
   type AssetGroupRow,
@@ -76,6 +95,20 @@ import {
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
+import { newestObservation } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
+import { MISSING_VALUE } from "@/lib/metric-format";
+import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
+import {
+  buildNegativeKeywordList,
+  buildSearchTermCsv,
+} from "@/lib/google-ads/search-term-export";
+import {
+  compareModeForPreset,
+  customComparisonIsComplete,
+} from "@/lib/comparison-preset-contract";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -182,13 +215,13 @@ function getSurfaceBadgeLabel(surface: GoogleAdsPanelSurfaceState) {
 function getSurfaceBadgeClass(surface: GoogleAdsPanelSurfaceState) {
   switch (surface.state) {
     case "extended_backfilling":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
     case "extended_limited":
       return "border-slate-200 bg-slate-50 text-slate-700";
     case "core_live":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
     default:
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
   }
 }
 
@@ -221,34 +254,34 @@ function SurfaceRecoveryNotice({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "rounded-full border px-2 py-0.5 text-[12px] font-medium",
+            "rounded-full border px-2 py-0.5 text-[10px] font-medium",
             getSurfaceBadgeClass(surface)
           )}
         >
           {getSurfaceBadgeLabel(surface)}
         </span>
-        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
+        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
           Coverage {surface.completedDays}/{surface.totalDays} days
         </span>
         {surface.readyThroughDate ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
             Ready through {surface.readyThroughDate}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
             Visible coverage {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
             Historical {rangeCompletion.historical.completedDays}/{rangeCompletion.historical.totalDays} {rangeCompletion.historical.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
       </div>
-      <p className="mt-2 text-[12px] text-muted-foreground">{surface.message}</p>
+      <p className="mt-2 text-[11px] text-muted-foreground">{surface.message}</p>
       {surface.latestBackgroundActivityAt ? (
-        <p className="mt-1 text-[12px] text-muted-foreground">
+        <p className="mt-1 text-[10px] text-muted-foreground">
           Latest background activity {surface.latestBackgroundActivityAt}
         </p>
       ) : null}
@@ -261,11 +294,11 @@ function getDomainBadgeClass(
 ) {
   switch (state) {
     case "ready":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
     case "partial":
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
     case "advisor_not_ready":
-      return "border-sky-200 bg-sky-50 text-sky-800";
+      return "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]";
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
@@ -280,7 +313,7 @@ function StatusDomainRow({
 }) {
   if (!summary) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[12px]">
+    <div className="flex flex-wrap items-center gap-2 text-[11px]">
       <span className="text-muted-foreground">{label}</span>
       <span
         className={cn(
@@ -351,28 +384,14 @@ function buildGoogleAdsDataQueryParams(input: {
   return params;
 }
 
-/** Save a CSV the operator can open directly, without a server round trip. */
-function downloadSearchTermCsv(csv: string, filename: string) {
-  if (typeof document === "undefined") return;
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${filename}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
 
 /**
- * Run a zero-risk escape hatch and report what actually happened.
+ * The escape hatch reports its own result.
  *
- * These events answer "does the escape hatch work" -- the whole point of a
- * copy or CSV button is that an operator can take the work out of the product
- * when the product cannot help. Hardcoding `outcome: "ok"` made the metric
- * answer "was the button clicked" instead, so the hatch would have looked
- * healthiest in exactly the browsers where it silently does nothing.
+ * What the copy and CSV buttons are for is that an operator can take the work
+ * out of the product when the product cannot help. Hardcoding `outcome: "ok"`
+ * would make the metric answer "was the button clicked" instead, so the hatch
+ * would look healthiest in exactly the browsers where it silently does nothing.
  */
 async function reportGoogleEscapeHatch(input: {
   eventName: "google_copy_used" | "google_csv_used";
@@ -405,15 +424,31 @@ async function reportGoogleEscapeHatch(input: {
   }
 }
 
-export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
-
+export function GoogleAdsIntelligenceDashboard({
+  businessId,
+  panel,
+  screenTitle,
+}: {
+  businessId: string;
+  /**
+   * When set, the workspace renders exactly this surface and hides its internal
+   * tab row — v2 gives each Google surface its own route and rail entry.
+   */
+  panel?: PanelKey;
+  /** Page title for the routed screen; the design names each surface. */
+  screenTitle?: string;
+}) {
   const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
   const [includeSpentInactive, setIncludeSpentInactive] = useState(false);
-  const [activePanel, setActivePanel] = useState<PanelKey>("summary");
+  const [selectedPanel, setSelectedPanel] = useState<PanelKey>(panel ?? "summary");
+  const activePanel = panel ?? selectedPanel;
+  const setActivePanel = setSelectedPanel;
   const [focusedSearchTerms, setFocusedSearchTerms] = useState<string[]>([]);
+  const [searchTermFilter, setSearchTermFilter] = useState<SearchTermFilter>("all");
+  const [assetView, setAssetView] = useState<AssetViewKey>("groups");
   const [focusedProducts, setFocusedProducts] = useState<string[]>([]);
   const [focusedAssets, setFocusedAssets] = useState<string[]>([]);
   const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
@@ -456,6 +491,37 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     resolvedGoogleReferenceDate ??
     getTodayIsoForTimeZone(effectiveGoogleTimeZoneLabel);
 
+  // Page-head identity and freshness, read off the status payload. Anything the
+  // server has not reported stays an em dash rather than a guessed value.
+  const workspaceEyebrow = useMemo(() => {
+    const status = baseStatusQuery.data;
+    const accountId =
+      status?.platformDateBoundary?.primaryAccountId ??
+      status?.assignedAccountIds?.[0] ??
+      null;
+    return `Google Ads · ${accountId ? `Account ${accountId}` : "Account —"} · ${
+      effectiveGoogleTimeZoneLabel
+    }`;
+  }, [baseStatusQuery.data, effectiveGoogleTimeZoneLabel]);
+
+  const syncPill = useMemo<{ tone: "pos" | "warn" | "neg" | "neutral"; label: string }>(() => {
+    const status = baseStatusQuery.data;
+    if (!status) return { tone: "neutral", label: "Synced —" };
+    if (status.state === "syncing") return { tone: "warn", label: "Syncing now" };
+    if (status.state === "action_required") {
+      return { tone: "neg", label: "Reconnect required" };
+    }
+    const finishedAt = status.latestSync?.finishedAt;
+    const at = finishedAt ? Date.parse(finishedAt) : Number.NaN;
+    if (!Number.isFinite(at)) return { tone: "neutral", label: "Synced —" };
+    const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
+    if (minutes < 1) return { tone: "pos", label: "Synced just now" };
+    if (minutes < 60) return { tone: "pos", label: `Synced ${minutes}m ago` };
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return { tone: "pos", label: `Synced ${hours}h ago` };
+    return { tone: "warn", label: `Synced ${Math.round(hours / 24)}d ago` };
+  }, [baseStatusQuery.data]);
+
   const { start: startDate, end: endDate } =
     dateRange.rangePreset === "custom"
       ? {
@@ -488,17 +554,32 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const needsAdvisorData =
     activePanel === "summary" ||
     activePanel === "insights" ||
+    activePanel === "search" ||
+    activePanel === "plan" ||
     activePanel === "assetGroupAudience" ||
     activePanel === "products" ||
     activePanel === "assets";
   const needsTrendData = activePanel === "summary";
-  const needsAssetGroupAudienceData = activePanel === "assetGroupAudience";
+  // The design's Assets & Audiences screen carries the asset groups and the
+  // audiences alongside the assets, so both load on that panel too.
+  const needsAssetGroupAudienceData =
+    activePanel === "assetGroupAudience" || activePanel === "assets";
   const needsProductsData = activePanel === "products";
   const needsAssetsData = activePanel === "assets";
   const needsInsightsData = activePanel === "insights";
+  const needsSearchData = activePanel === "search";
+  const needsPlanData = activePanel === "plan";
+  // Overview's campaign table shows the design's Daily budget column, which only
+  // the budget report carries, so it loads there as well.
+  const needsBudgetData = activePanel === "plan" || activePanel === "summary";
   const currentAdvisorKey = businessId;
 
-  const { data, isLoading, isError } = useQuery<CampaignsResponse>({
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch: refetchCampaigns,
+  } = useQuery<CampaignsResponse>({
     queryKey: ["gads-campaigns", businessId, startDate, endDate, effectiveCompareMode],
     queryFn: async () => {
       const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode: effectiveCompareMode });
@@ -587,6 +668,35 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     enabled: needsProductsData,
   });
 
+  // The budget endpoint returns its findings as named campaign buckets, not as
+  // a flat recommendation list, so they are normalised at the read boundary.
+  const { data: budgetData, isLoading: isBudgetLoading } = useQuery<{
+    rows?: BudgetCampaign[];
+    recommendations?: GoogleBudgetInsights | BudgetRec[];
+    totalSpend?: number;
+    accountAvgRoas?: number;
+  }>({
+    queryKey: ["gads-budget", businessId, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        businessId,
+        dateRange: "custom",
+        customStart: startDate,
+        customEnd: endDate,
+      });
+      const res = await fetch(`/api/google-ads/budget?${params}`);
+      if (!res.ok) throw new Error("budget fetch failed");
+      return res.json();
+    },
+    enabled: needsBudgetData && Boolean(businessId),
+    staleTime: 60 * 1000,
+  });
+
+  const budgetRecommendations = useMemo(
+    () => normaliseBudgetRecommendations(budgetData?.recommendations),
+    [budgetData?.recommendations],
+  );
+
   const { data: searchTermsData, isLoading: isSearchTermsLoading } = useQuery<SearchIntelligenceResponse>({
     queryKey: ["gads-search-intelligence", businessId, startDate, endDate],
     queryFn: async () => {
@@ -596,7 +706,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsInsightsData,
+    enabled: needsSearchData,
+  });
+
+  const { data: keywordsData } = useQuery<{ rows?: GoogleKeywordRow[] }>({
+    queryKey: ["gads-keywords", businessId, startDate, endDate],
+    queryFn: async () => {
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      const res = await fetch(`/api/google-ads/keywords?${params}`);
+      if (!res.ok) throw new Error("keywords fetch failed");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: needsSearchData,
   });
 
   const { data: geoData, isLoading: isGeoLoading } = useQuery<GeoResponse>({
@@ -608,7 +730,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsInsightsData,
+    enabled: needsSearchData,
   });
 
   const { data: devicesData, isLoading: isDevicesLoading } = useQuery<DevicesResponse>({
@@ -620,7 +742,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsInsightsData,
+    enabled: needsSearchData,
   });
 
   const { data: trendsData } = useQuery<GoogleAdsTrendsResponse>({
@@ -645,6 +767,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     data: syncStatus,
     isLoading: isSyncStatusLoading,
     isError: isSyncStatusError,
+    refetch: refetchSyncStatus,
   } = useQuery<GoogleAdsStatusResponse>({
     queryKey: ["gads-status", businessId, startDate, endDate],
     queryFn: async () => {
@@ -663,22 +786,18 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       getGoogleAdsStatusRefetchInterval(query.state.data),
   });
 
-  // One freshness contract across every Tier-0 surface. Derived from the
-  // query state this surface already has, so it cannot drift from what is
-  // actually on screen.
+  // One freshness contract across every Tier-0 surface. Derived from the query
+  // state this surface already has, so it cannot drift from what is on screen.
   useTierZeroFreshness({
     surface: "google_ads",
-    // The status read is included because it is what supplies both the as-of
-    // and the partial reason. Leaving it out let the surface settle on "ready,
-    // age unknown" while that read was still in flight, and then flip to
-    // "partial" a moment later -- the same reading meaning two different
-    // things depending on when you looked. The six-width evidence caught it:
-    // four widths reported partial and two reported ready, in one run, over
-    // identical data.
+    // The status read is included because it supplies both the as-of and the
+    // partial reason. Leaving it out let the surface settle on "ready, age
+    // unknown" while that read was in flight, then flip to "partial" a moment
+    // later -- one reading meaning two things depending on when you looked.
     isLoading: isLoading || isSyncStatusLoading,
-    // The newest real observation across scopes. The reference date is what
-    // day it is in the account's timezone -- a range label, not a read time --
-    // and using it made the reading drift with the hour and never say "stale".
+    // The newest real observation across scopes. The account's calendar date is
+    // a range label, not a read time; dating the surface from it made the age
+    // drift with the hour and never say "stale".
     asOf: newestObservation(
       (syncStatus?.freshness?.scopes ?? []).map(
         (scope) => scope.latestObservationAt,
@@ -690,10 +809,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         ? (syncStatus.freshness.unavailableReason ??
           "Google freshness evidence could not be read; the age shown is unknown")
         : null,
-    error:
-      isError || isSyncStatusError ? "google_ads_unreadable" : null,
+    error: isError || isSyncStatusError ? "google_ads_unreadable" : null,
     businessId,
+    onRetry: () => {
+      void refetchCampaigns();
+      void refetchSyncStatus();
+    },
   });
+
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({
     connected: Boolean(syncStatus?.connected),
@@ -710,6 +833,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     selectedAccountId: selectedGoogleAccountId,
   });
   const advisorExecutionAccountId = accountScope.accountId;
+  // The design's Activity card on Plan reads the guarded-write execution log.
+  const { data: activityData, isLoading: isActivityLoading } = useQuery<{
+    rows?: GoogleAdsActivityEntry[];
+  }>({
+    queryKey: ["gads-activity", businessId, advisorExecutionAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId });
+      if (advisorExecutionAccountId) params.set("accountId", advisorExecutionAccountId);
+      const res = await fetch(`/api/google-ads/activity?${params.toString()}`);
+      if (!res.ok) throw new Error("activity fetch failed");
+      return res.json();
+    },
+    staleTime: 60 * 1000,
+    enabled: needsPlanData,
+  });
+
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorCtaState = getGoogleAdsAdvisorCtaState({
@@ -754,6 +893,35 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const totalClicks = sortedRows.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
   const blendedCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const blendedCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+
+  // Account deltas for the design's KPI row, reconstructed from the per-row
+  // change the campaigns endpoint serves. Withheld entirely when comparison is
+  // off so the row shows a value with no delta rather than a fabricated 0%.
+  // Daily budget lives on the budget report, not the performance row; join by id
+  // and fall back to the campaign name when the report keys differ.
+  const dailyBudgetById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of budgetData?.rows ?? []) {
+      if (typeof row.dailyBudget !== "number" || !Number.isFinite(row.dailyBudget)) continue;
+      if (row.id) map.set(String(row.id), row.dailyBudget);
+      if (row.name) map.set(row.name.toLowerCase().trim(), row.dailyBudget);
+    }
+    return map;
+  }, [budgetData?.rows]);
+
+  const comparisonOn = effectiveCompareMode !== "none";
+  const prevSpend = comparisonOn
+    ? previousTotalFrom(sortedRows, (row) => row.spend, (row) => row.spendChange)
+    : null;
+  const prevRevenue = comparisonOn
+    ? previousTotalFrom(sortedRows, (row) => row.revenue, (row) => row.revenueChange)
+    : null;
+  const spendDelta = deltaOf(totalSpend, prevSpend);
+  const revenueDelta = deltaOf(totalRevenue, prevRevenue);
+  const roasDelta = deltaOf(
+    blendedRoas,
+    prevSpend && prevSpend > 0 && prevRevenue !== null ? prevRevenue / prevSpend : null,
+  );
   const blendedCvR = totalClicks > 0 ? (totalConv / totalClicks) * 100 : 0;
   const avgImpressionShare =
     sortedRows.filter((r) => typeof r.impressionShare === "number").length > 0
@@ -976,11 +1144,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     [productsData?.rows]
   );
 
-  const totalProductSpend = productRows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
-  const totalProductRevenue = productRows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0);
-  const avgProductRoas = totalProductSpend > 0 ? totalProductRevenue / totalProductSpend : 0;
-  const weakProducts = productRows.filter((row) => row.spend > 20 && row.roas < Math.max(avgProductRoas * 0.8, 1.5));
-
   const scopedSearchTerms = useMemo(() => {
     const rows = searchTermsData?.rows ?? [];
     if (sortedRows.length === 0) return rows;
@@ -993,10 +1156,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     });
   }, [searchTermsData?.rows, sortedRows]);
 
-  // The full candidate set, before the display cap. The panel shows the top
-  // rows, but copy and CSV export the whole list — the long tail is exactly
-  // what a weekly negative-keyword sweep is for.
-  const searchTermNegativeCandidates = useMemo(
+  const searchTermNegativeRows = useMemo(
     () =>
       scopedSearchTerms
         .filter(
@@ -1006,13 +1166,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             (row.spend > 20 && row.conversions === 0) ||
             (row.spend > 20 && row.roas < 1.3)
         )
-        .sort((a, b) => b.spend - a.spend),
+        .sort((a, b) => b.spend - a.spend)
+        .slice(0, 8),
     [scopedSearchTerms]
-  );
-
-  const searchTermNegativeRows = useMemo(
-    () => searchTermNegativeCandidates.slice(0, 8),
-    [searchTermNegativeCandidates]
   );
 
   const searchTermPositiveRows = useMemo(
@@ -1158,6 +1314,26 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     "creative_asset_deployment",
   ]);
 
+  // The design closes the asset group table on the restructures the advisor
+  // already has queued, naming them; with none queued it says nothing.
+  const queuedRestructures = (advisorCurrent?.recommendations ?? []).filter(
+    (item) => item.type === "asset_group_structure",
+  );
+  const restructureTargets = queuedRestructures
+    .flatMap((item) => item.weakAssetGroups ?? [])
+    .filter(Boolean)
+    .slice(0, 2);
+  const assetGroupQueueNote =
+    queuedRestructures.length === 0
+      ? null
+      : `The advisor has ${queuedRestructures.length} restructure${
+          queuedRestructures.length === 1 ? "" : "s"
+        } queued${
+          restructureTargets.length > 0
+            ? ` for ${restructureTargets.map((name) => `“${name}”`).join(" and ")}`
+            : ""
+        } — see Advisor · Do next.`;
+
   const focusAdvisorEntity = (recommendation: GoogleAdvisorRecommendation) => {
     const searchFocus = [
       ...(recommendation.negativeQueries ?? []),
@@ -1215,151 +1391,44 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex justify-center border-b border-border -mx-6 px-6 -mt-3">
-        {PANEL_ITEMS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setActivePanel(item.key)}
-            className={cn(
-              "whitespace-nowrap px-5 pb-2.5 pt-0 text-sm font-semibold transition-all border-b-2 -mb-px",
-              activePanel === item.key
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight">Campaigns</h1>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setIncludeSpentInactive((p) => !p)}
-                className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[12px] font-medium",
-                  includeSpentInactive ? "border-amber-200 bg-amber-50 text-amber-800" : "border-border bg-background text-muted-foreground"
-                )}
-              >
-                Include inactive with spend &gt; 0
-              </button>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[12px] font-medium">
-                    Type: {channelFilter === "all" ? "All" : channelFilter}
-                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[180px]">
-                  <DropdownMenuItem onClick={() => setChannelFilter("all")}>All types</DropdownMenuItem>
-                  {channels.map((ch) => (
-                    <DropdownMenuItem key={ch} onClick={() => setChannelFilter(ch)}>{ch}</DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="inline-flex max-w-[260px] items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[12px] font-medium">
-                    <span className="truncate">
-                      {selectedInScope.length === 0 ? "Campaigns: All" : selectedInScope.length === 1 ? `Campaign: ${selectedInScope[0]}` : `${selectedInScope.length} campaigns selected`}
-                    </span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[300px]">
-                  <DropdownMenuLabel>Campaign names</DropdownMenuLabel>
-                  <DropdownMenuCheckboxItem checked={selectedInScope.length === 0} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setSelectedCampaignNames([])}>
-                    All campaigns
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator />
-                  {campaignNameOptions.map((name) => (
-                    <DropdownMenuCheckboxItem
-                      key={name}
-                      checked={selectedInScope.includes(name)}
-                      onSelect={(e) => e.preventDefault()}
-                      onCheckedChange={() => setSelectedCampaignNames((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name])}
-                    >
-                      <span className="truncate">{name}</span>
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <div className="ml-1 flex flex-wrap items-center gap-2 lg:flex-nowrap">
-                <DateRangePicker
-                  value={dateRange}
-                  onChange={setDateRange}
-                  referenceDate={effectiveGoogleReferenceDate}
-                  timeZoneLabel={effectiveGoogleTimeZoneLabel}
-                />
-                <p className="text-xs text-muted-foreground whitespace-nowrap">
-                  {campaignScopeLabel}
-                </p>
-                <div className="ml-auto flex min-w-0 items-center gap-2">
-                  {(() => {
-                    const advisorButtonLabel = getGoogleAdsAdvisorButtonLabel({
-                      isLoading: isAdvisorLoading,
-                      ctaState: advisorCtaState,
-                    });
-
-	                  return (
-	                      <button
-	                        type="button"
-	                        onClick={() =>
-	                          runAdvisorAnalysis({
-	                            refresh:
-	                              advisorCtaState === "prepare" ||
-	                              advisorCtaState === "refreshable",
-	                          })
-	                        }
-	                        disabled={!advisorCanOpen || isAdvisorLoading}
-                        title={advisorHelperText}
-                        aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
-                        className={cn(
-                          "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[12px] font-semibold transition-colors",
-                          !advisorCanOpen || isAdvisorLoading
-                            ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
-                            : advisorCurrent
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                              : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
-                        )}
-                      >
-                        {advisorButtonLabel}
-                      </button>
-                    );
-                  })()}
-                  {isSyncStatusLoading ? (
-                    <SyncStatusPillSkeleton className="w-28 shrink-0" />
-                  ) : shouldShowSyncStatusPill ? (
-                    <SyncStatusPill pill={syncStatusPill} />
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
+    // The design lays every Google screen out as a 16px flex column.
+    <div className="flex flex-col gap-4">
+      {/* v2 page head — identity in a mono eyebrow, workspace name in display type. */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+            {workspaceEyebrow}
+          </p>
+          <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
+            {screenTitle ?? "Intelligence Workspace"}
+          </h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="adv-mono text-[10.5px] text-[var(--adv-ink-4)]">
+            writes guarded · receipt on every change
+          </span>
+          <span className="adv-pill" data-tone={syncPill.tone}>
+            <span className="adv-pill-dot" aria-hidden="true" />
+            {syncPill.label}
+          </span>
         </div>
       </div>
 
-      {/* Scope receipt. An operator must be able to see which account these
-          numbers cover, and change it, before trusting any of them. */}
+      {/* Scope receipt. With more than one account assigned every figure below
+          is a blend; the operator has to be able to see that, and narrow it,
+          before trusting any of them. Hidden at one account, where there is
+          nothing to disclose. */}
       {accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
         <div
           role="status"
-          className={`flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-[12px] ${
+          className={cn(
+            "flex flex-wrap items-center gap-2 rounded-[14px] border px-3 py-2 text-[11px]",
             accountScope.mixedCurrency
               ? "border-amber-200 bg-amber-50 text-amber-900"
-              : "border-border/70 bg-card/70 text-muted-foreground"
-          }`}
+              : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-3)]"
+          )}
         >
-          <span className="font-medium">
+          <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em]">
             {accountScope.mode === "blended" ? "Blended view" : "Scoped to one account"}
           </span>
           {accountScope.notice ? <span>{accountScope.notice}</span> : null}
@@ -1367,10 +1436,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <span className="sr-only">Google account</span>
             <select
               value={selectedGoogleAccountId ?? ""}
-              onChange={(event) =>
-                setSelectedGoogleAccountId(event.target.value || null)
-              }
-              className="rounded-md border border-border/70 bg-background px-2 py-1 text-[12px]"
+              onChange={(event) => setSelectedGoogleAccountId(event.target.value || null)}
+              className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2 py-1 text-[11px] text-[var(--adv-ink-2)]"
             >
               <option value="">All assigned accounts (blended)</option>
               {(syncStatus?.assignedAccountIds ?? []).map((id) => (
@@ -1383,40 +1450,185 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       ) : null}
 
-      {shouldShowActionRequiredBanner ? (
-        <div
-          role="status"
-          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
-          <p className="font-semibold">Reconnect Google Ads</p>
-          <p className="mt-1">
-            {actionRequiredScopeText
-              ? `Google Ads access is blocking sync for: ${actionRequiredScopeText}. Reconnect the affected account before those surfaces can refresh.`
-              : "Google Ads account access requires reconnect before blocked sync surfaces can refresh."}
-          </p>
-        </div>
-      ) : null}
-      <div className="rounded-xl border border-border/70 bg-card/70 p-3">
-        <div className="space-y-1.5">
-          <StatusDomainRow label="Core" summary={syncStatus?.domains?.core} />
-          <StatusDomainRow label="Visible coverage" summary={syncStatus?.domains?.selectedRange} />
-          <StatusDomainRow label="Advisor" summary={syncStatus?.domains?.advisor} />
-        </div>
+      {panel ? null : (
+      <div className="flex flex-wrap gap-2">
+        {PANEL_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setActivePanel(item.key)}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-[13px] text-[12.5px] font-semibold transition-colors",
+              activePanel === item.key
+                ? "border-[var(--adv-accent-bd)] bg-[var(--adv-accent-bg)] text-[var(--adv-accent)]"
+                : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
+      )}
+
+      {/* The campaign filter bar and the sync-domain rows belong to the
+          design's Google Overview; the other five screens open on their
+          own blocks. */}
+      {activePanel === "summary" ? (
+      <>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* The campaigns table carries the design's heading; this bar is
+                  the filter row above it and must not repeat the label. */}
+              <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+                Filters
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIncludeSpentInactive((p) => !p)}
+                  className={cn(
+                    "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium",
+                    includeSpentInactive ? "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]" : "border-border bg-background text-muted-foreground"
+                  )}
+                >
+                  Include inactive with spend &gt; 0
+                </button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11px] font-medium">
+                      Type: {channelFilter === "all" ? "All" : channelFilter}
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[180px]">
+                    <DropdownMenuItem onClick={() => setChannelFilter("all")}>All types</DropdownMenuItem>
+                    {channels.map((ch) => (
+                      <DropdownMenuItem key={ch} onClick={() => setChannelFilter(ch)}>{ch}</DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="inline-flex max-w-[260px] items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11px] font-medium">
+                      <span className="truncate">
+                        {selectedInScope.length === 0 ? "Campaigns: All" : selectedInScope.length === 1 ? `Campaign: ${selectedInScope[0]}` : `${selectedInScope.length} campaigns selected`}
+                      </span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[300px]">
+                    <DropdownMenuLabel>Campaign names</DropdownMenuLabel>
+                    <DropdownMenuCheckboxItem checked={selectedInScope.length === 0} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setSelectedCampaignNames([])}>
+                      All campaigns
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuSeparator />
+                    {campaignNameOptions.map((name) => (
+                      <DropdownMenuCheckboxItem
+                        key={name}
+                        checked={selectedInScope.includes(name)}
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={() => setSelectedCampaignNames((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name])}
+                      >
+                        <span className="truncate">{name}</span>
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="ml-1 flex flex-wrap items-center gap-2 lg:flex-nowrap">
+                  <DateRangePicker
+                    value={dateRange}
+                    onChange={setDateRange}
+                    referenceDate={effectiveGoogleReferenceDate}
+                    timeZoneLabel={effectiveGoogleTimeZoneLabel}
+                  />
+                  <p className="text-xs text-muted-foreground whitespace-nowrap">
+                    {campaignScopeLabel}
+                  </p>
+                  <div className="ml-auto flex min-w-0 items-center gap-2">
+                    {(() => {
+                      const advisorButtonLabel = getGoogleAdsAdvisorButtonLabel({
+                        isLoading: isAdvisorLoading,
+                        ctaState: advisorCtaState,
+                      });
+
+  	                  return (
+  	                      <button
+  	                        type="button"
+  	                        onClick={() =>
+  	                          runAdvisorAnalysis({
+  	                            refresh:
+  	                              advisorCtaState === "prepare" ||
+  	                              advisorCtaState === "refreshable",
+  	                          })
+  	                        }
+  	                        disabled={!advisorCanOpen || isAdvisorLoading}
+                          title={advisorHelperText}
+                          aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
+                          className={cn(
+                            "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-semibold transition-colors",
+                            !advisorCanOpen || isAdvisorLoading
+                              ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
+                              : advisorCurrent
+                                ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] hover:bg-[var(--adc-pos-bg)]"
+                                : "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
+                          )}
+                        >
+                          {advisorButtonLabel}
+                        </button>
+                      );
+                    })()}
+                    {isSyncStatusLoading ? (
+                      <SyncStatusPillSkeleton className="w-28 shrink-0" />
+                    ) : shouldShowSyncStatusPill ? (
+                      <SyncStatusPill pill={syncStatusPill} />
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {shouldShowActionRequiredBanner ? (
+          <div
+            role="status"
+            className="rounded-[14px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-4 py-3 text-sm text-[var(--adc-caution-fg)]"
+          >
+            <p className="font-semibold">Reconnect Google Ads</p>
+            <p className="mt-1">
+              {actionRequiredScopeText
+                ? `Google Ads access is blocking sync for: ${actionRequiredScopeText}. Reconnect the affected account before those surfaces can refresh.`
+                : "Google Ads account access requires reconnect before blocked sync surfaces can refresh."}
+            </p>
+          </div>
+        ) : null}
+        <div className="rounded-[14px] border border-border/70 bg-card/70 p-3">
+          <div className="space-y-1.5">
+            <StatusDomainRow label="Core" summary={syncStatus?.domains?.core} />
+            <StatusDomainRow label="Visible coverage" summary={syncStatus?.domains?.selectedRange} />
+            <StatusDomainRow label="Advisor" summary={syncStatus?.domains?.advisor} />
+          </div>
+        </div>
+      </>
+      ) : null}
 
       {activePanel === "summary" && <section className="mb-6">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
-            {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />) : (
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[14px]" />) : (
               <>
-                <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={summaryTrendSeries.spend} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-                <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={summaryTrendSeries.roas} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} />
-                <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={summaryTrendSeries.revenue} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-                <Kpi label="Conv" value={totalConv.toFixed(0)} series={summaryTrendSeries.conversions} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} />
-                <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={summaryTrendSeries.cpa} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={summaryTrendSeries.spend} formatter={fmtCurrency} dateLabelMode={trendLabelMode} delta={spendDelta.delta} deltaTone={spendDelta.tone} sub={`${sortedRows.length} campaigns`} />
+                <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={summaryTrendSeries.roas} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} delta={roasDelta.delta} deltaTone={roasDelta.tone} sub="blended" />
+                <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={summaryTrendSeries.revenue} formatter={fmtCurrency} dateLabelMode={trendLabelMode} delta={revenueDelta.delta} deltaTone={revenueDelta.tone} sub="conv. value" />
+                <Kpi label="Conv" value={totalConv.toFixed(0)} series={summaryTrendSeries.conversions} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} sub={totalConv > 0 ? `${fmtCurrency(blendedCpa)} CPA` : null} />
+                <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "—"} series={summaryTrendSeries.cpa} formatter={fmtCurrency} dateLabelMode={trendLabelMode} sub={totalClicks > 0 ? `${fmtCurrency(blendedCpc)} CPC` : null} />
               </>
             )}
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+        <div className="mt-4 grid overflow-hidden rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] [grid-template-columns:repeat(auto-fit,minmax(110px,1fr))]">
             <OverviewMetric
               label="Impressions"
               value={fmtNumber(totalImpressions)}
@@ -1476,28 +1688,42 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       </section>}
 
+      {activePanel === "summary" && summaryAdvisor?.recommendations?.length ? (
+        <GoogleWhereToLookFirst
+          recommendations={summaryAdvisor.recommendations}
+          onFocus={focusAdvisorEntity}
+        />
+      ) : null}
+
       {activePanel === "summary" && (isLoading ? (
-        <div className="space-y-2.5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
+        <div className="space-y-2.5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[14px]" />)}</div>
       ) : sortedRows.length === 0 ? (
         <EmptyState title={summaryEmptyState.title} description={summaryEmptyState.description} />
       ) : (
-        <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
-          {sortedRows.map((c) => (
-            <CampaignCard
-              key={c.id}
-              campaign={c}
-              accountAvgRoas={data?.summary.accountAvgRoas ?? blendedRoas}
-              advisorRow={
-                campaignAdvisorMap.get(String(c.id)) ??
-                Array.from(campaignAdvisorMap.values()).find((row) => row.campaignName === c.name)
-              }
-            />
-          ))}
-        </div>
+        <GoogleCampaignsTable
+          rows={sortedRows}
+          accountAvgRoas={data?.summary.accountAvgRoas ?? blendedRoas}
+          currencyFormatter={fmtCurrency}
+          dailyBudgetById={dailyBudgetById}
+        />
       ))}
 
+      {activePanel === "summary" && (budgetData?.rows?.length || budgetRecommendations.length) ? (
+        <GoogleBudgetScalingCard
+          campaigns={budgetData?.rows ?? []}
+          recommendations={budgetRecommendations}
+          currencyFormatter={fmtCurrency}
+        />
+      ) : null}
+
       {activePanel === "summary" && summaryAdvisor?.sections.length ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+        <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
+          {summaryAdvisor?.recommendations?.length ? (
+            <GoogleAdvisorTiles
+              recommendations={summaryAdvisor.recommendations}
+              currencyFormatter={fmtCurrency}
+            />
+          ) : null}
           <p className="text-xs text-muted-foreground">Account-level growth decisions and lane orchestration</p>
           <GoogleAdvisorPanel
             advisor={summaryAdvisor}
@@ -1506,11 +1732,16 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             accountId={advisorExecutionAccountId}
             onRefreshAdvisor={refreshAdvisorView}
           />
+          <p className="m-0 text-[11px] leading-[1.5] text-[var(--adv-ink-4)]">
+            Apply executes through the guarded write boundary — approval,
+            guardrails and quiet hours apply, every change returns a Google
+            receipt, and rollback is one click while the receipt is live.
+          </p>
         </section>
       ) : activePanel === "summary" ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+        <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
           {isAdvisorLoading ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-[14px]" />
           ) : isAdvisorError ? (
             <ErrorState />
           ) : (
@@ -1520,9 +1751,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       ) : null}
 
       {activePanel === "insights" ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+        <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
           {isAdvisorLoading ? (
-            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton className="h-40 w-full rounded-[14px]" />
           ) : isAdvisorError ? (
             <ErrorState />
           ) : insightsAdvisor?.summary ? (
@@ -1540,6 +1771,68 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             />
           )}
 
+        </section>
+      ) : null}
+
+      {activePanel === "plan" ? (
+        /* Design's Plan & activity surface: the execution queue over the advisor's
+           ranked findings, then budget headroom and scaling moves. */
+        <section className="flex flex-col gap-4">
+          <div className="grid items-start gap-3 [grid-template-columns:minmax(0,1.5fr)_minmax(300px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
+            <div className="flex flex-col gap-3">
+              <GoogleExecutionQueue
+                recommendations={summaryAdvisor?.recommendations ?? []}
+                accountLabel={advisorExecutionAccountId ?? null}
+                businessId={businessId}
+                accountId={advisorExecutionAccountId}
+                onApplied={refreshAdvisorView}
+              />
+              {/* The design states the batch contract next to the queue. */}
+              <article className="rounded-[14px] border border-dashed border-[var(--adv-scroll-thumb)] px-4 py-3.5">
+                <p className="m-0 text-[12.5px] font-semibold text-[var(--adv-ink-2)]">
+                  Batch apply — guarded
+                </p>
+                <p className="m-0 mt-1 text-[12px] leading-[1.5] text-[var(--adv-ink-3)]">
+                  One execution target type per run, up to 250 items, one receipt
+                  chain. Batches run inside the same approval, guardrail and quiet
+                  hour boundary as a single change.
+                </p>
+              </article>
+            </div>
+            <GoogleActivityTable rows={activityData?.rows ?? []} isLoading={isActivityLoading} />
+          </div>
+
+          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
+          <p className="text-xs text-muted-foreground">
+            Budget headroom and scaling candidates · suggested shifts are advisor previews, applied manually in Google Ads
+          </p>
+          <BudgetScalingTab
+            campaigns={budgetData?.rows}
+            recommendations={budgetRecommendations}
+            totalSpend={budgetData?.totalSpend}
+            accountAvgRoas={budgetData?.accountAvgRoas}
+            isLoading={isBudgetLoading}
+          />
+          </div>
+
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
+            Writes execute only through the guarded boundary — approval,
+            guardrails, quiet hours. Anything outside it stays a read.
+          </p>
+        </section>
+      ) : null}
+
+      {activePanel === "search" ? (
+        <section className="space-y-3">
+          {scopedSearchTerms.length > 0 ? (
+            <GoogleSearchStats
+              rows={scopedSearchTerms}
+              active={searchTermFilter}
+              onFilterChange={setSearchTermFilter}
+              currencyFormatter={fmtCurrency}
+            />
+          ) : null}
+          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
           <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
           <div className="space-y-2">
             <SurfaceRecoveryNotice surface={searchSurfaceState} rangeCompletion={searchRangeCompletion} />
@@ -1547,69 +1840,98 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <SurfaceRecoveryNotice surface={deviceSurfaceState} rangeCompletion={deviceRangeCompletion} />
           </div>
           {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[14px]" />)}</div>
           ) : scopedSearchTerms.length === 0 && topGeoRows.length === 0 && topDeviceRows.length === 0 ? (
             <EmptyState title={insightsEmptyState.title} description={insightsEmptyState.description} />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                 <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">PMax {searchSourceCounts.pmax}</span>
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
-                <span className="rounded-full border border-border/70 bg-rose-50/40 px-2 py-0.5 text-rose-700">Negative {searchTermNegativeRows.length}</span>
-                <span className="rounded-full border border-border/70 bg-emerald-50/40 px-2 py-0.5 text-emerald-700">Positive {searchTermPositiveRows.length}</span>
+                <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Negative {searchTermNegativeRows.length}</span>
+                <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Positive {searchTermPositiveRows.length}</span>
               </div>
 
-              <div className="grid gap-2 xl:grid-cols-2">
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
-                    {searchTermNegativeCandidates.length > 0 ? (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
-                          onClick={() => {
-                            // Section 9: the zero-risk escape hatch was used.
-                            // Only that it happened and how many rows -- never
-                            // the keywords themselves.
-                            //
-                            // Reported from the clipboard's own result. The
-                            // write was fire-and-forget behind an optional
-                            // chain and the event hardcoded "ok", so a browser
-                            // with no Clipboard API (any non-secure context) or
-                            // a denied permission produced a clean success for
-                            // a copy that never happened -- the escape hatch
-                            // would have looked healthiest exactly where it was
-                            // broken.
-                            void reportGoogleEscapeHatch({
-                              eventName: "google_copy_used",
-                              businessId,
-                              itemCount: searchTermNegativeCandidates.length,
-                              run: () => {
-                                if (!navigator.clipboard?.writeText) {
-                                  return Promise.reject(
-                                    new Error("clipboard_unavailable"),
-                                  );
-                                }
-                                return navigator.clipboard.writeText(
-                                  buildNegativeKeywordList(
-                                    searchTermNegativeCandidates,
-                                    "phrase",
-                                  ),
-                                );
-                              },
-                            });
-                          }}
-                          title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
-                        >
-                          Copy negatives
-                        </button>
+              {/* Escape hatch. The design closes this screen on the served
+                  tables, but an operator who decides to act still needs a way
+                  out to Google Ads, and it has to be aimed at the account these
+                  numbers actually cover. */}
+              <div className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
+                      Escape hatch
+                    </p>
+                    <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-3)]">
+                      Read-only hop into Google Ads, scoped to the account in view.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
+                    <button
+                      type="button"
+                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+                      title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
+                      onClick={() => {
+                        // Reported from the clipboard's own result: a browser
+                        // with no Clipboard API, or a denied permission, must
+                        // not record a clean success for a copy that never
+                        // happened.
+                        void reportGoogleEscapeHatch({
+                          eventName: "google_copy_used",
+                          businessId,
+                          itemCount: searchTermNegativeRows.length,
+                          run: () => {
+                            if (!navigator.clipboard?.writeText) {
+                              return Promise.reject(new Error("clipboard_unavailable"));
+                            }
+                            return navigator.clipboard.writeText(
+                              buildNegativeKeywordList(searchTermNegativeRows, "phrase"),
+                            );
+                          },
+                        });
+                      }}
+                    >
+                      Copy negatives
+                    </button>
+                    <button
+                      type="button"
+                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+                      title="Download the scoped search terms as CSV"
+                      onClick={() => {
+                        void reportGoogleEscapeHatch({
+                          eventName: "google_csv_used",
+                          businessId,
+                          itemCount: scopedSearchTerms.length,
+                          run: async () => {
+                            const csv = buildSearchTermCsv(scopedSearchTerms);
+                            const url = URL.createObjectURL(
+                              new Blob([csv], { type: "text/csv;charset=utf-8" }),
+                            );
+                            const anchor = document.createElement("a");
+                            anchor.href = url;
+                            anchor.download = "search-terms.csv";
+                            anchor.click();
+                            URL.revokeObjectURL(url);
+                          },
+                        });
+                      }}
+                    >
+                      Download CSV
+                    </button>
+                    {scopedSearchTerms.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
+                          Search terms
+                        </span>
                         {/*
                           Scoped deep link into Google Ads. Refused rather than
                           guessed when the account cannot be named -- landing on
                           the wrong account is worse than no link, because the
-                          operator then acts on someone else's data.
+                          operator then acts on someone else's data. The guard
+                          and the href call the same builder with the same
+                          target, so a refused link cannot render as an anchor
+                          pointing nowhere.
                         */}
                         {buildGoogleAdsDeepLink({
                           accountId: advisorExecutionAccountId,
@@ -1624,7 +1946,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             }
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
+                            className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-fill)] px-2 py-0.5 text-[var(--adv-ink-2)] hover:bg-[var(--adv-surface)]"
                             onClick={() =>
                               emitProductInstrumentation({
                                 eventName: "google_deep_link_used",
@@ -1639,140 +1961,37 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             {describeGoogleAdsDeepLink({ kind: "search_terms" })}
                           </a>
                         ) : null}
-                        <button
-                          type="button"
-                          className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
-                          onClick={() => {
-                            // Emitted after the download is handed off, not
-                            // before it: an event fired ahead of the action it
-                            // names counts intentions rather than downloads.
-                            void reportGoogleEscapeHatch({
-                              eventName: "google_csv_used",
-                              businessId,
-                              itemCount: searchTermNegativeCandidates.length,
-                              run: async () => {
-                                downloadSearchTermCsv(
-                                  buildSearchTermCsv(
-                                    searchTermNegativeCandidates,
-                                    {
-                                      accountLabel:
-                                        advisorExecutionAccountId ?? null,
-                                      currency: null,
-                                      windowStart: startDate,
-                                      windowEnd: endDate,
-                                    },
-                                    "phrase",
-                                  ),
-                                  "search-terms-negative",
-                                );
-                              },
-                            });
-                          }}
-                          title="Download every candidate with raw values, reasons, and window"
-                        >
-                          CSV
-                        </button>
-                      </div>
+                      </span>
                     ) : null}
                   </div>
-                  {searchTermNegativeCandidates.length > searchTermNegativeRows.length ? (
-                    <p className="mt-1 text-[12px] text-muted-foreground">
-                      Showing top {searchTermNegativeRows.length} of{" "}
-                      {searchTermNegativeCandidates.length} candidates by spend. Copy and CSV
-                      include all {searchTermNegativeCandidates.length}.
-                    </p>
-                  ) : null}
-                  {searchTermNegativeRows.length === 0 ? (
-                    <p className="mt-2 text-[12px] text-muted-foreground">No high-risk search term in this filter.</p>
-                  ) : (
-                    <div className="mt-2 space-y-1.5">
-                      {searchTermNegativeRows.map((row, index) => (
-                        <div
-                          key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
-                          className={cn(
-                            "rounded-md border border-border/70 bg-muted/20 p-2",
-                            focusedSearchTerms.some(
-                              (term) =>
-                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
-                            ) && "border-rose-300 bg-rose-50/40"
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="line-clamp-1 text-[12px] font-medium">{row.searchTerm}</p>
-                            <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
-                            </div>
-                          </div>
-                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">Add negative</span>
-                            {focusedSearchTerms.some(
-                              (term) =>
-                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
-                            ) ? (
-                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
-                                Advisor focus
-                              </span>
-                            ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">{row.recommendation}</span> : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">Search terms - Positive / opportunity</p>
-                  {searchTermPositiveRows.length === 0 ? (
-                    <p className="mt-2 text-[12px] text-muted-foreground">No strong search term opportunity in this filter.</p>
-                  ) : (
-                    <div className="mt-2 space-y-1.5">
-                      {searchTermPositiveRows.map((row, index) => (
-                        <div
-                          key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
-                          className={cn(
-                            "rounded-md border border-border/70 bg-muted/20 p-2",
-                            focusedSearchTerms.some(
-                              (term) =>
-                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
-                            ) && "border-emerald-300 bg-emerald-50/40"
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="line-clamp-1 text-[12px] font-medium">{row.searchTerm}</p>
-                            <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
-                            </div>
-                          </div>
-                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
-                            {focusedSearchTerms.some(
-                              (term) =>
-                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
-                            ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
-                                Advisor focus
-                              </span>
-                            ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">{row.recommendation}</span> : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
+
+              {/* The design renders one served search-terms table, not two
+                  ad-hoc waste/opportunity lists. */}
+              <GoogleSearchTermsTable
+                rows={
+                  searchTermFilter === "waste" || searchTermFilter === "negative"
+                    ? searchTermNegativeRows
+                    : searchTermFilter === "opportunity"
+                      ? searchTermPositiveRows
+                      : scopedSearchTerms
+                }
+                currencyFormatter={fmtCurrency}
+              />
+
+              {/* The design closes the screen on the served keyword report. */}
+              <GoogleKeywordsTable
+                rows={keywordsData?.rows ?? []}
+                currencyFormatter={fmtCurrency}
+              />
 
               <div className="grid gap-2 xl:grid-cols-2">
                 <div className="rounded-lg border border-border/70 bg-card p-3">
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
                   <div className="mt-2 space-y-1.5">
                     {topGeoRows.length === 0 ? (
-                      <p className="text-[12px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground">
                         {geoSurfaceState && geoSurfaceState.state !== "ready"
                           ? geoSurfaceState.message
                           : geoEmptyState.description}
@@ -1781,7 +2000,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       topGeoRows.map((row, index) => (
                         <div
                           key={`${row.country}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
                         >
                           <span className="truncate font-medium">{row.country}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
@@ -1795,7 +2014,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
                   <div className="mt-2 space-y-1.5">
                     {topDeviceRows.length === 0 ? (
-                      <p className="text-[12px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground">
                         {deviceSurfaceState && deviceSurfaceState.state !== "ready"
                           ? deviceSurfaceState.message
                           : deviceEmptyState.description}
@@ -1804,7 +2023,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       topDeviceRows.map((row, index) => (
                         <div
                           key={`${row.device}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
                         >
                           <span className="truncate font-medium">{row.device}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
@@ -1816,11 +2035,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               </div>
             </>
           )}
+          </div>
         </section>
       ) : null}
 
       {activePanel === "assetGroupAudience" ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+        <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
           <p className="text-xs text-muted-foreground">Asset group performance, search theme alignment, and audience risks by campaign</p>
           <div className="space-y-2">
             <SurfaceRecoveryNotice
@@ -1833,7 +2053,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             />
           </div>
           {isAssetGroupsLoading || isAudiencesLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-[14px]" />)}</div>
           ) : (
             <div className="space-y-3">
               {campaignSignalCards.length === 0 ? (
@@ -1848,11 +2068,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">{campaign.name}</p>
-                      <p className="text-[12px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
+                      <p className="text-[11px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                       <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Theme match {fmtPct(themeAlignment)} ({alignedThemes}/{totalThemes})</span>
-                      <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakAudienceSegments.length === 0 ? "bg-emerald-50/40 text-emerald-700" : "bg-rose-50/40 text-rose-700")}>Audience risk {weakAudienceSegments.length}</span>
+                      <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakAudienceSegments.length === 0 ? "bg-[var(--adc-pos-bg)]/40 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/40 text-[var(--adc-danger-fg)]")}>Audience risk {weakAudienceSegments.length}</span>
                     </div>
                   </div>
 
@@ -1868,12 +2088,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             {focusedAssetGroups.some(
                               (name) => name.toLowerCase().trim() === group.name.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
+                              <span className="rounded-full border border-border/70 bg-[var(--adc-info-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-info-fg)]">
                                 Advisor focus
                               </span>
                             ) : null}
                             {(group.coverageScore ?? 0) < 50 || group.messagingMismatchCount ? (
-                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
+                              <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-danger-fg)]">
                                 Weak structure
                               </span>
                             ) : null}
@@ -1881,15 +2101,15 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-semibold">{group.name}</p>
-                              <p className="text-[12px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
+                              <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
                             </div>
-                            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
+                            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-[var(--adc-pos-bg)]/50 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/50 text-[var(--adc-danger-fg)]")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
                           </div>
 
                           <div className="mt-2 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
-                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
+                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-danger-fg)]">{group.messagingMismatchCount} mismatch</span> : null}
                           </div>
                         </div>
                       );
@@ -1908,7 +2128,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     .slice(0, 8);
                   if (rows.length === 0) {
                     return (
-                      <p className="mt-2 text-[12px] text-muted-foreground">
+                      <p className="mt-2 text-[11px] text-muted-foreground">
                         {audienceSurfaceState && audienceSurfaceState.state !== "ready"
                           ? audienceSurfaceState.message
                           : audienceEmptyState.description}
@@ -1920,11 +2140,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       {rows.map((row, index) => (
                         <div
                           key={`${row.campaign ?? "audience"}-${row.type}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
                         >
                           <div className="min-w-0">
                             <p className="truncate font-medium">{row.type}</p>
-                            <p className="truncate text-[12px] text-muted-foreground">
+                            <p className="truncate text-[10px] text-muted-foreground">
                               {row.campaign ?? "Campaign signal"}
                             </p>
                           </div>
@@ -1954,66 +2174,23 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       ) : null}
 
       {activePanel === "products" ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
-          <p className="text-xs text-muted-foreground">Product-level spend, revenue, ROAS, and contribution status from product truth</p>
+        <section className="space-y-3">
+          {productRows.length > 0 ? (
+            <GoogleFeedTiles rows={productRows} currencyFormatter={fmtCurrency} />
+          ) : null}
+          <div className="grid gap-3 items-start [grid-template-columns:minmax(0,1.6fr)_minmax(290px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
+          <div className="flex flex-col gap-3">
           <SurfaceRecoveryNotice surface={productSurfaceState} rangeCompletion={productRangeCompletion} />
           {isProductsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-[14px]" />)}</div>
           ) : productRows.length === 0 ? (
             <EmptyState title={productsEmptyState.title} description={productsEmptyState.description} />
           ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Products {productRows.length}</span>
-                <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Total spend {fmtCurrency(totalProductSpend)}</span>
-                <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Avg ROAS {fmtRoas(avgProductRoas)}</span>
-                <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakProducts.length === 0 ? "bg-emerald-50/40 text-emerald-700" : "bg-rose-50/40 text-rose-700")}>Low performers {weakProducts.length}</span>
-              </div>
-
-              <div className="max-h-[360px] space-y-1 overflow-auto pr-1">
-                {productRows.slice(0, 20).map((product, index) => {
-                  const spendShare = totalProductSpend > 0 ? (product.spend / totalProductSpend) * 100 : 0;
-                  const isWeak = product.spend > 20 && product.roas < Math.max(avgProductRoas * 0.8, 1.5);
-                  return (
-                    <div key={product.itemId ?? `${product.title ?? "product"}-${index}`} className="rounded-lg border border-border/70 bg-card px-2.5 py-2">
-                      <div className="mb-1 flex flex-wrap gap-1">
-                        {focusedProducts.some(
-                          (name) => name.toLowerCase().trim() === (product.title ?? "").toLowerCase().trim()
-                        ) ? (
-                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
-                            Advisor focus
-                          </span>
-                        ) : null}
-                        {product.title && productRows.some((row) => row.title === product.title && row.roas >= Math.max(avgProductRoas, 2.5)) ? (
-                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">
-                            Scale candidate
-                          </span>
-                        ) : null}
-                        {isWeak ? (
-                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
-                            Reduce
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
-                          <p className="truncate text-[12px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-end gap-1 text-[12px]">
-                          <span className="rounded-full border border-border/70 px-1.5 py-0.5">S {fmtCurrency(product.spend)}</span>
-                          <span className="rounded-full border border-border/70 px-1.5 py-0.5">R {fmtCurrency(product.revenue)}</span>
-                          <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5">ROAS {fmtRoas(product.roas)}</span>
-                          <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Conv {product.conversions.toFixed(0)}</span>
-                          <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Share {fmtPct(spendShare)}</span>
-                          <span className={cn("rounded-full border border-border/70 px-1.5 py-0.5", isWeak ? "bg-rose-50/40 text-rose-700" : "bg-emerald-50/40 text-emerald-700")}>{isWeak ? "Needs action" : "Healthy"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+            <GoogleProductsTable
+              rows={productRows}
+              currencyFormatter={fmtCurrency}
+              focusedTitles={focusedProducts}
+            />
           )}
           {productsAdvisor?.sections.length ? (
             <GoogleAdvisorPanel
@@ -2026,22 +2203,109 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
           )}
+          </div>
+          <GoogleAllocationRead
+            recommendations={summaryAdvisor?.recommendations ?? []}
+            layer="Shopping & Products"
+            subtitle="advisor · product allocation"
+            footnote="Cluster reads are directional — restructures apply from Advisor → Plan as guarded writes."
+          />
+          </div>
+          {/* The design closes Products on the Merchant Center boundary note. */}
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
+            A disapproval blocks the whole listing group — the fix lives in
+            Merchant Center, never edited here.
+          </p>
         </section>
       ) : null}
 
       {activePanel === "assets" ? (
-        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+        <section className="flex flex-col gap-4">
+          {/* The design switches this screen between three surfaces with one
+              pill row: the PMax asset groups, the served assets, the audiences. */}
+          <div className="flex flex-wrap gap-2">
+            {ASSET_VIEWS.map((view) => (
+              <button
+                key={view.key}
+                type="button"
+                onClick={() => setAssetView(view.key)}
+                className={cn(
+                  "inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-[13px] text-[12.5px] font-semibold transition-colors",
+                  assetView === view.key
+                    ? "border-[var(--adv-accent-bd)] bg-[var(--adv-accent-bg)] text-[var(--adv-accent)]"
+                    : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+                )}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+
+          {assetView === "groups" ? (
+            isAssetGroupsLoading ? (
+              <Skeleton className="h-40 w-full rounded-[14px]" />
+            ) : (assetGroupData?.rows?.length ?? 0) === 0 ? (
+              <EmptyState
+                title={assetGroupEmptyState.title}
+                description={assetGroupEmptyState.description}
+              />
+            ) : (
+              <GoogleAssetGroupsTable
+                rows={assetGroupData?.rows ?? []}
+                currencyFormatter={fmtCurrency}
+                focusedNames={focusedAssetGroups}
+                footnote={assetGroupQueueNote}
+              />
+            )
+          ) : null}
+
+          {assetView === "assets" ? (
+            isAssetsLoading ? (
+              <Skeleton className="h-40 w-full rounded-[14px]" />
+            ) : scopedAssets.length === 0 ? (
+              <EmptyState
+                title={assetsEmptyState.title}
+                description={assetsEmptyState.description}
+              />
+            ) : (
+              <GoogleAssetPair
+                assets={scopedAssets}
+                focusedLabels={focusedAssets}
+                labelOf={getAssetDisplayLabel}
+              />
+            )
+          ) : null}
+
+          {assetView === "audiences" ? (
+            isAudiencesLoading ? (
+              <Skeleton className="h-40 w-full rounded-[14px]" />
+            ) : (audiencesData?.rows?.length ?? 0) === 0 ? (
+              <EmptyState
+                title={audienceEmptyState.title}
+                description={audienceEmptyState.description}
+              />
+            ) : (
+              <GoogleAudiencesTable
+                rows={audiencesData?.rows ?? []}
+                currencyFormatter={fmtCurrency}
+                footnote="Attach or detach applies from the Plan page as a guarded write — this view stays analysis."
+              />
+            )
+          ) : null}
+
+          <div className="grid gap-3 items-start [grid-template-columns:minmax(0,1.6fr)_minmax(290px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
+          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
           <p className="text-xs text-muted-foreground">Instantly highlights weak headline, description, image, and video assets</p>
           <SurfaceRecoveryNotice surface={assetSurfaceState} rangeCompletion={assetRangeCompletion} />
           {isAssetsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-[14px]" />)}</div>
           ) : scopedAssets.length === 0 ? (
             <EmptyState title={assetsEmptyState.title} description={assetsEmptyState.description} />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                <span className="rounded-full border border-border/70 bg-rose-50/40 px-2 py-0.5 text-rose-700">Underperforming {underperformingAssets.length}</span>
-                <span className="rounded-full border border-border/70 bg-emerald-50/40 px-2 py-0.5 text-emerald-700">Top assets {topAssets.length}</span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Underperforming {underperformingAssets.length}</span>
+                <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Top assets {topAssets.length}</span>
                 <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Total assets {scopedAssets.length}</span>
               </div>
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -2051,10 +2315,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     <div key={type} className="rounded-lg border border-border/70 bg-card p-3">
                       <div className="mb-2 flex items-center justify-between">
                         <p className="text-xs font-semibold">{type}</p>
-                        <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-[var(--adc-pos-bg)]/50 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/50 text-[var(--adc-danger-fg)]")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
                       </div>
                       {list.length === 0 ? (
-                        <p className="text-[12px] text-muted-foreground">No critical issue detected for this asset type.</p>
+                        <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
                       ) : (
                         <div className="space-y-1.5">
                           {list.map((asset) => (
@@ -2068,11 +2332,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                     getAssetDisplayLabel(asset)
                                       .toLowerCase()
                                       .trim()
-                                ) && "border-rose-300 bg-rose-50/40"
+                                ) && "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]/40"
                               )}
                             >
-                              <p className="line-clamp-1 text-[12px] font-medium">{getAssetDisplayLabel(asset)}</p>
-                              <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
+                              <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
+                              <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
                               {focusedAssets.some(
                                 (name) =>
                                   name.toLowerCase().trim() ===
@@ -2081,7 +2345,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                     .trim()
                               ) ? (
                                 <div className="mt-1">
-                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
+                                  <span className="rounded-full border border-border/70 bg-[var(--adc-caution-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-caution-fg)]">
                                     Advisor replace focus
                                   </span>
                                 </div>
@@ -2107,21 +2371,123 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
           )}
+          </div>
+          <GoogleAllocationRead
+            recommendations={summaryAdvisor?.recommendations ?? []}
+            layer="Assets & Testing"
+            title="Asset read"
+            subtitle="advisor · asset & audience coverage"
+            footnote="Asset reads are directional — replacements apply from Advisor → Plan as guarded writes."
+          />
+          </div>
         </section>
       ) : null}
     </div>
   );
 }
 
-function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { label: string; value: string; series: Array<{ date: string; value: number }>; formatter: (value: number) => string; dateLabelMode: TrendLabelMode; highlight?: boolean; }) {
+/**
+ * Design's Google hero KPI card: mono label, 27px display value, then a delta
+ * and a mono qualifier sharing one baseline row above the trend chart.
+ */
+/**
+ * Account-level previous-period total, reconstructed from the per-row change the
+ * campaigns endpoint serves (prev = current / (1 + change)). Returns null when
+ * comparison is off or any row lacks a change, so the delta is withheld rather
+ * than computed from a partial set.
+ */
+function previousTotalFrom(
+  rows: Campaign[],
+  current: (row: Campaign) => number,
+  change: (row: Campaign) => number | null | undefined,
+): number | null {
+  if (rows.length === 0) return null;
+  let total = 0;
+  for (const row of rows) {
+    const pct = change(row);
+    if (pct === null || pct === undefined || !Number.isFinite(pct)) return null;
+    const ratio = 1 + pct / 100;
+    if (ratio <= 0) return null;
+    total += current(row) / ratio;
+  }
+  return total;
+}
+
+/** Formats an account delta the way the design's KPI row reads it. */
+function deltaOf(current: number, previous: number | null) {
+  if (previous === null || previous === 0 || !Number.isFinite(previous)) {
+    return { delta: null, tone: "neutral" as const };
+  }
+  const pct = ((current - previous) / Math.abs(previous)) * 100;
+  return {
+    delta: `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`,
+    tone: pct >= 0 ? ("pos" as const) : ("neg" as const),
+  };
+}
+
+function Kpi({
+  label,
+  value,
+  series,
+  formatter,
+  dateLabelMode,
+  highlight,
+  delta,
+  deltaTone,
+  sub,
+}: {
+  label: string;
+  value: string;
+  series: Array<{ date: string; value: number }>;
+  formatter: (value: number) => string;
+  dateLabelMode: TrendLabelMode;
+  highlight?: boolean;
+  delta?: string | null;
+  deltaTone?: "pos" | "neg" | "neutral";
+  sub?: string | null;
+}) {
   return (
-    <div className={cn("rounded-xl border bg-card p-3", highlight && "border-emerald-200 bg-emerald-50/50")}>
-      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
-      <p className={cn("mt-1.5 text-[22px] font-semibold tracking-tight", highlight && "text-emerald-700")}>{value}</p>
-      <div className="mt-1">
-        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
+    <article
+      className={cn(
+        "rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4",
+        highlight && "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]",
+      )}
+    >
+      <p className="font-[family-name:var(--adv-font-mono)] text-[9.5px] uppercase tracking-[0.1em] text-[var(--adv-ink-3)]">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-2 font-[family-name:var(--adv-font-display)] text-[27px] font-bold tabular-nums tracking-[-0.01em]",
+          highlight ? "text-[var(--adc-pos-fg)]" : "text-[var(--adv-ink)]",
+        )}
+      >
+        {value}
+      </p>
+      {delta || sub ? (
+        <div className="mt-1.5 flex items-baseline justify-between gap-2">
+          <span
+            className="text-[11.5px] font-semibold"
+            style={{
+              color:
+                deltaTone === "pos"
+                  ? "var(--adc-pos-fg)"
+                  : deltaTone === "neg"
+                    ? "var(--adc-danger-fg)"
+                    : "var(--adv-ink-3)",
+            }}
+          >
+            {delta ?? ""}
+          </span>
+          <span className="font-[family-name:var(--adv-font-mono)] text-[10px] text-[var(--adv-ink-4)]">
+            {sub ?? ""}
+          </span>
+        </div>
+      ) : null}
+      <div className="mt-1.5">
+        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -2141,8 +2507,9 @@ function CampaignCard({
 }) {
   const cfg = ACTION_CONFIG[campaign.actionState];
   // A campaign with no ROAS is not a campaign performing badly. Comparing an
-  // absent value against the account average made it fail the test and render
-  // in the loss colour, so "we have no data" read as "this is losing money".
+  // absent value against the account average made it fail the comparison and
+  // render in the loss colour, so "we have no data for this" was displayed
+  // identically to "this is losing money".
   const hasRoas = Number.isFinite(campaign.roas) && campaign.roas > 0;
   const roasColor = !hasRoas
     ? undefined
@@ -2150,22 +2517,22 @@ function CampaignCard({
       ? "text-emerald-700"
       : "text-rose-600";
   return (
-    <div className="h-full rounded-xl border bg-card p-3">
+    <div className="h-full rounded-[14px] border bg-card p-3">
       <div className="flex items-center gap-2">
-        <span className={cn("h-2 w-2 rounded-full", isCampaignActive(campaign.status) ? "bg-emerald-500" : "bg-slate-300")} />
+        <span className={cn("h-2 w-2 rounded-full", isCampaignActive(campaign.status) ? "bg-[var(--adc-pos-fg)]" : "bg-slate-300")} />
         <p className="truncate text-[13px] font-medium">{campaign.name}</p>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">{campaign.channel}</span>
-        <span className={cn("rounded-full border px-1.5 py-0.5 text-[12px] font-semibold", cfg.border, cfg.chip)}>
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">{campaign.channel}</span>
+        <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px] font-semibold", cfg.border, cfg.chip)}>
           <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle", cfg.dot)} />{cfg.label}
         </span>
         {advisorRow ? (
           <>
-            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">
+            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">
               {advisorRow.familyLabel}
             </span>
-            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">
+            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
               {advisorRow.roleLabel}
             </span>
           </>
@@ -2181,15 +2548,15 @@ function CampaignCard({
         <div className="mt-3 border-t border-border/70 pt-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                 Advisor
               </p>
-              <p className="mt-1 line-clamp-2 text-[12px] text-foreground/80">
+              <p className="mt-1 line-clamp-2 text-[10px] text-foreground/80">
                 {advisorRow.topActionHint}
               </p>
             </div>
             {advisorRow.recommendationCount > 0 ? (
-              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
                 {advisorRow.recommendationCount}
               </span>
             ) : null}
@@ -2203,7 +2570,7 @@ function CampaignCard({
 function Metric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div>
-      <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[9px] font-medium text-muted-foreground">{label}</p>
       <p className={cn("text-[13px] font-semibold", valueColor)}>{value}</p>
     </div>
   );
@@ -2224,23 +2591,16 @@ function OverviewMetric({
   formatter: (value: number) => string;
   dateLabelMode: TrendLabelMode;
 }) {
-  const accentClasses: Record<typeof accent, string> = {
-    sky: "from-sky-200/80 to-sky-400/80",
-    emerald: "from-emerald-200/80 to-emerald-400/80",
-    indigo: "from-indigo-200/80 to-indigo-400/80",
-    amber: "from-amber-200/80 to-amber-400/80",
-    teal: "from-teal-200/80 to-teal-400/80",
-    violet: "from-violet-200/80 to-violet-400/80",
-    rose: "from-rose-200/80 to-rose-400/80",
-  };
+  // The design renders these as cells of one card, split by hairlines, with no
+  // per-cell accent bar — the accent prop is kept for call-site compatibility.
+  void accent;
 
   return (
-    <div className="rounded-xl border border-border/70 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-card">
-      <div className={cn("h-1 w-10 rounded-full bg-gradient-to-r", accentClasses[accent])} />
-      <p className="mt-2 text-[12px] font-medium tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
-      <div className="mt-1.5">
-        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
+    <div className="border-r border-[var(--adv-hairline)] px-4 py-[11px] last:border-r-0">
+      <p className="font-[family-name:var(--adv-font-mono)] text-[9px] uppercase tracking-[0.09em] text-[var(--adv-ink-4)]">{label}</p>
+      <p className="mt-1 text-[15px] font-semibold tabular-nums text-[var(--adv-ink)]">{value}</p>
+      <div className="mt-1">
+        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
       </div>
     </div>
   );

@@ -139,7 +139,11 @@ describe("no surface offers a comparison it does not read", () => {
     // "none" | "previous_period". Offering previousYear here would have put a
     // year-over-year label on a previous-period delta.
     const page = await read("app/(dashboard)/overview/legacy-page.tsx");
-    expect(page).toContain("comparisonPresets={OVERVIEW_COMPARISON_PRESETS}");
+    // Dashboard v2 moved the range control out of the page and into the shell,
+    // so the narrowing is asserted where the control now lives. The rule is
+    // unchanged: Overview must not offer a comparison its route cannot read.
+    const topbar = await read("components/layout/v2/app-topbar.tsx");
+    expect(topbar).toContain("OVERVIEW_COMPARISON_PRESETS");
     expect(page).not.toContain(
       'dateRange.comparisonPreset === "none" ? "none" : "previous_period"',
     );

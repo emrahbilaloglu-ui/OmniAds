@@ -122,7 +122,9 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
   const routeOwnsMobileSurface = hasRouteOwnedMetaSurface(pathname);
   // Which routes claim mobile read-only is a capability decision, not a shell
-  // opinion — it comes from the same module the write paths consult.
+  // opinion — it comes from the same module the write paths consult. Settings
+  // and Integrations render working write controls at phone width, so the
+  // banner must not appear over them.
   const claimsMobileReadOnly = shouldClaimMobileReadOnly(pathname);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
@@ -150,8 +152,9 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           search={<GlobalSearch />}
           notifications={<NotificationBell />}
         />
-        {/* Every Tier-0 route reports its data age through one shared bar; a
-            frame without it lets silence read as "current". */}
+        {/* Every Tier-0 surface reports its data age through this one bar. A
+            frame without it lets the reports go nowhere, and silence on screen
+            reads as "current". */}
         <div className="ad-legacy-freshness border-b border-[var(--adv-hairline)] bg-[var(--adv-surface)] px-4 py-1">
           <TierZeroFreshnessBar />
         </div>

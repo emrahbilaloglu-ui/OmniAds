@@ -16,7 +16,6 @@ import {
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
-import { Badge } from "@/components/ui/badge";
 import { OverviewSection } from "@/components/analytics/OverviewSection";
 import { ProductFunnelSection } from "@/components/analytics/ProductFunnelSection";
 import { LandingPageSection } from "@/components/analytics/LandingPageSection";
@@ -306,19 +305,10 @@ export default function AnalyticsPage() {
       />
 
       {/* Controls bar */}
-      <section className="rounded-xl border border-neutral-200 bg-white p-3">
+      <section className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
         <div className="flex flex-wrap items-center gap-3">
-          {/*
-            This surface reads no comparison, so it does not offer one. The
-            Compare control was rendered here and never read: an operator could
-            pick "Previous year", watch the chip turn active and print the
-            year-ago dates, and change nothing at all.
-          */}
           <DateRangePicker
-            value={dateRange}
-            onChange={setDateRange}
-            showComparisonTrigger={false}
-          />
+            showComparisonTrigger={false} value={dateRange} onChange={setDateRange} />
         </div>
       </section>
 
@@ -334,7 +324,7 @@ export default function AnalyticsPage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 overflow-x-auto border-b border-neutral-200">
+      <div className="flex gap-0.5 overflow-x-auto border-b border-[var(--adv-border)]">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -342,8 +332,8 @@ export default function AnalyticsPage() {
             className={cn(
               "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
               activeTab === tab.id
-                ? "border-neutral-950 text-neutral-950"
-                : "border-transparent text-neutral-500 hover:text-neutral-900"
+                ? "border-[var(--adv-accent)] text-[var(--adv-ink)]"
+                : "border-transparent text-[var(--adv-ink-3)] hover:text-[var(--adv-ink)]"
             )}
           >
             {tab.label}
@@ -352,7 +342,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Tab content */}
-      <section className="rounded-xl border border-neutral-200 bg-white p-5">
+      <section className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-5">
         {activeTab === "overview" && (
           <>
             <SectionHeader
@@ -371,8 +361,8 @@ export default function AnalyticsPage() {
         {activeTab === "products" && (
           <>
             <SectionHeader
-              title="Product Funnel"
-              description="Where products lose users across the view → cart → checkout → purchase funnel."
+              title="Product funnel"
+              description="view → cart → checkout → purchase · shaded cells run hot"
             />
             {productsQuery.error ? (
               <ErrorState
@@ -394,8 +384,8 @@ export default function AnalyticsPage() {
         {activeTab === "landing-pages" && (
           <>
             <SectionHeader
-              title="Landing Page Performance"
-              description="Identify pages that attract traffic but fail to engage or convert."
+              title="Landing page performance"
+              description="pages that attract traffic but fail to engage or convert"
             />
             {landingPagesQuery.error ? (
               <ErrorState
@@ -417,8 +407,8 @@ export default function AnalyticsPage() {
         {activeTab === "audience" && (
           <>
             <SectionHeader
-              title="Audience Insights"
-              description="New vs returning visitors and traffic source quality breakdown."
+              title="Traffic source quality"
+              description="which sources bring high-quality, converting visitors"
             />
             {audienceQuery.error ? (
               <ErrorState
@@ -441,8 +431,8 @@ export default function AnalyticsPage() {
         {activeTab === "demographics" && (
           <>
             <SectionHeader
-              title="Demographic Insights"
-              description="Discover which audience segments drive the strongest engagement and purchase rates."
+              title="Audience demographics"
+              description="which segments convert, and which only browse"
             />
             {demographicsQuery.error ? (
               <ErrorState
@@ -467,8 +457,8 @@ export default function AnalyticsPage() {
         {activeTab === "cohorts" && (
           <>
             <SectionHeader
-              title="Cohort Analysis"
-              description="Understand whether acquired users return and repurchase over time."
+              title="Acquisition cohorts"
+              description="do acquired users return and repurchase"
             />
             {cohortsQuery.error ? (
               <ErrorState
@@ -491,8 +481,8 @@ export default function AnalyticsPage() {
         {activeTab === "opportunities" && (
           <>
             <SectionHeader
-              title="Opportunities & Warnings"
-              description="Data-driven flags surfaced from your site behavior — actionable, not generic."
+              title="Opportunities and warnings"
+              description="derived from this window's funnel, landing-page, audience and channel reads — thresholds, not opinions"
             />
             <OpportunityFlags
               products={productsQuery.data?.products}
@@ -521,31 +511,27 @@ function AnalyticsHeader({
   ga4Connected: boolean;
   propertyName?: string;
 }) {
+  // The Insights layout owns the page identity, the GA4/Search Console source
+  // chips, and the tab row, so this header only names the tab and the property
+  // in scope — the design carries one page head per screen, not two.
   return (
     <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
       <div className="space-y-1">
-        <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
-          Insights
-        </p>
-        <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">Analytics</h1>
-        <p className="max-w-xl text-sm leading-5 text-neutral-500">
+        <h2 className="font-[family-name:var(--adv-font-display)] text-[19px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
+          Analytics
+        </h2>
+        <p className="max-w-xl text-sm leading-5 text-[var(--adv-ink-3)]">
           Understand product funnels, audience quality, landing page performance,
           and customer behavior from your site analytics data.
         </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs">
-          <span className="font-medium">GA4</span>
-          <Badge variant="secondary" className={ga4Connected ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-neutral-200 bg-neutral-100 text-neutral-600"}>
-            {ga4Connected ? "connected" : "not connected"}
-          </Badge>
-          {propertyName && (
-            <span className="max-w-[140px] truncate text-neutral-500">
-              {propertyName}
-            </span>
-          )}
+      {ga4Connected && propertyName ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="inline-flex max-w-[220px] items-center gap-2 truncate rounded-[9px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-[11px] py-1.5 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-3)]">
+            {propertyName}
+          </span>
         </div>
-      </div>
+      ) : null}
     </header>
   );
 }
@@ -559,8 +545,10 @@ function SectionHeader({
 }) {
   return (
     <div className="mb-5">
-      <h2 className="text-[16px] font-semibold tracking-tight text-neutral-950">{title}</h2>
-      <p className="mt-0.5 text-sm leading-5 text-neutral-500">{description}</p>
+      <h3 className="font-[family-name:var(--adv-font-display)] text-[15px] font-semibold tracking-[-0.01em] text-[var(--adv-ink)]">
+        {title}
+      </h3>
+      <p className="mt-0.5 text-sm leading-5 text-[var(--adv-ink-3)]">{description}</p>
     </div>
   );
 }

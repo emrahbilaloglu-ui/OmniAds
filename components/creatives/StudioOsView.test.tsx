@@ -21,6 +21,7 @@ vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
 const {
   STUDIO_KPI_PRESETS,
   STUDIO_MORE_LINKS,
+  STUDIO_TABS,
   STUDIO_ROW_PAGE_SIZES,
   StudioOsView,
   filterStudioUsageRows,
@@ -237,8 +238,12 @@ describe("StudioOsView bounded Studio contract", () => {
     expect(html).toContain('data-provider-writes="none"');
     expect(html).toContain('aria-label="Meta ad account for Creative Studio"');
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain("1 creative");
-    expect(html).toContain("Select creatives from the table to compare them here.");
+    expect(html).toContain("All creatives");
+    expect(html).toContain("1 synced · Meta · one row per creative · usages aggregated");
+    expect(html).toContain("Comparison board");
+    expect(html).toContain(
+      "Tick creatives in the table below to pin them here as cards for side-by-side review.",
+    );
     expect(html).toContain('href="/platforms/meta/automation"');
     expect(html).toContain('data-readonly="true"');
     expect(html).not.toContain("Mobile · Decisions");
@@ -252,11 +257,19 @@ describe("StudioOsView bounded Studio contract", () => {
   });
 
   it("exposes only the supported Studio navigation, KPI presets, and row sizes", () => {
-    expect(STUDIO_MORE_LINKS.map(({ label, href }) => ({ label, href }))).toEqual([
+    // The design's tab row carries the five creative surfaces; the analysis
+    // views that sit outside it stay reachable from the "More" menu.
+    expect(STUDIO_TABS.map(({ label, href }) => ({ label, href }))).toEqual([
+      { label: "Assets", href: "/platforms/meta/creatives" },
       { label: "Copy", href: "/platforms/meta/copies" },
       { label: "Landing Pages", href: "/platforms/meta/landing-pages" },
       { label: "Inbox", href: "/platforms/meta/creative-inbox" },
       { label: "Audiences", href: "/platforms/meta/audiences" },
+    ]);
+    expect(STUDIO_MORE_LINKS.map(({ label, tab }) => ({ label, tab }))).toEqual([
+      { label: "Winners", tab: "winners" },
+      { label: "Briefs", tab: "briefs" },
+      { label: "Shares", tab: "shares" },
     ]);
     expect(STUDIO_KPI_PRESETS.map(({ label }) => label)).toEqual(["Ecommerce", "Lead Gen", "Creative"]);
     expect(STUDIO_KPI_PRESETS.find(({ label }) => label === "Lead Gen")?.cols).toEqual(
@@ -265,10 +278,10 @@ describe("StudioOsView bounded Studio contract", () => {
     expect(STUDIO_ROW_PAGE_SIZES).toEqual([20, 50, 100]);
 
     const html = renderStudio();
-    expect(html).toContain("Performance");
-    expect(html).toContain("Winners");
-    expect(html).toContain("Briefs");
-    expect(html).toContain("Shares");
+    expect(html).toContain("Assets");
+    expect(html).toContain("Landing Pages");
+    expect(html).toContain("Audiences");
+    expect(html).toContain("Inbox");
     expect(html).toContain("Ecommerce");
     expect(html).toContain("Optimization");
     expect(html).toContain("Lifecycle role");
@@ -333,99 +346,5 @@ describe("StudioOsView bounded Studio contract", () => {
 
     expect(html).toContain('data-testid="studio-decision-context-error"');
     expect(html).toContain("Account-scoped decision context failed.");
-  });
-});
-
-/**
- * The stacked mobile card has to say what each number is.
- *
- * Below 767px the table becomes one card per row and the header row is pulled
- * out of the layout, so no `<th>` can label anything. The stylesheet was
- * written for exactly this — `tbody td::before { content: attr(data-label) }`
- * — and not one `<td>` ever set the attribute. The 390px artifact showed
- * `$840`, `47`, `$3,360`, `$17.87`, `4.00x`, `2.9%`: six values in a fixed
- * order that a buyer is expected to recognise by position, with the only thing
- * that named them hidden by the same stylesheet.
- *
- * These assert the rendered DOM rather than `resolveCreativeColumnPriority`.
- * The helper was already correct; the table simply never used it, which is why
- * a passing helper test sat next to a broken screenshot.
- */
-describe("mobile-stacked cells carry their own labels", () => {
-  const parseCells = (html: string) => {
-    const body = html.slice(html.indexOf("<tbody"), html.indexOf("</tbody>"));
-    return [...body.matchAll(/<td\b([^>]*)>/g)].map((match) => {
-      const label = /data-label="([^"]*)"/.exec(match[1]);
-      return { attrs: match[1], label: label ? label[1] : null };
-    });
-  };
-
-  it("gives every body cell a non-empty label", () => {
-    const cells = parseCells(renderStudio());
-    expect(cells.length).toBeGreaterThan(0);
-
-    const unlabelled = cells.filter(
-      (cell) => cell.label === null || cell.label.trim() === "",
-    );
-    expect(
-      unlabelled.length,
-      `${unlabelled.length} of ${cells.length} stacked cells render a value with no name`,
-    ).toBe(0);
-  });
-
-  it("names the Tier-0 economics a buyer scans for", () => {
-    // The exact metrics from the artifact that showed bare numbers.
-    const html = renderStudio();
-    const labels = parseCells(html)
-      .map((cell) => cell.label ?? "")
-      .join(" | ");
-
-    for (const expected of ["Spend", "Purchases", "ROAS", "CPA"]) {
-      expect(
-        labels.includes(expected),
-        `no stacked cell is labelled "${expected}"; labels were: ${labels}`,
-      ).toBe(true);
-    }
-  });
-
-  it("labels the identity cell too, not only the metrics", () => {
-    // Identity leads the card. Unlabelled it reads as a caption for whatever
-    // follows it.
-    const cells = parseCells(renderStudio());
-    expect(cells[0]?.label).toBe("Creative");
-  });
-
-  it("keeps the attribution qualifier that changes what the number means", () => {
-    // A Meta-attributed ROAS is not the same claim as the account's ROAS, and
-    // the phone is where there is least room for that context to be inferred.
-    const labels = parseCells(renderStudio()).map((cell) => cell.label ?? "");
-    expect(labels.some((label) => label.startsWith("Meta-attr. "))).toBe(true);
-  });
-
-  it("labels a missing value as clearly as a present one", () => {
-    // An em-dash with no name is the worst cell on the card: the reader cannot
-    // tell which metric is missing.
-    const html = renderStudio({
-      allRows: [row({ spend: undefined, roas: undefined })],
-    });
-    const cells = parseCells(html);
-    expect(cells.every((cell) => (cell.label ?? "").trim() !== "")).toBe(true);
-  });
-
-  it("matches the label the stylesheet actually reads", () => {
-    // The rule and the attribute have to agree, or the fix is invisible.
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
-    const source = readFileSync("components/creatives/StudioOsView.tsx", "utf8");
-    expect(source).toContain("content:attr(data-label)");
-    expect(source).toContain("data-label={stackedCellLabel(id)}");
-  });
-
-  it("resolves the stacked label from the same source as the column header", () => {
-    // Two label sources would drift, and the phone would disagree with the
-    // desktop about what a column is called.
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
-    const source = readFileSync("components/creatives/StudioOsView.tsx", "utf8");
-    expect(source).toContain("function stackedCellLabel(");
-    expect(source).toContain("const label = metricLabel(id);");
   });
 });

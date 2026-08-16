@@ -1,5 +1,8 @@
 "use client";
 
+/* --ink-decorative is the one token allowed below the essential-text floor:
+   it is used only for ornament, never for a figure or a label. */
+
 /**
  * Account-scoped, read-only Creative Studio analysis. This view stays inside
  * the existing application shell and its collapsible sidebar; it owns no
@@ -10,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { buildMetaAdsManagerUrl } from "@/components/creatives/CreativeAdBreakdownDrawer";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import type { MetaCreativeBrief } from "@/lib/meta/creative-brief-contract";
@@ -40,35 +44,25 @@ import {
 /* --------------------------------------------------- scoped tokens (verbatim) */
 
 const STUDIO_CSS = `
+/* Dashboard v2: the studio keeps its own local alias names so the 3.7k lines of
+   markup below stay untouched, but every alias now resolves to a v2 token. */
 .studio-os{
-  --s1:#f5f5f3; --s2:#ffffff; --s3:#ededea; --s4:#e6e6e1;
-  /*
-   * Studio scopes its own palette, so the console-wide contrast pass never
-   * reached it: --ink3 sat at 3.82:1 on this surface and --ink4 at 2.31:1,
-   * both carrying essential 12px text -- the Analyzing line, the account and
-   * window, dates, row metadata, the stacked mobile labels. That is not
-   * decoration; it is how a buyer knows what they are reading.
-   *
-   * Raised to clear 4.5:1 rather than overridden globally, and
-   * --ink-decorative exists so the genuinely non-informational case has a
-   * token of its own instead of being justified after the fact.
-   */
-  --ink:#1a1c1f; --ink2:#4a4f56; --ink3:#5f656c; --ink4:#63696f;
-  --ink-decorative:#a6abb2;
-  --b1:#e4e4e0; --b2:#cdcdc7; --b3:#bcbcb4;
-  --focus:#1e62d0;
-  --danger-fg:#a6224a; --danger-bg:#fbedf1; --danger-bd:#efc4d1;
-  --caution-fg:#86590a; --caution-bg:#faf2df; --caution-bd:#e8d5a6;
-  --pos-fg:#0b6b4f; --pos-bg:#e9f4ef; --pos-bd:#bfdfd1;
-  --info-fg:#1d5fc4; --info-bg:#ebf1fb; --info-bd:#c5d6f1;
-  --neutral-fg:#7d838c; --neutral-bg:#ededea; --neutral-bd:#e4e4e0;
-  --sel:#eef2fb; --sel-bd:#c9d8f2;
-  --ovl:rgba(26,28,31,.34);
-  --shadow-pop:0 6px 24px -6px rgba(26,28,31,.22),0 2px 6px -2px rgba(26,28,31,.14);
+  --s1:var(--adv-canvas); --s2:var(--adv-surface); --s3:var(--adv-fill); --s4:var(--adv-fill-2);
+  --ink:var(--adv-ink); --ink2:var(--adv-ink-2); --ink3:var(--adv-ink-2); --ink4:var(--adv-ink-2); --ink-decorative:var(--adv-ink-4);
+  --b1:var(--adv-border); --b2:#d5dce8; --b3:var(--adv-scroll-thumb);
+  --focus:var(--adv-accent);
+  --danger-fg:var(--adc-danger-fg); --danger-bg:var(--adc-danger-bg); --danger-bd:var(--adc-danger-bd);
+  --caution-fg:var(--adc-caution-fg); --caution-bg:var(--adc-caution-bg); --caution-bd:var(--adc-caution-bd);
+  --pos-fg:var(--adc-pos-fg); --pos-bg:var(--adc-pos-bg); --pos-bd:var(--adc-pos-bd);
+  --info-fg:var(--adc-info-fg); --info-bg:var(--adc-info-bg); --info-bd:var(--adc-info-bd);
+  --neutral-fg:var(--adv-ink-3); --neutral-bg:var(--adv-fill-2); --neutral-bd:var(--adv-border);
+  --sel:var(--adv-accent-bg); --sel-bd:var(--adv-accent-bd);
+  --ovl:rgba(14,21,38,.34);
+  --shadow-pop:0 16px 40px rgba(14,21,38,.16),0 1px 2px rgba(14,21,38,.05);
   --nav-w:56px; --insp-w:404px;
   background:var(--s1);
   color:var(--ink);
-  font-family:var(--font-ibm-plex-sans),var(--font-geist-sans),system-ui,sans-serif;
+  font-family:var(--adv-font-body);
   font-size:13px;
   line-height:1.45;
   -webkit-font-smoothing:antialiased;
@@ -81,10 +75,7 @@ const STUDIO_CSS = `
 }
 .studio-os.studio-dark{
   --s1:#141518; --s2:#1c1e22; --s3:#24262b; --s4:#2b2e34;
-  /* Same floor on the dark surface. No dark mode ships today; these would be
-     wrong the day one does, and 3.02:1 is exactly how that ships unnoticed. */
-  --ink:#f1f1ee; --ink2:#c3c6cb; --ink3:#8a9099; --ink4:#8f959e;
-  --ink-decorative:#636972;
+  --ink:#f1f1ee; --ink2:#c3c6cb; --ink3:#b6c1d6; --ink4:#b6c1d6; --ink-decorative:#8a9099;
   --b1:#31343a; --b2:#3d4149; --b3:#4a4f58;
   --focus:#5b9dff;
   --danger-fg:#f1859f; --danger-bg:#341c24; --danger-bd:#552b38;
@@ -97,7 +88,9 @@ const STUDIO_CSS = `
   --shadow-pop:0 8px 30px -6px rgba(0,0,0,.55),0 2px 8px -2px rgba(0,0,0,.4);
 }
 .studio-os *{box-sizing:border-box}
-.studio-os .mono{font-family:var(--font-ibm-plex-mono),var(--font-geist-mono),ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.studio-os .mono{font-family:var(--adv-font-mono);font-variant-numeric:tabular-nums}
+.studio-os h1,.studio-os h2,.studio-os h3{font-family:var(--adv-font-display);letter-spacing:-0.01em}
+.studio-os .tnum,.studio-os .studio-num{font-family:var(--adv-font-display);font-variant-numeric:tabular-nums}
 .studio-os .tnum{font-variant-numeric:tabular-nums}
 .studio-os button{font-family:inherit;font-size:inherit;cursor:pointer}
 .studio-os a{color:var(--info-fg);text-decoration:none}
@@ -122,9 +115,12 @@ const STUDIO_CSS = `
 @media (max-width:767px){
   .studio-os{height:auto;min-height:100%;overflow:visible}
   .studio-os-shell,.studio-os-content,.studio-assets,.studio-workspace-scroll{overflow:visible}
-  .studio-header{height:auto!important;min-height:50px;flex-wrap:wrap;padding:8px 10px!important}
-  .studio-header-account{min-width:0;flex:1}
-  .studio-header-title{order:3;width:100%}
+  /* The header is the v2 page head below 768: title first at full width, then
+     the account/status cluster on its own wrapped row. */
+  .studio-header{height:auto!important;flex-wrap:wrap;padding:14px 12px 12px!important}
+  .studio-header-title{width:100%}
+  .studio-header-actions{width:100%;margin-left:0!important;row-gap:8px}
+  .studio-header-account{min-width:0;flex:1 1 180px}
   .studio-subnav-row,.studio-action-toolbar{overflow-x:auto;scrollbar-width:none}
   .studio-analysis-meta,.studio-context-row,.studio-action-toolbar,.studio-compare-toolbar,.studio-table-footer{flex-wrap:wrap}
   .studio-analysis-meta{padding:9px 12px 7px!important}
@@ -143,40 +139,6 @@ const STUDIO_CSS = `
   .studio-usage-drawer{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;max-width:none!important}
   .studio-usage-row{flex-wrap:wrap}
   .studio-usage-metrics{width:100%;grid-template-columns:repeat(3,minmax(0,1fr))!important;text-align:left!important}
-
-  /*
-   * Task-priority mobile composition for the creative table.
-   *
-   * The table is laid out for desktop columns and carries min-width:920px. At
-   * 390px that guarantees the last columns -- which is where the assessment
-   * lives -- sit outside the frame. The page did not scroll sideways because
-   * the frame scrolls internally, so the row still clipped while every
-   * page-level check passed. Side-scrolling to reach the verdict is not
-   * reading the verdict.
-   *
-   * Each row becomes a card instead. Identity leads, then the economics, then
-   * the assessment: the same priority order the buyer scans on desktop, laid
-   * out vertically. Nothing is dropped -- secondary cells simply fall below
-   * rather than off the side -- and each cell carries its own label because a
-   * column header cannot label a stacked cell.
-   */
-  .studio-table-scroll,.studio-table-scroll table,.studio-table-scroll th,.studio-table-scroll td,.studio-table-scroll tr{min-width:0!important;max-width:none!important}
-  .studio-table-scroll table{width:100%!important;table-layout:fixed}
-  .studio-table-scroll{overflow-x:hidden!important}
-  .studio-table-scroll thead{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .studio-table-scroll tbody tr{display:block;border:1px solid var(--b1,#e4e4e0);border-radius:8px;margin-bottom:8px;padding:6px 8px}
-  .studio-table-scroll tbody td{display:flex;align-items:center;justify-content:space-between;gap:10px;width:auto!important;min-width:0!important;max-width:none!important;border:0!important;padding:4px 0!important;white-space:normal!important}
-  .studio-table-scroll tbody td::before{content:attr(data-label);flex:none;color:var(--ink3,#7d838c);font-size:12px;font-weight:600}
-  .studio-table-scroll tbody td:empty{display:none}
-  /*
-   * The assessment chip carries inline flex:none and white-space:nowrap so it
-   * keeps its shape in a desktop column. In a stacked card that is exactly what
-   * pushes it past the edge, so at phone width the whole cell is allowed to
-   * wrap and the chip is allowed to shrink. The verdict is the reason the row
-   * is being read; it may not be the thing that falls off.
-   */
-  .studio-table-scroll tbody td *{flex-wrap:wrap!important;max-width:100%!important}
-  .studio-table-scroll tbody td span{white-space:normal!important;flex-shrink:1!important}
 }
 @media (max-width:479px){
   .studio-compare-grid{grid-template-columns:1fr!important}
@@ -279,11 +241,25 @@ const VIDEO_METRIC_IDS = new Set([
   "thruplays",
 ]);
 
+/**
+ * The design's Studio tab row: five surfaces — assets, copies, landers, inbox,
+ * audiences. The first is rendered in place; the rest are their own routes and
+ * carry the same tab row with their own pill lit.
+ */
+export const STUDIO_TABS = [
+  { key: "assets", label: "Assets", href: "/platforms/meta/creatives" },
+  { key: "copies", label: "Copy", href: "/platforms/meta/copies" },
+  { key: "landers", label: "Landing Pages", href: "/platforms/meta/landing-pages" },
+  { key: "inbox", label: "Inbox", href: "/platforms/meta/creative-inbox" },
+  { key: "audiences", label: "Audiences", href: "/platforms/meta/audiences" },
+] as const;
+
+/* Analysis views that keep their home in Studio but sit outside the design's
+   five-tab row. */
 export const STUDIO_MORE_LINKS = [
-  { label: "Copy", desc: "Ad copy angles & variants", href: "/platforms/meta/copies" },
-  { label: "Landing Pages", desc: "LP mapping & landing-view quality", href: "/platforms/meta/landing-pages" },
-  { label: "Inbox", desc: "Creator & comment threads", href: "/platforms/meta/creative-inbox" },
-  { label: "Audiences", desc: "Saved & lookalike sources", href: "/platforms/meta/audiences" },
+  { label: "Winners", desc: "Creatives clearing the win bar", href: "/platforms/meta/creatives", tab: "winners" },
+  { label: "Briefs", desc: "Production briefs from decisions", href: "/platforms/meta/creatives", tab: "briefs" },
+  { label: "Shares", desc: "Client-shared creative reads", href: "/platforms/meta/creatives", tab: "shares" },
 ] as const;
 
 export type StudioOsTab = "assets" | "winners" | "briefs" | "shares";
@@ -378,28 +354,6 @@ const GRID_KPI_OPTIONS = ["spend", "roas", "costPerPurchase", "purchases", "purc
 
 function metricLabel(id: string): string {
   return studioMetricDefinition(id)?.label ?? id;
-}
-
-/**
- * The name a stacked cell shows on a phone.
- *
- * Below 767px each row becomes a card and the header row is taken out of the
- * accessibility tree, so a column header can no longer label anything. The
- * stylesheet already renders `td::before { content: attr(data-label) }` for
- * exactly this -- and no cell ever set the attribute, so the phone showed a
- * column of bare numbers: $840, 47, $3,360, $17.87, 4.00x, 2.9%. Six values in
- * a fixed order that a buyer is expected to recognise by position, with the
- * only thing that named them hidden.
- *
- * The attribution prefix is carried through because it changes what the number
- * means: a Meta-attributed ROAS is not the same claim as the account's ROAS,
- * and dropping the qualifier on the surface where there is least room for
- * context is where it matters most.
- */
-function stackedCellLabel(id: string): string {
-  const attr = ATTR_COLUMNS[id];
-  const label = metricLabel(id);
-  return attr ? `${attr} ${label}` : label;
 }
 
 export interface StudioSelectedRow {
@@ -1073,17 +1027,44 @@ export function StudioOsView(props: StudioOsViewProps) {
             className="studio-header"
             style={{
               flex: "none",
-              height: 50,
-              background: "var(--s2)",
-              borderBottom: "1px solid var(--b1)",
+              background: "transparent",
               display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "0 14px",
+              alignItems: "flex-end",
+              gap: 16,
+              flexWrap: "wrap",
+              padding: "0 0 14px",
               zIndex: 20,
               position: "relative",
             }}
           >
+            <div className="studio-header-title" style={{ minWidth: 0 }}>
+              <p
+                className="mono"
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--ink3)",
+                }}
+              >
+                Meta · Analysis-first — writes stay in Launchpad
+              </p>
+              <h1
+                style={{
+                  margin: "4px 0 0",
+                  fontSize: 26,
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  color: "var(--ink)",
+                  lineHeight: 1.1,
+                }}
+              >
+                Creative Studio
+              </h1>
+            </div>
+
+            <div className="studio-header-actions" style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
             <div className="studio-header-account" data-studio-pop style={{ position: "relative" }}>
               <button
                 type="button"
@@ -1256,15 +1237,9 @@ export function StudioOsView(props: StudioOsViewProps) {
               ) : null}
             </div>
 
-            <div style={{ width: 1, height: 22, background: "var(--b1)" }} />
-            <div className="studio-header-title" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-              <h1 style={{ margin: 0, fontSize: 15, fontWeight: 600, letterSpacing: "-.2px" }}>Creative Studio</h1>
-              <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
-                Decision context {freshnessLabel}
-              </span>
-            </div>
-
-            <div style={{ flex: 1 }} />
+            <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)", whiteSpace: "nowrap" }}>
+              Decision context {freshnessLabel}
+            </span>
 
             <div data-studio-pop style={{ position: "relative" }}>
               <button
@@ -1376,6 +1351,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   ? "Business STOP off"
                   : "Business STOP unavailable"}
             </Link>
+            </div>
           </header>
 
           {killSwitchEngaged === true ? (
@@ -1423,10 +1399,10 @@ export function StudioOsView(props: StudioOsViewProps) {
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                borderBottom: "1px solid var(--warn-bd)",
-                background: "var(--warn-bg)",
+                borderBottom: "1px solid var(--caution-bd)",
+                background: "var(--caution-bg)",
                 padding: "7px 16px",
-                color: "var(--warn)",
+                color: "var(--caution-fg)",
                 fontSize: 12,
               }}
             >
@@ -1441,35 +1417,31 @@ export function StudioOsView(props: StudioOsViewProps) {
           {/* studio content */}
           <div className="studio-os-content">
             {/* subnav */}
-            <div style={{ flex: "none", padding: "10px 16px 0 16px", borderBottom: "1px solid var(--b1)" }}>
+            <div style={{ flex: "none" }}>
               <div
                 role="tablist"
                 aria-label="Creative Studio views"
                 className="studio-subnav-row"
-                style={{ display: "flex", alignItems: "center", gap: 5, paddingBottom: 9 }}
+                style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 14, flexWrap: "wrap" }}
               >
-                {[
-                  { key: "assets", label: "Performance" },
-                  { key: "winners", label: "Winners" },
-                  { key: "briefs", label: "Briefs" },
-                  { key: "shares", label: "Shares" },
-                ].map((tab) => {
-                  const active = subTab === tab.key;
+                {STUDIO_TABS.map((tab) => {
+                  const active = tab.key === "assets" && subTab === "assets";
                   return (
                     <Link
                       key={tab.key}
                       role="tab"
                       aria-selected={active}
-                      href={studioHref(
-                        "/platforms/meta/creatives",
-                        tab.key as StudioOsTab,
-                      )}
+                      href={studioHref(tab.href)}
                       style={{
-                        padding: "6px 11px",
-                        borderRadius: 8,
-                        border: "1px solid transparent",
-                        background: active ? "var(--s3)" : "transparent",
-                        color: active ? "var(--ink)" : "var(--ink3)",
+                        height: 32,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 7,
+                        padding: "0 13px",
+                        borderRadius: 9999,
+                        border: `1px solid ${active ? "var(--adv-accent-bd)" : "var(--b1)"}`,
+                        background: active ? "var(--adv-accent-bg)" : "var(--s2)",
+                        color: active ? "var(--adv-accent)" : "var(--ink2)",
                         fontWeight: 600,
                         fontSize: "12.5px",
                         textDecoration: "none",
@@ -1489,16 +1461,17 @@ export function StudioOsView(props: StudioOsViewProps) {
                     }}
                     aria-haspopup="menu"
                     style={{
+                      height: 32,
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      padding: "6px 11px",
-                      borderRadius: 8,
-                      border: "1px solid var(--b2)",
+                      padding: "0 13px",
+                      borderRadius: 9999,
+                      border: "1px solid var(--b1)",
                       background: "var(--s2)",
-                      color: "var(--ink3)",
+                      color: "var(--ink2)",
                       fontWeight: 600,
-                      fontSize: 12,
+                      fontSize: "12.5px",
                     }}
                   >
                     More
@@ -1537,7 +1510,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       {STUDIO_MORE_LINKS.map((item) => (
                         <Link
                           key={item.label}
-                          href={studioHref(item.href)}
+                          href={studioHref(item.href, item.tab as StudioOsTab)}
                           onClick={() => setStudioMoreOpen(false)}
                           style={{
                             display: "flex",
@@ -1587,7 +1560,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         <div className="studio-analysis-meta" style={{ flex: "none", display: "flex", alignItems: "center", gap: 9, padding: "9px 16px 7px 16px" }}>
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>Analyzing</span>
           <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--ink)" }}>{account?.name ?? "—"}</span>
-          <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
+          <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
             {account?.id ?? "—"}
           </span>
           <span style={{ width: 1, height: 13, background: "var(--b1)" }} />
@@ -1603,7 +1576,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         </div>
 
         {/* 2 · context row */}
-        <div className="studio-context-row" style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, padding: "0 16px 9px 16px" }}>
+        <div className="studio-context-row" style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, padding: "0 0 9px" }}>
           <div
             className="studio-search"
             style={{
@@ -1618,7 +1591,7 @@ export function StudioOsView(props: StudioOsViewProps) {
               width: 210,
             }}
           >
-            <span aria-hidden style={{ color: "var(--ink4)", fontSize: 12 }}>
+            <span aria-hidden style={{ color: "var(--ink3)", fontSize: 12 }}>
               ⌕
             </span>
             <input
@@ -1804,7 +1777,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           >
             <span style={{ color: "var(--ink3)", fontWeight: 500 }}>KPIs</span>
             {presetLabel}
-            <span className="mono" style={{ color: "var(--ink4)", fontSize: 12 }}>
+            <span className="mono" style={{ color: "var(--ink3)", fontSize: 12 }}>
               ▾
             </span>
           </button>
@@ -1818,7 +1791,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             display: "flex",
             alignItems: "center",
             gap: 5,
-            padding: "0 16px 9px 16px",
+            padding: "0 0 9px",
             borderBottom: "1px solid var(--b1)",
           }}
         >
@@ -1891,7 +1864,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       }}
                     >
                       <span>{chip.label}</span>
-                      <span style={{ fontSize: "12px", color: "var(--ink4)", fontVariantNumeric: "tabular-nums" }}>
+                      <span style={{ fontSize: "12px", color: "var(--ink3)", fontVariantNumeric: "tabular-nums" }}>
                         {chip.count}
                       </span>
                     </button>
@@ -2187,8 +2160,43 @@ export function StudioOsView(props: StudioOsViewProps) {
         <div className="studio-workspace-scroll">
           {/* 4 · selected comparison grid */}
           {selectedRows.length === 0 ? (
-            <div style={{ flex: "none", padding: "13px 16px 3px 16px", fontSize: 12, color: "var(--ink3)" }}>
-              Select creatives from the table to compare them here.
+            <div
+              style={{
+                flex: "none",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                padding: "4px 16px 2px 16px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
+                  Comparison board
+                </h2>
+                <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
+                  0 pinned · your working set, never auto-fills
+                </span>
+              </div>
+              <div
+                style={{
+                  border: "1.5px dashed var(--b2)",
+                  borderRadius: 16,
+                  background: "rgba(255,255,255,0.55)",
+                  minHeight: 150,
+                  display: "grid",
+                  placeItems: "center",
+                  padding: 22,
+                }}
+              >
+                <div style={{ textAlign: "center", maxWidth: 380 }}>
+                  <p style={{ margin: 0, fontSize: "13.5px", fontWeight: 600, color: "var(--ink2)" }}>
+                    Board is empty
+                  </p>
+                  <p style={{ margin: "6px 0 0", fontSize: "12.5px", lineHeight: 1.55, color: "var(--ink3)" }}>
+                    Tick creatives in the table below to pin them here as cards for side-by-side review.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
             renderComparisonGrid()
@@ -2201,12 +2209,52 @@ export function StudioOsView(props: StudioOsViewProps) {
               padding: "8px 16px 14px 16px",
             }}
           >
-            <div style={{ flex: "none", display: "flex", alignItems: "baseline", gap: 9, marginBottom: 7 }}>
-              <span className="tnum" style={{ fontSize: "12.5px", fontWeight: 600 }}>{sortedRows.length} creative{sortedRows.length === 1 ? "" : "s"}</span>
-              <span style={{ fontSize: 12, color: "var(--ink4)" }}>one row per creative · usages aggregated</span>
+            <div
+              style={{
+                flex: "none",
+                display: "flex",
+                alignItems: "baseline",
+                gap: 9,
+                flexWrap: "wrap",
+                marginBottom: 8,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>All creatives</h2>
+              <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
+                {sortedRows.length} synced · Meta · one row per creative · usages aggregated
+              </span>
               <div style={{ flex: 1 }} />
               <span style={{ fontSize: 12, color: "var(--ink3)" }}>KPI preset · {presetLabel} · Revenue and ROAS are Meta-attributed</span>
             </div>
+            {colorMode === "off" ? null : (
+              <div
+                style={{
+                  flex: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  padding: "0 0 10px",
+                }}
+              >
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
+                  cell color = rank across these creatives on that metric
+                </span>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 88,
+                    height: 8,
+                    borderRadius: 9999,
+                    background:
+                      "linear-gradient(90deg,#FBDEE6,#F9EDD6,#F1F4F9,#DDF1E8,#BFE5D6)",
+                  }}
+                />
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
+                  lags → leads · ↓ = lower is better · volume columns stay neutral
+                </span>
+              </div>
+            )}
             <div
               className="studio-table-frame"
               style={{
@@ -2232,13 +2280,14 @@ export function StudioOsView(props: StudioOsViewProps) {
                           background: "var(--s2)",
                           textAlign: "left",
                           padding: "8px 12px",
-                          borderBottom: "1px solid var(--b2)",
+                          borderBottom: "1px solid var(--b1)",
                           borderRight: "1px solid var(--b1)",
+                          fontFamily: "var(--adv-font-mono)",
                           fontSize: "12px",
                           textTransform: "uppercase",
-                          letterSpacing: ".04em",
+                          letterSpacing: ".1em",
                           color: "var(--ink3)",
-                          fontWeight: 600,
+                          fontWeight: 500,
                           minWidth: 300,
                         }}
                       >
@@ -2257,7 +2306,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               background: activeSort ? "var(--s3)" : "var(--s2)",
                               textAlign: "right",
                               padding: "7px 12px",
-                              borderBottom: "1px solid var(--b2)",
+                              borderBottom: "1px solid var(--b1)",
                               whiteSpace: "nowrap",
                               verticalAlign: "bottom",
                             }}
@@ -2279,10 +2328,11 @@ export function StudioOsView(props: StudioOsViewProps) {
                                 border: "none",
                                 background: "transparent",
                                 color: activeSort ? "var(--ink)" : "var(--ink3)",
-                                fontWeight: 600,
+                                fontFamily: "var(--adv-font-mono)",
+                                fontWeight: activeSort ? 600 : 500,
                                 fontSize: "12px",
                                 textTransform: "uppercase",
-                                letterSpacing: ".03em",
+                                letterSpacing: ".1em",
                                 cursor: "pointer",
                                 lineHeight: 1.15,
                               }}
@@ -2291,7 +2341,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                 <span
                                   style={{
                                     fontSize: "12px",
-                                    color: "var(--ink4)",
+                                    color: "var(--ink3)",
                                     fontWeight: 500,
                                     textTransform: "none",
                                     letterSpacing: 0,
@@ -2334,7 +2384,6 @@ export function StudioOsView(props: StudioOsViewProps) {
                       return (
                         <tr key={row.id}>
                           <td
-                            data-label="Creative"
                             style={{
                               position: "sticky",
                               left: 0,
@@ -2395,7 +2444,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                   {row.name}
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                                  <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
+                                  <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
                                     {(row.format || "—").toUpperCase()}
                                   </span>
                                   <button
@@ -2477,37 +2526,38 @@ export function StudioOsView(props: StudioOsViewProps) {
                             const barW = raw != null ? Math.max(6, Math.round((raw / (volumeColMax[id] || raw)) * 54)) : 0;
                             const tint = present ? cellTint(row, id) : undefined;
                             return (
-                              <td
-                                key={id}
-                                // Names the value when the row is stacked into
-                                // a card and the header is gone. Without it the
-                                // phone shows an unlabelled column of numbers.
-                                data-label={stackedCellLabel(id)}
-                                style={{
-                                  padding: "6px 12px",
-                                  borderBottom: "1px solid var(--b1)",
-                                  textAlign: "right",
-                                  whiteSpace: "nowrap",
-                                  fontVariantNumeric: "tabular-nums",
-                                  fontSize: 12,
-                                  color: present ? "var(--ink)" : "var(--ink4)",
-                                  background: tint,
-                                }}
-                              >
-                                {display}
-                                {raw != null ? (
-                                  <span
-                                    style={{
-                                      display: "block",
-                                      height: 3,
-                                      borderRadius: 2,
-                                      marginLeft: "auto",
-                                      marginTop: 3,
-                                      width: barW,
-                                      background: "var(--b3)",
-                                    }}
-                                  />
-                                ) : null}
+                              <td key={id} style={{ padding: "5px 4px", borderBottom: "1px solid var(--b1)" }}>
+                                {/* The design carries the heat tint on a rounded chip inside the
+                                    cell rather than on the cell itself, so gaps separate ranks. */}
+                                <span
+                                  className="studio-num"
+                                  style={{
+                                    display: "block",
+                                    padding: "7px 9px",
+                                    borderRadius: 8,
+                                    textAlign: "right",
+                                    whiteSpace: "nowrap",
+                                    fontSize: "12.5px",
+                                    fontWeight: 600,
+                                    color: present ? "var(--ink)" : "var(--ink3)",
+                                    background: tint,
+                                  }}
+                                >
+                                  {display}
+                                  {raw != null ? (
+                                    <span
+                                      style={{
+                                        display: "block",
+                                        height: 3,
+                                        borderRadius: 2,
+                                        marginLeft: "auto",
+                                        marginTop: 3,
+                                        width: barW,
+                                        background: "var(--b3)",
+                                      }}
+                                    />
+                                  ) : null}
+                                </span>
                               </td>
                             );
                           })}
@@ -2549,7 +2599,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     Show more
                   </button>
                 ) : null}
-                <span style={{ fontSize: 12, color: "var(--ink4)" }}>
+                <span style={{ fontSize: 12, color: "var(--ink3)" }}>
                   {selectedRows.length} selected · missing metrics render “—”
                 </span>
                 <div style={{ flex: 1 }} />
@@ -2576,7 +2626,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   >
                     <span style={{ color: "var(--ink3)", fontWeight: 500 }}>Rows</span>
                     {pageSize}
-                    <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
+                    <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
                       ▾
                     </span>
                   </button>
@@ -2668,7 +2718,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         >
           <span style={{ color: "var(--ink3)", fontWeight: 500 }}>{label}</span>
           <span style={{ color: "var(--ink)", fontWeight: 600 }}>{value}</span>
-          <span className="mono" style={{ color: "var(--ink4)", fontSize: 12 }}>
+          <span className="mono" style={{ color: "var(--ink3)", fontSize: 12 }}>
             ▾
           </span>
         </button>
@@ -2752,7 +2802,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           <span
             style={{
               fontSize: "12px",
-              color: active ? "var(--ink2)" : "var(--ink4)",
+              color: active ? "var(--ink2)" : "var(--ink3)",
               background: active ? "var(--s3)" : "transparent",
               borderRadius: 5,
               padding: "0 5px",
@@ -2777,7 +2827,7 @@ export function StudioOsView(props: StudioOsViewProps) {
       <div className="studio-compare-section" style={{ flex: "none", maxHeight: "46vh", overflowY: "auto", padding: "11px 16px 6px 16px" }}>
         <div className="studio-compare-toolbar" style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}>
           <span style={{ fontSize: "12.5px", fontWeight: 600 }}>Comparing {selectedEntries.length} creatives</span>
-          <span style={{ fontSize: 12, color: "var(--ink4)" }}>grid metrics independent from the table</span>
+          <span style={{ fontSize: 12, color: "var(--ink3)" }}>grid metrics independent from the table</span>
           <div style={{ flex: 1 }} />
           <div data-studio-pop style={{ position: "relative" }}>
             <button
@@ -2802,7 +2852,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             >
               <span style={{ color: "var(--ink3)", fontWeight: 500 }}>Grid KPIs</span>
               {gridKpis.length}
-              <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
+              <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
                 ▾
               </span>
             </button>
@@ -2821,7 +2871,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   padding: 4,
                 }}
               >
-                <div style={{ padding: "6px 8px 4px 8px", fontSize: "12px", color: "var(--ink4)" }}>Remember 2–4 KPIs</div>
+                <div style={{ padding: "6px 8px 4px 8px", fontSize: "12px", color: "var(--ink3)" }}>Remember 2–4 KPIs</div>
                 {GRID_KPI_OPTIONS.map((id) => {
                   const on = gridKpiIds.includes(id);
                   return (
@@ -2917,7 +2967,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       top: 7,
                       left: 8,
                       fontSize: "12px",
-                      color: "var(--ink4)",
+                      color: "var(--ink3)",
                       background: "var(--s2)",
                       border: "1px solid var(--b1)",
                       borderRadius: 4,
@@ -3031,7 +3081,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     )}
                     <span style={{ fontSize: "12px", color: "var(--ink3)" }}>{row.creativePrimaryLabel ?? "—"}</span>
                   </div>
-                  <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 4 }}>
+                  <div className="mono" style={{ fontSize: 12, color: "var(--ink3)", marginTop: 4 }}>
                     {formatUsageCount(row)} · {row.campaignName ?? "—"}
                   </div>
                   {outsideCurrentFilter ? (
@@ -3106,7 +3156,36 @@ export function StudioOsView(props: StudioOsViewProps) {
     const card = rowCard(row);
     const action = card?.decisionCenterRow?.buyerAction ?? null;
     const label = card?.decisionCenterRow?.buyerLabel ?? null;
+    const decision = card?.decisionCenterRow ?? null;
     const kind = decisionKind(action);
+    const drawerCurrency = resolveCreativeCurrency(row.currency ?? null, defaultCurrency);
+    const adsManagerUrl = buildMetaAdsManagerUrl(row);
+    const measured = row.metricsAvailability !== "unavailable";
+    // The design's funnel: every step is a served Meta action count, so a step
+    // the account does not report drops out rather than showing a zero.
+    const funnelSteps = measured
+      ? ([
+          { k: "Impressions", v: row.impressions },
+          { k: "Link clicks", v: row.linkClicks },
+          { k: "Add to cart", v: row.addToCart },
+          { k: "Checkout", v: row.initiateCheckout },
+          { k: "Purchases", v: row.purchases },
+        ] as Array<{ k: string; v: number }>).filter((step) => Number.isFinite(step.v))
+      : [];
+    const funnelTop = funnelSteps.length > 0 ? Math.max(...funnelSteps.map((step) => step.v)) : 0;
+    const evidencePairs = measured
+      ? ([
+          { k: "CPM", v: formatMoney(row.cpm, drawerCurrency, defaultCurrency) },
+          { k: "CPC · link", v: formatMoney(row.cpcLink, drawerCurrency, defaultCurrency) },
+          { k: "CTR · link", v: `${row.linkCtr.toFixed(2)}%` },
+          { k: "CPA", v: formatMoney(row.cpa, drawerCurrency, defaultCurrency) },
+          {
+            k: "Frequency",
+            v: typeof row.frequency === "number" ? row.frequency.toFixed(2) : "—",
+          },
+          { k: "Thumbstop", v: `${row.thumbstop.toFixed(2)}%` },
+        ] as Array<{ k: string; v: string }>)
+      : [];
     const measuredRows = usageRows.filter(
       (usage) => usage.metricsAvailability !== "unavailable",
     );
@@ -3144,17 +3223,69 @@ export function StudioOsView(props: StudioOsViewProps) {
             right: 0,
             bottom: 0,
             zIndex: 61,
-            width: 600,
-            maxWidth: "92vw",
-            background: "var(--s2)",
-            borderLeft: "1px solid var(--b2)",
-            boxShadow: "var(--shadow-pop)",
+            // The design's evidence window: 560px over the canvas colour, lifted
+            // by a long left shadow rather than a border.
+            width: 560,
+            maxWidth: "94vw",
+            background: "var(--s1)",
+            boxShadow: "-28px 0 70px rgba(11,16,32,0.35)",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
           }}
         >
-          <div style={{ flex: "none", padding: "14px 16px", borderBottom: "1px solid var(--b1)", display: "flex", gap: 12, alignItems: "flex-start" }}>
+          {/* The design's evidence window opens on a navy band: source eyebrow,
+              creative name, the decision chip, then the close control. */}
+          <div style={{ flex: "none", padding: "14px 18px", background: "#0B1020", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p style={{ margin: 0, fontSize: "12px", textTransform: "uppercase", letterSpacing: ".1em", color: "#8B93A7" }}>
+                Creative evidence · Meta
+              </p>
+              <p
+                style={{ margin: "3px 0 0", fontSize: 16, fontWeight: 600, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={row.name}
+              >
+                {row.name}
+              </p>
+            </div>
+            {label ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  borderRadius: 7,
+                  padding: "4px 11px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: `var(--${kind}-bg)`,
+                  color: `var(--${kind}-fg)`,
+                }}
+              >
+                {label}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={closeUsageDrawer}
+              aria-label="Close"
+              style={{
+                flex: "none",
+                width: 28,
+                height: 28,
+                display: "grid",
+                placeItems: "center",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "transparent",
+                color: "#8B93A7",
+                fontSize: 13,
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ flex: "none", display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 18px 0" }}>
             <div className="studio-table-media-wrap" style={{ width: 48, height: 58, borderRadius: 6 }}>
               <CreativeRenderSurface
                 id={row.id}
@@ -3168,30 +3299,10 @@ export function StudioOsView(props: StudioOsViewProps) {
               />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }}>{row.name}</div>
-                {label ? (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      borderRadius: 5,
-                      padding: "1px 6px",
-                      color: `var(--${kind}-fg)`,
-                      background: `var(--${kind}-bg)`,
-                      border: `1px solid var(--${kind}-bd)`,
-                      fontSize: "12px",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Creative decision · {label}
-                  </span>
-                ) : null}
-              </div>
-              <div className="mono" style={{ fontSize: "12px", color: "var(--ink3)", marginTop: 3 }}>
+              <div className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
                 {(row.format || "—").toUpperCase()} · {row.creativeId}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Usage</div>
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{usageCountLabel}</div>
@@ -3214,33 +3325,118 @@ export function StudioOsView(props: StudioOsViewProps) {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={closeUsageDrawer}
-              aria-label="Close"
-              style={{ flex: "none", width: 28, height: 28, borderRadius: 7, border: "1px solid var(--b1)", background: "var(--s2)", color: "var(--ink3)", fontSize: 14 }}
-            >
-              ✕
-            </button>
           </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 18px 0", display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Decision contract — the server's own verdict line and the money
+                it is about. Nothing here is recomputed in the client. */}
+            {decision ? (
+              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
+                <p style={{ margin: 0, fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>Decision contract</p>
+                <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: "var(--ink)" }}>
+                  <b>{decision.buyerLabel}</b>
+                  {decision.oneLine ? ` — ${decision.oneLine}` : ""}
+                </p>
+                <p style={{ margin: "8px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>
+                  {measured
+                    ? formatMoney(row.spend, drawerCurrency, defaultCurrency)
+                    : "—"}
+                  <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--ink3)", marginLeft: 6 }}>
+                    {measured
+                      ? `spend · ${formatRoas(row.roas)} ROAS · ${dateRangeLabel}`
+                      : "no measured spend in this window"}
+                  </span>
+                </p>
+                {decision.nextStep ? (
+                  <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--ink3)" }}>
+                    Next step: {decision.nextStep}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {decision && decision.reasons.length > 0 ? (
+              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
+                <p style={{ margin: "0 0 7px", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>
+                  Engine reasoning
+                </p>
+                {decision.reasons.map((reason, index) => (
+                  <p
+                    key={`${decision.creativeId}-reason-${index}`}
+                    style={{ margin: "0 0 5px", display: "flex", gap: 8, fontSize: "12.5px", lineHeight: 1.5, color: "var(--ink2)" }}
+                  >
+                    <span style={{ marginTop: 7, flex: "none", width: 4, height: 4, borderRadius: 9999, background: `var(--${kind}-fg)` }} />
+                    <span>{reason}</span>
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            {funnelSteps.length > 0 && funnelTop > 0 ? (
+              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
+                <p style={{ margin: "0 0 9px", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>
+                  Click-to-purchase funnel · {dateRangeLabel}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {funnelSteps.map((step, index) => {
+                    const previous = index === 0 ? null : funnelSteps[index - 1].v;
+                    return (
+                      <div key={step.k} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                        <span style={{ width: 84, fontSize: "12px", fontWeight: 600, color: "var(--ink2)" }}>{step.k}</span>
+                        <span style={{ flex: 1, height: 14, borderRadius: 5, background: "var(--s4)", overflow: "hidden" }}>
+                          <span
+                            style={{
+                              display: "block",
+                              height: "100%",
+                              width: `${Math.max((step.v / funnelTop) * 100, step.v > 0 ? 2 : 0)}%`,
+                              borderRadius: 5,
+                              background: `var(--${kind}-fg)`,
+                            }}
+                          />
+                        </span>
+                        <span className="tnum" style={{ width: 62, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>
+                          {Math.round(step.v).toLocaleString()}
+                        </span>
+                        <span className="tnum" style={{ width: 66, textAlign: "right", fontSize: "12px", color: "var(--ink3)" }}>
+                          {previous === null || previous === 0 ? "—" : `${((step.v / previous) * 100).toFixed(1)}%`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {evidencePairs.length > 0 ? (
+              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "4px 14px", display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
+                {evidencePairs.map((pair) => (
+                  <div
+                    key={pair.k}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: "1px solid var(--s1)", padding: "8px 0" }}
+                  >
+                    <span style={{ fontSize: "12px", color: "var(--ink3)" }}>{pair.k}</span>
+                    <span className="tnum" style={{ fontSize: 12, fontWeight: 500, color: "var(--ink2)" }}>{pair.v}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
           <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 5, padding: "12px 16px 8px 16px", flexWrap: "wrap" }}>
             <span style={{ color: "var(--info-fg)", fontSize: 12, fontWeight: 600 }}>
               {account?.name ?? "Account"}
             </span>
-            <span style={{ color: "var(--ink4)", fontSize: 12 }}>›</span>
+            <span style={{ color: "var(--ink3)", fontSize: 12 }}>›</span>
             <span style={{ fontSize: 12, color: "var(--ink3)", fontWeight: 600 }}>Exact ad usages</span>
-            <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink4)" }}>{dateRangeLabel}</span>
+            <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink3)" }}>{dateRangeLabel}</span>
           </div>
 
-          <div style={{ flex: "none", margin: "0 16px 8px", padding: "8px 10px", border: "1px solid var(--b1)", borderRadius: 8, background: "var(--s3)", fontSize: 12, color: "var(--ink3)", lineHeight: 1.45 }}>
+          <div style={{ flex: "none", margin: "0 0 8px", padding: "8px 10px", border: "1px solid var(--b1)", borderRadius: 8, background: "var(--s3)", fontSize: 12, color: "var(--ink3)", lineHeight: 1.45 }}>
             Rows below are provider ad-grain performance for this account and window. The badge above remains the server&apos;s
             creative-level decision; Studio does not copy that action onto every ad usage.
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {usageRowsState === "loading" ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12.5 }}>Loading exact ad usages…</div>
+              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12 }}>Loading exact ad usages…</div>
             ) : usageRowsState === "error" ? (
               <div style={{ margin: "4px 16px 12px", padding: 12, border: "1px solid var(--danger-bd)", borderRadius: 8, background: "var(--danger-bg)", color: "var(--danger-fg)", fontSize: 12 }}>
                 <strong style={{ display: "block", marginBottom: 3 }}>Usage performance unavailable</strong>
@@ -3250,7 +3446,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 </button>
               </div>
             ) : usageRows.length === 0 ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12.5 }}>
+              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12 }}>
                 No exact ad usage has performance in this window. No representative row is substituted.
               </div>
             ) : (
@@ -3270,7 +3466,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink3)", fontSize: 12, marginTop: 2 }}>
                       {usage.adSetName ?? "Ad set unavailable"} › {usage.name}
                     </div>
-                    <div className="mono" style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--ink4)", fontSize: 12, marginTop: 3 }}>
+                    <div className="mono" style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--ink3)", fontSize: 12, marginTop: 3 }}>
                       <span>Ad {usage.realAdId ?? usage.id}</span>
                       {usage.optimizationGoal ? <span>{humanizeToken(usage.optimizationGoal)}</span> : null}
                       {usage.bidStrategy ? <span>{humanizeToken(usage.bidStrategy)}</span> : null}
@@ -3280,7 +3476,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     {["spend", "roas", "purchases"].map((metricId) => (
                       <div key={metricId}>
                         <div style={{ fontSize: 12, color: "var(--ink3)", textTransform: "uppercase" }}>{metricLabel(metricId)}</div>
-                        <div className="tnum" style={{ fontSize: 12.5, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
+                        <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
                       </div>
                     ))}
                   </div>
@@ -3307,10 +3503,10 @@ export function StudioOsView(props: StudioOsViewProps) {
                   fontWeight: 600,
                 }}
               >
-                <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>{drawerTrends ? "▾" : "▸"}</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>{drawerTrends ? "▾" : "▸"}</span>
                 Trends (7 / 28 / 90d)
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: "12px", color: "var(--ink4)", fontWeight: 500 }}>collapsed by default</span>
+                <span style={{ fontSize: "12px", color: "var(--ink3)", fontWeight: 500 }}>collapsed by default</span>
               </button>
               {drawerTrends ? (
                 <div style={{ marginTop: 8, padding: 11, border: "1px solid var(--b1)", borderRadius: 8, fontSize: 12, color: "var(--ink3)", lineHeight: 1.5 }}>
@@ -3318,6 +3514,47 @@ export function StudioOsView(props: StudioOsViewProps) {
                 </div>
               ) : null}
             </div>
+          </div>
+
+          {/* The design closes the window on an action bar: the decision's own
+              primary action, the Studio comparison, and the provider link. */}
+          <div style={{ flex: "none", display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--b1)", background: "var(--s2)" }}>
+            <Link
+              href={studioHref("/platforms/meta/decisions")}
+              onClick={closeUsageDrawer}
+              style={{
+                flex: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: 38,
+                borderRadius: 9,
+                background: label ? `var(--${kind}-fg)` : "var(--ink2)",
+                color: "#ffffff",
+                fontSize: 13,
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              {label ? `Take to Decisions · ${label}` : "Take to Decisions"}
+            </Link>
+            <Link
+              href={studioHref("/platforms/meta/creatives", "winners")}
+              onClick={closeUsageDrawer}
+              style={{ display: "inline-flex", alignItems: "center", height: 38, padding: "0 13px", borderRadius: 9, border: "1px solid var(--b1)", background: "var(--s2)", fontSize: "12.5px", fontWeight: 600, color: "var(--ink)", textDecoration: "none" }}
+            >
+              Compare in Studio
+            </Link>
+            {adsManagerUrl ? (
+              <a
+                href={adsManagerUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{ display: "inline-flex", alignItems: "center", height: 38, padding: "0 13px", borderRadius: 9, border: "1px solid var(--b1)", background: "var(--s2)", fontSize: "12.5px", fontWeight: 600, color: "var(--ink2)", textDecoration: "none" }}
+              >
+                Ads Manager ↗
+              </a>
+            ) : null}
           </div>
         </aside>
       </>
@@ -3330,7 +3567,7 @@ export function StudioOsView(props: StudioOsViewProps) {
     const evidence = buildCurrentWinnerEvidence(briefingCards);
     const historical = buildHistoricalWinnerEraState(briefingCards);
     return (
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px 16px 16px" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 0 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <h2 style={{ margin: 0, fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "var(--ink2)" }}>Current winners</h2>
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>truth-source qualified · 7d / 28d / 90d</span>
@@ -3360,7 +3597,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         assetFallbacks={[mediaRow.tableThumbnailUrl, mediaRow.cachedThumbnailUrl, mediaRow.thumbnailUrl, mediaRow.imageUrl, mediaRow.previewUrl]}
                       />
                     ) : (
-                      <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink4)" }}>
+                      <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink3)" }}>
                         Media unavailable
                       </span>
                     )}
@@ -3373,7 +3610,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       <span className="tnum" style={{ fontSize: 18, fontWeight: 600 }}>{formatRoas(winner.roas)}</span>
                       <span style={{ fontSize: 12, color: "var(--pos-fg)", fontWeight: 600 }}>{winner.truthSource ?? "—"}</span>
                     </div>
-                    <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 2 }}>
+                    <div className="mono" style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
                       {winner.decisionCenterRow?.buyerLabel ?? "—"} · {(winner.format ?? "—").toUpperCase()}
                     </div>
                   </div>
@@ -3395,7 +3632,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {historical.eras.map((era) => (
               <div key={era.engineVersion}>
-                <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginBottom: 8 }}>engine {era.engineVersion}</div>
+                <div className="mono" style={{ fontSize: 12, color: "var(--ink3)", marginBottom: 8 }}>engine {era.engineVersion}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(238px,1fr))", gap: 12 }}>
                   {era.entries.map((entry) => {
                     const mediaRow = findRow(entry.creativeId);
@@ -3417,7 +3654,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               assetFallbacks={[mediaRow.tableThumbnailUrl, mediaRow.cachedThumbnailUrl, mediaRow.thumbnailUrl, mediaRow.imageUrl, mediaRow.previewUrl]}
                             />
                           ) : (
-                            <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink4)" }}>
+                            <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink3)" }}>
                               Media unavailable
                             </span>
                           )}
@@ -3426,7 +3663,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           <div style={{ fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {entry.creativeName}
                           </div>
-                          <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 4 }}>
+                          <div className="mono" style={{ fontSize: 12, color: "var(--ink3)", marginTop: 4 }}>
                             {entry.entry.currentLabel} · {entry.entry.date}
                           </div>
                         </div>
@@ -3460,7 +3697,7 @@ export function StudioOsView(props: StudioOsViewProps) {
               title={onNewBrief ? "Start a brief from the top decision" : "No decision-linked creative available"}
               style={{
                 background: onNewBrief ? "var(--ink)" : "var(--s3)",
-                color: onNewBrief ? "var(--s2)" : "var(--ink4)",
+                color: onNewBrief ? "var(--s2)" : "var(--ink3)",
                 border: `1px solid ${onNewBrief ? "var(--ink)" : "var(--b2)"}`,
                 borderRadius: 6,
                 padding: "3px 9px",
@@ -3507,7 +3744,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>{brief.id.slice(0, 8)}</span>
+                        <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>{brief.id.slice(0, 8)}</span>
                         <span
                           style={{
                             display: "inline-flex",
@@ -3529,7 +3766,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       <div style={{ fontSize: "12px", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {brief.sourceDecision.rawLabel} · {brief.sourceDecision.creativeId}
                       </div>
-                      <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 1 }}>
+                      <div className="mono" style={{ fontSize: 12, color: "var(--ink3)", marginTop: 1 }}>
                         {new Date(brief.updatedAt).toISOString().slice(0, 10)} · {brief.createdBy}
                       </div>
                     </div>
@@ -3572,12 +3809,12 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>
                   {active.sourceDecision.rawLabel} · {active.sourceDecision.creativeId}
                 </div>
-                <div className="mono" style={{ fontSize: "12px", color: "var(--ink4)", marginTop: 3 }}>
+                <div className="mono" style={{ fontSize: "12px", color: "var(--ink3)", marginTop: 3 }}>
                   updated {new Date(active.updatedAt).toISOString().slice(0, 16).replace("T", " ")} · {active.createdBy}
                 </div>
               </div>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", alignItems: "center", gap: 8, background: "var(--s3)" }}>
-                <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>lineage</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>lineage</span>
                 <span className="mono" style={{ fontSize: "12px", color: "var(--ink2)" }}>
                   {active.sourceDecision.decisionId} · snapshot {active.sourceDecision.snapshotAsOf} · engine {active.sourceDecision.engineVersion} · frozen at creation
                 </span>
@@ -3710,7 +3947,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       <span style={{ color: palette.fg, background: palette.bg, border: `1px solid ${palette.bd}`, borderRadius: 5, padding: "1px 6px", fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>
                         {grant.status}
                       </span>
-                      <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{grant.token.slice(-6)}</span>
+                      <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>…{grant.token.slice(-6)}</span>
                     </div>
                     <div style={{ marginTop: 4, fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {grant.title} · {audienceLabel(grant.audience)}
@@ -3730,7 +3967,7 @@ export function StudioOsView(props: StudioOsViewProps) {
               <div style={{ padding: "13px 15px", borderBottom: "1px solid var(--b1)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, textTransform: "capitalize", color: tonePalette(statusTone[activeGrant.status]).fg }}>{activeGrant.status}</span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{activeGrant.token.slice(-6)}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>…{activeGrant.token.slice(-6)}</span>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 5 }}>{activeGrant.title}</div>
                 <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
@@ -3768,7 +4005,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <a href={`/share/creative/${activeGrant.token}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", alignSelf: "center", fontSize: 12 }}>Open link ↗</a>
                 </div>
               ) : null}
-              <div style={{ padding: "0 15px 14px 15px", fontSize: 12, color: "var(--ink4)" }}>
+              <div style={{ padding: "0 15px 14px 15px", fontSize: 12, color: "var(--ink3)" }}>
                 No spend, revenue, CPA, ROAS, audiences, or campaign names are serialized to a creator view.
               </div>
             </>

@@ -1201,6 +1201,8 @@ export interface DateRangePickerProps {
    */
   hint?: string;
   testId?: string;
+  /** "v2" draws the design's shell trigger; default keeps the page form. */
+  variant?: "default" | "v2";
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
   rangePresets?: RangePreset[];
@@ -1222,6 +1224,7 @@ export function DateRangePicker({
   label = "Date range",
   hint,
   testId = "date-range-picker",
+  variant = "default",
   showComparisonTrigger = true,
   comparisonPlaceholderLabel = "None",
   rangePresets,
@@ -1234,6 +1237,7 @@ export function DateRangePicker({
   disabled = false,
   align = "start",
 }: DateRangePickerProps) {
+  const isV2 = variant === "v2";
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
   const [hydrated, setHydrated] = useState(false);
@@ -1354,7 +1358,10 @@ export function DateRangePicker({
 
   return (
     <div
-      className={cn("flex flex-wrap items-center gap-1.5", className)}
+      className={cn(
+        isV2 ? "flex flex-wrap items-center gap-2.5" : "flex flex-wrap items-center gap-1.5",
+        className,
+      )}
       data-testid={testId}
       data-hydrated={hydrated}
     >

@@ -106,10 +106,17 @@ export function MiniTrendAreaChart({
 }: {
   data: Array<{ date: string; value: number }>;
   /**
-   * What this line is of. Required for the accessible name: "a chart" tells a
+   * Historical prop from the Google Ads tiles. It is deliberately not read:
+   * the line is neutral for every metric, so there is nothing to colour from.
+   * Kept in the type only so those call sites keep compiling; new callers
+   * should pass `label` instead.
+   */
+  tone?: OverviewMetricCardData["trendDirection"];
+  /**
+   * What this line is of. Carries the accessible name: "a chart" tells a
    * screen-reader user nothing about which metric they are on.
    */
-  label: string;
+  label?: string;
   unit?: ChartUnit;
   loading?: boolean;
   className?: string;
@@ -209,9 +216,10 @@ export function MiniTrendAreaChart({
    *
    * The SVG was `aria-hidden` and the only way to read a point was a pointer
    * tooltip, so the trend did not exist for anyone not using a mouse. The
-   * summary states arithmetic -- first, last, lowest, highest -- and no
-   * verdict, because the chart has no basis for one.
+   * summary states arithmetic — first, last, lowest, highest — and no verdict,
+   * because the chart has no basis for one.
    */
+  const chartName = label && label.trim() ? label : "Trend";
   const fmt = (value: number) =>
     valueFormatter ? valueFormatter(value) : formatCompactValue(value);
   const first = points[0];
@@ -219,7 +227,7 @@ export function MiniTrendAreaChart({
   const lowest = points.reduce((a, b) => (b.value < a.value ? b : a), points[0]);
   const highest = points.reduce((a, b) => (b.value > a.value ? b : a), points[0]);
   const accessibleSummary =
-    `${label} over ${points.length} points. ` +
+    `${chartName} over ${points.length} points. ` +
     `Starts ${fmt(first.value)} on ${formatPointLabel(first.date, dateLabelMode)}, ` +
     `ends ${fmt(last.value)} on ${formatPointLabel(last.date, dateLabelMode)}. ` +
     `Lowest ${fmt(lowest.value)}, highest ${fmt(highest.value)}.` +
@@ -271,10 +279,7 @@ export function MiniTrendAreaChart({
       */}
       <span className="sr-only" data-chart-summary="true">
         {accessibleSummary} Data points:{" "}
-        {points
-          .map((point) => `${point.date}: ${fmt(point.value)}`)
-          .join("; ")}
-        .
+        {points.map((point) => `${point.date}: ${fmt(point.value)}`).join("; ")}.
       </span>
       <span aria-live="polite" className="sr-only">
         {hoverIndex !== null
@@ -310,13 +315,13 @@ export function MiniTrendAreaChart({
       >
         <defs>
           {/*
-            One neutral line for every metric.
-            
-            This used to fade blue into emerald, so a rising CPA and rising
+            Triple-Whale-calm sparkline: one thin horizontal line carries the
+            trend; no area fill, muted baseline.
+
+            It used to fade blue into emerald, so a rising CPA and rising
             revenue were drawn identically and both read as "good". The chart
-            has no trustworthy per-metric direction to colour from -- the prop
-            it accepted for that was dropped on the floor -- so it states the
-            shape and lets the numbers beside it carry the meaning.
+            has no trustworthy per-metric direction to colour from, so it
+            states the shape and lets the numbers beside it carry the meaning.
           */}
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="#2F6BFF" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bell, Building2, ChevronsUpDown, Menu, Search } from "lucide-react";
 import {
   DateRangePicker,
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { OVERVIEW_COMPARISON_PRESETS } from "@/lib/comparison-preset-contract";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { getTranslations } from "@/lib/i18n";
@@ -155,6 +156,7 @@ export function AppTopbar({
   notifications?: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const sync = useWorkspaceSyncState();
@@ -189,29 +191,33 @@ export function AppTopbar({
           <Menu className="h-[15px] w-[15px]" aria-hidden="true" />
         </button>
 
-        {/* The shell contract asks every frame to expose brand, business and
-            platform regions by name; the v2 chrome has all three, so it carries
-            the same hooks rather than renaming the contract. */}
-        <span className="ad-console-business contents">
-          <BusinessControl />
-        </span>
+        <BusinessControl />
 
         <span className="adv-topbar-divider hidden sm:block" />
 
-        {/* The picker is main's, which drops the four comparison presets the
-            server never computed. Its v2 trigger variant is not ported yet, so
-            the chips render in the default layout. */}
+        {/* The design moved the range control out of the page and into the
+            shell, so the "offer only what this route reads" rule has to be
+            enforced here. Overview's route types CompareMode as
+            "none" | "previous_period"; offering previousYear on it would put a
+            year-over-year label on a previous-period delta. */}
         <DateRangePicker
+          variant="v2"
           value={dateRange}
           onChange={setDateRange}
           testId="shell-date-range-picker"
           label="Date range"
           referenceDate={workspaceReferenceDate}
           timeZoneLabel={workspaceTimeZone}
+          comparisonPresets={
+            pathname === "/overview" ? OVERVIEW_COMPARISON_PRESETS : undefined
+          }
         />
 
         <span className="flex-1" />
 
+        {/* The design's own control is the palette trigger; when the frame
+            hands down the working entity search it takes the same slot rather
+            than sitting beside a second search affordance. */}
         {search ? (
           <div className="adv-search-slot">{search}</div>
         ) : (

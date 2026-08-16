@@ -41,9 +41,8 @@ describe("MetaLaunchpadPage", () => {
 
     expect(html).toContain('data-testid="launchpad-account-required"');
     expect(html).toContain("Launchpad · read-only");
-    expect(html).toContain(
-      "Guarded write surface — everything launches PAUSED",
-    );
+    expect(html).toContain("Meta · Guarded write surface");
+    expect(html).toContain("Everything launches PAUSED");
     expect(html).toContain("Select one assigned Meta ad account");
     expect(html).not.toContain("From Decision");
     expect(html).not.toContain("New Campaign");

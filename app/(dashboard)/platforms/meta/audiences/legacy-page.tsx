@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Clock3, FileLock2, ShieldCheck, UsersRound } from "lucide-react";
+import { StudioTabRow } from "@/components/creatives/StudioTabRow";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
@@ -42,11 +43,12 @@ export default function MetaAudiencesPage() {
 
   return (
     <main
-      className="ad-final px-4 py-4"
+      className="ad-final"
       data-testid="audiences-studio-page"
       data-audience-state="contract_blocked"
     >
-      <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
+          <StudioTabRow active="audiences" />
         <header className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
@@ -64,11 +66,6 @@ export default function MetaAudiencesPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creatives", routeScope)}>Assets</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/copies", routeScope)}>Copy</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/landing-pages", routeScope)}>Landing pages</Link>
-              <Link className="btn btn--sm" href={buildMetaScopedHref("/platforms/meta/creative-inbox", routeScope)}>Inbox</Link>
-              <span className="btn btn--sm btn--primary" aria-current="page">Audiences</span>
             </div>
           </div>
         </header>
@@ -77,7 +74,7 @@ export default function MetaAudiencesPage() {
           <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]" data-testid="audience-readiness-ledger">
             <div className="flex items-start justify-between gap-4">
               <div className="px-4 py-3">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                   Readiness ledger
                 </div>
                 <h2 className="mt-1 text-[15px] font-semibold text-[var(--ink)]">No live audience contract</h2>
@@ -86,7 +83,7 @@ export default function MetaAudiencesPage() {
             </div>
             <div className="hidden overflow-x-auto border-t border-[var(--border)] md:block">
               <div className="min-w-[620px]">
-                <div className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 bg-[var(--surface-2)] px-4 py-2 text-[12px] font-semibold uppercase text-[var(--muted)]">
+                <div className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 bg-[var(--surface-2)] px-4 py-2 text-[10px] font-semibold uppercase text-[var(--muted)]">
                   <span>Contract</span><span>State</span><span>Current evidence</span>
                 </div>
                 {audienceReadiness.map((item) => (
@@ -108,7 +105,7 @@ export default function MetaAudiencesPage() {
                     <strong className="text-[12.5px] font-semibold text-[var(--ink)]">
                       {item.contract}
                     </strong>
-                    <span className="shrink-0 text-[12px] font-medium text-[var(--warn)]">
+                    <span className="shrink-0 text-[11.5px] font-medium text-[var(--warn)]">
                       {item.status}
                     </span>
                   </div>

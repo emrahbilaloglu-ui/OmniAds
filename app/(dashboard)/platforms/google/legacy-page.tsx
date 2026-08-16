@@ -1,70 +1,25 @@
 "use client";
 
-import { useAppStore } from "@/store/app-store";
-import { useIntegrationsStore } from "@/store/integrations-store";
-import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
-import { isDemoBusinessSelected } from "@/lib/business-mode";
-import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
-import { LoadingSkeleton } from "@/components/states/loading-skeleton";
-import { GoogleAdsIntelligenceDashboard } from "@/components/google-ads/GoogleAdsIntelligenceDashboard";
-import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { GoogleWorkspaceScreen } from "@/components/google-ads/GoogleWorkspaceScreen";
 
-export default function GoogleAdsPage() {
-  const businesses = useAppStore((state) => state.businesses);
-  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const domains = useIntegrationsStore((state) =>
-    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
-  );
-
-  const businessId = selectedBusinessId ?? "";
-  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
-    selectedBusinessId ?? null
-  );
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
-
-  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const googleView = deriveProviderViewState(
-    "google",
-    domains?.google ?? buildDefaultProviderDomains().google
-  );
-  const hasGoogleAccess =
-    isDemoBusiness ||
-    googleView.isConnected ||
-    googleView.status === "action_required" ||
-    googleView.status === "degraded" ||
-    googleView.status === "needs_assignment";
-  const showBootstrapGuard =
-    !isDemoBusiness &&
-    (isBootstrapping ||
-      googleView.status === "loading_data" ||
-      (bootstrapStatus !== "ready" && !hasGoogleAccess));
-
-  if (showBootstrapGuard) {
-    return (
-      <div className="p-6">
-        <LoadingSkeleton rows={4} />
-      </div>
-    );
-  }
-
-  if (!hasGoogleAccess) {
-    return (
-      <div className="p-6">
-        <IntegrationEmptyState
-          providerLabel="Google Ads"
-          status={googleView.status === "action_required" ? "error" : "disconnected"}
-          title="Connect Google Ads to unlock intelligence"
-          description="Link your Google Ads account to see campaign performance, search intelligence, product return, Performance Max asset coverage, budget recommendations, and diagnostics."
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-full overflow-auto p-6">
-      <GoogleAdsIntelligenceDashboard businessId={businessId} />
-    </div>
-  );
+/**
+ * Google Ads — Overview.
+ *
+ * The route's render chain is
+ * `GoogleWorkspaceScreen` → `GoogleAdsIntelligenceDashboard`.
+ *
+ * `GoogleWorkspaceScreen` is only the connection gate: it decides whether a
+ * business is selected and whether Google is reachable, and holds no figures of
+ * its own. Every read that could date this surface — the campaign queries and
+ * the `/api/google-ads/status` read whose `freshness.scopes` supply the as-of —
+ * lives in `GoogleAdsIntelligenceDashboard`, so the Tier-0 `useTierZeroFreshness`
+ * call belongs there and is made exactly once, by it.
+ *
+ * Reporting a second time from this file would be worse than not reporting: the
+ * gate knows nothing about the age of the data, and as the outer component its
+ * effect runs last, so its "ready, age unknown" would overwrite the dashboard's
+ * measured reading on every mount.
+ */
+export default function GooglePlatformPage() {
+  return <GoogleWorkspaceScreen panel="summary" title="Overview" />;
 }

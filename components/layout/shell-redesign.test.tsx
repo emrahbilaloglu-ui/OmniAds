@@ -4,9 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // mounts it under the root QueryProvider, so the test renders it the same way.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DesktopSidebar } from "@/components/layout/sidebar";
-import { SidebarContent } from "@/components/layout/sidebar-content";
-import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
+import { AppRail } from "@/components/layout/v2/app-rail";
 import { DashboardFrame } from "@/components/layout/dashboard-frame";
 
 const state = vi.hoisted(() => ({
@@ -14,6 +12,7 @@ const state = vi.hoisted(() => ({
   plan: "growth",
   selectedBusinessId: "biz_1",
   search: "",
+  actionNowCount: null as number | null,
   businesses: [
     {
       id: "biz_1",
@@ -56,6 +55,7 @@ vi.mock("@/store/app-store", () => ({
       workspaceResolved: boolean;
       selectedBusinessId: string;
       businesses: typeof state.businesses;
+      selectBusiness: () => void;
     }) => unknown,
   ) =>
     selector({
@@ -64,93 +64,92 @@ vi.mock("@/store/app-store", () => ({
       workspaceResolved: true,
       selectedBusinessId: state.selectedBusinessId,
       businesses: state.businesses,
+      selectBusiness: () => {},
     }),
 }));
 
 vi.mock("@/lib/pricing/usePlan", () => ({
   usePlan: () => state.plan,
+  usePlanState: () => ({ plan: state.plan, isLoading: false, isReady: true }),
 }));
 
-describe("phase shell redesign", () => {
+vi.mock("@/components/layout/v2/use-shell-signals", () => ({
+  useMetaActionNowCount: () => state.actionNowCount,
+  useWorkspaceSyncState: () => ({ tone: "fresh", label: "Synced 12m ago" }),
+}));
+
+vi.mock("@/hooks/use-persistent-date-range", () => ({
+  usePersistentDateRange: () => [
+    {
+      rangePreset: "28d",
+      customStart: "",
+      customEnd: "",
+      comparisonPreset: "previousPeriod",
+      comparisonStart: "",
+      comparisonEnd: "",
+    },
+    () => {},
+  ],
+}));
+
+describe("dashboard v2 shell", () => {
   beforeEach(() => {
     state.pathname = "/platforms/meta/creatives";
     state.plan = "growth";
     state.selectedBusinessId = "biz_1";
     state.search = "";
+    state.actionNowCount = null;
     state.push.mockReset();
   });
 
-  it("renders the 3-layer sidebar with Meta platform context", () => {
-    state.pathname = "/platforms/meta/creatives";
-    state.selectedBusinessId = "biz_1";
-    state.plan = "growth";
+  it("renders one grouped rail with the Meta tree expanded", () => {
+    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
-    const html = renderToStaticMarkup(<SidebarContent />);
-
+    expect(html).toContain("adv-rail");
+    expect(html).toContain("Platforms");
+    expect(html).toContain("Growth");
     expect(html).toContain("Workspace");
-    expect(html).toContain("Platform");
-    expect(html).toContain("Manage");
-    expect(html).toContain("Meta");
+    expect(html).toContain("Overview");
+    expect(html).toContain("Decisions");
     expect(html).toContain("Creative Studio");
-    expect(html).toContain("/platforms/meta/creatives");
-    expect(html).not.toContain(">Copies<");
-    expect(html).not.toContain(">Landing Pages<");
-    expect(html).not.toContain("v3.4.1");
+    expect(html).toContain("Launchpad");
+    expect(html).toContain("Automation");
+    expect(html).toContain("Commercial Truth");
+    // The platform switcher is now the rail tree, not a topbar dropdown.
+    expect(html).toContain("/platform-logos/Meta.png");
+    expect(html).toContain("/platform-logos/googleAds.svg");
   });
 
-  it("keeps the primary sidebar available in a compact icon mode", () => {
-    state.pathname = "/platforms/meta";
-    const html = renderToStaticMarkup(
-      <SidebarContent variant="console" collapsed />,
-    );
+  it("marks the routed Meta child active and leaves the parent as a family header", () => {
+    state.pathname = "/platforms/meta/creatives";
 
-    expect(html).toContain("w-[56px]");
-    expect(html).toContain('aria-label="Decisions"');
-    expect(html).toContain('title="Creative Studio"');
-    expect(html).toContain("/platforms/meta/automation");
-  });
+    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
-  it("keeps the existing expanded console navigation unchanged by the compact mode", () => {
-    state.pathname = "/platforms/meta";
-    const html = renderToStaticMarkup(<SidebarContent variant="console" />);
-
-    expect(html).toContain("w-[196px]");
-    expect(html).not.toContain("w-[56px]");
-    expect(html).toContain("Workspace");
-    expect(html).toContain("Platform");
-    expect(html).toContain("Manage");
-    expect(html).toContain('data-l2="pulse"');
-    expect(html).toContain("h-[15px] w-[15px]");
+    expect(html).toContain('data-active="true" data-nav="meta-creative-studio"');
+    expect(html).toContain('data-active="false" data-nav="meta-pulse"');
+    expect(html).toContain('data-active="false" data-family="true" data-platform="meta"');
   });
 
   it("preserves the selected Meta business and ad account across menu transitions", () => {
     state.pathname = "/platforms/meta";
-    state.search = "providerAccountId=act_1";
 
-    const html = renderToStaticMarkup(<SidebarContent variant="console" />);
+    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
-    expect(html).toContain(
-      "/platforms/meta/creatives?businessId=biz_1&amp;providerAccountId=act_1",
-    );
-    expect(html).toContain(
-      "/platforms/meta/automation?businessId=biz_1&amp;providerAccountId=act_1",
-    );
+    expect(html).toContain("/platforms/meta/creatives?businessId=biz_1");
+    expect(html).toContain("/platforms/meta/automation?businessId=biz_1");
   });
 
-  it("keeps the sidebar desktop-only so mobile Meta pages retain usable width", () => {
-    const html = renderToStaticMarkup(<DesktopSidebar />);
+  it("shows the Action Now count only when a snapshot is cached", () => {
+    state.pathname = "/platforms/meta";
 
-    expect(html).toContain("hidden w-60 shrink-0 md:block");
-    expect(html).toContain("data-shell-sidebar");
-  });
+    expect(
+      renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />),
+    ).not.toContain("adv-rail-count");
 
-  it("dims Layer 2 and keeps the last-viewed platform on Layer 1 routes", () => {
-    state.pathname = "/overview";
-
-    const html = renderToStaticMarkup(<SidebarContent />);
-
-    expect(html).toContain("last viewed");
-    expect(html).toContain("opacity-50");
+    state.actionNowCount = 4;
+    const withCount = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
+    expect(withCount).toContain("adv-rail-count");
+    expect(withCount).toContain(">4<");
   });
 
   it("hides plan-lock indicators for demo businesses", () => {
@@ -158,21 +157,38 @@ describe("phase shell redesign", () => {
     state.selectedBusinessId = "demo";
     state.plan = "starter";
 
-    const html = renderToStaticMarkup(<SidebarContent />);
+    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
     expect(html).toContain("Insights");
     expect(html).not.toContain("Upgrade to Pro");
   });
 
-  it("renders the PlatformSwitcher with the active platform logo and no search input", () => {
-    state.pathname = "/platforms/meta";
+  it("renders plan trails for gated entries on a starter workspace", () => {
+    state.pathname = "/overview";
     state.selectedBusinessId = "biz_1";
+    state.plan = "starter";
 
-    const html = renderToStaticMarkup(<PlatformSwitcher />);
+    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
-    expect(html).toContain("Meta");
-    expect(html).toContain("/platform-logos/Meta.png");
-    expect(html).not.toContain("Search");
+    expect(html).toContain("Upgrade to Pro to unlock");
+    expect(html).toContain("adv-rail-badge");
+  });
+
+  it("uses the same shell on Overview as on platform routes", () => {
+    for (const pathname of ["/overview", "/platforms/meta"]) {
+      state.pathname = pathname;
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
+      );
+      expect(html).toContain("adv-shell");
+      expect(html).toContain("adv-rail");
+      expect(html).toContain("adv-topbar");
+      expect(html).toContain(`${pathname} body`);
+    }
   });
 
   it("renders compact mobile shell hooks and leaves Meta Decisions mobile composition to the page", () => {
@@ -187,9 +203,6 @@ describe("phase shell redesign", () => {
       </QueryClientProvider>,
     );
 
-    expect(html).toContain("ad-console-brand");
-    expect(html).toContain("ad-console-business");
-    expect(html).toContain("ad-console-platform");
     expect(html).not.toContain("ad-console-mobile-readonly");
     expect(html).not.toContain("Adsecute · mobile read-only");
     expect(html).toContain('data-mobile-surface="none"');

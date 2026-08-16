@@ -1,6 +1,5 @@
 "use client";
 
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2742,19 +2741,6 @@ export function MetaPlatformPage({
   }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
-
-  // One freshness contract, reported from the query state this surface already
-  // has. Deriving it from a second read would create exactly the disagreement
-  // this replaces.
-  useTierZeroFreshness({
-    surface: "meta_decisions",
-    isLoading: briefingLoading,
-    isFetching: workspaceQuery.isFetching,
-    error: briefingError,
-    asOf: laneSnapshotDate,
-    businessId,
-    onRetry: () => void workspaceQuery.refetch(),
-  });
   const deferredCount =
     localDeferredIds.size +
     campaignDefer.deferredCount +
@@ -3314,15 +3300,16 @@ export function MetaPlatformPage({
       <div className={styles.metaOsDesktop} data-testid="meta-os-decisions">
         <header className={styles.osHeader}>
           <div className={styles.osIdentity}>
-            <span className={styles.osEyebrow}>Meta operating system</span>
+            <span className={styles.osEyebrow}>
+              {`Meta · ${
+                selectedProviderAccount?.name ??
+                selectedProviderAccount?.id ??
+                businessName ??
+                "Select an ad account"
+              }${moneyCurrency ? ` · ${moneyCurrency}` : ""}`}
+            </span>
             <div className={styles.osTitleRow}>
-              <h1>Decisions</h1>
-              <span>
-                {selectedProviderAccount?.name ??
-                  selectedProviderAccount?.id ??
-                  businessName ??
-                  "Select an ad account"}
-              </span>
+              <h1>Decision Center</h1>
             </div>
             <p data-testid="meta-queue-scope-note">
               {briefingLoading
@@ -4034,7 +4021,6 @@ export function MetaPlatformPage({
                   moneyCurrency={moneyCurrency}
                   targetRoas={targetRoas}
                   item={drillItem}
-                  asOf={laneSnapshotDate}
                   variant="push"
                   onClose={closeDrill}
                   onLaunch={
@@ -4166,7 +4152,6 @@ export function MetaPlatformPage({
           moneyCurrency={moneyCurrency}
           targetRoas={targetRoas}
           item={drillItem}
-          asOf={laneSnapshotDate}
           variant="overlay"
           onClose={closeDrill}
           onLaunch={

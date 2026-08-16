@@ -1,7 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
-import { useEffect, useRef} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ReportCanvas } from "@/components/reports/report-canvas";
 import type { RenderedReportPayload } from "@/lib/custom-reports";
@@ -22,18 +22,14 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
     enabled: Boolean(reportId),
   });
 
+  // Emitted at the print call, not on data arrival, and guarded so it fires
+  // once per mount: keyed on the payload it would count the report loading
+  // rather than anyone printing, and re-count on every refocus refetch.
   const printReported = useRef(false);
 
   useEffect(() => {
     if (!reportQuery.data) return;
     const timeoutId = window.setTimeout(() => {
-      // Section 9: the print path was taken.
-      //
-      // Emitted at the print call, not on data arrival, and guarded so it fires
-      // once per mount. It used to sit at the top of an effect keyed on the
-      // query payload, so it counted the report *loading* rather than anyone
-      // printing -- and re-counted on every refocus refetch, which on a page
-      // people leave open while a print dialog is up is not a rare event.
       if (!printReported.current) {
         printReported.current = true;
         emitProductInstrumentation({
@@ -54,7 +50,7 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
       {reportQuery.isLoading ? (
         <div className="rounded-lg border border-neutral-200 p-10 text-sm text-neutral-500">Preparing printable report...</div>
       ) : reportQuery.error ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
+        <div className="rounded-lg border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-8 text-sm text-[var(--adc-danger-fg)]">
           {reportQuery.error instanceof Error ? reportQuery.error.message : "Printable report failed."}
         </div>
       ) : reportQuery.data ? (

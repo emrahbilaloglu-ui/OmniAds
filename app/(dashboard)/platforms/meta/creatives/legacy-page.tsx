@@ -1,12 +1,11 @@
 "use client";
 
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { ExternalLink, ImageIcon, X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -366,9 +365,6 @@ export default function MetaCreativeStudioPage() {
     partialReason: briefingQuery.error
       ? "Creative briefs could not be read; this view is incomplete"
       : null,
-    // `source.asOf` is the client's own request parameter echoed back by the
-    // route, so it measures nothing. Use a timestamp the server actually
-    // observed, and say "age unknown" when there is none.
     // When the snapshot rows were computed. Not `source.asOf` (the client's
     // own request parameter echoed back) and not `asOfDate` (the calendar day
     // the rows describe) -- a date is not an instant, and using one made the
@@ -881,7 +877,7 @@ function ReadOnlyCreativeDrawer({
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-[520px] flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]">
         <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
               Read-only detail
             </p>
             <h2 className="mt-1 truncate text-[16px] font-semibold text-[var(--ink)]">{row.name}</h2>
@@ -916,7 +912,7 @@ function ReadOnlyCreativeDrawer({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-[13px] font-semibold text-[var(--ink)]">Server decision context</h3>
-                <p className="mt-1 text-[12px] text-[var(--muted)]">
+                <p className="mt-1 text-[11px] text-[var(--muted)]">
                   {decisionCard?.engineVersion ?? "Engine era unavailable"} · {decisionCard?.sourceAsOf ?? "as-of unavailable"}
                 </p>
               </div>
@@ -926,13 +922,13 @@ function ReadOnlyCreativeDrawer({
                 <span className="chip chip--ghost">No server badge</span>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] text-[var(--muted)]">
+            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
               <span className="chip chip--ghost">truth {decisionCard?.truthSource ?? "unavailable"}</span>
               <span className="chip chip--ghost">threshold {decisionCard?.thresholdQuality ?? "unavailable"}</span>
               <span className="chip chip--ghost">source {decisionCard?.sourceDataSource ?? "unavailable"}</span>
             </div>
             {winnerQualification.candidate && !winnerQualification.qualified ? (
-              <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-2.5 py-2 text-[12px] leading-4 text-[var(--warn)]">
+              <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--warn)]">
                 {winnerQualification.explanation}
               </p>
             ) : null}
@@ -945,7 +941,7 @@ function ReadOnlyCreativeDrawer({
             <div className="grid grid-cols-2 gap-2">
               {metrics.map(([label, value]) => (
                 <div key={label} className="rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
                   <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--ink)]">{value}</p>
                 </div>
               ))}
@@ -978,7 +974,7 @@ function ReadOnlyCreativeDrawer({
               onBriefChanged={onCreativeBriefChanged}
             />
           ) : (
-            <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3 text-[12px] leading-4 text-[var(--muted)]">
+            <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3 text-[11px] leading-4 text-[var(--muted)]">
               <h3 className="text-[13px] font-semibold text-[var(--ink)]">Creative Brief</h3>
               <p className="mt-1">
                 {creativeBriefState === "error"
@@ -1080,7 +1076,7 @@ function ShareSnapshotModal({
           </button>
         </div>
 
-        <div className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
+        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
           {selectedCount} creative{selectedCount === 1 ? "" : "s"} selected.
         </div>
 
@@ -1105,7 +1101,7 @@ function ShareSnapshotModal({
           })}
         </div>
 
-        <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[12px] leading-[1.55] text-[var(--adc-ink2,#4a4f56)]">
+        <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[11.5px] leading-[1.55] text-[var(--adc-ink2,#4a4f56)]">
           {activeNote}
         </div>
 
@@ -1130,17 +1126,17 @@ function ShareSnapshotModal({
           Allow CSV download
         </label>
 
-        <div className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
+        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
           Decision language: <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{decisionLanguageState}</b>
         </div>
 
         {shareError ? (
-          <div className="rounded-[8px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-3 py-2 text-[12px] text-[var(--adc-danger-fg,#a6224a)]">
+          <div className="rounded-[8px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-3 py-2 text-[11.5px] text-[var(--adc-danger-fg,#a6224a)]">
             {shareError}
           </div>
         ) : null}
         {shareUrl ? (
-          <div className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[12px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]" title={shareUrl}>
+          <div className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[11.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]" title={shareUrl}>
             {shareUrl}
           </div>
         ) : null}

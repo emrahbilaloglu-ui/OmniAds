@@ -1,6 +1,7 @@
 "use client";
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import {
   AlertTriangle,
   Archive,
@@ -481,7 +482,6 @@ function HistoryFilters({
 }
 
 export default function MetaHistoryView() {
-
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
@@ -499,10 +499,17 @@ export default function MetaHistoryView() {
   const [newerPageCursors, setNewerPageCursors] = useState<Array<string | null>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  // Whole journal sources are dropped while their migrations are pending, and
+  // the route says so in its limitations. A journal missing sources is
+  // incomplete, not settled, so it must not read as the full record.
+  const omittedSources =
+    payload?.limitations.some(
+      (limitation) => limitation.code === "optional_source_unavailable",
+    ) ?? false;
 
   // One freshness contract across every Tier-0 surface. Derived from the
   // state this surface already has, so it cannot drift from what is on screen.
@@ -515,12 +522,17 @@ export default function MetaHistoryView() {
     // assigned" while the bar said "ready" -- a configuration problem
     // presented as a settled fact.
     isLoading: (loading || accountsLoading) && !payload,
-    isFetching: loading || accountsLoading,
+    isFetching: loading || accountsLoading || loadingMore,
     error: error ?? accountsError,
-    // The journal is a cursor read, so the newest entry it returned is the
-    // honest as-of. Claiming "now" would overstate what we fetched.
-    asOf: entries[0]?.occurredAt ?? null,
+    // The journal is a cursor read, so the newest entry it served is the
+    // honest as-of. Claiming "now" would report the age of the request rather
+    // than the age of the record; measuredAsOf refuses anything that is not an
+    // instant, so a malformed row leaves the age unknown instead of guessing.
+    asOf: measuredAsOf(entries[0]?.occurredAt ?? null),
     businessId: payload?.scope.businessId ?? selectedBusinessId ?? null,
+    partialReason: omittedSources
+      ? "Optional workflow sources are omitted from this journal"
+      : null,
     // The journal already knows how to re-read itself; without this the
     // surface named a terminal failure and offered no way out of it.
     onRetry: () => setReloadToken((value) => value + 1),
@@ -570,11 +582,7 @@ export default function MetaHistoryView() {
         if (!controller.signal.aborted) setAccountsLoading(false);
       });
     return () => controller.abort();
-    // reloadToken is a dependency so the freshness retry re-runs this read too.
-    // Without it, a failed accounts fetch was reported as an error with a
-    // retry button that could only ever re-run the entries fetch -- a control
-    // that says the system is trying when it is not.
-  }, [business?.timezone, selectedBusinessId, reloadToken]);
+  }, [business?.timezone, selectedBusinessId]);
 
   const requestFilters = useMemo<MetaHistoryClientFilters>(
     () =>

@@ -120,7 +120,7 @@ describe("MetaAutomationView", () => {
     );
 
     expect(html).toContain("Automation");
-    expect(html).toContain("Stage B");
+    expect(html).toContain("Meta · Supervision control plane");
     expect(html).toContain("Effective authority");
     expect(html).toContain("Evidence");
     expect(html).toContain("Guardrails");

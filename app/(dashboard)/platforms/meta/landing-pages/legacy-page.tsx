@@ -224,7 +224,8 @@ export default function LandingPagesPage() {
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateRangePicker
+            showComparisonTrigger={false} value={dateRange} onChange={setDateRange} />
           <label className="relative block min-w-[260px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--adc-ink3,#7d838c)]" />
             <input

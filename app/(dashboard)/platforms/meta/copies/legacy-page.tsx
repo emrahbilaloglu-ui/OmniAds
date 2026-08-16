@@ -31,6 +31,7 @@ import { formatMoney } from "@/components/creatives/money";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { useAppStore } from "@/store/app-store";
+import { deltaSentiment, getMetricDirection } from "@/lib/metric-semantics";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
@@ -175,6 +176,20 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Whether a delta is good news is a property of the metric, not of its sign.
+ * Colouring by sign alone paints a rising CPA green.
+ */
+function toneForDelta(
+  metricKey: string,
+  changeValue: number,
+): "pos" | "neg" | "muted" {
+  const sentiment = deltaSentiment(getMetricDirection(metricKey), changeValue);
+  if (sentiment === "positive") return "pos";
+  if (sentiment === "negative") return "neg";
+  return "muted";
 }
 
 export default function CopiesPage() {
@@ -1141,7 +1156,7 @@ function CopyCompareOverlay({
     const diff = row.roas - baseline.roas;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}x`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta("roas", diff),
     };
   };
 
@@ -1154,7 +1169,7 @@ function CopyCompareOverlay({
     // Higher CPA is worse.
     return {
       text: `${diff >= 0 ? "+" : "−"}${money(row, Math.abs(diff))}`,
-      tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const) : ("muted" as const),
+      tone: toneForDelta("cpa", diff),
     };
   };
 
@@ -1177,7 +1192,7 @@ function CopyCompareOverlay({
     const diff = value - base;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}pt`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta("ctr", diff),
     };
   };
 

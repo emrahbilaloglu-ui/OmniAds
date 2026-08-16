@@ -307,7 +307,8 @@ export default function AnalyticsPage() {
       {/* Controls bar */}
       <section className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
         <div className="flex flex-wrap items-center gap-3">
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateRangePicker
+            showComparisonTrigger={false} value={dateRange} onChange={setDateRange} />
         </div>
       </section>
 

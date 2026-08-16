@@ -757,6 +757,7 @@ export default function IntegrationsPage() {
                   <IntegrationsCard
                     key={item.provider}
                     provider={item.provider}
+                    businessId={selectedBusinessId}
                     language={language}
                     description={DESCRIPTIONS[item.provider]}
                     view={item.view}

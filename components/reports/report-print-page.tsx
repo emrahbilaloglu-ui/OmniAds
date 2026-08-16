@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useQuery } from "@tanstack/react-query";
 import { ReportCanvas } from "@/components/reports/report-canvas";
 import type { RenderedReportPayload } from "@/lib/custom-reports";
@@ -21,9 +22,26 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
     enabled: Boolean(reportId),
   });
 
+  // Emitted at the print call, not on data arrival, and guarded so it fires
+  // once per mount: keyed on the payload it would count the report loading
+  // rather than anyone printing, and re-count on every refocus refetch.
+  const printReported = useRef(false);
+
   useEffect(() => {
     if (!reportQuery.data) return;
-    const timeoutId = window.setTimeout(() => window.print(), 250);
+    const timeoutId = window.setTimeout(() => {
+      if (!printReported.current) {
+        printReported.current = true;
+        emitProductInstrumentation({
+          eventName: "report_print_opened",
+          surface: "reports",
+          outcome: "ok",
+          scope: "business",
+          businessId: reportQuery.data?.businessId ?? null,
+        });
+      }
+      window.print();
+    }, 250);
     return () => window.clearTimeout(timeoutId);
   }, [reportQuery.data]);
 

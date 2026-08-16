@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bell, Building2, ChevronsUpDown, Menu, Search } from "lucide-react";
 import {
   DateRangePicker,
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { OVERVIEW_COMPARISON_PRESETS } from "@/lib/comparison-preset-contract";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { getTranslations } from "@/lib/i18n";
@@ -155,6 +156,7 @@ export function AppTopbar({
   notifications?: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const sync = useWorkspaceSyncState();
@@ -193,13 +195,22 @@ export function AppTopbar({
 
         <span className="adv-topbar-divider hidden sm:block" />
 
+        {/* The design moved the range control out of the page and into the
+            shell, so the "offer only what this route reads" rule has to be
+            enforced here. Overview's route types CompareMode as
+            "none" | "previous_period"; offering previousYear on it would put a
+            year-over-year label on a previous-period delta. */}
         <DateRangePicker
+          variant="v2"
           value={dateRange}
           onChange={setDateRange}
           testId="shell-date-range-picker"
           label="Date range"
           referenceDate={workspaceReferenceDate}
           timeZoneLabel={workspaceTimeZone}
+          comparisonPresets={
+            pathname === "/overview" ? OVERVIEW_COMPARISON_PRESETS : undefined
+          }
         />
 
         <span className="flex-1" />

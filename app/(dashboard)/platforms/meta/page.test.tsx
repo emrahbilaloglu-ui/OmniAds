@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import MetaPage from "@/app/(dashboard)/platforms/meta/page";
+import MetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
   BusinessEmptyState: () => React.createElement("div", null, "business-empty"),

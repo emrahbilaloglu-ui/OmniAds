@@ -135,6 +135,14 @@ function MiniChart({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [tooltipPixel, setTooltipPixel] = useState<{ x: number; y: number } | null>(null);
 
+  // With the other hooks: below the empty-series return this fires only on
+  // some renders, which is a hook-order violation React tears the tree down for.
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIdx(null);
+    setTooltipPixel(null);
+  }, []);
+
+
   const activeSeries = series?.length ? series : [{ key: "default", label: "", color: "#2563eb", points }];
   if (!activeSeries.some((item) => item.points.length > 0)) {
     return <div className="text-xs text-muted-foreground">No chart data yet.</div>;
@@ -158,11 +166,6 @@ function MiniChart({
     val,
     y: PAD_TOP + chartH - (val / niceMax) * chartH,
   }));
-
-  const handleMouseLeave = useCallback(() => {
-    setHoveredIdx(null);
-    setTooltipPixel(null);
-  }, []);
 
   if (tone === "bar") {
     const labels = activeSeries[0]?.points.map((p) => p.label) ?? [];

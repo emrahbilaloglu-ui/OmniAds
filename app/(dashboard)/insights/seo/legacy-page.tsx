@@ -255,7 +255,8 @@ export default function SeoIntelligencePage() {
         <>
           <section className="rounded-xl border border-[var(--adv-border)] bg-white p-3">
             <div className="flex flex-wrap items-center gap-3">
-              <DateRangePicker value={dateRange} onChange={setDateRange} />
+              <DateRangePicker
+            showComparisonTrigger={false} value={dateRange} onChange={setDateRange} />
             </div>
           </section>
 

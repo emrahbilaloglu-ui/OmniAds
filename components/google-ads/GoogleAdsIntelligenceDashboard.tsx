@@ -102,6 +102,14 @@ import { emitProductInstrumentation } from "@/lib/product-instrumentation-client
 import { MISSING_VALUE } from "@/lib/metric-format";
 import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
 import {
+  buildNegativeKeywordList,
+  buildSearchTermCsv,
+} from "@/lib/google-ads/search-term-export";
+import {
+  compareModeForPreset,
+  customComparisonIsComplete,
+} from "@/lib/comparison-preset-contract";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -376,6 +384,46 @@ function buildGoogleAdsDataQueryParams(input: {
   return params;
 }
 
+
+/**
+ * The escape hatch reports its own result.
+ *
+ * What the copy and CSV buttons are for is that an operator can take the work
+ * out of the product when the product cannot help. Hardcoding `outcome: "ok"`
+ * would make the metric answer "was the button clicked" instead, so the hatch
+ * would look healthiest in exactly the browsers where it silently does nothing.
+ */
+async function reportGoogleEscapeHatch(input: {
+  eventName: "google_copy_used" | "google_csv_used";
+  businessId: string;
+  itemCount: number;
+  run: () => Promise<unknown>;
+}) {
+  try {
+    await input.run();
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "ok",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  } catch {
+    // Failed, not withheld: withheld means we chose not to, and we tried.
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "failed",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  }
+}
+
 export function GoogleAdsIntelligenceDashboard({
   businessId,
   panel,
@@ -486,7 +534,19 @@ export function GoogleAdsIntelligenceDashboard({
           dateRange.customStart,
           dateRange.customEnd
         );
-  const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+  // The comparison the operator actually picked. This used to turn every
+  // non-"none" choice into `previous_period`, so "Previous year" produced a
+  // previous-period delta wearing a year-over-year label.
+  const compareMode = compareModeForPreset(dateRange.comparisonPreset);
+  // A custom comparison without both ends has no baseline; showing a delta
+  // against a guessed window would be the same substitution in a new place.
+  const comparisonWindowReady =
+    compareMode !== "custom" ||
+    customComparisonIsComplete({
+      comparisonStart: dateRange.comparisonStart,
+      comparisonEnd: dateRange.comparisonEnd,
+    });
+  const effectiveCompareMode = comparisonWindowReady ? compareMode : "none";
   const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
@@ -520,9 +580,9 @@ export function GoogleAdsIntelligenceDashboard({
     isError,
     refetch: refetchCampaigns,
   } = useQuery<CampaignsResponse>({
-    queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
+    queryKey: ["gads-campaigns", businessId, startDate, endDate, effectiveCompareMode],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode });
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode: effectiveCompareMode });
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
       return res.json();
@@ -849,7 +909,7 @@ export function GoogleAdsIntelligenceDashboard({
     return map;
   }, [budgetData?.rows]);
 
-  const comparisonOn = compareMode !== "none";
+  const comparisonOn = effectiveCompareMode !== "none";
   const prevSpend = comparisonOn
     ? previousTotalFrom(sortedRows, (row) => row.spend, (row) => row.spendChange)
     : null;
@@ -1808,6 +1868,57 @@ export function GoogleAdsIntelligenceDashboard({
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
+                    <button
+                      type="button"
+                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+                      title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
+                      onClick={() => {
+                        // Reported from the clipboard's own result: a browser
+                        // with no Clipboard API, or a denied permission, must
+                        // not record a clean success for a copy that never
+                        // happened.
+                        void reportGoogleEscapeHatch({
+                          eventName: "google_copy_used",
+                          businessId,
+                          itemCount: searchTermNegativeRows.length,
+                          run: () => {
+                            if (!navigator.clipboard?.writeText) {
+                              return Promise.reject(new Error("clipboard_unavailable"));
+                            }
+                            return navigator.clipboard.writeText(
+                              buildNegativeKeywordList(searchTermNegativeRows, "phrase"),
+                            );
+                          },
+                        });
+                      }}
+                    >
+                      Copy negatives
+                    </button>
+                    <button
+                      type="button"
+                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
+                      title="Download the scoped search terms as CSV"
+                      onClick={() => {
+                        void reportGoogleEscapeHatch({
+                          eventName: "google_csv_used",
+                          businessId,
+                          itemCount: scopedSearchTerms.length,
+                          run: async () => {
+                            const csv = buildSearchTermCsv(scopedSearchTerms);
+                            const url = URL.createObjectURL(
+                              new Blob([csv], { type: "text/csv;charset=utf-8" }),
+                            );
+                            const anchor = document.createElement("a");
+                            anchor.href = url;
+                            anchor.download = "search-terms.csv";
+                            anchor.click();
+                            URL.revokeObjectURL(url);
+                          },
+                        });
+                      }}
+                    >
+                      Download CSV
+                    </button>
                     {scopedSearchTerms.length > 0 ? (
                       <span className="inline-flex items-center gap-1.5">
                         <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">

@@ -156,7 +156,7 @@ describe("OverviewPage timezone date selection", () => {
   });
 
   it("uses workspace timezone for overview preset resolution and picker props", async () => {
-    const { default: OverviewPage } = await import("@/app/(dashboard)/overview/page");
+    const { default: OverviewPage } = await import("@/app/(dashboard)/overview/legacy-page");
 
     renderToStaticMarkup(React.createElement(OverviewPage));
 

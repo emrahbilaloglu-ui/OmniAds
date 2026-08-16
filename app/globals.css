@@ -10059,3 +10059,18 @@
 [data-ops-content] :is(th, td) {
   border-color: var(--ledger-border-subtle) !important;
 }
+
+/* The desktop page header gives its identity column a 360px flex basis so
+   actions wrap predictably. On phones the header becomes a column, where that
+   same basis is interpreted as height and leaves a 360px hole above the
+   actions. Reset the main-axis basis after the direction change. */
+@media (max-width: 767px) {
+  .adv-page-head > :first-child {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+
+  .adv-page-head > :last-child:not(:first-child) {
+    width: 100%;
+  }
+}

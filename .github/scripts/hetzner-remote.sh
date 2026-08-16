@@ -787,6 +787,34 @@ deploy_scheduler_pause() {
   return 0
 }
 
+# Pause without an in-process EXIT restore. The workflow owns this wider
+# window: it pauses every deploy host first, runs migrations only after all of
+# them are quiesced, then resumes every attempted host. Restoring here would
+# reopen the first host while the second host is still migrating.
+deploy_scheduler_pause_persistent() {
+  if ! command -v rootcron_pause >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered with this script; refusing to migrate without the scheduler quiesce"
+    return 1
+  fi
+  if [ "${DEPLOY_SKIP_SCHEDULER_QUIESCE:-false}" = "true" ]; then
+    log "DEPLOY_SKIP_SCHEDULER_QUIESCE=true; leaving the scheduler running deliberately"
+    return 0
+  fi
+  if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    log "A previous deploy left the Sync cron block parked; restoring it before establishing a new cross-host window"
+    rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  fi
+  rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}"
+}
+
+deploy_scheduler_resume_persistent() {
+  if ! command -v rootcron_resume >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered; scheduler restoration cannot be proven"
+    return 1
+  fi
+  rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}"
+}
+
 # Exit code for "the deploy itself was fine, but the scheduler is still down".
 DEPLOY_SCHEDULER_RESTORE_FAILED_STATUS=75
 
@@ -1945,6 +1973,14 @@ case "${phase}" in
     deliver_cutover_wrapper
     ;;
 
+  pause_scheduler)
+    assert_not_cutover_required
+    assert_no_cutover_in_progress
+    deploy_scheduler_pause_persistent
+    rootcron_assert_quiesced
+    log "Scheduler is quiesced on this host; leaving it parked for the workflow-owned migration window"
+    ;;
+
   run_migrations)
     # The cutover gate runs FIRST, before anything touches the running system.
     #
@@ -1956,21 +1992,21 @@ case "${phase}" in
     assert_not_cutover_required
     assert_no_cutover_in_progress
 
-    # Quiesce the SCHEDULER, not just the worker.
-    #
-    # Stopping the worker only ever closed half the race: the web container
-    # keeps serving and the root crontab keeps firing full sync runs straight
-    # into the migration window, whose per-business jobs hold the locks the DDL
-    # needs. Removing the managed cron block stops NEW runs from entering
-    # without touching public web serving, and every unrelated crontab line is
-    # preserved and digest-checked.
-    deploy_scheduler_pause
+    # The workflow pauses every deploy host before entering this phase. Check
+    # the live crontab again here so a prematurely restored or never-paused host
+    # fails closed before the worker or database is touched.
+    rootcron_assert_quiesced
 
     log "Stopping worker before migrations to reduce DB contention"
     docker compose stop worker || true
 
     log "Running migrations for ${DEPLOY_SHA}"
     run_migrations_service_with_contention_retry
+    ;;
+
+  resume_scheduler)
+    deploy_scheduler_resume_persistent
+    log "Scheduler restoration completed on this host"
     ;;
 
   recreate_services)

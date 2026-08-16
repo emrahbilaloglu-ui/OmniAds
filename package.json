@@ -138,7 +138,7 @@
     "test:ssh-multiplex-isolation": "bash scripts/ssh-multiplex-isolation-check.sh",
     "test:cutover-wrapper-identity": "bash scripts/cutover-wrapper-identity-check.sh",
     "test:cutover-runner-package": "bash scripts/cutover-runner-package-check.sh",
-    "test:deploy-registry-auth": "bash scripts/deploy-registry-auth-check.sh",
+    "test:deploy-registry-auth": "bash scripts/deploy-registry-auth-check.sh && bash scripts/rootcron-quiesce-harness.sh && bash scripts/migration-retry-trap-harness.sh && bash scripts/scheduler-restore-propagation-harness.sh && bash scripts/multi-host-migration-quiesce-harness.sh",
     "check:workflows": "node scripts/check-workflow-semantics.mjs",
     "check:release-owner": "bash scripts/check-release-owner-references.sh",
     "test:cutover-wrapper-package": "bash scripts/cutover-wrapper-package.sh verify",

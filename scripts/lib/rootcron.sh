@@ -111,6 +111,39 @@ rootcron_is_paused() {
   [ -s "${1}/rootcron.original" ]
 }
 
+# Prove that the managed block is absent from the live root crontab.
+#
+# This is intentionally independent of parked-state presence: a host with no
+# managed block is already quiesced and therefore has no rootcron.original.
+# The migration phase calls this after the workflow has paused every deploy
+# host, so a stale marker or a prematurely restored host cannot be mistaken for
+# a safe migration window.
+rootcron_assert_quiesced() {
+  _rc_assert_current="$(mktemp)"
+  _rc_assert_outside="$(mktemp)"
+  _rc_assert_block="$(mktemp)"
+
+  if ! rootcron_read > "${_rc_assert_current}"; then
+    rm -f "${_rc_assert_current}" "${_rc_assert_outside}" "${_rc_assert_block}"
+    return 1
+  fi
+
+  _rc_assert_split_rc=0
+  _rc_assert_start="$(rootcron_split "${_rc_assert_current}" "${_rc_assert_outside}" "${_rc_assert_block}")" \
+    || _rc_assert_split_rc=$?
+  rm -f "${_rc_assert_current}" "${_rc_assert_outside}" "${_rc_assert_block}"
+
+  if [ "${_rc_assert_split_rc}" -ne 0 ]; then
+    rootcron_die "the root crontab could not be proven quiesced (split exit ${_rc_assert_split_rc})"
+    return 1
+  fi
+  if [ "${_rc_assert_start}" != "-1" ]; then
+    rootcron_die "the managed Sync block is still live; refusing to migrate outside a cross-host quiesce window"
+    return 1
+  fi
+  return 0
+}
+
 # Hold the SHARED cutover lock for the length of a crontab mutation.
 #
 # The same file the cutover wrapper takes with `flock -n 9` and the deploy
@@ -296,7 +329,12 @@ _rootcron_resume_locked() {
   # It must still be exactly what we installed. Anything else means someone
   # edited the crontab while the _rc_block was out, and replaying the _rc_original
   # would discard their edit.
-  if [ -s "${_rc_filtered}" ] && ! cmp -s "${_rc_live}" "${_rc_filtered}"; then
+  if [ ! -e "${_rc_filtered}" ]; then
+    rm -f "${_rc_live}"
+    rootcron_die "the filtered crontab proof is missing; refusing to overwrite live scheduler state. The _rc_original is parked at ${_rc_original}."
+    return 1
+  fi
+  if ! cmp -s "${_rc_live}" "${_rc_filtered}"; then
     rm -f "${_rc_live}"
     rootcron_die "the root crontab changed while the Sync _rc_block was out; refusing to overwrite it. The _rc_original is parked at ${_rc_original}."
     return 1

@@ -390,7 +390,7 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
-          run_for_each_deploy_host run_remote_phase_on_host run_migrations
+          run_migrations_with_all_schedulers_paused
 
       - name: Recreate web and worker
         if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')

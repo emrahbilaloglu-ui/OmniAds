@@ -172,6 +172,85 @@ run_for_each_deploy_host() {
   fi
 }
 
+# One migration window across every host that can launch the Sync cron.
+#
+# `run_for_each_deploy_host ... run_migrations` is unsafe: the first remote
+# phase restores its own scheduler before the second host starts, reopening the
+# shared-database lock race. This coordinator records each attempted host
+# before pausing it, pauses all hosts before the first migration, and resumes
+# every attempted host even when a later pause or migration fails.
+run_migrations_with_all_schedulers_paused() {
+  local -a hosts=("${PRIMARY_DEPLOY_HOST}")
+  local -a labels=("primary")
+  local -a attempted_hosts=()
+  local -a attempted_labels=()
+  local status=0
+  local restore_status=0
+  local primary_identity="${PRIMARY_DEPLOY_HOST_IP:-${PRIMARY_DEPLOY_HOST}}"
+  local i
+
+  _resume_attempted_deploy_schedulers() {
+    local restore_i
+    # Resume in reverse order and keep going after a failure so one bad host
+    # cannot strand every other scheduler too.
+    for ((restore_i = ${#attempted_hosts[@]} - 1; restore_i >= 0; restore_i--)); do
+      if run_remote_phase_on_host "${attempted_hosts[$restore_i]}" "${attempted_labels[$restore_i]}" resume_scheduler; then
+        :
+      else
+        restore_status=75
+        echo "scheduler_restore_failed target=${attempted_labels[$restore_i]} (${attempted_hosts[$restore_i]})" >&2
+      fi
+    done
+  }
+
+  _migration_window_signal() {
+    local signal_status="$1"
+    trap - INT TERM
+    _resume_attempted_deploy_schedulers
+    exit "${signal_status}"
+  }
+
+  trap '_migration_window_signal 130' INT
+  trap '_migration_window_signal 143' TERM
+
+  if [ -n "${PUBLIC_DEPLOY_HOST_IP:-}" ] && [ "${PUBLIC_DEPLOY_HOST_IP}" != "${primary_identity}" ]; then
+    hosts+=("${PUBLIC_DEPLOY_HOST_IP}")
+    labels+=("public")
+  fi
+
+  for ((i = 0; i < ${#hosts[@]}; i++)); do
+    attempted_hosts+=("${hosts[$i]}")
+    attempted_labels+=("${labels[$i]}")
+    if run_remote_phase_on_host "${hosts[$i]}" "${labels[$i]}" pause_scheduler; then
+      :
+    else
+      status=$?
+      echo "scheduler_pause_failed target=${labels[$i]} (${hosts[$i]})" >&2
+      break
+    fi
+  done
+
+  if [ "${status}" -eq 0 ]; then
+    for ((i = 0; i < ${#hosts[@]}; i++)); do
+      if run_remote_phase_on_host "${hosts[$i]}" "${labels[$i]}" run_migrations; then
+        :
+      else
+        status=$?
+        echo "migration_failed target=${labels[$i]} (${hosts[$i]})" >&2
+        break
+      fi
+    done
+  fi
+
+  _resume_attempted_deploy_schedulers
+  trap - INT TERM
+
+  if [ "${status}" -ne 0 ]; then
+    return "${status}"
+  fi
+  return "${restore_status}"
+}
+
 sync_compose_to_host() {
   local target_host="$1"
   local target_label="$2"

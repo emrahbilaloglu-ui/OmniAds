@@ -435,6 +435,49 @@ else
   bad "the managed block was removed despite the refusal"
 fi
 
+# --- 21: an empty filtered crontab is still concurrency proof ---------------
+printf '%s\n' \
+  "# BEGIN adsecute-sync" \
+  "*/10 * * * * curl -fsS http://127.0.0.1:3000/api/sync/cron" \
+  "# END adsecute-sync" > "${CRONTAB_FILE}"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+only_block_original="$(cat "${CRONTAB_FILE}")"
+rootcron_pause "${STATE_DIR}" >/dev/null
+if [ ! -s "${CRONTAB_FILE}" ] && [ -e "${STATE_DIR}/rootcron.filtered" ]; then
+  ok "a crontab containing only the managed block produces a valid empty filtered proof"
+else
+  bad "the only-block crontab did not produce the expected empty live/proof pair"
+fi
+printf '%s\n' "0 6 * * * /usr/local/bin/operator-added-job" > "${CRONTAB_FILE}"
+rc21=0
+rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc21=$?
+if [ "${rc21}" -ne 0 ] && grep -q "operator-added-job" "${CRONTAB_FILE}"; then
+  ok "an edit to a valid empty filtered crontab is refused and preserved"
+else
+  bad "resume overwrote an edit because the filtered proof was zero bytes (rc=${rc21})"
+fi
+printf '%s\n' "${only_block_original}" > "${CRONTAB_FILE}"
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+
+# --- 22: migration admission proves the live block is absent ----------------
+reset_crontab
+rc22a=0
+rootcron_assert_quiesced >/dev/null 2>&1 || rc22a=$?
+if [ "${rc22a}" -ne 0 ]; then
+  ok "migration admission refuses while the managed block is live"
+else
+  bad "migration admission accepted a live Sync block"
+fi
+rootcron_pause "${STATE_DIR}" >/dev/null
+rc22b=0
+rootcron_assert_quiesced >/dev/null 2>&1 || rc22b=$?
+if [ "${rc22b}" -eq 0 ]; then
+  ok "migration admission accepts the verified filtered crontab"
+else
+  bad "migration admission rejected a genuinely quiesced host (rc=${rc22b})"
+fi
+rootcron_resume "${STATE_DIR}" >/dev/null
+
 if [ "${failures}" -ne 0 ]; then
   echo "FAILED: ${failures} case(s)"
   exit 1

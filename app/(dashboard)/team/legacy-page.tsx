@@ -80,7 +80,7 @@ const PERM_ROWS: Array<{ k: string; cells: [boolean, boolean, boolean, boolean] 
 ];
 
 const TH =
-  "bg-[var(--adv-fill)] px-4 py-[9px] text-left font-[family-name:var(--adv-font-mono)] text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--adv-ink-3)]";
+  "bg-[var(--adv-fill)] px-4 py-[9px] text-left font-[family-name:var(--adv-font-mono)] text-[12px] font-medium uppercase tracking-[0.1em] text-[var(--adv-ink-3)]";
 const TH_TIGHT = TH.replace("px-4", "px-3");
 
 const AVATAR_TONES = ["#2F6BFF", "#7C5CE6", "#0EA5A5", "#E0803A", "#D9475F"];
@@ -466,7 +466,7 @@ export default function TeamPage() {
                                 <span className="block truncate text-[13.5px] font-semibold text-[var(--adv-ink)]">
                                   {member.name || member.email}
                                 </span>
-                                <span className="block truncate text-[11.5px] text-[var(--adv-ink-3)]">
+                                <span className="block truncate text-[12px] text-[var(--adv-ink-3)]">
                                   {member.email}
                                 </span>
                               </span>
@@ -492,10 +492,10 @@ export default function TeamPage() {
                               —
                             </span>
                           </td>
-                          <td className="px-3 py-[11px] text-right text-[11.5px] text-[var(--adv-ink-4)]">
+                          <td className="px-3 py-[11px] text-right text-[12px] text-[var(--adv-ink-4)]">
                             —
                           </td>
-                          <td className="px-3 py-[11px] text-right text-[10.5px] text-[var(--adv-ink-4)]">
+                          <td className="px-3 py-[11px] text-right text-[12px] text-[var(--adv-ink-4)]">
                             {formatDay(member.joined_at)}
                           </td>
                           <td className="relative px-4 py-[11px] text-right">
@@ -629,7 +629,7 @@ export default function TeamPage() {
                         <p className="m-0 truncate text-[12.5px] font-semibold text-[var(--adv-ink)]">
                           {invite.email}
                         </p>
-                        <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-4)]">
+                        <p className="m-0 mt-0.5 text-[12px] text-[var(--adv-ink-4)]">
                           invited by {invite.invited_by_name ?? invite.invited_by_email ?? "—"} ·
                           expires {formatDay(invite.expires_at)}
                         </p>
@@ -680,7 +680,7 @@ export default function TeamPage() {
                       </div>
                     ))
                 )}
-                <p className="m-0 px-4 py-2.5 text-[10px] text-[var(--adv-ink-4)]">
+                <p className="m-0 px-4 py-2.5 text-[12px] text-[var(--adv-ink-4)]">
                   full audit trail lives in the Automation ledger
                 </p>
               </article>
@@ -711,7 +711,7 @@ export default function TeamPage() {
               ) : (
                 <>
                   <div className="mt-4">
-                    <p className="m-0 text-[11px] font-semibold text-[var(--adv-ink-3)]">
+                    <p className="m-0 text-[12px] font-semibold text-[var(--adv-ink-3)]">
                       Role in selected workspaces
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -735,7 +735,7 @@ export default function TeamPage() {
 
                   <div className="mt-4">
                     <div className="flex items-center justify-between">
-                      <p className="m-0 text-[11px] font-semibold text-[var(--adv-ink-3)]">
+                      <p className="m-0 text-[12px] font-semibold text-[var(--adv-ink-3)]">
                         Workspaces
                       </p>
                       <button

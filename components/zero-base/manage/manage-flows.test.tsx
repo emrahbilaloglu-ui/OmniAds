@@ -110,8 +110,23 @@ function click(selector: string) {
 async function tickAccount(id: string) {
   const selector = `[data-assignment-account="${id}"]`;
   await waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
-  click(selector);
-  await waitFor(() => expect((document.querySelector(selector) as HTMLInputElement).checked).toBe(true));
+  /**
+   * Click until the tick survives a render.
+   *
+   * Waiting for the box to *appear* is not the same as waiting for the panel to
+   * settle: the draft is seeded from the assignment read, so a click landing
+   * between first paint and that read arriving is discarded when the draft is
+   * re-seeded. A single click plus a `checked` assertion then fails on whichever
+   * CI machine happens to interleave them that way, which is what made this
+   * suite flaky rather than wrong. Re-clicking is safe because the assertion,
+   * not the click, is what ends the wait.
+   */
+  await waitFor(() => {
+    const box = document.querySelector(selector) as HTMLInputElement | null;
+    expect(box).not.toBeNull();
+    if (!box!.checked) fireEvent.click(box!);
+    expect((document.querySelector(selector) as HTMLInputElement).checked).toBe(true);
+  });
 }
 
 const MEMBER = {

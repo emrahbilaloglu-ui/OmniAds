@@ -769,9 +769,19 @@ deploy_scheduler_pause() {
   trap 'deploy_scheduler_resume_on_signal 143' TERM
 
   if ! rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}"; then
-    # Nothing was parked, so disarm rather than leave a trap that would report
-    # a restoration failure for a pause that never happened.
-    DEPLOY_SCHEDULER_PAUSED=0
+    # Disarm ONLY on proof that nothing is parked.
+    #
+    # `rootcron_pause` deliberately preserves the parked original when it
+    # removed the block but could not roll back, so clearing the flag on any
+    # failure would turn the pre-armed EXIT trap into a no-op while the
+    # scheduler was still absent -- the one state this whole mechanism exists
+    # to make impossible. Leaving it armed costs nothing when there is truly
+    # nothing to restore: resume is a no-op on an empty state dir.
+    if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+      log "ABORT the scheduler pause failed with the original still parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.original; recovery stays armed"
+    else
+      DEPLOY_SCHEDULER_PAUSED=0
+    fi
     return 1
   fi
   return 0
@@ -787,7 +797,7 @@ deploy_scheduler_resume() {
   if rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}"; then
     return 0
   fi
-  log "ABORT the Sync cron block could NOT be restored; production is running with no scheduler. It is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.block and must be restored by hand."
+  log "ABORT the Sync cron block could NOT be restored; production is running with no scheduler. It is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.original and must be restored by hand."
   return 1
 }
 

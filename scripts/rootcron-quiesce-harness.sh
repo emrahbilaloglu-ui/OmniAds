@@ -174,20 +174,16 @@ else
   bad "the original parked block was discarded while a different one was live"
 fi
 
-# --- 9: an IDENTICAL live block is a clean no-op ----------------------------
+# --- 9: a hand-restored crontab is a clean no-op ----------------------------
 reset_crontab
 rootcron_pause "${STATE_DIR}" >/dev/null
-# Restore by hand, byte-identical to what was parked.
-awk -v idx="$(cat "${STATE_DIR}/rootcron.index")" -v bf="${STATE_DIR}/rootcron.block" '
-  BEGIN{e=0} { if (NR-1==idx) { while((getline l < bf)>0) print l; close(bf); e=1 } print }
-  END{ if(!e){ while((getline l < bf)>0) print l; close(bf) } }
-' "${STATE_DIR}/rootcron.outside" > "${WORK}/manual" && mv "${WORK}/manual" "${CRONTAB_FILE}"
+cp "${STATE_DIR}/rootcron.original" "${CRONTAB_FILE}"
 rc9=0
 rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc9=$?
 if [ "${rc9}" -eq 0 ] && ! rootcron_is_paused "${STATE_DIR}"; then
-  ok "an identical live block clears the parked state without error"
+  ok "a crontab already matching the parked original clears state without error"
 else
-  bad "an identical live block was not handled cleanly (rc=${rc9})"
+  bad "a hand-restored crontab was not handled cleanly (rc=${rc9})"
 fi
 
 # --- 10: unwritable state dir must NOT touch the live crontab ---------------
@@ -353,6 +349,90 @@ if [ "${rc17}" -ne 0 ] && [ "$(cat "${CRONTAB_FILE}")" = "${original}" ]; then
   ok "a removal the daemon ignored is detected and rolled back byte-for-byte"
 else
   bad "an ignored removal was not detected or not rolled back (rc=${rc17})"
+fi
+
+# --- 18: rollback FAILS -> parked evidence survives for later recovery ------
+reset_crontab
+orig18="$(cat "${CRONTAB_FILE}")"
+_w18=0
+_realw() { cat > "${CRONTAB_FILE}"; }
+rootcron_write() {
+  _w18=$((_w18 + 1))
+  # 1 = the removal (succeeds). 2 = the rollback attempt (fails).
+  if [ "${_w18}" -eq 2 ]; then cat >/dev/null; return 1; fi
+  _realw
+}
+_r18=0
+_realr() { cat "${CRONTAB_FILE}" 2>/dev/null || true; }
+# Reads: 1 = initial, 2 = the pre-write concurrent-edit recheck, 3 = the
+# post-removal verification. Failing #3 is what puts us past the write with a
+# rollback still to attempt.
+rootcron_read() { _r18=$((_r18 + 1)); if [ "${_r18}" -eq 3 ]; then echo "crontab: transient" >&2; return 1; fi; _realr; }
+rc18=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc18=$?
+rootcron_write() { _realw; }; rootcron_read() { _realr; }
+if [ "${rc18}" -ne 0 ]; then
+  ok "pause fails when it removed the block and could not roll back"
+else
+  bad "pause reported success after a failed rollback"
+fi
+if rootcron_is_paused "${STATE_DIR}"; then
+  ok "the parked original survives as unmistakable evidence for recovery"
+else
+  bad "a failed rollback discarded the parked original"
+fi
+# The caller's EXIT recovery runs later and must succeed from that evidence.
+rc18b=0
+rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc18b=$?
+if [ "${rc18b}" -eq 0 ] && [ "$(cat "${CRONTAB_FILE}")" = "${orig18}" ]; then
+  ok "later EXIT recovery restores byte-for-byte from the parked evidence"
+else
+  bad "EXIT recovery could not restore from parked evidence (rc=${rc18b})"
+fi
+
+# --- 19: cleanup that cannot complete must FAIL the resume ------------------
+reset_crontab
+rootcron_pause "${STATE_DIR}" >/dev/null
+chmod 0500 "${STATE_DIR}" 2>/dev/null || true
+rc19=0
+rootcron_resume "${STATE_DIR}" >/dev/null 2>&1 || rc19=$?
+chmod 0700 "${STATE_DIR}" 2>/dev/null || true
+if [ "${rc19}" -ne 0 ]; then
+  ok "resume fails when parked state cannot be cleared"
+else
+  bad "resume reported success while stale parked state remained"
+fi
+# And the next pause must not mistake the stale state for a live park.
+rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
+
+# --- 20: a concurrent edit between read and write is not overwritten --------
+reset_crontab
+_r20=0
+rootcron_read() {
+  _r20=$((_r20 + 1))
+  if [ "${_r20}" -eq 2 ]; then
+    # Someone edits the crontab between our first read and the write.
+    printf '%s\n' "0 6 * * * /usr/local/bin/operator-added-job" >> "${CRONTAB_FILE}"
+  fi
+  cat "${CRONTAB_FILE}" 2>/dev/null || true
+}
+rc20=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc20=$?
+rootcron_read() { cat "${CRONTAB_FILE}" 2>/dev/null || true; }
+if [ "${rc20}" -ne 0 ]; then
+  ok "pause refuses when the crontab changed between read and write"
+else
+  bad "pause overwrote a concurrent edit"
+fi
+if grep -q "operator-added-job" "${CRONTAB_FILE}"; then
+  ok "the operator's concurrent edit survives untouched"
+else
+  bad "the operator's concurrent edit was lost"
+fi
+if grep -q "api/sync/cron" "${CRONTAB_FILE}"; then
+  ok "the managed block is still scheduled after the refusal"
+else
+  bad "the managed block was removed despite the refusal"
 fi
 
 if [ "${failures}" -ne 0 ]; then

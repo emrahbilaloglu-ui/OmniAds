@@ -106,240 +106,237 @@ rootcron_split() {
   ' "${current}"
 }
 
-# Is a paused block currently parked in this state dir?
+# Is a paused schedule currently parked in this state dir?
 rootcron_is_paused() {
-  [ -s "${1}/rootcron.block" ]
+  [ -s "${1}/rootcron.original" ]
 }
 
-# Remove the managed block, parking it for `rootcron_resume`.
+# Hold the SHARED cutover lock for the length of a crontab mutation.
 #
-# Idempotent and crash-safe: the parked block, the unrelated lines and the
-# insertion index are all on disk before the crontab is rewritten, so a process
-# that dies between the two can be completed by the next run.
+# The same file the cutover wrapper takes with `flock -n 9` and the deploy
+# already probes in `assert_no_cutover_in_progress`. Reused rather than
+# duplicated: a second lock file would let a cutover and a deploy each believe
+# they had exclusive access to the same crontab.
+ROOTCRON_LOCK_FILE="${ROOTCRON_LOCK_FILE:-${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}/lock}"
+
+rootcron_with_lock() {
+  if ! command -v flock >/dev/null 2>&1; then
+    rootcron_log "flock is unavailable; proceeding without the shared cutover lock"
+    "$@"
+    return $?
+  fi
+  mkdir -p "$(dirname "${ROOTCRON_LOCK_FILE}")" 2>/dev/null || true
+  _lk_rc=0
+  {
+    if ! flock -w "${ROOTCRON_LOCK_WAIT_SECONDS:-30}" 9; then
+      rootcron_die "could not take the shared scheduler lock ${ROOTCRON_LOCK_FILE}; another deploy or cutover holds it"
+      exit 1
+    fi
+    "$@"
+  } 9>"${ROOTCRON_LOCK_FILE}" || _lk_rc=$?
+  return "${_lk_rc}"
+}
+
+# Park the WHOLE original crontab and install a filtered copy without the
+# managed block.
+#
+# Restore replays the original file verbatim rather than reinserting a block at
+# a remembered index. That is the simplification this design needed: the index,
+# the outside digest and the reinsertion pass were three separate things that
+# each had to be right for the crontab to come back, and each grew its own
+# failure mode. One artifact and one byte comparison replaces all of it, and
+# "byte-for-byte identical to what was there" is the guarantee actually wanted.
+#
+# The split is still the single parser: it validates the marker structure and
+# produces the filtered copy. One set of markers, one parse, as before.
 rootcron_pause() {
-  state_dir="$1"
-  if ! mkdir -p "${state_dir}"; then
-    rootcron_die "could not create the state directory ${state_dir}; refusing to pause a scheduler we cannot record"
+  rootcron_with_lock _rootcron_pause_locked "$@"
+}
+
+_rootcron_pause_locked() {
+  _rc_state_dir="$1"
+  if ! mkdir -p "${_rc_state_dir}"; then
+    rootcron_die "could not create the state directory ${_rc_state_dir}; refusing to pause a scheduler we cannot record"
     return 1
   fi
 
-  if rootcron_is_paused "${state_dir}"; then
-    rootcron_log "a managed block is already parked in ${state_dir}; leaving it parked"
+  if rootcron_is_paused "${_rc_state_dir}"; then
+    rootcron_log "a schedule is already parked in ${_rc_state_dir}; leaving it parked"
     return 0
   fi
 
-  tmp="$(mktemp)"; outside="$(mktemp)"; block="$(mktemp)"
-  if ! rootcron_read > "${tmp}"; then
-    rm -f "${tmp}" "${outside}" "${block}"
+  _rc_original="${_rc_state_dir}/rootcron.original"
+  _rc_filtered="${_rc_state_dir}/rootcron.filtered"
+  _rc_tmp="$(mktemp)"; _rc_outside="$(mktemp)"; _rc_block="$(mktemp)"
+
+  if ! rootcron_read > "${_rc_tmp}"; then
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}"
     return 1
   fi
 
-  split_rc=0
-  start="$(rootcron_split "${tmp}" "${outside}" "${block}")" || split_rc=$?
-  if [ "${split_rc}" -ne 0 ]; then
-    rm -f "${tmp}" "${outside}" "${block}"
-    case "${split_rc}" in
-      3) rootcron_die "the root crontab has a '${ROOTCRON_BEGIN}' with no '${ROOTCRON_END}'; refusing to guess where the managed block ends" ;;
-      4) rootcron_die "the root crontab contains more than one '${ROOTCRON_BEGIN}' block; refusing to merge or relocate them" ;;
+  _rc_split_rc=0
+  _rc_start="$(rootcron_split "${_rc_tmp}" "${_rc_outside}" "${_rc_block}")" || _rc_split_rc=$?
+  if [ "${_rc_split_rc}" -ne 0 ]; then
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}"
+    case "${_rc_split_rc}" in
+      3) rootcron_die "the root crontab has a '${ROOTCRON_BEGIN}' with no '${ROOTCRON_END}'; refusing to guess where the managed _rc_block ends" ;;
+      4) rootcron_die "the root crontab contains more than one '${ROOTCRON_BEGIN}' _rc_block; refusing to merge or relocate them" ;;
       5) rootcron_die "the root crontab has nested or unmatched Sync markers; refusing to parse it" ;;
-      *) rootcron_die "the root crontab could not be parsed (split exit ${split_rc})" ;;
+      *) rootcron_die "the root crontab could not be parsed (split exit ${_rc_split_rc})" ;;
     esac
     return 1
   fi
 
-  if [ "${start}" = "-1" ]; then
-    rootcron_log "root crontab has no managed block; nothing to pause"
-    rm -f "${tmp}" "${outside}" "${block}"
+  if [ "${_rc_start}" = "-1" ]; then
+    rootcron_log "root crontab has no managed _rc_block; nothing to pause"
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}"
     return 0
   fi
 
-  # Persist EVERY piece of recovery state, and verify it, BEFORE the live
-  # crontab is touched.
-  #
-  # This function is called as `rootcron_pause ... || return 1`, which places
-  # its whole body in a context where errexit and the ERR trap are suppressed —
-  # so an unchecked `cp` onto a full or read-only state directory would fail
-  # silently and execution would walk straight into `rootcron_write`. That
-  # ordering is the difference between "the deploy refused" and "the scheduler
-  # is gone and the only copy of it was never written".
-  persist_failed=""
-  cp "${block}"   "${state_dir}/rootcron.block"   || persist_failed="rootcron.block"
-  [ -z "${persist_failed}" ] && { cp "${outside}" "${state_dir}/rootcron.outside" || persist_failed="rootcron.outside"; }
-  [ -z "${persist_failed}" ] && { printf '%s' "${start}" > "${state_dir}/rootcron.index" || persist_failed="rootcron.index"; }
-  [ -z "${persist_failed}" ] && { rootcron_sha256_file "${outside}" > "${state_dir}/rootcron.outside.sha256" || persist_failed="rootcron.outside.sha256"; }
-
-  # Written is not the same as readable-back: a full filesystem can accept the
-  # write and truncate the content.
-  if [ -z "${persist_failed}" ]; then
-    cmp -s "${state_dir}/rootcron.block" "${block}"     || persist_failed="rootcron.block (content mismatch)"
-  fi
-  if [ -z "${persist_failed}" ]; then
-    cmp -s "${state_dir}/rootcron.outside" "${outside}" || persist_failed="rootcron.outside (content mismatch)"
-  fi
-  if [ -z "${persist_failed}" ]; then
-    [ -s "${state_dir}/rootcron.index" ] || persist_failed="rootcron.index (empty)"
-  fi
-  if [ -z "${persist_failed}" ]; then
-    [ -s "${state_dir}/rootcron.outside.sha256" ] || persist_failed="rootcron.outside.sha256 (empty)"
-  fi
-
-  if [ -n "${persist_failed}" ]; then
-    # Leave nothing half-parked for the next run to adopt as authoritative.
-    rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
-          "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
-    rm -f "${tmp}" "${outside}" "${block}"
-    rootcron_die "could not durably persist ${persist_failed} under ${state_dir}; the live crontab has NOT been modified"
+  # Persist and READ BACK before touching the _rc_live crontab. A full filesystem
+  # accepts a write and truncates the content, so written is not recorded.
+  _rc_persist_failed=""
+  cp "${_rc_tmp}" "${_rc_original}"      || _rc_persist_failed="rootcron.original"
+  [ -z "${_rc_persist_failed}" ] && { cp "${_rc_outside}" "${_rc_filtered}" || _rc_persist_failed="rootcron.filtered"; }
+  [ -z "${_rc_persist_failed}" ] && { cmp -s "${_rc_original}" "${_rc_tmp}"     || _rc_persist_failed="rootcron.original (content mismatch)"; }
+  [ -z "${_rc_persist_failed}" ] && { cmp -s "${_rc_filtered}" "${_rc_outside}" || _rc_persist_failed="rootcron.filtered (content mismatch)"; }
+  if [ -n "${_rc_persist_failed}" ]; then
+    rm -f "${_rc_original}" "${_rc_filtered}"
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}"
+    rootcron_die "could not durably persist ${_rc_persist_failed} under ${_rc_state_dir}; the _rc_live crontab has NOT been modified"
     return 1
   fi
+  chmod 0600 "${_rc_original}" "${_rc_filtered}" 2>/dev/null || true
 
-  chmod 0600 "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" 2>/dev/null || true
+  # Re-read immediately before writing. Between the first read and here, an
+  # operator or a cooperating process may have edited the crontab; installing
+  # our _rc_filtered copy would silently discard that edit.
+  _rc_recheck="$(mktemp)"
+  if ! rootcron_read > "${_rc_recheck}"; then
+    rm -f "${_rc_original}" "${_rc_filtered}" "${_rc_tmp}" "${_rc_outside}" "${_rc_block}" "${_rc_recheck}"
+    return 1
+  fi
+  if ! cmp -s "${_rc_recheck}" "${_rc_tmp}"; then
+    rm -f "${_rc_original}" "${_rc_filtered}"
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}" "${_rc_recheck}"
+    rootcron_die "the root crontab changed between reading and writing it; refusing to overwrite a concurrent edit"
+    return 1
+  fi
+  rm -f "${_rc_recheck}"
 
-  if ! rootcron_write < "${outside}"; then
-    rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
-          "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
-    rm -f "${tmp}" "${outside}" "${block}"
+  if ! rootcron_write < "${_rc_filtered}"; then
+    rm -f "${_rc_original}" "${_rc_filtered}" "${_rc_tmp}" "${_rc_outside}" "${_rc_block}"
     rootcron_die "could not write the root crontab; parked state discarded and the schedule left as it was"
     return 1
   fi
 
-  # From here the block IS removed, so every failure below restores it
-  # SYNCHRONOUSLY rather than returning and trusting a caller's trap. Between
-  # the write above and a trap that may not be armed yet, production would have
-  # no scheduler at all. `${tmp}` still holds the ORIGINAL crontab byte for
-  # byte, so recovery is a write, not a reconstruction.
-  rootcron_pause_rollback() {
-    _rb_reason="$1"
-    if rootcron_write < "${tmp}"; then
-      _rb_v="$(mktemp)"
-      if rootcron_read > "${_rb_v}" && cmp -s "${_rb_v}" "${tmp}"; then
-        rm -f "${_rb_v}"
-        rootcron_log "rolled the root crontab back to its original contents after: ${_rb_reason}"
-        rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
-              "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+  # The _rc_block is gone from here on. Any failure restores the _rc_original file
+  # synchronously; if THAT fails the parked _rc_original stays on disk and the
+  # caller is told, so its recovery trap still has something to act on.
+  _rootcron_rollback() {
+    if rootcron_write < "${_rc_original}"; then
+      _v="$(mktemp)"
+      if rootcron_read > "${_v}" && cmp -s "${_v}" "${_rc_original}"; then
+        rm -f "${_v}"
+        rootcron_log "rolled the root crontab back to its _rc_original contents after: $1"
+        rm -f "${_rc_original}" "${_rc_filtered}"
         return 0
       fi
-      rm -f "${_rb_v}"
+      rm -f "${_v}"
     fi
-    rootcron_die "could NOT roll the root crontab back after: ${_rb_reason}. The original block is parked at ${state_dir}/rootcron.block and must be restored by hand."
+    rootcron_die "could NOT roll the root crontab back after: $1. The _rc_original is parked at ${_rc_original} and MUST be restored by hand."
     return 1
   }
 
-  # Read back. `crontab` exiting 0 is not proof the daemon accepted the file.
-  vtmp="$(mktemp)"; voutside="$(mktemp)"; vblock="$(mktemp)"
-  if ! rootcron_read > "${vtmp}"; then
-    rootcron_pause_rollback "the crontab could not be read back after removal" || true
-    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
+  _rc_vtmp="$(mktemp)"
+  if ! rootcron_read > "${_rc_vtmp}"; then
+    _rootcron_rollback "the crontab could not be read back after removal" || true
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}" "${_rc_vtmp}"
     return 1
   fi
-  if ! rootcron_split "${vtmp}" "${voutside}" "${vblock}" >/dev/null; then
-    rootcron_pause_rollback "the crontab was unparseable after removal" || true
-    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
-    return 1
-  fi
-  if [ -s "${vblock}" ]; then
-    rootcron_pause_rollback "the managed block was still present after removal" || true
-    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
-    return 1
-  fi
-  if [ "$(rootcron_sha256_file "${voutside}")" != "$(rootcron_sha256_file "${outside}")" ]; then
-    rootcron_pause_rollback "removal altered unrelated crontab lines" || true
-    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
+  if ! cmp -s "${_rc_vtmp}" "${_rc_filtered}"; then
+    _rootcron_rollback "the crontab after removal is not the copy that was written" || true
+    rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}" "${_rc_vtmp}"
     return 1
   fi
 
-  rootcron_log "root crontab: managed Sync block paused; $(wc -l < "${outside}" | tr -d ' ') unrelated line(s) untouched"
-  rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
+  rootcron_log "root crontab: managed Sync _rc_block paused; the _rc_original is parked at ${_rc_original}"
+  rm -f "${_rc_tmp}" "${_rc_outside}" "${_rc_block}" "${_rc_vtmp}"
   return 0
 }
 
-# Put the managed block back exactly where it was, byte for byte.
-#
-# Refuses rather than guesses when the unrelated lines changed while the block
-# was out: that means someone else edited the crontab meanwhile, and silently
-# overwriting their edit is worse than stopping.
+# Replay the parked _rc_original, byte for byte.
 rootcron_resume() {
-  state_dir="$1"
-  saved_block="${state_dir}/rootcron.block"
-  saved_outside="${state_dir}/rootcron.outside"
+  rootcron_with_lock _rootcron_resume_locked "$@"
+}
 
-  if ! rootcron_is_paused "${state_dir}"; then
-    rootcron_log "no parked block in ${state_dir}; nothing to resume"
+_rootcron_resume_locked() {
+  _rc_state_dir="$1"
+  _rc_original="${_rc_state_dir}/rootcron.original"
+  _rc_filtered="${_rc_state_dir}/rootcron.filtered"
+
+  if ! rootcron_is_paused "${_rc_state_dir}"; then
+    rootcron_log "nothing parked in ${_rc_state_dir}; nothing to resume"
     return 0
   fi
 
-  tmp="$(mktemp)"; outside="$(mktemp)"; block="$(mktemp)"; rebuilt="$(mktemp)"
-  if ! rootcron_read > "${tmp}"; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-    return 1
-  fi
-  if ! rootcron_split "${tmp}" "${outside}" "${block}" >/dev/null; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-    rootcron_die "the root crontab is unparseable; refusing to restore over it"
+  _rc_live="$(mktemp)"
+  if ! rootcron_read > "${_rc_live}"; then
+    rm -f "${_rc_live}"
     return 1
   fi
 
-  if [ -s "${block}" ]; then
-    # A block is already present. It is only safe to drop the parked copy if
-    # the live one is byte-identical to it.
-    #
-    # Treating any non-empty block as "already restored" would discard the only
-    # copy of the original while a DIFFERENT schedule stayed active — a changed
-    # cadence, or a stale bearer token that now fails every run. The parked file
-    # is the sole record of what was removed, so a mismatch has to stop rather
-    # than clean up.
-    if cmp -s "${block}" "${saved_block}"; then
-      rootcron_log "the managed block is already present and identical to the parked copy; clearing state"
-      rm -f "${saved_block}" "${saved_outside}" "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
-      rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-      return 0
-    fi
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-    rootcron_die "a DIFFERENT managed block is live than the one parked at ${saved_block}; refusing to discard the original. Reconcile the two by hand."
+  if cmp -s "${_rc_live}" "${_rc_original}"; then
+    rootcron_log "the crontab is already identical to the parked _rc_original"
+    rm -f "${_rc_live}"
+    _rootcron_clear_state "${_rc_state_dir}"
+    return $?
+  fi
+
+  # It must still be exactly what we installed. Anything else means someone
+  # edited the crontab while the _rc_block was out, and replaying the _rc_original
+  # would discard their edit.
+  if [ -s "${_rc_filtered}" ] && ! cmp -s "${_rc_live}" "${_rc_filtered}"; then
+    rm -f "${_rc_live}"
+    rootcron_die "the root crontab changed while the Sync _rc_block was out; refusing to overwrite it. The _rc_original is parked at ${_rc_original}."
     return 1
   fi
 
-  expected_outside_sha="$(cat "${state_dir}/rootcron.outside.sha256" 2>/dev/null || true)"
-  actual_outside_sha="$(rootcron_sha256_file "${outside}")"
-  if [ -n "${expected_outside_sha}" ] && [ "${expected_outside_sha}" != "${actual_outside_sha}" ]; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}"
-    rootcron_die "unrelated root crontab lines changed while the Sync block was out; reconcile by hand before resuming. The parked block is still at ${saved_block}."
+  if ! rootcron_write < "${_rc_original}"; then
+    rm -f "${_rc_live}"
+    rootcron_die "could not write the root crontab back; the _rc_original is still parked at ${_rc_original}"
     return 1
   fi
 
-  start="$(cat "${state_dir}/rootcron.index" 2>/dev/null || echo 0)"
-  case "${start}" in '' | *[!0-9]*) start=0 ;; esac
-
-  awk -v idx="${start}" -v blockfile="${saved_block}" '
-    BEGIN { emitted = 0 }
-    {
-      if (NR - 1 == idx) { while ((getline line < blockfile) > 0) print line; close(blockfile); emitted = 1 }
-      print
-    }
-    END { if (!emitted) { while ((getline line < blockfile) > 0) print line; close(blockfile) } }
-  ' "${outside}" > "${rebuilt}"
-
-  rootcron_write < "${rebuilt}"
-
-  vtmp="$(mktemp)"; voutside="$(mktemp)"; vblock="$(mktemp)"
-  rootcron_read > "${vtmp}"
-  if ! rootcron_split "${vtmp}" "${voutside}" "${vblock}" >/dev/null; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}" "${vtmp}" "${voutside}" "${vblock}"
-    rootcron_die "the root crontab is unparseable after restoring the managed block"
-    return 1
-  fi
-  if ! cmp -s "${vblock}" "${saved_block}"; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}" "${vtmp}" "${voutside}" "${vblock}"
-    rootcron_die "the restored managed block is not byte-identical to the one that was removed"
-    return 1
-  fi
-  if [ "$(rootcron_sha256_file "${voutside}")" != "${actual_outside_sha}" ]; then
-    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}" "${vtmp}" "${voutside}" "${vblock}"
-    rootcron_die "restoring the managed block changed unrelated root crontab lines"
+  _rc_verify="$(mktemp)"
+  if ! rootcron_read > "${_rc_verify}" || ! cmp -s "${_rc_verify}" "${_rc_original}"; then
+    rm -f "${_rc_live}" "${_rc_verify}"
+    rootcron_die "the restored crontab is not byte-identical to the parked _rc_original; it is still at ${_rc_original}"
     return 1
   fi
 
-  rootcron_log "root crontab: managed Sync block restored byte-for-byte, unrelated lines untouched"
-  rm -f "${saved_block}" "${saved_outside}" "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
-  rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}" "${vtmp}" "${voutside}" "${vblock}"
+  rootcron_log "root crontab: restored byte-for-byte from the parked _rc_original"
+  rm -f "${_rc_live}" "${_rc_verify}"
+  _rootcron_clear_state "${_rc_state_dir}"
+}
+
+# Clearing parked state is part of the contract, not cleanup.
+#
+# A stale rootcron.original is authoritative to the NEXT pause: it would see a
+# parked schedule, decline to park again, and let migrations run while cron was
+# active. So every removal is checked and read back, and a _rc_residue is a failure.
+_rootcron_clear_state() {
+  _rc_state_dir="$1"
+  rm -f "${_rc_state_dir}/rootcron.original" "${_rc_state_dir}/rootcron.filtered" \
+        "${_rc_state_dir}/rootcron.block" "${_rc_state_dir}/rootcron.outside" \
+        "${_rc_state_dir}/rootcron.index" "${_rc_state_dir}/rootcron.outside.sha256" 2>/dev/null || true
+  _rc_residue=""
+  for f in rootcron.original rootcron.filtered rootcron.block rootcron.outside rootcron.index rootcron.outside.sha256; do
+    [ -e "${_rc_state_dir}/${f}" ] && _rc_residue="${_rc_residue} ${f}"
+  done
+  if [ -n "${_rc_residue}" ]; then
+    rootcron_die "parked scheduler state could not be cleared (${_rc_residue# }); a later pause would treat the scheduler as already parked and run migrations while cron is active"
+    return 1
+  fi
   return 0
 }

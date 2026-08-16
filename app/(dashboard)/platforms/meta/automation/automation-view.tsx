@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import Link from "next/link";
 import {
   Activity,
@@ -26,6 +27,7 @@ import type {
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useAppStore } from "@/store/app-store";
 import styles from "./automation.module.css";
 
@@ -486,6 +488,33 @@ export function MetaAutomationView({
   };
   const authority = deriveEffectiveAuthority(payload, error);
   const readState = controlReadState(payload, loading, error);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "automation",
+    isLoading: loading && !payload,
+    isFetching: loading,
+    // Automation fails closed on an unreadable control, so the freshness
+    // reading must say "unreadable" rather than leave the last state showing.
+    error,
+    // When the control row was persisted, its updated_at is the moment the
+    // authority on screen was last written. A default-sourced control was
+    // never written, so it dates nothing and the age stays unknown.
+    asOf:
+      payload?.businessControl.source === "persisted"
+        ? measuredAsOf(payload.businessControl.updatedAt)
+        : null,
+    // A default-sourced control is a read that returned no stored authority.
+    // Saying so is the difference between "nothing is configured" and
+    // "we could not prove what is configured".
+    partialReason:
+      payload && payload.businessControl.source !== "persisted"
+        ? "persisted business control not proven"
+        : null,
+    businessId: scopedBusinessId ?? null,
+    onRetry,
+  });
   const globalStop = payload?.globalKillSwitch.engaged === true;
   const businessStop = payload?.businessControl.killSwitchEngaged === true;
   const stopEngaged = globalStop || businessStop;

@@ -1,5 +1,7 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import {
   AlertTriangle,
   Archive,
@@ -500,6 +502,41 @@ export default function MetaHistoryView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  // Whole journal sources are dropped while their migrations are pending, and
+  // the route says so in its limitations. A journal missing sources is
+  // incomplete, not settled, so it must not read as the full record.
+  const omittedSources =
+    payload?.limitations.some(
+      (limitation) => limitation.code === "optional_source_unavailable",
+    ) ?? false;
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    // A first read with nothing on screen is "we do not know yet"; a reload
+    // with entries already shown is "checking for newer".
+    // The assigned-accounts read decides whether the journal can be read at
+    // all. Excluding it meant that when it failed the page showed "No accounts
+    // assigned" while the bar said "ready" -- a configuration problem
+    // presented as a settled fact.
+    isLoading: (loading || accountsLoading) && !payload,
+    isFetching: loading || accountsLoading || loadingMore,
+    error: error ?? accountsError,
+    // The journal is a cursor read, so the newest entry it served is the
+    // honest as-of. Claiming "now" would report the age of the request rather
+    // than the age of the record; measuredAsOf refuses anything that is not an
+    // instant, so a malformed row leaves the age unknown instead of guessing.
+    asOf: measuredAsOf(entries[0]?.occurredAt ?? null),
+    businessId: payload?.scope.businessId ?? selectedBusinessId ?? null,
+    partialReason: omittedSources
+      ? "Optional workflow sources are omitted from this journal"
+      : null,
+    // The journal already knows how to re-read itself; without this the
+    // surface named a terminal failure and offered no way out of it.
+    onRetry: () => setReloadToken((value) => value + 1),
+  });
 
   useEffect(() => {
     if (!selectedBusinessId) {

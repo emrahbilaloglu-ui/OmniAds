@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -590,6 +591,33 @@ export default function MetaLaunchpadPage() {
   const [creatives, setCreatives] = useState<MetaCreativeRow[]>([]);
   const [creativeLoading, setCreativeLoading] = useState(false);
   const [creativeError, setCreativeError] = useState<string | null>(null);
+  /**
+   * Bumped by the freshness bar's retry so the reads below run again.
+   *
+   * The reads here are effects keyed on their inputs, not queries with a
+   * `refetch()`. Without this the retry button would render and do nothing,
+   * which tells the operator the system is trying when it is not.
+   */
+  const [freshnessRetryNonce, setFreshnessRetryNonce] = useState(0);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "launchpad",
+    isLoading: providerAccountsLoading,
+    error: providerAccountsError ?? creativeError,
+    // Launchpad composes what it is about to publish from live reads; the
+    // accounts read is the one that gates the wizard. Those reads publish no
+    // observation time, and the timestamps this page does hold -- when a
+    // launch was requested, when a draft was saved -- are properties of the
+    // records, not of any read, so `measuredAsOf` has nothing honest to
+    // measure here. `null` renders "age unknown", which beats a number nobody
+    // should trust; it is also why this file is the one entry allowed to
+    // hardcode null in lib/tier-zero-as-of.test.ts.
+    asOf: null,
+    businessId: selectedBusinessId,
+    onRetry: () => setFreshnessRetryNonce((nonce) => nonce + 1),
+  });
   const [decisions, setDecisions] = useState<DecisionOutput[]>([]);
   const [recentAdActions, setRecentAdActions] = useState<
     LaunchpadRecentAdAction[]
@@ -677,7 +705,9 @@ export default function MetaLaunchpadPage() {
     return () => {
       cancelled = true;
     };
-  }, [businessId, requestedProviderAccountId]);
+    // freshnessRetryNonce is not read here; it is in the dependency list so the
+    // freshness bar's retry re-runs this read.
+  }, [businessId, requestedProviderAccountId, freshnessRetryNonce]);
 
   useEffect(() => {
     if (!legacyHandoff) return;
@@ -756,7 +786,8 @@ export default function MetaLaunchpadPage() {
     return () => {
       cancelled = true;
     };
-  }, [businessId, mode, providerAccountId]);
+    // See above: the nonce is a retry trigger, not a value this read consumes.
+  }, [businessId, mode, providerAccountId, freshnessRetryNonce]);
 
   useEffect(() => {
     if (!businessId || !providerAccountId) {

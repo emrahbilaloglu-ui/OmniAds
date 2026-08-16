@@ -95,6 +95,8 @@ import {
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
+import { newestObservation } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -507,7 +509,12 @@ export function GoogleAdsIntelligenceDashboard({
   const needsBudgetData = activePanel === "plan" || activePanel === "summary";
   const currentAdvisorKey = businessId;
 
-  const { data, isLoading, isError } = useQuery<CampaignsResponse>({
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch: refetchCampaigns,
+  } = useQuery<CampaignsResponse>({
     queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
     queryFn: async () => {
       const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode });
@@ -695,6 +702,7 @@ export function GoogleAdsIntelligenceDashboard({
     data: syncStatus,
     isLoading: isSyncStatusLoading,
     isError: isSyncStatusError,
+    refetch: refetchSyncStatus,
   } = useQuery<GoogleAdsStatusResponse>({
     queryKey: ["gads-status", businessId, startDate, endDate],
     queryFn: async () => {
@@ -712,6 +720,38 @@ export function GoogleAdsIntelligenceDashboard({
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(query.state.data),
   });
+
+  // One freshness contract across every Tier-0 surface. Derived from the query
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "google_ads",
+    // The status read is included because it supplies both the as-of and the
+    // partial reason. Leaving it out let the surface settle on "ready, age
+    // unknown" while that read was in flight, then flip to "partial" a moment
+    // later -- one reading meaning two things depending on when you looked.
+    isLoading: isLoading || isSyncStatusLoading,
+    // The newest real observation across scopes. The account's calendar date is
+    // a range label, not a read time; dating the surface from it made the age
+    // drift with the hour and never say "stale".
+    asOf: newestObservation(
+      (syncStatus?.freshness?.scopes ?? []).map(
+        (scope) => scope.latestObservationAt,
+      ),
+    ),
+    // Evidence we could not read is not evidence of freshness.
+    partialReason:
+      syncStatus?.freshness && syncStatus.freshness.evidenceAvailable === false
+        ? (syncStatus.freshness.unavailableReason ??
+          "Google freshness evidence could not be read; the age shown is unknown")
+        : null,
+    error: isError || isSyncStatusError ? "google_ads_unreadable" : null,
+    businessId,
+    onRetry: () => {
+      void refetchCampaigns();
+      void refetchSyncStatus();
+    },
+  });
+
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({
     connected: Boolean(syncStatus?.connected),

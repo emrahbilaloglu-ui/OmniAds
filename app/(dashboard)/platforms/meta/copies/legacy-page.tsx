@@ -16,6 +16,7 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import {
   applyCreativeFilters,
@@ -35,6 +36,7 @@ import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { currencySymbolFor } from "@/lib/metric-format";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { CopyAngleCoverage } from "@/components/meta/copies/CopyAngleCoverage";
 import {
   mapApiRowToCopyRow,
@@ -47,7 +49,10 @@ interface MetaCopiesResponse {
   rows: MetaCopyApiRow[];
   meta?: {
     unresolved_filtered_count?: number;
+    /** When the route ran. Not the data's age. */
     generatedAt?: string;
+    /** When the warehouse rows behind this response were last written. */
+    warehouseObservedAt?: string | null;
     provider_account_id?: string;
   };
 }
@@ -269,6 +274,25 @@ export default function CopiesPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: copiesQuery.isLoading,
+    isFetching: copiesQuery.isFetching,
+    error: copiesQuery.error ?? providerAccountsQuery.error,
+    // When the warehouse rows behind this view were last written by a sync.
+    // Not the route's `generatedAt`, which records when the request ran and
+    // would restate the age of the request as the age of the data.
+    asOf: measuredAsOf(copiesQuery.data?.meta?.warehouseObservedAt ?? null),
+    businessId,
+    onRetry: () => {
+      if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
+      void copiesQuery.refetch();
+    },
   });
 
   const allRows = useMemo(() => {

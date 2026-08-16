@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BusinessGuard } from "@/components/layout/business-guard";
+import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { AppTopbar } from "@/components/layout/v2/app-topbar";
 import { useAppStore } from "@/store/app-store";
@@ -147,6 +148,12 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
       <AppRail userName={userName} open={navOpen} onNavigate={() => setNavOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar userName={userName} onOpenNav={() => setNavOpen(true)} />
+        {/* Every Tier-0 surface reports its data age through this one bar. A
+            frame without it lets the reports go nowhere, and silence on screen
+            reads as "current". */}
+        <div className="ad-legacy-freshness border-b border-[var(--adv-hairline)] bg-[var(--adv-surface)] px-4 py-1">
+          <TierZeroFreshnessBar />
+        </div>
         <main
           className="adv-main"
           data-mobile-surface={mobileSurface ?? "none"}

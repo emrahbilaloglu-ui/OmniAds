@@ -1,5 +1,7 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
@@ -91,6 +93,28 @@ export function ReportBuilderPage({
     queryKey: ["custom-report-view", reportId, viewStart, viewEnd],
     enabled: mode === "view" && Boolean(reportId),
     queryFn: () => fetchRenderedReport(reportId as string, viewStart, viewEnd),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  // This is the page that renders the figures an agency sends to a client.
+  // The Reports *list* reported its age while the rendered report said nothing,
+  // which is the wrong way round: nobody acts on the list.
+  useTierZeroFreshness({
+    surface: "reports",
+    isLoading: renderedQuery.isLoading,
+    isFetching: renderedQuery.isFetching,
+    error: renderedQuery.error,
+    // A widget that failed leaves a report that looks complete and is not.
+    partialReason: (renderedQuery.data?.widgets ?? []).some(
+      (widget: { errorMessage?: string | null }) => Boolean(widget.errorMessage),
+    )
+      ? "Some widgets could not be rendered; this report is incomplete"
+      : null,
+    asOf: measuredAsOf(renderedQuery.data?.generatedAt ?? null),
+    businessId: selectedBusinessId ?? null,
+    onRetry: () => void renderedQuery.refetch(),
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;

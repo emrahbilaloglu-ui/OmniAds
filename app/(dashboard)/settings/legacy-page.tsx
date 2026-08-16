@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { type PlanId } from "@/lib/pricing/plans";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { ConfirmOverlay } from "@/components/settings/settings-section";
 import { StateBanner } from "@/components/ui/product-surface";
 import { WorkspaceSurface } from "@/components/workspace/workspace-surface";
@@ -164,6 +166,14 @@ export default function SettingsPage() {
     source?: string | null;
   } | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
+  /**
+   * Set when the plan read did not land.
+   *
+   * The plan band falls back to its unconnected copy, which is a confident
+   * statement about a thing we failed to read — so the freshness contract has
+   * to say the picture is incomplete rather than let that read as fact.
+   */
+  const [billingUnavailable, setBillingUnavailable] = useState(false);
 
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
@@ -180,6 +190,21 @@ export default function SettingsPage() {
     null | "disconnectAll" | "deleteWorkspace" | "revokeSessions"
   >(null);
   const [snapshotNote, setSnapshotNote] = useState<string>("Checking provider snapshots…");
+  /**
+   * When this page's reads last resolved.
+   *
+   * Settings has no single upstream timestamp, so the honest as-of is the age
+   * of the read itself. It is stamped only on success: a failed reload must not
+   * refresh the age of data it did not replace.
+   */
+  const [settingsReadAt, setSettingsReadAt] = useState<string | null>(null);
+  /**
+   * Why the settings read failed, as distinct from a failed save.
+   *
+   * `accountError` carries both, and a rejected name change is not a reason to
+   * tell the operator the figures on screen could not be loaded.
+   */
+  const [settingsReadError, setSettingsReadError] = useState<string | null>(null);
 
   useEffect(() => {
     setWorkspaceName(activeBusiness?.name ?? "");
@@ -196,10 +221,17 @@ export default function SettingsPage() {
     try {
       const user = await fetchSettingsAccount();
       setAccountError(null);
+      setSettingsReadError(null);
       setAccountName(user.name ?? "");
       setAccountEmail(user.email ?? "");
+      // Stamped on success only: a failed reload must not refresh the age of
+      // data it did not actually replace.
+      setSettingsReadAt(new Date().toISOString());
     } catch (error: unknown) {
-      setAccountError(error instanceof Error ? error.message : "Could not load account settings.");
+      const message =
+        error instanceof Error ? error.message : "Could not load account settings.";
+      setAccountError(message);
+      setSettingsReadError(message);
     }
   }, []);
 
@@ -216,9 +248,15 @@ export default function SettingsPage() {
         `/api/billing?businessId=${encodeURIComponent(selectedBusinessId)}`,
       );
       const data = (await response.json().catch(() => null)) as typeof billing | null;
-      if (response.ok && data) setBilling(data);
+      if (response.ok && data) {
+        setBilling(data);
+        setBillingUnavailable(false);
+      } else {
+        setBillingUnavailable(true);
+      }
     } catch {
       // non-fatal — the plan band falls back to its unconnected copy
+      setBillingUnavailable(true);
     } finally {
       setBillingLoading(false);
     }
@@ -261,6 +299,38 @@ export default function SettingsPage() {
     void loadSnapshotNote();
     void loadBilling();
   }, [loadBilling, loadSnapshotNote, loadWorkspaceRole, selectedBusinessId]);
+
+  // One freshness contract across every Tier-0 surface. Derived from the state
+  // this surface already has, so it cannot drift from what is on screen. It
+  // sits with the other hooks, above the early return below, so the hook count
+  // never changes between renders.
+  useTierZeroFreshness({
+    surface: "settings",
+    // This page has no query object; the account read is its first read, and
+    // until it resolves either way there is nothing on screen to date.
+    isLoading: settingsReadAt === null && settingsReadError === null,
+    error: settingsReadError,
+    // Settings has no upstream timestamp, so the honest as-of is the age of the
+    // read itself. Deliberately not the account's "member since" date: that is
+    // a property of the account that never moves, so feeding it here would
+    // report a steadily growing age for data fetched seconds ago.
+    asOf: measuredAsOf(settingsReadAt),
+    // A plan we could not read is a hole, not an unconnected store.
+    partialReason: billingUnavailable
+      ? "Plan and billing could not be read; this view is incomplete"
+      : null,
+    businessId: selectedBusinessId || null,
+    // Re-runs every read this reading covers. A retry that refetches only the
+    // account leaves the reported hole exactly where it was, so the button
+    // appears to do nothing and the partial state never clears.
+    onRetry: () => {
+      void loadAccount();
+      if (!selectedBusinessId) return;
+      void loadWorkspaceRole();
+      void loadBilling();
+      void loadSnapshotNote();
+    },
+  });
 
   const isWorkspaceAdmin = workspaceRole === "admin";
   const workspaceTimezoneLabel = activeBusiness?.timezone ?? "Not derived yet";

@@ -1,5 +1,7 @@
 "use client";
 
+import { measuredAsOf, newestObservation } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -333,6 +335,31 @@ export default function IntegrationsPage() {
         query.state.data as ShopifyStatusResponse | undefined
       ),
     queryFn: () => fetchShopifyStatus(businessId!),
+  });
+
+  useTierZeroFreshness({
+    surface: "integrations",
+    businessId,
+    isLoading: metaStatusQuery.isLoading,
+    isFetching: metaStatusQuery.isFetching,
+    error: metaStatusQuery.error,
+    // A provider we could not read is a hole in the picture, not a healthy
+    // provider: say which one rather than showing a confident row.
+    partialReason:
+      googleAdsStatusQuery.error || shopifyStatusQuery.error
+        ? "Some providers could not be read; connection status is incomplete"
+        : null,
+    // Each provider's own last sync. `dataUpdatedAt` would report when the
+    // status request returned, which says nothing about the provider data.
+    asOf: newestObservation([
+      measuredAsOf(metaStatusQuery.data?.latestSync?.finishedAt),
+      measuredAsOf(googleAdsStatusQuery.data?.latestSync?.finishedAt),
+    ]),
+    onRetry: () => {
+      void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (shopifyStatusQuery.isError) void shopifyStatusQuery.refetch();
+    },
   });
 
   const closeSearchConsoleSelector = useCallback(() => {

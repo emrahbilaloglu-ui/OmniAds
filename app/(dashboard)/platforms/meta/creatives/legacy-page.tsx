@@ -1,5 +1,7 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -349,6 +351,33 @@ export default function MetaCreativeStudioPage() {
     queryFn: () => fetchCreativeShareLedger({ businessId, providerAccountId }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: creativesQuery.isLoading,
+    isFetching: creativesQuery.isFetching,
+    error: creativesQuery.error,
+    // Briefs failing leaves a workspace that looks complete but is not.
+    partialReason: briefingQuery.error
+      ? "Creative briefs could not be read; this view is incomplete"
+      : null,
+    // When the snapshot rows were computed. Not `source.asOf` (the client's
+    // own request parameter echoed back) and not `asOfDate` (the calendar day
+    // the rows describe) -- a date is not an instant, and using one made the
+    // same data read as a different age depending on the hour.
+    asOf: measuredAsOf(
+      briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest
+        ?.observedAt ?? null,
+    ),
+    businessId,
+    onRetry: () => {
+      void creativesQuery.refetch();
+      if (briefingQuery.isError) void briefingQuery.refetch();
+    },
   });
 
   const allRows = useMemo(

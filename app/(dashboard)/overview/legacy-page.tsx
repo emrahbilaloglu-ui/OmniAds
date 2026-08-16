@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
 import { AttributionCard } from "@/components/overview/v2/attribution-card";
@@ -282,6 +284,43 @@ export default function OverviewPage() {
       ? patchSummaryComparisonSparklines(withCurrent, comparisonSparklineQuery.data)
       : withCurrent;
   }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen. It sits with the other hooks, above the early
+  // returns below, so the hook count never changes between renders.
+  useTierZeroFreshness({
+    surface: "overview",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // A provider we could not read is a hole in the totals, not a zero.
+    // Every read this surface reports on. A failing sparkline used to leave
+    // the state at "ready" while the trend charts rendered empty -- an absent
+    // series is indistinguishable from a flat one, so a chart with no data
+    // read as a real chart showing nothing happening.
+    partialReason:
+      metaStatusQuery.error || googleAdsStatusQuery.error
+        ? "Some provider health could not be read; this view is incomplete"
+        : sparklineQuery.error || comparisonSparklineQuery.error
+          ? "Trend data could not be read; the charts are incomplete"
+          : null,
+    // The data's own timestamp. `dataUpdatedAt` is when the *response landed*,
+    // which is fresh by construction: it resets on every refetch no matter how
+    // far behind the sync is.
+    asOf: measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null),
+    businessId: businessId || null,
+    // Re-runs every read the reading covers. A retry that refetches only the
+    // primary query leaves the reported hole exactly where it was, so the
+    // button appears to do nothing and the partial state never clears.
+    onRetry: () => {
+      void query.refetch();
+      if (metaStatusQuery.isError) void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (sparklineQuery.isError) void sparklineQuery.refetch();
+      if (comparisonSparklineQuery.isError) void comparisonSparklineQuery.refetch();
+    },
+  });
 
   // Charts show a pulsing skeleton while sparklines are loading.
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;

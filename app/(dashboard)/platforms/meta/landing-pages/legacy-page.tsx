@@ -1,5 +1,7 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useDeferredValue, useMemo, useState } from "react";
 import { StudioTabRow } from "@/components/creatives/StudioTabRow";
 import { useQuery } from "@tanstack/react-query";
@@ -140,6 +142,22 @@ export default function LandingPagesPage() {
         );
       }
     },
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // When GA4 was actually read. This route caches, so the stamp is taken at
+    // the live retrieval and carried by the cache -- a response served an hour
+    // later reports the retrieval, not the hand-over.
+    asOf: measuredAsOf(query.data?.meta?.retrievedAt ?? null),
+    businessId,
+    onRetry: () => void query.refetch(),
   });
 
   const visibleRows = useMemo(() => {

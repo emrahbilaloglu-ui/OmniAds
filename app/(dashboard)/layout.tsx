@@ -20,18 +20,15 @@ export default async function DashboardLayout({
   }
 
   // The shell itself queries -- the freshness bar, the notification bell -- so
-  // the provider belongs here, in the same subtree, rather than being inherited
-  // from the root layout. It was inherited until now, and in the production
-  // build the context did not arrive: every route in this group answered
-  // "Application error: a client-side exception has occurred", with
-  // `No QueryClient set, use QueryClientProvider to set one` in the server log.
+  // the provider belongs in the same subtree rather than being inherited from
+  // three levels up. It was inherited until now, and in the shipped image the
+  // context did not arrive at all: the build bound the wrong module to the root
+  // layout slot, so the layout holding `QueryProvider` never ran. Every route
+  // here answered "Application error", with `No QueryClient set` in the server
+  // log. The Dockerfile explains that build defect and fixes it.
   //
-  // Nothing caught it because these routes were redirected away at the proxy
-  // before they could render, and the canonical `/app` surface does not use
-  // react-query at all -- so no page that renders in production exercised the
-  // root provider. `dashboard-frame-ssr.test.tsx` renders this composition on
-  // the server with no outer provider, which is the shape that failed.
-  //
+  // This stays anyway. A subtree that queries should own its client, and it
+  // means one build-level surprise cannot take the whole group down again.
   // Nesting under the root provider is harmless: the nearest one wins.
   return (
     <QueryProvider>

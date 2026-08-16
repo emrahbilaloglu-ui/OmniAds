@@ -82,6 +82,22 @@ function click(selector: string) {
   fireEvent.click(document.querySelector(selector) as HTMLElement);
 }
 
+/**
+ * Tick an account box and wait for the tick to be real.
+ *
+ * The box is controlled by the draft (`checked={draft.includes(id)}`), so
+ * `checked` staying true is React having committed the change rather than the
+ * browser's own toggle, which reverts on the next render. Saving without
+ * waiting for it read the previous draft and sent one account instead of two
+ * on a CI machine slow enough to lose the race.
+ */
+async function tickAccount(id: string) {
+  const selector = `[data-assignment-account="${id}"]`;
+  await waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
+  click(selector);
+  await waitFor(() => expect((document.querySelector(selector) as HTMLInputElement).checked).toBe(true));
+}
+
 const MEMBER = {
   membership_id: "m1",
   user_id: "u1",
@@ -399,8 +415,7 @@ describe("WP-23 account assignment", () => {
   it("sends account_ids and confirms after the re-read", async () => {
     stubAssignment();
     render(<IntegrationsClient businessId={BIZ} role="admin" />);
-    await waitFor(() => expect(document.querySelector('[data-assignment-account="act_2"]')).not.toBeNull());
-    (document.querySelector('[data-assignment-account="act_2"]') as HTMLElement).click();
+    await tickAccount("act_2");
     click("[data-assignment-save]");
 
     await waitFor(() => {
@@ -605,8 +620,7 @@ describe("WP-23 account assignment", () => {
     // The save reports ok but nothing actually changed.
     stubAssignment({ landsAs: ["act_1"] });
     render(<IntegrationsClient businessId={BIZ} role="admin" />);
-    await waitFor(() => expect(document.querySelector('[data-assignment-account="act_2"]')).not.toBeNull());
-    (document.querySelector('[data-assignment-account="act_2"]') as HTMLElement).click();
+    await tickAccount("act_2");
     click("[data-assignment-save]");
     await waitFor(() => {
       expect(document.querySelector("[data-assignment-error]")!.textContent).toMatch(/does not show it/);

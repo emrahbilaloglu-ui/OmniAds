@@ -677,11 +677,219 @@ run_migrations_service() {
 
   if [ "${status}" -ne 0 ]; then
     docker compose ps migrate || true
-    docker compose logs --tail=200 migrate || true
+    docker compose logs --tail=200 migrate >"${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}" 2>&1 || true
+    cat "${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}" || true
   fi
 
   docker compose rm -f migrate >/dev/null 2>&1 || true
   return "${status}"
+}
+
+# Was this migration attempt refused by LOCK contention specifically?
+#
+# Only diagnostics that can mean nothing else count:
+#   - "canceling statement due to lock timeout" / 55P03 / lock_not_available
+#     are lock_timeout expiring while waiting to acquire.
+#   - 40P01 / "deadlock detected" is the other unambiguous contention verdict.
+#
+# `statement_timeout` is deliberately NOT here. It bounds total execution, not
+# lock waiting, so a migration that is simply slow or expensive trips it too --
+# and retrying that four times turns one slow failure into four, each doing the
+# same expensive work again. A generic timeout is not evidence of contention.
+migration_failed_on_lock_contention() {
+  log_path="${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}"
+  [ -f "${log_path}" ] || return 1
+  grep -qE "canceling statement due to lock timeout|55P03|lock_not_available|deadlock detected|40P01" "${log_path}"
+}
+
+# Run migrations, retrying ONLY contention.
+#
+# The deploy stops the worker first, but the web container keeps serving and
+# keeps running its scheduled sync cron, whose per-business jobs hold row and
+# relation locks for tens of seconds. `MIGRATION_LOCK_TIMEOUT_MS` is 15s by
+# design -- a DDL statement allowed to block indefinitely queues every
+# subsequent request behind it, which is the classic migration-takes-the-site-
+# down shape -- so the right answer is not a longer bound but another attempt
+# at the same bound once the cron's transaction has finished.
+#
+# Each migration is its own BEGIN/COMMIT, so an attempt cancelled by a lock
+# timeout rolls back and leaves nothing half-applied; re-running resumes from
+# the last committed migration. Anything that is NOT contention fails on the
+# first attempt with its own error, exactly as before -- a retry loop that
+# swallowed real migration failures would be worse than the flake it replaced.
+# Where a paused cron block is parked between pause and resume.
+DEPLOY_SCHEDULER_STATE_DIR="${DEPLOY_SCHEDULER_STATE_DIR:-/var/lib/adsecute-deploy}"
+
+# The rootcron helper arrives CONCATENATED ahead of this script by
+# hetzner-ssh.sh, because the host has no repository to source it from --
+# `sync_compose_to_host` copies only docker-compose.yml and everything else
+# travels on stdin. These two hooks are (re)defined after it so the library's
+# `command -v ... ||` defaults lose to the deploy's own logging.
+rootcron_log() { log "$*"; }
+rootcron_die() { log "ABORT $*"; return 1; }
+
+# Stop new full sync runs from entering the migration window.
+#
+# Restores on EVERY exit path, including the ERR trap's `exit` and a signal,
+# because a deploy that dies with the scheduler parked leaves production with
+# no sync at all -- a far worse outcome than the lock contention it was
+# avoiding. The resume is also run BEFORE pausing, so a previous run that was
+# killed between the two leaves nothing stranded.
+deploy_scheduler_pause() {
+  # Absence is a FAILURE, not a downgrade.
+  #
+  # The first version of this logged a line and carried on. That is the exact
+  # shape of the bug it was written to fix: the deploy would look like it had
+  # quiesced the scheduler, the cron would keep firing into the migration
+  # window, and the only evidence would be one line in a log nobody reads
+  # during a green deploy. If the helper did not arrive, the delivery is broken
+  # and that is worth stopping for.
+  if ! command -v rootcron_pause >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered with this script; refusing to migrate without the scheduler quiesce. Set DEPLOY_SKIP_SCHEDULER_QUIESCE=true to proceed deliberately."
+    return 1
+  fi
+  if [ "${DEPLOY_SKIP_SCHEDULER_QUIESCE:-false}" = "true" ]; then
+    log "DEPLOY_SKIP_SCHEDULER_QUIESCE=true; leaving the scheduler running"
+    return 0
+  fi
+
+  # Re-run safety: adopt anything a crashed predecessor left parked.
+  if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    log "A previous deploy left the Sync cron block parked; restoring it before pausing again"
+    rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  fi
+
+  # Arm recovery BEFORE anything can remove the block. `rootcron_pause` also
+  # rolls back synchronously on its own post-write failures, but the trap has
+  # to exist first: the window between "the block is gone" and "a trap that
+  # would put it back" must not contain a single instruction.
+  DEPLOY_SCHEDULER_PAUSED=1
+  trap deploy_scheduler_resume_on_exit EXIT
+  trap 'deploy_scheduler_resume_on_signal 130' INT
+  trap 'deploy_scheduler_resume_on_signal 143' TERM
+
+  if ! rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    # Disarm ONLY on proof that nothing is parked.
+    #
+    # `rootcron_pause` deliberately preserves the parked original when it
+    # removed the block but could not roll back, so clearing the flag on any
+    # failure would turn the pre-armed EXIT trap into a no-op while the
+    # scheduler was still absent -- the one state this whole mechanism exists
+    # to make impossible. Leaving it armed costs nothing when there is truly
+    # nothing to restore: resume is a no-op on an empty state dir.
+    if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+      log "ABORT the scheduler pause failed with the original still parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.original; recovery stays armed"
+    else
+      DEPLOY_SCHEDULER_PAUSED=0
+    fi
+    return 1
+  fi
+  return 0
+}
+
+# Pause without an in-process EXIT restore. The workflow owns this wider
+# window: it pauses every deploy host first, runs migrations only after all of
+# them are quiesced, then resumes every attempted host. Restoring here would
+# reopen the first host while the second host is still migrating.
+deploy_scheduler_pause_persistent() {
+  if ! command -v rootcron_pause >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered with this script; refusing to migrate without the scheduler quiesce"
+    return 1
+  fi
+  if [ "${DEPLOY_SKIP_SCHEDULER_QUIESCE:-false}" = "true" ]; then
+    log "DEPLOY_SKIP_SCHEDULER_QUIESCE=true; leaving the scheduler running deliberately"
+    return 0
+  fi
+  if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    log "A previous deploy left the Sync cron block parked; restoring it before establishing a new cross-host window"
+    rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  fi
+  rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}"
+}
+
+deploy_scheduler_resume_persistent() {
+  if ! command -v rootcron_resume >/dev/null 2>&1; then
+    log "ABORT the rootcron helper was not delivered; scheduler restoration cannot be proven"
+    return 1
+  fi
+  rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}"
+}
+
+# Exit code for "the deploy itself was fine, but the scheduler is still down".
+DEPLOY_SCHEDULER_RESTORE_FAILED_STATUS=75
+
+# Returns 0 when the scheduler is confirmed back, 1 when it is not.
+deploy_scheduler_resume() {
+  [ "${DEPLOY_SCHEDULER_PAUSED:-0}" = "1" ] || return 0
+  DEPLOY_SCHEDULER_PAUSED=0
+  if rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    return 0
+  fi
+  log "ABORT the Sync cron block could NOT be restored; production is running with no scheduler. It is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.original and must be restored by hand."
+  return 1
+}
+
+# A failed restoration must not be reported as a successful deploy.
+#
+# The previous version logged a warning and returned 0, so a green deploy could
+# leave production with no scheduler at all and nothing in the outcome to say
+# so. It also must not MASK an existing failure: when the phase was already
+# failing, that status is what an operator needs to see, with the restoration
+# failure logged loudly beside it.
+deploy_scheduler_resume_on_exit() {
+  __deploy_status=$?
+  if deploy_scheduler_resume; then
+    exit "${__deploy_status}"
+  fi
+  if [ "${__deploy_status}" -eq 0 ]; then
+    exit "${DEPLOY_SCHEDULER_RESTORE_FAILED_STATUS}"
+  fi
+  log "the phase was already failing with status ${__deploy_status}; preserving it over the restoration failure"
+  exit "${__deploy_status}"
+}
+
+deploy_scheduler_resume_on_signal() {
+  __signal_status="$1"
+  deploy_scheduler_resume || true
+  exit "${__signal_status}"
+}
+
+run_migrations_service_with_contention_retry() {
+  attempts="${DEPLOY_MIGRATION_CONTENTION_ATTEMPTS:-4}"
+  is_positive_integer "${attempts}" || attempts=4
+  attempt=1
+
+  while : ; do
+    # `cmd || status=$?` and NOT `set +e; cmd; status=$?`.
+    #
+    # This script runs under `set -Eeuo pipefail` with `trap on_phase_error ERR`,
+    # and that handler calls `exit`. Bash runs an ERR trap on a failing simple
+    # command REGARDLESS of whether errexit is currently enabled, so the
+    # set-+e form never reaches the next line: the trap exits the process
+    # first. `run_migrations_service` also restores `set -e` before returning,
+    # so the caller's `set +e` is not even in force by then. A command on the
+    # left of `||` is exempt from both errexit and the ERR trap, which is what
+    # lets the status actually be captured and classified.
+    status=0
+    run_migrations_service || status=$?
+
+    [ "${status}" -eq 0 ] && return 0
+
+    if ! migration_failed_on_lock_contention; then
+      log "Migration failed for a reason other than lock contention; not retrying."
+      return "${status}"
+    fi
+
+    if [ "${attempt}" -ge "${attempts}" ]; then
+      log "Migration still blocked by lock contention after ${attempts} attempts. Failing loudly rather than deploying a half-migrated release."
+      return "${status}"
+    fi
+
+    backoff=$((attempt * 30))
+    log "Migration attempt ${attempt}/${attempts} lost a lock race (concurrent sync cron). Retrying in ${backoff}s."
+    sleep "${backoff}"
+    attempt=$((attempt + 1))
+  done
 }
 
 export APP_IMAGE_TAG="${DEPLOY_SHA}"
@@ -1765,6 +1973,14 @@ case "${phase}" in
     deliver_cutover_wrapper
     ;;
 
+  pause_scheduler)
+    assert_not_cutover_required
+    assert_no_cutover_in_progress
+    deploy_scheduler_pause_persistent
+    rootcron_assert_quiesced
+    log "Scheduler is quiesced on this host; leaving it parked for the workflow-owned migration window"
+    ;;
+
   run_migrations)
     # The cutover gate runs FIRST, before anything touches the running system.
     #
@@ -1776,11 +1992,21 @@ case "${phase}" in
     assert_not_cutover_required
     assert_no_cutover_in_progress
 
+    # The workflow pauses every deploy host before entering this phase. Check
+    # the live crontab again here so a prematurely restored or never-paused host
+    # fails closed before the worker or database is touched.
+    rootcron_assert_quiesced
+
     log "Stopping worker before migrations to reduce DB contention"
     docker compose stop worker || true
 
     log "Running migrations for ${DEPLOY_SHA}"
-    run_migrations_service
+    run_migrations_service_with_contention_retry
+    ;;
+
+  resume_scheduler)
+    deploy_scheduler_resume_persistent
+    log "Scheduler restoration completed on this host"
     ;;
 
   recreate_services)

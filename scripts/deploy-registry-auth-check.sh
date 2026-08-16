@@ -70,11 +70,62 @@ else
   fail "A2 the token is not the first stdin line (got: ${payload_first_line:0:24}...)"
 fi
 
-# ── A3: the deploy script follows it intact ──────────────────────────────────
-if printf '%s' "${payload_rest_head}" | grep -q 'usr/bin/env bash'; then
-  pass "A3 the remote deploy script follows the token line unaltered"
+# ── A3: a deliberate, ordered shell bundle follows it ────────────────────────
+#
+# The payload after the token is no longer one file. The host has no
+# repository, so the shared rootcron helper travels in the same stream,
+# concatenated AHEAD of the deploy script — the deploy sources nothing at
+# runtime. That makes the contract stronger, not looser: this asserts the
+# bundle's identity, its ORDER, that it parses as one script, and that the
+# phase dispatch is still reachable. Accepting arbitrary bytes here would let
+# a malformed or reordered bundle ship.
+payload_bundle="${SSH_CAPTURE_DIR}/payload.bundle"
+tail -n +2 "${SSH_CAPTURE_DIR}/payload" > "${payload_bundle}"
+
+rootcron_marker_line="$(grep -n '^ROOTCRON_BEGIN=' "${payload_bundle}" | head -n 1 | cut -d: -f1)"
+deploy_shebang_line="$(grep -n '^#!/usr/bin/env bash$' "${payload_bundle}" | head -n 1 | cut -d: -f1)"
+rootcron_fn_line="$(grep -n '^rootcron_pause()' "${payload_bundle}" | head -n 1 | cut -d: -f1)"
+phase_dispatch_line="$(grep -n '^  run_migrations)' "${payload_bundle}" | head -n 1 | cut -d: -f1)"
+
+if [ -n "${rootcron_marker_line}" ] && [ -n "${rootcron_fn_line}" ]; then
+  pass "A3a the shared rootcron helper is present in the bundle"
 else
-  fail "A3 the payload after the token is not the deploy script (got: ${payload_rest_head:0:60})"
+  fail "A3a the rootcron helper is missing from the payload bundle"
+fi
+
+if [ -n "${deploy_shebang_line}" ]; then
+  pass "A3b the deploy script is present in the bundle"
+else
+  fail "A3b the deploy script is missing from the payload bundle (got: ${payload_rest_head:0:60})"
+fi
+
+# ORDER matters: the deploy defines rootcron_log/rootcron_die AFTER the helper
+# so its `command -v ... ||` defaults lose to the deploy's own logging, and it
+# calls rootcron_pause during a phase. Helper second would invert both.
+if [ -n "${rootcron_marker_line}" ] && [ -n "${deploy_shebang_line}" ] \
+  && [ "${rootcron_marker_line}" -lt "${deploy_shebang_line}" ]; then
+  pass "A3c the helper precedes the deploy script in the bundle"
+else
+  fail "A3c bundle order is wrong (helper line ${rootcron_marker_line:-none}, deploy line ${deploy_shebang_line:-none})"
+fi
+
+if [ -n "${phase_dispatch_line}" ]; then
+  pass "A3d the run_migrations phase is still reachable in the bundle"
+else
+  fail "A3d the phase dispatch is not present in the payload bundle"
+fi
+
+if bash -n "${payload_bundle}" 2>"${SSH_CAPTURE_DIR}/bundle.parse.err"; then
+  pass "A3e the concatenated bundle parses as a single shell script"
+else
+  fail "A3e the bundle does not parse: $(head -n 2 "${SSH_CAPTURE_DIR}/bundle.parse.err" | tr '\n' ' ')"
+fi
+
+# The token must not have leaked into the bundle body anywhere.
+if grep -qF "${TOKEN}" "${payload_bundle}"; then
+  fail "A3f the token appears inside the script bundle, not only on line 1"
+else
+  pass "A3f the token appears nowhere in the script bundle"
 fi
 
 # ── A4: the secret is not exported into the phase environment ────────────────

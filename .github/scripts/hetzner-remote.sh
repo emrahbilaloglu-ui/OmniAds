@@ -685,17 +685,21 @@ run_migrations_service() {
   return "${status}"
 }
 
-# Was this migration attempt refused by lock contention rather than by the
-# migration itself?
+# Was this migration attempt refused by LOCK contention specifically?
 #
-# 55P03 is lock_not_available and "canceling statement due to statement
-# timeout" is its sibling: both mean some other session held what the DDL
-# needed for longer than the bound allowed. Neither says anything about the
-# migration being wrong.
-migration_failed_on_contention() {
+# Only diagnostics that can mean nothing else count:
+#   - "canceling statement due to lock timeout" / 55P03 / lock_not_available
+#     are lock_timeout expiring while waiting to acquire.
+#   - 40P01 / "deadlock detected" is the other unambiguous contention verdict.
+#
+# `statement_timeout` is deliberately NOT here. It bounds total execution, not
+# lock waiting, so a migration that is simply slow or expensive trips it too --
+# and retrying that four times turns one slow failure into four, each doing the
+# same expensive work again. A generic timeout is not evidence of contention.
+migration_failed_on_lock_contention() {
   log_path="${MIGRATION_LAST_LOG:-/tmp/adsecute-migrate.log}"
   [ -f "${log_path}" ] || return 1
-  grep -qE "canceling statement due to (lock|statement) timeout|55P03|lock_not_available" "${log_path}"
+  grep -qE "canceling statement due to lock timeout|55P03|lock_not_available|deadlock detected|40P01" "${log_path}"
 }
 
 # Run migrations, retrying ONLY contention.
@@ -713,20 +717,83 @@ migration_failed_on_contention() {
 # the last committed migration. Anything that is NOT contention fails on the
 # first attempt with its own error, exactly as before -- a retry loop that
 # swallowed real migration failures would be worse than the flake it replaced.
+# Where a paused cron block is parked between pause and resume.
+DEPLOY_SCHEDULER_STATE_DIR="${DEPLOY_SCHEDULER_STATE_DIR:-/var/lib/adsecute-deploy}"
+
+# shellcheck source=../../scripts/lib/rootcron.sh
+rootcron_log() { log "$*"; }
+rootcron_die() { log "ABORT $*"; return 1; }
+if [ -r "${REMOTE_APP_DIR:-.}/scripts/lib/rootcron.sh" ]; then
+  . "${REMOTE_APP_DIR:-.}/scripts/lib/rootcron.sh"
+  ROOTCRON_AVAILABLE=1
+else
+  ROOTCRON_AVAILABLE=0
+fi
+
+# Stop new full sync runs from entering the migration window.
+#
+# Restores on EVERY exit path, including the ERR trap's `exit` and a signal,
+# because a deploy that dies with the scheduler parked leaves production with
+# no sync at all -- a far worse outcome than the lock contention it was
+# avoiding. The resume is also run BEFORE pausing, so a previous run that was
+# killed between the two leaves nothing stranded.
+deploy_scheduler_pause() {
+  if [ "${ROOTCRON_AVAILABLE}" != "1" ]; then
+    log "rootcron helper not found on the host; skipping scheduler quiesce (migrations will rely on contention retry alone)"
+    return 0
+  fi
+  if [ "${DEPLOY_SKIP_SCHEDULER_QUIESCE:-false}" = "true" ]; then
+    log "DEPLOY_SKIP_SCHEDULER_QUIESCE=true; leaving the scheduler running"
+    return 0
+  fi
+
+  # Re-run safety: adopt anything a crashed predecessor left parked.
+  if rootcron_is_paused "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    log "A previous deploy left the Sync cron block parked; restoring it before pausing again"
+    rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  fi
+
+  rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  DEPLOY_SCHEDULER_PAUSED=1
+  # EXIT covers a normal return, the ERR trap's exit, and `set -e`.
+  trap deploy_scheduler_resume EXIT
+  trap 'deploy_scheduler_resume; exit 130' INT
+  trap 'deploy_scheduler_resume; exit 143' TERM
+  return 0
+}
+
+deploy_scheduler_resume() {
+  [ "${DEPLOY_SCHEDULER_PAUSED:-0}" = "1" ] || return 0
+  DEPLOY_SCHEDULER_PAUSED=0
+  # Never let a resume failure mask the deploy's own outcome; it is logged
+  # loudly and the parked block stays on disk for the next run to adopt.
+  rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" \
+    || log "WARNING the Sync cron block could not be restored automatically; it is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.block"
+  return 0
+}
+
 run_migrations_service_with_contention_retry() {
   attempts="${DEPLOY_MIGRATION_CONTENTION_ATTEMPTS:-4}"
   is_positive_integer "${attempts}" || attempts=4
   attempt=1
 
   while : ; do
-    set +e
-    run_migrations_service
-    status="$?"
-    set -e
+    # `cmd || status=$?` and NOT `set +e; cmd; status=$?`.
+    #
+    # This script runs under `set -Eeuo pipefail` with `trap on_phase_error ERR`,
+    # and that handler calls `exit`. Bash runs an ERR trap on a failing simple
+    # command REGARDLESS of whether errexit is currently enabled, so the
+    # set-+e form never reaches the next line: the trap exits the process
+    # first. `run_migrations_service` also restores `set -e` before returning,
+    # so the caller's `set +e` is not even in force by then. A command on the
+    # left of `||` is exempt from both errexit and the ERR trap, which is what
+    # lets the status actually be captured and classified.
+    status=0
+    run_migrations_service || status=$?
 
     [ "${status}" -eq 0 ] && return 0
 
-    if ! migration_failed_on_contention; then
+    if ! migration_failed_on_lock_contention; then
       log "Migration failed for a reason other than lock contention; not retrying."
       return "${status}"
     fi
@@ -1834,6 +1901,16 @@ case "${phase}" in
     # a gate; it is a report.
     assert_not_cutover_required
     assert_no_cutover_in_progress
+
+    # Quiesce the SCHEDULER, not just the worker.
+    #
+    # Stopping the worker only ever closed half the race: the web container
+    # keeps serving and the root crontab keeps firing full sync runs straight
+    # into the migration window, whose per-business jobs hold the locks the DDL
+    # needs. Removing the managed cron block stops NEW runs from entering
+    # without touching public web serving, and every unrelated crontab line is
+    # preserved and digest-checked.
+    deploy_scheduler_pause
 
     log "Stopping worker before migrations to reduce DB contention"
     docker compose stop worker || true

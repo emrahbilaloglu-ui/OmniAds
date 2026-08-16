@@ -64,6 +64,30 @@ const READINESS_LABELS: Record<MetaAutomationReadinessControlTier, string> = {
   auto_execute: "Auto-execute",
 };
 
+/**
+ * The four action kinds the ladder lists.
+ *
+ * Declared here rather than imported from `automation-control-plane`. That
+ * module reaches the database, so a *value* import from this client component
+ * drags `pg` -- and with it `fs`, `net`, `tls`, `dns` -- into the browser
+ * bundle and the build fails to compile. The type import above stays, and it
+ * is what keeps this list honest: adding a kind server-side without adding it
+ * here is a type error.
+ */
+const LADDER_ACTION_KINDS: MetaAutomationDecisionType[] = [
+  "pause",
+  "bid",
+  "budget",
+  "creative",
+];
+
+/** The ladder's rung names, in the design's wording. */
+const LADDER_TIER_LABELS: Record<MetaAutomationDecisionMode, string> = {
+  manual: "Tier 1 · supervised",
+  semi_auto: "Tier 2 · backtest",
+  auto: "Tier 3 · auto",
+};
+
 const LEGACY_MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
   manual: "manual",
   semi_auto: "semi_auto",
@@ -524,6 +548,9 @@ export function MetaAutomationView({
     Boolean(error) || Boolean(payload && !businessControlVerified);
   const blockedReasons = payload?.execution.blockedReasons ?? [];
   const guardrails = payload?.businessControl.guardrails ?? null;
+  // The ladder's header count. Records are entity-keyed, so this is the only
+  // honest place to state a total -- per-row it would be a guess.
+  const promotionRecordCount = payload?.promotionRecords.length ?? 0;
   const stopScopeCount = Number(globalStop) + Number(businessStop);
   const canEngageBusinessStop =
     Boolean(scopedBusinessId) &&
@@ -1235,6 +1262,63 @@ export function MetaAutomationView({
                     Guardrail configuration is not loaded.
                   </div>
                 )}
+              </section>
+
+              {/* Autonomy ladder (design: "per action kind").
+                  Every value here is read from the control plane: the tier is
+                  the persisted standing mode, the hold is its lock reason, the
+                  timestamp is when an operator last changed it. Nothing is
+                  derived from a streak we do not record. */}
+              <section className={styles.panel} aria-labelledby="ladder-title">
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2 id="ladder-title">Autonomy ladder</h2>
+                    <p>Per action kind — the tier each one stands at, and what holds it there.</p>
+                  </div>
+                  <Badge tone={promotionRecordCount > 0 ? "neutral" : "warning"}>
+                    {promotionRecordCount === 1
+                      ? "1 promotion record"
+                      : `${promotionRecordCount} promotion records`}
+                  </Badge>
+                </div>
+
+                <div className={styles.ladderList}>
+                  {LADDER_ACTION_KINDS.map((decisionType) => {
+                    const stored = modeRow(payload, decisionType);
+                    const mode = stored?.mode ?? "manual";
+                    return (
+                      <div
+                        key={decisionType}
+                        className={styles.ladderRow}
+                        data-testid={`automation-ladder-${decisionType}`}
+                      >
+                        <span className={styles.ladderKind}>{decisionType}</span>
+                        <span className={styles.ladderTier}>
+                          {LADDER_TIER_LABELS[mode]}
+                        </span>
+                        <span className={styles.ladderWhy}>
+                          {stored?.lockReason ??
+                            (mode === "manual"
+                              ? "Every action of this kind requires operator confirmation."
+                              : "No lock recorded for this kind.")}
+                        </span>
+                        <span className={styles.ladderWhen}>
+                          {stored?.updatedAt
+                            ? `${new Date(stored.updatedAt).toISOString().slice(0, 10)}${
+                                stored.updatedBy ? ` · ${stored.updatedBy}` : ""
+                              }`
+                            : "never changed"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className={styles.ladderNote}>
+                  promotion records are keyed by entity, not by action kind, so this table
+                  reports the tier and its hold rather than a per-kind streak · a tier only
+                  moves when an operator records the change
+                </p>
               </section>
             </div>
           ) : null}

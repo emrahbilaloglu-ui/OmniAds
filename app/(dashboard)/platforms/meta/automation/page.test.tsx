@@ -232,6 +232,57 @@ describe("MetaAutomationView", () => {
     expect(html).toContain("Configured only");
   });
 
+  /**
+   * The autonomy ladder.
+   *
+   * The design also shows a per-kind promotion count. Promotion records are
+   * keyed by entity, not by action kind, so a per-row number would be invented;
+   * the row states the tier and what holds it, and the total sits in the header
+   * where it is actually true.
+   */
+  it("reports each action kind's tier and its hold, and never a per-kind streak", () => {
+    const laddered: MetaAutomationControlPlane = {
+      ...payload,
+      decisionTypeModes: [
+        {
+          decisionType: "pause",
+          mode: "semi_auto",
+          lockReason: "Backtest contract required before auto-execute.",
+          updatedAt: "2026-08-01T09:30:00.000Z",
+          updatedBy: "operator@adsecute.com",
+          source: "persisted",
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        businessId="biz_1"
+        businessName="IwaStore"
+        providerAccountId="act_1"
+        payload={laddered}
+        initialTab="guardrails"
+      />,
+    );
+
+    expect(html).toContain("Autonomy ladder");
+    // The kind that carries a stored mode reports it, with its reason and date.
+    expect(html).toContain('data-testid="automation-ladder-pause"');
+    expect(html).toContain("Tier 2 · backtest");
+    expect(html).toContain("Backtest contract required before auto-execute.");
+    expect(html).toContain("2026-08-01");
+    expect(html).toContain("operator@adsecute.com");
+    // Every other kind falls back to supervised rather than inheriting it.
+    expect(html).toContain('data-testid="automation-ladder-budget"');
+    expect(html).toContain("Tier 1 · supervised");
+    // The total is stated once, from the records themselves, and counts one
+    // record as one record rather than "1 promotion records".
+    const total = laddered.promotionRecords.length;
+    expect(html).toContain(
+      total === 1 ? "1 promotion record" : `${total} promotion records`,
+    );
+  });
+
   it("exposes only the first Admin review step when Business STOP is engaged", () => {
     const html = renderToStaticMarkup(
       <MetaAutomationView

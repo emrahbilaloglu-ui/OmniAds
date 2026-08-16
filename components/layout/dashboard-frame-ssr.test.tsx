@@ -8,11 +8,12 @@
  * `decision=legacy` first, so the right body was chosen and the shell around it
  * threw.
  *
- * The root layout does wrap everything in `QueryProvider`, and in the
- * production build that context did not reach this subtree. Two things kept it
- * hidden: the proxy redirected these routes away before they could render, and
- * the canonical `/app` surface uses react-query zero times — so no page that
- * actually rendered in production exercised the root provider.
+ * The root layout does wrap everything in `QueryProvider`, and in the shipped
+ * image it never ran: the build bound the canonical `/app` layout to the root
+ * layout slot instead. The Dockerfile carries that story. Two things kept it
+ * hidden until now: the proxy redirected these routes away before they could
+ * render, and the canonical `/app` surface uses react-query zero times — so no
+ * page that actually rendered in production ever needed a QueryClient.
  *
  * The component tests each mount their own provider, which is why they all
  * passed while production did not. These render on the server, the way

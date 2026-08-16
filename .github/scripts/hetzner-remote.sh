@@ -759,23 +759,61 @@ deploy_scheduler_pause() {
     rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
   fi
 
-  rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}" || return 1
+  # Arm recovery BEFORE anything can remove the block. `rootcron_pause` also
+  # rolls back synchronously on its own post-write failures, but the trap has
+  # to exist first: the window between "the block is gone" and "a trap that
+  # would put it back" must not contain a single instruction.
   DEPLOY_SCHEDULER_PAUSED=1
-  # EXIT covers a normal return, the ERR trap's exit, and `set -e`.
-  trap deploy_scheduler_resume EXIT
-  trap 'deploy_scheduler_resume; exit 130' INT
-  trap 'deploy_scheduler_resume; exit 143' TERM
+  trap deploy_scheduler_resume_on_exit EXIT
+  trap 'deploy_scheduler_resume_on_signal 130' INT
+  trap 'deploy_scheduler_resume_on_signal 143' TERM
+
+  if ! rootcron_pause "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    # Nothing was parked, so disarm rather than leave a trap that would report
+    # a restoration failure for a pause that never happened.
+    DEPLOY_SCHEDULER_PAUSED=0
+    return 1
+  fi
   return 0
 }
 
+# Exit code for "the deploy itself was fine, but the scheduler is still down".
+DEPLOY_SCHEDULER_RESTORE_FAILED_STATUS=75
+
+# Returns 0 when the scheduler is confirmed back, 1 when it is not.
 deploy_scheduler_resume() {
   [ "${DEPLOY_SCHEDULER_PAUSED:-0}" = "1" ] || return 0
   DEPLOY_SCHEDULER_PAUSED=0
-  # Never let a resume failure mask the deploy's own outcome; it is logged
-  # loudly and the parked block stays on disk for the next run to adopt.
-  rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}" \
-    || log "WARNING the Sync cron block could not be restored automatically; it is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.block"
-  return 0
+  if rootcron_resume "${DEPLOY_SCHEDULER_STATE_DIR}"; then
+    return 0
+  fi
+  log "ABORT the Sync cron block could NOT be restored; production is running with no scheduler. It is parked at ${DEPLOY_SCHEDULER_STATE_DIR}/rootcron.block and must be restored by hand."
+  return 1
+}
+
+# A failed restoration must not be reported as a successful deploy.
+#
+# The previous version logged a warning and returned 0, so a green deploy could
+# leave production with no scheduler at all and nothing in the outcome to say
+# so. It also must not MASK an existing failure: when the phase was already
+# failing, that status is what an operator needs to see, with the restoration
+# failure logged loudly beside it.
+deploy_scheduler_resume_on_exit() {
+  __deploy_status=$?
+  if deploy_scheduler_resume; then
+    exit "${__deploy_status}"
+  fi
+  if [ "${__deploy_status}" -eq 0 ]; then
+    exit "${DEPLOY_SCHEDULER_RESTORE_FAILED_STATUS}"
+  fi
+  log "the phase was already failing with status ${__deploy_status}; preserving it over the restoration failure"
+  exit "${__deploy_status}"
+}
+
+deploy_scheduler_resume_on_signal() {
+  __signal_status="$1"
+  deploy_scheduler_resume || true
+  exit "${__signal_status}"
 }
 
 run_migrations_service_with_contention_retry() {

@@ -202,20 +202,48 @@ rootcron_pause() {
     return 1
   fi
 
+  # From here the block IS removed, so every failure below restores it
+  # SYNCHRONOUSLY rather than returning and trusting a caller's trap. Between
+  # the write above and a trap that may not be armed yet, production would have
+  # no scheduler at all. `${tmp}` still holds the ORIGINAL crontab byte for
+  # byte, so recovery is a write, not a reconstruction.
+  rootcron_pause_rollback() {
+    _rb_reason="$1"
+    if rootcron_write < "${tmp}"; then
+      _rb_v="$(mktemp)"
+      if rootcron_read > "${_rb_v}" && cmp -s "${_rb_v}" "${tmp}"; then
+        rm -f "${_rb_v}"
+        rootcron_log "rolled the root crontab back to its original contents after: ${_rb_reason}"
+        rm -f "${state_dir}/rootcron.block" "${state_dir}/rootcron.outside" \
+              "${state_dir}/rootcron.index" "${state_dir}/rootcron.outside.sha256"
+        return 0
+      fi
+      rm -f "${_rb_v}"
+    fi
+    rootcron_die "could NOT roll the root crontab back after: ${_rb_reason}. The original block is parked at ${state_dir}/rootcron.block and must be restored by hand."
+    return 1
+  }
+
   # Read back. `crontab` exiting 0 is not proof the daemon accepted the file.
   vtmp="$(mktemp)"; voutside="$(mktemp)"; vblock="$(mktemp)"
   if ! rootcron_read > "${vtmp}"; then
+    rootcron_pause_rollback "the crontab could not be read back after removal" || true
     rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
     return 1
   fi
   if ! rootcron_split "${vtmp}" "${voutside}" "${vblock}" >/dev/null; then
+    rootcron_pause_rollback "the crontab was unparseable after removal" || true
     rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
-    rootcron_die "the root crontab is unparseable after removing the managed block"
     return 1
   fi
   if [ -s "${vblock}" ]; then
+    rootcron_pause_rollback "the managed block was still present after removal" || true
     rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
-    rootcron_die "the managed block is still present after removing it"
+    return 1
+  fi
+  if [ "$(rootcron_sha256_file "${voutside}")" != "$(rootcron_sha256_file "${outside}")" ]; then
+    rootcron_pause_rollback "removal altered unrelated crontab lines" || true
+    rm -f "${tmp}" "${outside}" "${block}" "${vtmp}" "${voutside}" "${vblock}"
     return 1
   fi
 

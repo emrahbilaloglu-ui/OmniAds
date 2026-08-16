@@ -299,6 +299,62 @@ else
   diff <(printf '%s\n' "${envbefore}") "${CRONTAB_FILE}" | sed 's/^/        /' || true
 fi
 
+# --- 16: removal succeeded but READBACK fails -> synchronous rollback -------
+reset_crontab
+original="$(cat "${CRONTAB_FILE}")"
+# Let the removal write land, then make the verification read fail once.
+_real_read() { cat "${CRONTAB_FILE}" 2>/dev/null || true; }
+_reads=0
+rootcron_read() {
+  _reads=$((_reads + 1))
+  # 1st read = pause's initial read (ok). 2nd = verification (fail).
+  if [ "${_reads}" -eq 2 ]; then echo "crontab: transient cron failure" >&2; return 1; fi
+  _real_read
+}
+rc16=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc16=$?
+rootcron_read() { _real_read; }
+if [ "${rc16}" -ne 0 ]; then
+  ok "pause fails when the post-removal readback fails"
+else
+  bad "pause reported success despite a failed readback"
+fi
+if [ "$(cat "${CRONTAB_FILE}")" = "${original}" ]; then
+  ok "the managed block and unrelated lines are restored byte-for-byte after a failed readback"
+else
+  bad "the crontab was left mutated after a failed readback"
+  diff <(printf '%s\n' "${original}") "${CRONTAB_FILE}" | sed 's/^/        /' || true
+fi
+if ! rootcron_is_paused "${STATE_DIR}"; then
+  ok "rollback clears the parked state it no longer owns"
+else
+  bad "parked state survived a successful rollback"
+fi
+
+# --- 17: removal succeeded but VERIFY sees the block still there ------------
+reset_crontab
+original="$(cat "${CRONTAB_FILE}")"
+_writes=0
+_real_write() { cat > "${CRONTAB_FILE}"; }
+rootcron_write() {
+  _writes=$((_writes + 1))
+  if [ "${_writes}" -eq 1 ]; then
+    # Pretend the daemon ignored the removal: keep the original on disk.
+    cat >/dev/null
+    printf '%s\n' "${original}" > "${CRONTAB_FILE}"
+    return 0
+  fi
+  _real_write
+}
+rc17=0
+rootcron_pause "${STATE_DIR}" >/dev/null 2>&1 || rc17=$?
+rootcron_write() { _real_write; }
+if [ "${rc17}" -ne 0 ] && [ "$(cat "${CRONTAB_FILE}")" = "${original}" ]; then
+  ok "a removal the daemon ignored is detected and rolled back byte-for-byte"
+else
+  bad "an ignored removal was not detected or not rolled back (rc=${rc17})"
+fi
+
 if [ "${failures}" -ne 0 ]; then
   echo "FAILED: ${failures} case(s)"
   exit 1

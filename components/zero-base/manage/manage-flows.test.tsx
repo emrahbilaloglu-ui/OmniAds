@@ -77,6 +77,22 @@ function type(selector: string, value: string) {
   fireEvent.input(input, { target: { value } });
 }
 
+/**
+ * Type into a controlled field and wait for the value to be React's, not the
+ * DOM's.
+ *
+ * These inputs are controlled, so the value survives the next render only once
+ * the component has committed it. Saving on the very next line read the state
+ * from before the keystroke, so the request never carried the edit and the
+ * confirmation never arrived -- on a CI runner slow enough to lose the race.
+ */
+async function typeAndSettle(selector: string, value: string) {
+  type(selector, value);
+  await waitFor(() =>
+    expect((document.querySelector(selector) as HTMLInputElement).value).toBe(value),
+  );
+}
+
 /** Click through fireEvent for the same reason. */
 function click(selector: string) {
   fireEvent.click(document.querySelector(selector) as HTMLElement);
@@ -289,8 +305,8 @@ describe("WP-23 business settings", () => {
     render(<BusinessClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector("[data-business-name]")).not.toBeNull());
 
-    type("[data-business-name]", "Grandmix EU");
-    type("[data-business-currency]", "EUR");
+    await typeAndSettle("[data-business-name]", "Grandmix EU");
+    await typeAndSettle("[data-business-currency]", "EUR");
 
     click("[data-settings-save]");
     await waitFor(() => {

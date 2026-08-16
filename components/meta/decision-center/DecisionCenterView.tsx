@@ -320,6 +320,17 @@ export function DecisionCenterView({
       accountLabel={`Ad account ${providerAccountId}`}
       currency={currency}
       windowLabel={window.label}
+      windowShortLabel={window.key === "custom" ? null : window.key.toUpperCase()}
+      pulse={{
+        pacing: workspace.pulse.pacing,
+        roas: workspace.pulse.roas,
+        roasHistory: workspace.pulse.roasHistory,
+        labelCoverage: workspace.pulse.labelCoverage,
+        operatingMode: workspace.pulse.operatingMode,
+        seasonalRegime: workspace.pulse.seasonalRegime,
+        trackingHealth: workspace.pulse.trackingHealth,
+      }}
+      snapshotHealth={workspace.system.snapshotHealth ?? null}
       lastSyncLabel={relativeLabel(workspace.pulse.lastSyncAt)}
       readOnlyReason={workspace.viewer?.readOnly ? workspace.viewer.readOnlyReason : null}
       unavailableReason={

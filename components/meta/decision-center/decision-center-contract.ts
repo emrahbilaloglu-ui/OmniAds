@@ -163,6 +163,180 @@ export function decisionCenterMoneyAtStake(
   return { total, measured, unmeasured, currency };
 }
 
+/** One KPI tile in the header strip, already reduced to what it displays. */
+export interface DecisionCenterHeaderFact {
+  key: "spend" | "roas" | "snapshot" | "labels" | "mode";
+  label: string;
+  value: string;
+  /** Sits beside the value — a delta, a target, a percentage. */
+  adjunct: string | null;
+  note: string;
+  chips: Array<{ text: string; tone: "ok" | "warn" | "neutral" }>;
+  spark: number[] | null;
+  tone: "accent" | "warn" | "neutral";
+}
+
+function pct(current: number | null | undefined, baseline: number | null | undefined) {
+  if (typeof current !== "number" || typeof baseline !== "number") return null;
+  if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline === 0) return null;
+  const delta = ((current - baseline) / baseline) * 100;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`;
+}
+
+function count(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : null;
+}
+
+/**
+ * The header KPI strip, projected from the account pulse the server measured.
+ *
+ * Arithmetic only over measured quantities — a percentage against a baseline,
+ * a coverage ratio. Nothing here decides anything: no lane, no action, no
+ * readiness. Where a measurement is absent the tile says "—" rather than 0,
+ * because the strip is the first thing read and a fabricated zero there is
+ * indistinguishable from a real one.
+ */
+export function decisionCenterHeaderFacts(input: {
+  pacing?: {
+    spendToday?: number;
+    avg7dSpend?: number;
+    conversionsToday?: number;
+    avg7dConversions?: number;
+  } | null;
+  /**
+   * `selected` is the ROAS for the window actually being shown. Reading `d28`
+   * regardless would put a 28-day number under a "7d" heading.
+   */
+  roas?: { selected: number; d28: number; target: number | null } | null;
+  roasHistory?: number[] | null;
+  labelCoverage?: { activeCampaigns: number; labeledCampaigns: number } | null;
+  operatingMode?: string | null;
+  seasonalRegime?: string | null;
+  trackingHealth?: { status: string; detail: string } | null;
+  snapshotHealth?: { status: string; ageHours: number | null } | null;
+  engineVersion?: string | null;
+  lastSyncLabel?: string | null;
+  currency?: string | null;
+  windowLabel?: string | null;
+  formatMoney: (value: number | null | undefined, currency: string | null) => string;
+}): DecisionCenterHeaderFact[] {
+  const pacing = input.pacing ?? null;
+  const roas = input.roas ?? null;
+  const coverage = input.labelCoverage ?? null;
+  const snapshot = input.snapshotHealth ?? null;
+  const tracking = input.trackingHealth ?? null;
+
+  const spendDelta = pct(pacing?.spendToday, pacing?.avg7dSpend);
+  const conversionsToday = count(pacing?.conversionsToday);
+  const avg7dConversions = count(pacing?.avg7dConversions);
+
+  const coverageRatio =
+    coverage && coverage.activeCampaigns > 0
+      ? Math.round((coverage.labeledCampaigns / coverage.activeCampaigns) * 100)
+      : null;
+
+  const snapshotAge =
+    typeof snapshot?.ageHours === "number" && Number.isFinite(snapshot.ageHours)
+      ? snapshot.ageHours < 1
+        ? "under 1h old"
+        : `${Math.round(snapshot.ageHours)}h old`
+      : "age unknown";
+
+  return [
+    {
+      key: "spend",
+      label: "Spend · today",
+      value: input.formatMoney(pacing?.spendToday, input.currency ?? null),
+      adjunct: spendDelta ? `${spendDelta} vs 7d avg` : null,
+      note:
+        conversionsToday !== null
+          ? `${conversionsToday} conversions${avg7dConversions !== null ? ` · 7d avg ${avg7dConversions}` : ""}`
+          : "conversions not measured",
+      chips: [],
+      spark: null,
+      tone: "neutral",
+    },
+    {
+      key: "roas",
+      label: `ROAS${input.windowLabel ? ` · ${input.windowLabel}` : ""}`,
+      value:
+        typeof roas?.selected === "number" && Number.isFinite(roas.selected)
+          ? roas.selected.toFixed(2)
+          : "—",
+      adjunct:
+        typeof roas?.target === "number" && Number.isFinite(roas.target)
+          ? `target ${roas.target.toFixed(2)}`
+          : "no target set",
+      note: "",
+      chips: [],
+      spark: input.roasHistory?.length ? input.roasHistory : null,
+      tone: "neutral",
+    },
+    {
+      key: "snapshot",
+      label: "Snapshot",
+      value: "",
+      adjunct: null,
+      note: [
+        input.engineVersion ? `engine ${input.engineVersion}` : null,
+        input.lastSyncLabel ? `synced ${input.lastSyncLabel}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      chips: [
+        {
+          text: `${snapshot?.status ? snapshot.status.replace(/_/g, " ") : "unknown"} · ${snapshotAge}`,
+          tone: snapshot?.status === "fresh" ? "ok" : "warn",
+        },
+      ],
+      spark: null,
+      tone: snapshot?.status === "fresh" ? "neutral" : "warn",
+    },
+    {
+      key: "labels",
+      label: "Labels",
+      value: coverage ? `${coverage.labeledCampaigns}/${coverage.activeCampaigns}` : "—",
+      adjunct: coverageRatio !== null ? `${coverageRatio}%` : null,
+      note: coverage ? "" : "label coverage not measured",
+      chips: [],
+      spark: null,
+      // Unlabelled campaigns are why decisions get capped, so partial coverage
+      // is a warning rather than a neutral statistic.
+      tone: coverageRatio !== null && coverageRatio < 100 ? "warn" : "neutral",
+    },
+    {
+      key: "mode",
+      label: "Mode",
+      value: input.operatingMode ? titleCaseWord(input.operatingMode) : "—",
+      adjunct: null,
+      note: "",
+      chips: [
+        ...(input.seasonalRegime
+          ? [{ text: titleCaseWord(input.seasonalRegime), tone: "neutral" as const }]
+          : []),
+        ...(tracking
+          ? [
+              {
+                text: tracking.status === "healthy" ? "Tracking OK" : `Tracking ${tracking.status}`,
+                tone: tracking.status === "healthy" ? ("ok" as const) : ("warn" as const),
+              },
+            ]
+          : []),
+      ],
+      spark: null,
+      tone: "neutral",
+    },
+  ];
+}
+
+function titleCaseWord(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 /**
  * Whether the card may show a primary command button.
  *

@@ -18,9 +18,11 @@ import { useMemo, useState } from "react";
 import {
   DECISION_CENTER_QUEUES,
   decisionCenterHasCommand,
+  decisionCenterHeaderFacts,
   decisionCenterItems,
   decisionCenterMoneyAtStake,
   decisionCenterQueueCounts,
+  type DecisionCenterHeaderFact,
   type DecisionCenterItem,
   type DecisionCenterLayer,
   type DecisionCenterQueueKey,
@@ -34,6 +36,27 @@ export interface DecisionCenterBodyProps {
   currency: string | null;
   /** Metrics window, owned by the shell picker. Scopes metrics only. */
   windowLabel: string | null;
+  /** The same window, abbreviated for the KPI heading ("28D"). */
+  windowShortLabel?: string | null;
+  /**
+   * The account pulse the server measured, for the header KPI strip. Absent
+   * fields stay absent — the strip prints "—" rather than a zero it invented.
+   */
+  pulse?: {
+    pacing?: {
+      spendToday?: number;
+      avg7dSpend?: number;
+      conversionsToday?: number;
+      avg7dConversions?: number;
+    } | null;
+    roas?: { selected: number; d28: number; target: number | null } | null;
+    roasHistory?: number[] | null;
+    labelCoverage?: { activeCampaigns: number; labeledCampaigns: number } | null;
+    operatingMode?: string | null;
+    seasonalRegime?: string | null;
+    trackingHealth?: { status: string; detail: string } | null;
+  } | null;
+  snapshotHealth?: { status: string; ageHours: number | null } | null;
   lastSyncLabel: string | null;
   /**
    * Set when the server downgraded this viewer's write controls. Stated rather
@@ -53,7 +76,7 @@ export interface DecisionCenterBodyProps {
   onCommand?: (item: DecisionCenterItem) => void;
 }
 
-function money(value: number | null, currency: string | null) {
+function money(value: number | null | undefined, currency: string | null) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
   const body =
@@ -65,22 +88,83 @@ function ratio(value: number | null) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "—";
 }
 
-/** One KPI tile. Every tile states a server fact, never a derived verdict. */
-function Tile({ label, value, note, tone }: { label: string; value: string; note: string; tone?: "accent" | "warn" }) {
+/** A ROAS trend drawn from the server's own history, or nothing. */
+function Spark({ points }: { points: number[] }) {
+  if (points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const path = points
+    .map((point, index) => {
+      const x = (index / (points.length - 1)) * 100;
+      const y = 22 - ((point - min) / span) * 20;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
   return (
-    <article className="flex min-w-0 flex-col gap-1 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4">
+    <svg
+      viewBox="0 0 100 24"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      className="mt-1 h-[24px] w-full"
+    >
+      <path d={path} fill="none" stroke="var(--adv-accent)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/** One KPI tile. Every tile states a server fact, never a derived verdict. */
+function Tile({ fact }: { fact: DecisionCenterHeaderFact }) {
+  return (
+    <article
+      data-testid={`decision-center-kpi-${fact.key}`}
+      className="flex min-w-0 flex-col gap-1 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4"
+    >
       <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
-        {label}
+        {fact.label}
       </p>
-      <p
-        className={cn(
-          "m-0 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.05] tracking-[-0.02em]",
-          tone === "accent" ? "text-[var(--adv-accent)]" : tone === "warn" ? "text-[#b45309]" : "text-[var(--adv-ink)]",
-        )}
-      >
-        {value}
-      </p>
-      <p className="m-0 text-[12px] leading-[1.4] text-[var(--adv-ink-3)]">{note}</p>
+      {fact.value ? (
+        <p className="m-0 flex flex-wrap items-baseline gap-2">
+          <span
+            className={cn(
+              "font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.05] tracking-[-0.02em]",
+              fact.tone === "accent"
+                ? "text-[var(--adv-accent)]"
+                : fact.tone === "warn"
+                  ? "text-[#b45309]"
+                  : "text-[var(--adv-ink)]",
+            )}
+          >
+            {fact.value}
+          </span>
+          {fact.adjunct && (
+            <span className="text-[12.5px] font-semibold text-[var(--adv-ink-3)]">{fact.adjunct}</span>
+          )}
+        </p>
+      ) : (
+        fact.adjunct && <p className="m-0 text-[12.5px] font-semibold text-[var(--adv-ink-3)]">{fact.adjunct}</p>
+      )}
+      {fact.chips.length > 0 && (
+        <p className="m-0 flex flex-wrap gap-1.5">
+          {fact.chips.map((chip) => (
+            <span
+              key={chip.text}
+              className={cn(
+                "inline-flex h-[22px] items-center rounded-full px-2 text-[11.5px] font-semibold",
+                chip.tone === "ok"
+                  ? "bg-[#e8f6ed] text-[#16663a]"
+                  : chip.tone === "warn"
+                    ? "bg-[#fdf1de] text-[#8a5106]"
+                    : "bg-[var(--adv-fill)] text-[var(--adv-ink-2)]",
+              )}
+            >
+              {chip.text}
+            </span>
+          ))}
+        </p>
+      )}
+      {fact.spark && <Spark points={fact.spark} />}
+      {fact.note && <p className="m-0 text-[12px] leading-[1.4] text-[var(--adv-ink-3)]">{fact.note}</p>}
     </article>
   );
 }
@@ -90,6 +174,9 @@ export function DecisionCenterBody({
   accountLabel,
   currency,
   windowLabel,
+  windowShortLabel = null,
+  pulse = null,
+  snapshotHealth = null,
   lastSyncLabel,
   readOnlyReason = null,
   unavailableReason = null,
@@ -110,6 +197,26 @@ export function DecisionCenterBody({
   const selected = visible.find((item) => item.id === selectedId) ?? visible[0] ?? null;
   const snapshot = presentation.source.snapshotAsOf;
   const degraded = presentation.source.health === "degraded";
+
+  const headerFacts = useMemo<DecisionCenterHeaderFact[]>(
+    () =>
+      decisionCenterHeaderFacts({
+        pacing: pulse?.pacing ?? null,
+        roas: pulse?.roas ?? null,
+        roasHistory: pulse?.roasHistory ?? null,
+        labelCoverage: pulse?.labelCoverage ?? null,
+        operatingMode: pulse?.operatingMode ?? null,
+        seasonalRegime: pulse?.seasonalRegime ?? null,
+        trackingHealth: pulse?.trackingHealth ?? null,
+        snapshotHealth,
+        engineVersion: presentation.source.engineVersion,
+        lastSyncLabel,
+        currency,
+        windowLabel: windowShortLabel,
+        formatMoney: money,
+      }),
+    [pulse, snapshotHealth, presentation.source.engineVersion, lastSyncLabel, currency, windowShortLabel],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -176,34 +283,9 @@ export function DecisionCenterBody({
         className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]"
         aria-label="Decision queue summary"
       >
-        <Tile
-          label="Action now"
-          value={String(counts.act)}
-          note={
-            atStake.measured > 0
-              ? `${money(atStake.total, atStake.currency ?? currency)} measured across ${atStake.measured}${atStake.unmeasured > 0 ? ` · ${atStake.unmeasured} unmeasured` : ""}`
-              : "no measured spend on this queue"
-          }
-          tone="accent"
-        />
-        <Tile label="Watching" value={String(counts.monitor)} note="held for evidence, no command issued" />
-        <Tile
-          label="Blocked"
-          value={String(counts.blocked)}
-          note="authority withheld until the blocker clears"
-          tone={counts.blocked > 0 ? "warn" : undefined}
-        />
-        <Tile
-          label="Snapshot"
-          value={snapshot ?? "—"}
-          note={degraded ? `degraded · ${presentation.source.fallbackReason ?? "source fallback"}` : "healthy"}
-          tone={degraded ? "warn" : undefined}
-        />
-        <Tile
-          label="Engine"
-          value={presentation.source.engineVersion ?? "—"}
-          note={presentation.source.adsSource === "native_ad_decision" ? "native ad authority" : "legacy creative · review only"}
-        />
+        {headerFacts.map((fact) => (
+          <Tile key={fact.key} fact={fact} />
+        ))}
       </section>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -236,6 +318,21 @@ export function DecisionCenterBody({
           queue reflects snapshot {snapshot ?? "—"}
           {windowLabel ? ` — ${windowLabel} scopes metrics, not decisions` : ""}
         </p>
+        {/*
+          The source's own health, kept beside the queue it produced. A degraded
+          read still returns cards, so leaving this out would present a fallback
+          as if it were the full engine verdict.
+        */}
+        {(degraded || presentation.source.adsSource !== "native_ad_decision") && (
+          <p
+            data-testid="decision-center-source-health"
+            className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] text-[#8a5106]"
+          >
+            {degraded ? `source degraded · ${presentation.source.fallbackReason ?? "source fallback"}` : null}
+            {degraded && presentation.source.adsSource !== "native_ad_decision" ? " · " : null}
+            {presentation.source.adsSource !== "native_ad_decision" ? "legacy creative · review only" : null}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

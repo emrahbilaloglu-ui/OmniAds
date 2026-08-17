@@ -44,7 +44,7 @@ const TIER_ZERO_SURFACES: Array<{
   {
     label: "Reports",
     route: "app/(dashboard)/reports/legacy-page.tsx",
-    file: "app/(dashboard)/reports/legacy-page.tsx",
+    file: "components/reports/reports-exact-container.tsx",
   },
   {
     // The list reported its age while the page that renders the figures an

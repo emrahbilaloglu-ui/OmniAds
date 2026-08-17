@@ -76,6 +76,11 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_REPORTS_TYPE_FILE = "components/reports/ReportsExact.module.css";
+const EXACT_REPORTS_TYPE_START =
+  "dashboard-v2-reports-exact-reference-type:start";
+const EXACT_REPORTS_TYPE_END =
+  "/* dashboard-v2-reports-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +98,8 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_REPORTS_TYPE_FILE
+                    ? [EXACT_REPORTS_TYPE_START, EXACT_REPORTS_TYPE_END]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;

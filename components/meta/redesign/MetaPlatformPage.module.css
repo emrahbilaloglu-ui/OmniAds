@@ -1044,9 +1044,15 @@
 }
 
 .metaOsDesktop {
-  min-height: calc(100vh - 46px);
-  background: var(--adc-s1);
+  background: #f3f5f9;
   color: var(--adc-ink);
+}
+
+@media (min-width: 1024px) {
+  .metaPageRoot.metaPageRoot {
+    min-height: 0;
+    background: #f3f5f9;
+  }
 }
 
 /* Dashboard v2 page header: an eyebrow / display title / as-of stack sitting

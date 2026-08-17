@@ -143,7 +143,17 @@ describe("no surface offers a comparison it does not read", () => {
     // so the narrowing is asserted where the control now lives. The rule is
     // unchanged: Overview must not offer a comparison its route cannot read.
     const topbar = await read("components/layout/v2/app-topbar.tsx");
-    expect(topbar).toContain("OVERVIEW_COMPARISON_PRESETS");
+    const picker = await read("components/date-range/DateRangePicker.tsx");
+    const persistentRange = await read("hooks/use-persistent-date-range.ts");
+    expect(topbar).toContain('variant="v2"');
+    expect(picker).toContain("togglePreviousPeriodComparison(value)");
+    expect(picker).toContain(
+      'value.comparisonPreset === "none" ? "previousPeriod" : "none"',
+    );
+    expect(persistentRange).toContain("normalizeDashboardV2DateRange");
+    expect(persistentRange).toContain(
+      'value.comparisonPreset === "none" ? "none" : "previousPeriod"',
+    );
     expect(page).not.toContain(
       'dateRange.comparisonPreset === "none" ? "none" : "previous_period"',
     );

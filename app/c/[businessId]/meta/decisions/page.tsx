@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import { listUserBusinesses } from "@/lib/access";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
@@ -7,7 +8,6 @@ import { parseDecisionsUrlState } from "@/lib/zero-base/meta/decisions-url-state
 import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
-import { LegacyInteriorBridge } from "@/components/legacy/legacy-interior-bridge";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,8 @@ export default async function MetaDecisionsPage({
 
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
+  const businesses = await listUserBusinesses(access.context.session.user.id);
+  const business = businesses.find((item) => item.id === businessId) ?? null;
 
   const raw = (await searchParams) ?? {};
   const query = new URLSearchParams();
@@ -58,8 +60,10 @@ export default async function MetaDecisionsPage({
   void mutationUiEnabled;
   void parseDecisionsUrlState(query);
   return (
-    <LegacyInteriorBridge>
-      <LegacyMetaPage />
-    </LegacyInteriorBridge>
+    <LegacyMetaPage
+      businessId={businessId}
+      businessName={business?.name ?? null}
+      currency={business?.currency ?? null}
+    />
   );
 }

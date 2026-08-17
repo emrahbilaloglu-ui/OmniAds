@@ -42,14 +42,27 @@ const EXACT_SHELL_TYPE_START =
   "/* dashboard-v2-shell-exact-reference-type:start */";
 const EXACT_SHELL_TYPE_END =
   "/* dashboard-v2-shell-exact-reference-type:end */";
+const EXACT_META_TYPE_FILE =
+  "components/meta/decision-center/MetaDecisionCenterExact.module.css";
+const EXACT_META_TYPE_START =
+  "/* dashboard-v2-meta-exact-reference-type:start */";
+const EXACT_META_TYPE_END =
+  "/* dashboard-v2-meta-exact-reference-type:end */";
 
-function exactShellTypeBounds(file: string, source: string) {
-  if (file !== EXACT_SHELL_TYPE_FILE) return null;
-  const markerStart = source.indexOf(EXACT_SHELL_TYPE_START);
-  const markerEnd = source.indexOf(EXACT_SHELL_TYPE_END);
+function exactReferenceTypeBounds(file: string, source: string) {
+  const markers =
+    file === EXACT_SHELL_TYPE_FILE
+      ? [EXACT_SHELL_TYPE_START, EXACT_SHELL_TYPE_END]
+      : file === EXACT_META_TYPE_FILE
+        ? [EXACT_META_TYPE_START, EXACT_META_TYPE_END]
+        : null;
+  if (!markers) return null;
+  const [startMarker, endMarker] = markers;
+  const markerStart = source.indexOf(startMarker);
+  const markerEnd = source.indexOf(endMarker);
   if (markerStart < 0 || markerEnd <= markerStart) return null;
   return {
-    start: markerStart + EXACT_SHELL_TYPE_START.length,
+    start: markerStart + startMarker.length,
     end: markerEnd,
   };
 }
@@ -64,7 +77,7 @@ describe("no essential text is rendered below the readable floor", () => {
     expect(source.split(EXACT_SHELL_TYPE_START)).toHaveLength(2);
     expect(source.split(EXACT_SHELL_TYPE_END)).toHaveLength(2);
 
-    const bounds = exactShellTypeBounds(EXACT_SHELL_TYPE_FILE, source);
+    const bounds = exactReferenceTypeBounds(EXACT_SHELL_TYPE_FILE, source);
     expect(bounds).not.toBeNull();
     const exactShell = source.slice(bounds!.start, bounds!.end);
     const declarations = Array.from(
@@ -85,17 +98,62 @@ describe("no essential text is rendered below the readable floor", () => {
     ]);
   });
 
+  it("keeps the marker-bounded Meta values narrow and exact", () => {
+    const source = readFileSync(EXACT_META_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_META_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_META_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_META_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactMeta = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactMeta.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      { selector: ".pageEyebrow, .asOfLine, .scopeRow > p", size: 11 },
+      { selector: ".kpiLabel, .watchBadge, .inspectorEyebrow", size: 9.5 },
+      {
+        selector:
+          ".snapshotDetail, .moneySub, .watchSegment, .healthyStats, .resumeButton, .postureDetail, .creativeDecisionLabel, .inspectorMoneyDetail",
+        size: 11.5,
+      },
+      {
+        selector: ".modeChip, .scopeOption > span, .healthyStrategy, .inspectorMeta",
+        size: 10.5,
+      },
+      {
+        selector:
+          ".laneOption > span, .rowChip, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
+        size: 11,
+      },
+      {
+        selector:
+          ".entityLevel, .watchLevel, .nonSalesLevel, .nonSalesMetricLabel, .postureLabel, .inspectorSectionLabel, .reasonHeading, .blockersHeading, .inspectorMiniLabel",
+        size: 9,
+      },
+      { selector: ".archiveTable th, .provenance", size: 10 },
+      { selector: ".creativeKind", size: 8 },
+      { selector: ".creativeSparkLabel", size: 8.5 },
+    ]);
+  });
+
   it("has no font-size below 12px outside the exact shell marker", () => {
     const violations: string[] = [];
     for (const file of STYLESHEETS) {
       const source = readFileSync(file, "utf8");
-      const bounds = exactShellTypeBounds(file, source);
+      const bounds = exactReferenceTypeBounds(file, source);
       for (const match of source.matchAll(FONT_SIZE)) {
         const size = Number(match[1]);
         const offset = match.index;
-        const isExactShell =
+        const isExactReference =
           bounds !== null && offset >= bounds.start && offset < bounds.end;
-        if (size < 12 && !isExactShell) {
+        if (size < 12 && !isExactReference) {
           const line = source.slice(0, offset).split("\n").length;
           violations.push(`${file}:${line} — ${size}px`);
         }

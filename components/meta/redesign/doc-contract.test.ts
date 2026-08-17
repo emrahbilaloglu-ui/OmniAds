@@ -9,10 +9,16 @@ import { describe, expect, it } from "vitest";
 // source for exactly those claims, and fail whichever side regresses.
 const DOC_PATH = "docs/meta-page-ui-contract.md";
 const PAGE_PATH = "components/meta/redesign/MetaPlatformPage.tsx";
+const EXACT_PATH =
+  "components/meta/decision-center/MetaDecisionCenterExact.tsx";
+const ADAPTER_PATH =
+  "components/meta/decision-center/meta-decision-center-exact-adapter.ts";
 
 describe("meta page UI contract doc stays consistent with code", () => {
   const doc = readFileSync(DOC_PATH, "utf8");
   const page = readFileSync(PAGE_PATH, "utf8");
+  const exact = readFileSync(EXACT_PATH, "utf8");
+  const adapter = readFileSync(ADAPTER_PATH, "utf8");
 
   it("legacy execute hints are review-only and the doc must not claim direct provider writes", () => {
     expect(page).toContain(
@@ -64,13 +70,16 @@ describe("meta page UI contract doc stays consistent with code", () => {
     expect(doc).not.toMatch(/not window- or status-filter-scoped/i);
   });
 
-  it("unified as-of contract: lane/anomaly as-of rendering exists and the doc must not deny it", () => {
-    // The lane payload's own as-of renders in the Snapshot cell micro line
-    // and the anomaly feed's as-of renders above the Action Now cards.
-    expect(page).toContain("laneAsOf");
-    expect(page).toContain('data-testid="meta-anomaly-asof"');
+  it("unified as-of contract: exact source identity and queue snapshot remain payload-bound", () => {
+    expect(exact).toContain("data-meta-exact-source-identity");
+    expect(exact).toContain("data-meta-exact-queue-snapshot");
+    expect(adapter).toContain("workspace.pulse.lastSyncAt");
+    expect(adapter).toContain("workspace.decisionReadModel.source.snapshotAsOf");
+    expect(adapter).toContain("workspace.lanes.snapshotDate");
     expect(doc).toContain("unified as-of contract");
-    expect(doc).toContain("meta-anomaly-asof");
+    expect(doc).toContain("data-meta-exact-source-identity");
+    expect(doc).toContain("data-meta-exact-queue-snapshot");
+    expect(doc).not.toContain("meta-anomaly-asof");
     // Pre-fix wording (snapshotDate as the requested range end) is banned.
     expect(doc).not.toMatch(/snapshotDate[^.\n]*requested range end(?![^.\n]*used to echo)/i);
     const laneRoute = readFileSync("app/api/meta/lane-classify/route.ts", "utf8");

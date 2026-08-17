@@ -4,18 +4,30 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { MetaPlatformPage } from "@/components/meta/redesign/MetaPlatformPage";
 import { useAppStore } from "@/store/app-store";
 
-export default function MetaPage() {
+interface MetaPageProps {
+  businessId?: string | null;
+  businessName?: string | null;
+  currency?: string | null;
+}
+
+export default function MetaPage({
+  businessId: authorizedBusinessId = null,
+  businessName: authorizedBusinessName = null,
+  currency: authorizedCurrency = null,
+}: MetaPageProps = {}) {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
+  const businessId = authorizedBusinessId ?? selectedBusinessId;
+  const business =
+    businesses.find((item) => item.id === businessId) ?? null;
 
-  if (!selectedBusinessId) return <BusinessEmptyState />;
+  if (!businessId) return <BusinessEmptyState />;
 
   return (
     <MetaPlatformPage
-      businessId={selectedBusinessId}
-      businessName={business?.name}
-      currency={business?.currency}
+      businessId={businessId}
+      businessName={authorizedBusinessName ?? business?.name ?? null}
+      currency={authorizedCurrency ?? business?.currency ?? null}
     />
   );
 }

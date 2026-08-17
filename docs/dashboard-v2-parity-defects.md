@@ -9,19 +9,20 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **134 EXTRA**, **179
-WRONG**, **81 GEOMETRY**, and **64 MISSING**.
+px/weight/hex value differs → match it. Current totals are **137 EXTRA**, **181
+WRONG**, **86 GEOMETRY**, and **64 MISSING**.
 
-**458 verified divergences, 139 of them high severity.** The original audit
+**468 verified divergences, 143 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
 (`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
-findings (`OVERVIEW-28`–`OVERVIEW-56`).
+findings (`OVERVIEW-28`–`OVERVIEW-56`). The Batch 3 full-source re-read added 10
+Meta Decision Center findings (`META-35`–`META-44`).
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
 | Shell chrome (left rail + top bar)            |       20 |    0 |
 | Overview                                      |       56 |   10 |
-| Meta Decision Center                          |       34 |   12 |
+| Meta Decision Center                          |       44 |   16 |
 | Creative Studio                               |       38 |   16 |
 | Launchpad + Automation                        |       23 |    4 |
 | Google Ads Overview + Advisor                 |       35 |   13 |
@@ -613,6 +614,74 @@ lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
 
 ## Meta Decision Center
 
+### Batch 3 implementation status
+
+Canonical source read in full for this batch: markup lines **368–641**, model
+lines **3337–3370** and **3581–3601**, and state/interaction exports lines
+**4425–4431** of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+| ID      | Status | Current proof |
+| ------- | ------ | ------------- |
+| META-01 | CLOSED | Action Now is one uninterrupted server-row queue; old grouped section headers are not mounted. |
+| META-02 | CLOSED | The overnight digest strip is absent from the exact desktop tree. |
+| META-03 | CLOSED | The inline inspector uses the canonical unnumbered contract, reasoning, impact, readiness, blocker, evidence and provenance blocks. |
+| META-04 | CLOSED | Campaigns & Ad sets and Creatives are the two exact scope controls with real counts. |
+| META-05 | CLOSED | Creatives renders four posture shells, real canonical ad decisions and the Creative Studio footnote. |
+| META-06 | CLOSED | The structure scope exposes exactly Action Now, Watching, Healthy, Non-sales and Archive. |
+| META-07 | CLOSED | Spend, ROAS, Snapshot, Labels and Mode are five canonical KPI cards backed by served fields or `—`. |
+| META-08 | CLOSED | Archive is the canonical five-column table; paused rows may show a disabled Resume affordance but never receive archive write authority. |
+| META-09 | CLOSED | Healthy rows retain server campaign-to-ad-set grouping. |
+| META-10 | CLOSED | Watching uses one five-segment chip row followed by compact review rows. |
+| META-11 | CLOSED | The inspector has the canonical dark Evidence inspector header and verdict chip. |
+| META-12 | CLOSED | The inspector ends with the server-bound CTA and provenance line; the old Close/bridge footer is absent. |
+| META-13 | CLOSED | Selection checkboxes and the floating bulk bar are absent from the exact desktop tree. |
+| META-14 | CLOSED | Scope-rail, min-spend and policy controls are not rendered in the exact toolbar. |
+| META-15 | CLOSED | The app-only account/campaign scope rail is absent. |
+| META-16 | CLOSED | Action rows use only the canonical ordered slots and overflow glyph. |
+| META-17 | CLOSED | The default inline inspector binds the selected or first real server row; invented idle/authority chrome is absent. |
+| META-18 | CLOSED | Signal glyph, account badge and operator-response slots are absent. |
+| META-19 | CLOSED | Snapshot, Labels ratio and Mode cards are present with real/null-honest data. |
+| META-20 | CLOSED | Action rows carry the canonical 4px verdict-tone edge. |
+| META-21 | CLOSED | The header has exactly four fixed window controls; account selection appears only as an exceptional fail-closed state. |
+| META-22 | CLOSED | Non-sales uses the canonical four metric shells and informational copy; the real cohort label is preserved and missing metrics stay `—`. |
+| META-23 | CLOSED | Decision labels use filled server-verdict tone chips. |
+| META-24 | CLOSED | The action-row money block renders server spend/impact copy and secondary text without invented daily projections. |
+| META-25 | CLOSED | Confidence is rendered as the canonical qualitative confidence caption. |
+| META-26 | CLOSED | Entity level is the bordered mono uppercase pill. |
+| META-27 | CLOSED | Suppression receipts never enter the exact presentation. |
+| META-28 | CLOSED | History is absent from the lane toolbar. |
+| META-29 | CLOSED | Lane pills, Deferred, sort and search share one canonical row. |
+| META-30 | CLOSED | Lane pills use the canonical 34px pill geometry and type. |
+| META-31 | CLOSED | Cards use canonical radius, padding and unpinned height. |
+| META-32 | CLOSED | Header eyebrow and source line use canonical 11px mono geometry and server-bound copy. |
+| META-33 | CLOSED | The default inspector is the proportional in-flow `minmax(280px,1fr)` column. |
+| META-34 | CLOSED | Sort and search captions match the canonical literals. |
+| META-35 | CLOSED | Each CTA takes its label/tone from the lossless server action tuple; unavailable callbacks render disabled without minting authority. |
+| META-36 | CLOSED | Action cards follow the canonical single flex-row anatomy. |
+| META-37 | CLOSED | Creative rows include the canonical striped identity block, CTR spark shell, money block, verdict CTA and Evidence affordance. |
+| META-38 | CLOSED | Run snapshot and New campaign are 36px text-only canonical controls. |
+| META-39 | CLOSED | Deferred is the canonical 34px dashed pill. |
+| META-40 | CLOSED | The old sub-1440 overlay drawer is removed; the inspector remains in-flow at every reference desktop viewport. |
+| META-41 | CLOSED | App-only warning/footer feedback panels are absent from exact action cards. |
+| META-42 | CLOSED | Lane reveal/pagination controls are not rendered; the exact queue remains uninterrupted. |
+| META-43 | CLOSED | The screen root owns the canonical 16px vertical rhythm. |
+| META-44 | CLOSED | Healthy state begins header → KPI; only real exceptional account/source/readiness states can add a fail-closed banner outside that block. |
+
+The presentation consumes the same production workspace, OS, canonical
+decision, provider-account and reviewer contracts. It does not import the
+resolver, compute `buyerAction`/confidence/lane semantics, or add a provider
+mutation path. Custom-window ROAS binds to `pulse.roas.selected`; stale or
+unknown target authority remains visible; missing currency/data renders `—`.
+Run snapshot is disabled until viewer authority is known and accepts only the
+typed `ran`, `cooldown`, or `already_running` response states.
+
+Batch 3 proof is structural/behavioral and build-based: exact component,
+adapter, route-family, reviewer, snapshot and failure-state tests plus local
+1440×900 authenticated render acceptance. A deterministic production-component
+fixture is still required before reporting a zero-RGBA reference diff; no such
+pixel claim is made here.
+
 ### META-01 · HIGH · EXTRA — Act Now lane is split into three server sections with headers the design never draws
 
 - **Design:** 01-meta-decision-center.html:74-99 — the action lane is "<sc-if value="{{ laneAction }}">" wrapping a single "<sc-for list="{{ actionRows }}">" inside a plain "display:flex;flex-direction:column;gap:8px" container. No section header, count badge or note line appears anywhere in the lane.
@@ -713,7 +782,7 @@ lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
 
 - **Design:** 01-meta-decision-center.html:221 — the aside is wrapped in "<sc-if value="{{ inspectorVisible }}">" and always renders the populated evidence panel; data-model.js:1239 "inspectorVisible = inspectorOpen && sc && st.lane === 'action'", and line 1252 collapses the grid to "minmax(0,1fr)" when it is false. The design never draws an empty-state inspector.
 - **Code:** MetaPlatformPage.tsx:4105-4165 renders "styles.contextIdle" with "Account context", "Nothing selected", "Select a row to inspect evidence without moving the queue.", the overnight digest, an Authority dl (Target / Tracking / Write scope), a "Due backs" section, and footer links "Automation controls" / "Decision history". This is the default state — nothing is selected on load.
-- **Fix:** Hide the inspector column when nothing is selected and collapse the grid to one column, as data-model.js:1252 does.
+- **Fix:** Keep the inspector visible by default in the structure/action state, exactly as `inspectorOpen ?? true` requires, and bind it to the selected real action row or deterministically to the first real server action row. Delete the invented idle panel. If no real action row exists, retain the canonical inspector shell and show honest `—`/unavailable values; never hide the default column or fabricate an entity.
 
 ### META-18 · MEDIUM · EXTRA — Action card carries three extra always-on slots the design's card never defines: a signal glyph column, an account badge, and an operator response chip
 
@@ -737,7 +806,7 @@ lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
 
 - **Design:** 01-meta-decision-center.html:9-13 — the only left-hand header control is a white r9 pill with 3px padding wrapping "{{ windowKeys }}"; data-model.js:162 "['7d','14d','28d','90d']" with the active segment on "#0B1020". No account picker and no calendar control appears in the header.
 - **Code:** MetaPlatformPage.tsx:3418-3445 "<DateRangePicker … rangePresets={["today","yesterday","7d","14d","28d","90d","thisMonth","lastMonth","custom"]} label="Metric date range" showComparisonTrigger={false} align="end" />", preceded by 3393-3417 "<label className={styles.accountSelect}><span>Ad account</span><select …>". The control type is a popover calendar, not a 4-segment pill.
-- **Fix:** Render the four-segment 7d/14d/28d/90d pill control as the design specifies. (The account picker is a real multi-account need the mock does not model; relocating it is optional.)
+- **Fix:** Render only the four-segment 7d/14d/28d/90d pill control in the reference-bound happy path. Remove the ad-account picker from this header; multi-account resolution must occur before this screen or in a non-rendering route/scope contract without adding visible happy-path chrome.
 
 ### META-22 · MEDIUM · WRONG — Non-sales card: wrong tile set, wrong footnote copy, and an extra button
 
@@ -772,8 +841,8 @@ lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
 ### META-27 · LOW · EXTRA — Server suppression receipt renders a dashed footer line the design never defines
 
 - **Design:** 01-meta-decision-center.html:75-99 and 179-218 — each lane renders its "<sc-for>" list and nothing after it. There is no "showing N of M" receipt and no suppression receipt anywhere in the fragment.
-- **Code:** MetaPlatformPage.tsx:3821-3823 "<MetaServerSuppressionReceipt section={creativeDecisionSection} />"; the component (1734-1760) has no null branch — it always emits either "Creative selection unavailable · no client fallback or fabricated zero is shown" or "Server selected N of M · top K · S suppressed". Narrowed from the auditor's finding: MetaRevealReceipt (1676 "if (hidden === 0) return null") and MetaMonitorPager (1702 "if (pageCount <= 1) return null") are overflow-only controls and are not a steady-state divergence.
-- **Fix:** Remove the always-on suppression receipt line, or fold it into the section note the design does not draw.
+- **Code:** MetaPlatformPage.tsx:3821-3823 "<MetaServerSuppressionReceipt section={creativeDecisionSection} />"; the component (1734-1760) has no null branch — it always emits either "Creative selection unavailable · no client fallback or fabricated zero is shown" or "Server selected N of M · top K · S suppressed".
+- **Fix:** Delete `MetaServerSuppressionReceipt` and every call site completely. Do not relocate its copy into a header, note, tooltip or empty state; the design defines no suppression receipt anywhere.
 
 ### META-28 · LOW · EXTRA — A "History" link sits inside the lane tab bar
 
@@ -816,6 +885,66 @@ lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
 - **Design:** 01-meta-decision-center.html:69 "<option>Sort: Money at stake</option><option>Sort: Priority</option><option>Sort: Age</option>" — the caption is inside each option, with no external label; line 70 "<input placeholder="Search entities…" …>".
 - **Code:** MetaPlatformPage.tsx:3637-3639 "<option value="money">Spend exposure</option><option value="priority">Server priority</option><option value="age">Evidence age</option>"; line 3628-3629 wraps the select in "<label className={styles.toolbarSort}>Sort" adding a visible external label; line 3624 "placeholder="Find a campaign, ad set, or decision"".
 - **Fix:** Use the option captions "Sort: Money at stake", "Sort: Priority", "Sort: Age", drop the external Sort label, and set the placeholder to "Search entities…".
+
+### META-35 · HIGH · WRONG — Every action-card CTA uses the same dark generic button instead of the server verdict's exact tone and geometry
+
+- **Design:** markup lines 456-463 define the decision label, money, confidence, primary CTA and ellipsis as sibling slots. The CTA at line 462 is exactly 34px high, r9, 12.5px/600, has no icon, and receives `{{ r.btnBg }}`; data-model lines 3347-3351 provide green `#0E9F6E`, red `#E11D48`, amber `#B45309` and purple `#6C41BE` CTA tones with the server-facing captions.
+- **Code before:** `MetaActionCard.tsx:678-704` renders every primary action as `className="btn btn--primary"` with a `PrimaryIcon`; `app/globals.css:2773-2815` makes that shared button 28px, r6, 12px and dark `var(--ink)` regardless of verdict.
+- **Fix:** Have the presentation adapter carry the server-owned CTA caption and tone into a text-only 34px r9 12.5px/600 button. Do not infer `buyerAction` in the UI; missing server action authority remains read-only/disabled without minting a tone or caption.
+
+### META-36 · HIGH · GEOMETRY — Action cards are a three-row board with a footer instead of the design's ordered flex-row anatomy
+
+- **Design:** markup lines 444-464 define one `display:flex;flex-wrap:wrap;align-items:center;gap:14px` article whose direct visual sequence is identity → decision label → two-line money → confidence → primary CTA → ellipsis. No internal footer row, absolute corner value or pinned height exists.
+- **Code before:** `MetaPlatformPage.module.css:401-500` changes `.meta-row` to a three-row CSS grid, reserves checkbox/signal columns, spans the open body across rows, absolutely positions Spend in the top-right, and moves all actions into a bordered footer; lines 1518-1520 additionally pin a 124px minimum height.
+- **Fix:** Restore the literal direct-slot order and flex/wrap geometry from the HTML. Remove the board grid rows, footer divider, absolute anchor and all min-height constraints; responsive wrapping may occur only through the source's `flex-wrap:wrap` behavior.
+
+### META-37 · HIGH · WRONG — Creative-scope cards use a different anatomy and omit the CTR sparkline and verdict CTA
+
+- **Design:** markup lines 546-585 define four posture tiles, then creative cards in this order: 58px striped preview, name + filled verdict chip + chips, `CTR · 28d` sparkline, two-line money block, tone CTA, `Evidence →`; data-model lines 3588-3599 provide the four posture values and three server decision rows.
+- **Code before:** `MetaPlatformPage.tsx:1325-1423` renders a full-card button with an image/placeholder, lifecycle and confidence chips before the name, campaign/group/reason copy, separate Spend/ROAS/Purchases metrics and only an Evidence link. It renders no CTR sparkline and no verdict action button; the cards are also mounted inside Action at 3733-3768 instead of a Creatives scope.
+- **Fix:** Build the creative branch with the exact posture/card DOM and slot order. Bind only real server media and metrics, using `—` where unavailable; preserve server action authority and never derive a creative verdict client-side.
+
+### META-38 · MEDIUM · GEOMETRY — Header actions are 28px icon buttons instead of the design's 36px text-only controls
+
+- **Design:** markup lines 375-383 place the window segments beside exactly two buttons: `Run snapshot` at 36px, r9, 13px/600, white with `#E4E8F0` border; and `+ New campaign` at 36px, r9, 13px/600, borderless `#2F6BFF`. The plus is literal text; neither button contains an SVG icon.
+- **Code before:** `MetaPlatformPage.tsx:3395-3421` renders `RefreshCw` and `Plus` icons inside shared `.btn`/`.btn--primary`; `app/globals.css:2773-2810` fixes those controls at 28px, r6 and 12px, and makes the primary background dark `var(--ink)`.
+- **Fix:** Match the two literal button boxes, typography, borders, colours and text exactly. Loading/read-only behavior may disable the same boxes but must not change the healthy-state captions or introduce icons.
+
+### META-39 · LOW · GEOMETRY — Deferred count is bare text instead of the 34px dashed pill
+
+- **Design:** markup line 434 defines `Deferred 2` as an inline-flex 34px-high r9999 pill with 12px horizontal padding, 12.5px text, `#7A869E` ink and a 1px dashed `#C9D2E0` border.
+- **Code before:** `MetaPlatformPage.tsx:3550` renders `<span className={styles.osDeferred}>Deferred {deferredCount}</span>`; `MetaPlatformPage.module.css:1257-1262` adds only margin, alignment, colour and 12px type, with no height, padding, radius or border.
+- **Fix:** Apply the exact 34px dashed pill geometry and typography while keeping the real deferred count or `—`.
+
+### META-40 · HIGH · GEOMETRY — The inspector becomes a modal below 1440px instead of remaining the canonical in-flow desktop column
+
+- **Design:** markup line 440 always uses `{{ metaGridCols }}` for the desktop Meta body, line 589 renders a sticky in-flow aside, and data-model lines 4412-4427 resolve the default action state to `minmax(0,1.8fr) minmax(280px,1fr)`. No viewport breakpoint, backdrop or fixed-width drawer is defined for the reference-bound `1024px+` range.
+- **Code before:** `MetaPlatformPage.tsx:2350` sets `pushInspector = useMinWidth(1440)`; `MetaPlatformPage.module.css:1522-1526` removes the inspector column below 1440px, while `MetaDrillDrawer.tsx:1019-1023` substitutes a fixed 480px overlay with a dim backdrop.
+- **Fix:** Use the proportional in-flow inspector at every `1024px+` acceptance viewport and reserve overlay/drawer behavior solely for the explicitly out-of-reference sub-1024 mobile contract.
+
+### META-41 · MEDIUM · EXTRA — Action cards append menus, warning lines and feedback panels that the design never renders
+
+- **Design:** markup lines 444-464 end each action card immediately after the primary CTA and the `⋯` affordance. The Meta fragment defines no expanded Let cook/Compare/Ads Manager/Copy ID menu, no row warning strip and no action-feedback panel beneath the card.
+- **Code before:** `MetaActionCard.tsx:723-788` renders a menu containing `Let cook 24h`, `Compare`, `Open in Ads Manager` and `Copy entity ID`; lines 790-813 append `warnLine` and `meta-action-feedback` blocks after the card slots.
+- **Fix:** Remove those rendered card extensions and leave only the source's ellipsis affordance. Required write confirmation and fail-closed feedback must remain in the existing guarded action boundary, not as additional happy-path row chrome.
+
+### META-42 · LOW · EXTRA — Overflow reveal and pagination receipts add controls beneath lanes
+
+- **Design:** markup lines 441-586 render each selected lane's rows and then end; there is no `Showing N of M`, Show more, Previous/Next or page receipt in any structure or creative state.
+- **Code before:** `MetaPlatformPage.tsx:1636-1704` defines `MetaRevealReceipt` and `MetaMonitorPager`; they render bounded-count copy plus Show more or Previous/Next controls whenever the current real row count crosses their client limits, and are mounted across Action, Watching, Healthy, Non-sales and Archive lanes.
+- **Fix:** Delete both overflow-control surfaces and render the design's uninterrupted lane list inside the existing main scroller. Do not silently cap, concatenate or re-rank server decisions in the UI.
+
+### META-43 · LOW · GEOMETRY — The Meta screen root omits the canonical 16px vertical rhythm
+
+- **Design:** markup line 368 makes the entire screen `display:flex;flex-direction:column;gap:16px`, so header, KPI band, scope row, lane controls and body are separated by the same literal gap.
+- **Code before:** `MetaPlatformPage.module.css:1046-1050` gives `.metaOsDesktop` only a min-height, background and colour. Its children instead form touching full-width bands with their own bottom borders and ad hoc padding.
+- **Fix:** Make the reference-bound root the literal flex column with 16px gap and remove band-only separators/margins that alter those source distances.
+
+### META-44 · MEDIUM · EXTRA — Conditional status banners can enter the healthy happy-path between the header and KPI cards
+
+- **Design:** markup lines 368-417 go directly from the header to the five-card KPI grid. No account-required, briefing-error, notice, decision-source-health, data-readiness, tracking, kill-switch or workspace-posture banner is part of the rendered happy-path hierarchy.
+- **Code before:** `MetaPlatformPage.tsx:3426-3484` conditionally inserts the account-required banner, briefing error, notice, `MetaDecisionSourceHealthBanner` and `MetaWorkspacePostureBanners` before `FinalMetaPulse`; the workspace posture component can emit multiple server banner rows.
+- **Fix:** Keep the authorized fail-closed/error contracts intact, but guarantee that the healthy reference fixture renders header → KPI grid with no intervening banner chrome. Exceptional safety states must replace or annotate only their affected control without becoming extra healthy-path sections.
 
 ---
 

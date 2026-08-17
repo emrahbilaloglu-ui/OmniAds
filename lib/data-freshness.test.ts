@@ -52,11 +52,21 @@ describe("age is stated, never implied", () => {
   });
 });
 
-describe("the Overview surface discloses its own age", () => {
+describe("the Overview surface discloses its own age through the exact shell", () => {
   const page = readFileSync("app/(dashboard)/overview/legacy-page.tsx", "utf8");
+  const signals = readFileSync(
+    "components/layout/v2/use-shell-signals.ts",
+    "utf8",
+  );
+  const topbar = readFileSync("components/layout/v2/app-topbar.tsx", "utf8");
 
-  it("renders the chip", () => {
-    expect(page).toContain("<FreshnessChip");
+  it("publishes the surface reading into the single shell chip", () => {
+    expect(page).toContain("useTierZeroFreshness({");
+    expect(page).toContain('surface: "overview"');
+    expect(page).toContain("asOf: dataAsOf");
+    expect(signals).toContain("activeSurfaceForBusiness");
+    expect(signals).toContain("minutesSince(activeSurfaceForBusiness.asOf, now)");
+    expect(topbar).toContain('data-freshness-state={sync.freshnessState}');
   });
 
   it("dates itself from the data, not from when the request came back", () => {
@@ -74,8 +84,9 @@ describe("the Overview surface discloses its own age", () => {
     ).toBe(false);
   });
 
-  it("offers a refresh that refetches rather than reloading the page", () => {
-    expect(page).toContain("onRefresh={() => void query.refetch()}");
-    expect(page).toContain("refreshing={query.isFetching}");
+  it("registers a bounded retry that refetches its reads rather than reloading", () => {
+    expect(page).toContain("onRetry: () => {");
+    expect(page).toContain("void query.refetch();");
+    expect(page).not.toMatch(/window\.location\.(?:reload|assign|replace)/);
   });
 });

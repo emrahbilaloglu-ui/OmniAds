@@ -282,6 +282,13 @@ function kpiDelta(
     return { delta: MISSING_VALUE, deltaTone: "neutral" };
   }
   if (kind === "point") {
+    // A zero compare window has no baseline to move away from. The ratio
+    // branch already refuses it; the point branch used to print a full-value
+    // delta against nothing, so an all-zero previous period showed Engagement
+    // rate and Purchase CVR "improving" by their entire current value.
+    if (previous === 0) {
+      return { delta: MISSING_VALUE, deltaTone: "neutral" };
+    }
     const points = (current - previous) * 100;
     const rounded = Number(points.toFixed(2));
     return {

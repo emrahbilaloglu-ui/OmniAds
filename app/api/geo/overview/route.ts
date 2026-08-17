@@ -19,6 +19,7 @@ import {
   clusterQueryTopics,
 } from "@/lib/geo-intelligence";
 import { scorePageGeo, scoreQueryGeo, scoreTopicGeo, scoreAiTrafficValue } from "@/lib/geo-scoring";
+import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function GET(request: NextRequest) {
@@ -77,11 +78,20 @@ export async function GET(request: NextRequest) {
   let totalPurchaseCvr = 0;
   let aiPageCount = 0;
   let topAiSource: string | null = null;
+  // The design's first KPI card carries "+38% vs prev 28d" and the last one
+  // "2,148 sessions · 56% of AI traffic"; neither is derivable from the
+  // current-window totals alone, so both are measured here.
+  let previousAiSessions: number | null = null;
+  let aiSessionsDelta: number | null = null;
+  let topAiSourceSessions: number | null = null;
+  let topAiSourceShare: number | null = null;
   let highestAiValueSource: { engine: string; label: string; score: number } | null = null;
   const aiSourceBreakdown: Array<{ engine: string; sessions: number; purchaseCvr: number; engagementRate: number }> = [];
 
+  const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
+
   if (ga4Token && ga4PropertyId) {
-    const [aiReport, totalReport, aiBySourceReport] = await Promise.all([
+    const [aiReport, totalReport, aiBySourceReport, prevAiReport] = await Promise.all([
       // AI sessions only
       runGA4Report({
         propertyId: ga4PropertyId,
@@ -121,6 +131,14 @@ export async function GET(request: NextRequest) {
         orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
         limit: 20,
       }),
+      // Previous equivalent window: AI sessions only, for the KPI delta
+      runGA4Report({
+        propertyId: ga4PropertyId,
+        accessToken: ga4Token,
+        dateRanges: [{ startDate: prevStart, endDate: prevEnd }],
+        metrics: [{ name: "sessions" }],
+        dimensionFilter: GA4_AI_SOURCE_FILTER,
+      }),
     ]);
 
     const aiTotals = aiReport.totals?.[0] ?? aiReport.rows[0];
@@ -135,6 +153,13 @@ export async function GET(request: NextRequest) {
     totalEngagementRate = parseFloat(siteRow?.metrics[1] ?? "0");
     const totalPurchases = parseFloat(siteRow?.metrics[2] ?? "0");
     totalPurchaseCvr = totalSessions > 0 ? totalPurchases / totalSessions : 0;
+
+    const prevAiTotals = prevAiReport.totals?.[0] ?? prevAiReport.rows[0];
+    previousAiSessions = parseFloat(prevAiTotals?.metrics[0] ?? "0");
+    // A zero previous window has no percentage change to report; the card
+    // renders the em-dash rather than a growth rate divided by nothing.
+    aiSessionsDelta =
+      previousAiSessions > 0 ? (aiSessions - previousAiSessions) / previousAiSessions : null;
 
     // Count distinct AI-visited pages (proxy)
     aiPageCount = Math.min(aiReport.rowCount, 50);
@@ -155,7 +180,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (aiSourceBreakdown.length > 0) {
-      topAiSource = aiSourceBreakdown.sort((a, b) => b.sessions - a.sessions)[0].engine;
+      const leader = aiSourceBreakdown.sort((a, b) => b.sessions - a.sessions)[0];
+      topAiSource = leader.engine;
+      topAiSourceSessions = leader.sessions;
+      const breakdownSessions = aiSourceBreakdown.reduce((sum, s) => sum + s.sessions, 0);
+      topAiSourceShare =
+        breakdownSessions > 0 ? leader.sessions / breakdownSessions : null;
 
       // Highest AI value source
       const maxSessions = Math.max(...aiSourceBreakdown.map((s) => s.sessions), 1);
@@ -363,11 +393,15 @@ export async function GET(request: NextRequest) {
     },
     kpis: {
       aiSessions,
+      previousAiSessions,
+      aiSessionsDelta,
       aiEngagementRate,
       aiPurchaseCvr,
       geoScore,
       aiPageCount,
       topAiSource,
+      topAiSourceSessions,
+      topAiSourceShare,
       siteAvgEngagementRate: totalEngagementRate,
       siteAvgPurchaseCvr: totalPurchaseCvr,
       aiStyleQueryCount,

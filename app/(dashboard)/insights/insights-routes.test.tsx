@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   chrome: vi.fn((_props: { businessId?: string | null }) => null),
   screen: vi.fn((_props: { initialTab?: string }) => null),
+  seoScreen: vi.fn((_props: { initialTab?: string }) => null),
+  geoScreen: vi.fn((_props: { initialTab?: string }) => null),
   planGate: vi.fn((_props: { requiredPlan: string }) => null),
 }));
 
@@ -32,9 +34,24 @@ vi.mock("@/components/analytics/InsightsAnalyticsScreen", () => ({
     return <div data-testid="analytics-screen" />;
   },
 }));
+vi.mock("@/components/seo/InsightsSeoScreen", () => ({
+  InsightsSeoScreen: (props: { initialTab?: string }) => {
+    mocks.seoScreen(props);
+    return <div data-testid="seo-screen" />;
+  },
+}));
+vi.mock("@/components/geo/InsightsGeoScreen", () => ({
+  InsightsGeoScreen: (props: { initialTab?: string }) => {
+    mocks.geoScreen(props);
+    return <div data-testid="geo-screen" />;
+  },
+}));
 
 const InsightsLayout = (await import("@/app/(dashboard)/insights/layout")).default;
 const AnalyticsBody = (await import("@/app/(dashboard)/insights/analytics/legacy-page"))
+  .default;
+const SeoBody = (await import("@/app/(dashboard)/insights/seo/legacy-page")).default;
+const GeoBody = (await import("@/app/(dashboard)/insights/ai-visibility/legacy-page"))
   .default;
 
 beforeEach(() => {
@@ -63,6 +80,26 @@ describe("/insights/analytics body", () => {
     expect(container.firstElementChild?.getAttribute("data-testid")).toBe(
       "analytics-screen",
     );
+    expect(container.childElementCount).toBe(1);
+  });
+});
+
+describe("/insights/seo body", () => {
+  it("is the exact screen and nothing else — no second header, no wrapper card", () => {
+    const { container } = render(<SeoBody />);
+    expect(mocks.seoScreen).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("h1, h2, h3").length).toBe(0);
+    expect(container.firstElementChild?.getAttribute("data-testid")).toBe("seo-screen");
+    expect(container.childElementCount).toBe(1);
+  });
+});
+
+describe("/insights/ai-visibility body", () => {
+  it("is the exact screen and nothing else — no header, no second connection chips", () => {
+    const { container } = render(<GeoBody />);
+    expect(mocks.geoScreen).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("h1, h2, h3").length).toBe(0);
+    expect(container.firstElementChild?.getAttribute("data-testid")).toBe("geo-screen");
     expect(container.childElementCount).toBe(1);
   });
 });

@@ -2727,7 +2727,7 @@ Findings 37–43 are new and were raised by this batch's own read.
 | INSIGHTS-A-34 | CLOSED | Card labels are "New visitors" / "Returning visitors"; the demographic chip is "Age group". |
 | INSIGHTS-A-35 | CLOSED | Cohort captions are "New purch.", "Return purch.", "New users", "Active users". |
 | INSIGHTS-A-36 | CLOSED | The summary reads `{Dimension} “{value}” has the highest purchase rate at X% (site avg Y%).` and is omitted entirely when the endpoint returned no summary. |
-| INSIGHTS-A-37 | BLOCKED | Revenue still prints a hardcoded `$`. GA4 returns `purchaseRevenue` in the property's own currency and none of the five analytics endpoints expose that currency, so a EUR/TRY property is labelled in dollars. **Contract required:** `/api/analytics/overview`, `/products`, `/audience`, `/demographics` and `/cohorts` must each return the GA4 property's ISO-4217 currency (available from the Admin API property record already resolved by `getGA4TokenAndProperty`), after which the adapter can call `formatMoneyIso` and render `—` when the code is unknown. |
+| INSIGHTS-A-37 | BLOCKED | Revenue still prints a hardcoded `$`. GA4 returns `purchaseRevenue` in the property's own currency and none of the five analytics endpoints expose that currency, so a EUR/TRY property is labelled in dollars. **Contract required:** `/api/analytics/overview`, `/products`, `/audience`, `/demographics` and `/cohorts` must each return the GA4 property's ISO-4217 currency, after which the adapter can call `formatMoneyIso` and render `—` when the code is unknown. **Corrected by batch 11:** the currency is *not* already resolved. `getGA4TokenAndProperty` (`lib/google-analytics-reporting.ts:374-391`) calls no Admin API at all — it reads `resolveGa4AnalyticsContext`, which returns only what is stored in the integration metadata (`ga4PropertyId`, `ga4PropertyName`, `ga4PropertyTimeZone`). A `properties/{id}` GET does exist (`lib/google-analytics-accounts.ts:185-218`, `fetchGA4PropertyMetadata`) but reads `timeZone` only and runs once, at property selection (`app/api/google-analytics/select-property/route.ts:249`). Closing this therefore needs three steps, not one: read `currencyCode` from that Admin call, persist it beside `ga4PropertyTimeZone`, and return it from the five endpoints. |
 | INSIGHTS-A-38 | CLOSED | The canonical leaf `/c/[businessId]/analytics/ga4-shopify` — the one `/insights/analytics` actually redirects to — rendered a different surface entirely (`AnalyticsSourceClient`: three source panels and a flat KPI list), so no Insights parity work was reachable in the shipped UI. It now mounts `InsightsChrome` + `InsightsAnalyticsScreen`, asserted in `analytics-routes.test.tsx`. |
 | INSIGHTS-A-39 | CLOSED | `/c/[businessId]/analytics/landing-pages` drew a second, unrelated landing-pages table. The design has no separate landing-pages screen — it is the third Analytics sub-tab — so the route now opens the same exact screen pinned to that tab. |
 | INSIGHTS-A-40 | CLOSED | The canonical SEO and AI-visibility leaves carried no Insights head and no outer pill row at all, leaving the three design sections unreachable from one another. Both are now wrapped in `InsightsChrome`; their bodies are untouched. |
@@ -2958,7 +2958,7 @@ Findings 37–43 are new and were raised by this batch's own read.
 
 - **Design:** `Adsecute Dashboard v2.dc.html` L1808 / L1863 / L1890 / L1930 render `{{ r.rev }}` and L3907 renders `Revenue $326.4K` — a rendered money string whose currency comes from the account, not from the prototype.
 - **Code:** GA4's `purchaseRevenue` is reported in the property's own currency. Neither `lib/analytics-overview.ts` nor `lib/ga4-user-facing-reports.ts` returns that currency, and every analytics surface therefore prints `formatCurrencySmart(value, "$")`. A EUR or TRY property reads as dollars with no marker of the substitution. `lib/metric-format.ts` already refuses this pattern for provider money (`formatMoneyIso` has "deliberately no default currency") — the analytics endpoints simply never carried the code.
-- **Fix:** Return the property's ISO-4217 currency from the five analytics endpoints (it is on the Admin API property record `getGA4TokenAndProperty` already resolves), then format with `formatMoneyIso` and render `—` when the code is absent.
+- **Fix:** Return the property's ISO-4217 currency from the five analytics endpoints, then format with `formatMoneyIso` and render `—` when the code is absent. **Correction (batch 11):** this block previously said the currency "is on the Admin API property record `getGA4TokenAndProperty` already resolves". It is not. `getGA4TokenAndProperty` (`lib/google-analytics-reporting.ts:374-391`) makes no Admin API call; it returns `accessToken` / `propertyId` / `propertyName` from stored integration metadata. The only `properties/{id}` GET in the repo is `fetchGA4PropertyMetadata` (`lib/google-analytics-accounts.ts:185-218`), which parses `timeZone` and nothing else, and it is invoked once at property selection. So the fix requires a new Admin field read plus metadata persistence before any endpoint can serve the code — the BLOCKED status is right, the effort estimate implied by the old wording was not.
 
 ### INSIGHTS-A-38 · HIGH · WRONG — The canonical route the Insights URL redirects to rendered a completely different surface
 
@@ -2999,6 +2999,100 @@ Findings 37–43 are new and were raised by this batch's own read.
 ---
 
 ## Insights - SEO tab + AI visibility (GEO) tab
+
+### Batch 11 implementation status
+
+Canonical source read in full for this batch: Insights markup lines
+**1951–2319** — the `insSEO` block (**1951–2119**: the KPI band, the six-tab
+strip and all six sub-tab bodies) and the `insGEO` block (**2121–2319**: the
+explainer band, the six-tab strip, all six sub-tab bodies and the always-on
+methodology accordion) — together with their complete model bindings at lines
+**3968–4095** of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`: `seoTabs2`
+and `seoKpis` at **3968–3974**, `seoAiReads`/`seoAiChanged`/`seoAiCauses`/
+`seoAiPlan` at **3975–3978**, `mv`/`seoMovers` at **3979–3985**, `seoQueryRows`
+at **3986–3994**, `seoPageRows` at **3995–4002**, `seoActionGroups` at
+**4003–4012**, `seoTechCards`/`seoExcluded`/`seoFindings` at **4013–4027**,
+`geoTabs`/`geoKpis` at **4028–4036**, `geoPris`/`geoHls`/`geoCallouts` at
+**4037–4050**, `EC`/`VAL`/`MOM`/`gsrc`/`geoSourceRows` at **4051–4061**,
+`scorePill`/`geoPageRows2` at **4062–4063**, `GQ`/`geoFilters`/`dotC`/`geoQRows`
+at **4064–4076**, `covC`/`geoTopics` at **4077–4083**, `geoPlays` at
+**4084–4089** and `methodPs` at **4090–4095**. The shared helpers `C` (**3237**),
+`mkU` (**3903**) and `heat` (**3904**) were read with them.
+
+`InsightsSeoExact` (the whole SEO Intelligence tab) and `InsightsGeoExact` (the
+whole AI Visibility tab) are the shared presentation surfaces, each with its own
+`.module.css` ported line-for-line from the design's inline styles and its own
+marker block pinned in `lib/typography-floor.test.ts`. `InsightsSeoScreen` reads
+`/api/seo/overview`, `/api/seo/ai-analysis` and `/api/seo/findings`;
+`InsightsGeoScreen` reads all six `/api/geo/**` endpoints. Both hand their
+payloads to a pure adapter and render nothing else. Both keep the batch-10
+`InsightsChrome`: the design's one page head, its three head chips and the outer
+pill row stay in the shell. Every route family converges on the same two
+components — the preserved `/insights/seo` and `/insights/ai-visibility`, the
+canonical `/c/[businessId]/analytics/seo` and `/c/[businessId]/analytics/geo`,
+and the `/app/analytics/**` twins that dispatch to the same modules.
+
+Backend work in this batch, so the design's facts are served rather than faked:
+`/api/geo/overview` now measures the previous equivalent window's AI sessions
+(`previousAiSessions`, `aiSessionsDelta`) and the leading engine's volume and
+share (`topAiSourceSessions`, `topAiSourceShare`); `/api/geo/pages` now runs a
+`landingPage × sessionSource` report behind the same AI filter and returns
+`sourcedBy` per row. Both keep `requireBusinessAccess` untouched.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render/route
+tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned-
+Chromium reference/current/diff matrix has been run, so strict pixel parity
+remains explicitly unclaimed. Search Console is unavailable to every business in
+this workspace, so these surfaces were verified against the served payload
+shapes rather than in a browser. The detailed 01–37 blocks below preserve the
+original pre-resolution audit evidence; this table is the current status.
+Findings 38–41 are new and were raised by this batch's own read.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| INSIGHTS-B-01 | CLOSED | Both route bodies are one line (`<InsightsSeoScreen />` / `<InsightsGeoScreen />`); `insights-routes.test.tsx` asserts zero `h1, h2, h3` and exactly one child element in each. The bootstrap-guard branches that duplicated the header are gone with the old bodies. |
+| INSIGHTS-B-02 | CLOSED | `InsightsGeoExact` renders no connection chips at all; the render test asserts no "connected"/"not connected" text anywhere in the tab. The layout's pair is the only one. |
+| INSIGHTS-B-03 | CLOSED | No `<section>` wraps any tab body. The SEO root is KPI grid → tablist → body; the GEO root is explainer → tablist → body → methodology. Asserted by index in both render tests. |
+| INSIGHTS-B-04 | CLOSED | `SectionIntro` and `SectionHeader` are deleted with `seo-intelligence-support.tsx`. The only `<h2>`s left are the design's own card titles (Query leaders, Page leaders, the four mover cards, Confirmed excluded pages, Technical findings, AI traffic sources, AI content winners). |
+| INSIGHTS-B-05 | CLOSED | The Pages `<thead>` is exactly Page, AI sessions, Engagement, Purchase CVR, AIV score, Sourced by — asserted against the rendered header row. "Sourced by" is real: `/api/geo/pages` now returns `sourcedBy` from a `landingPage × sessionSource` GA4 report, and renders `—` when no engine is attributed. |
+| INSIGHTS-B-06 | CLOSED | The Monthly AI card is the design's: title + status pill, mono `generated … · window … · saved as the team's planning artifact`, the mono `reads` label with one chip per served data layer, the 14.5px lead paragraph, and the three-column What changed / Likely causes / 30-day plan grid with the blue `01`, `02` ordinals. The old badges, `h3` and StatusMeta blocks are gone. |
+| INSIGHTS-B-07 | CLOSED | `buildSeoActionGroups` emits at most the design's three tone groups (Quick wins / Strategic / Supporting) and nothing else; the render test asserts zero `<table>` in the tab. The four-quadrant matrix and the 30-day timeline are deleted. |
+| INSIGHTS-B-08 | CLOSED | The sixth GEO tab is `Playbook` and renders numbered play cards — `01`, title, `Evidence: …`, `Expected: …`, two chips. The render test asserts no `<select>`, no `Target` line, and exactly seven buttons in the tab (six sub-tabs plus the methodology toggle). |
+| INSIGHTS-B-09 | CLOSED | `SEO_TABS` is `Monthly AI, Traffic changes, Queries, Pages, Actions, Technical findings`, asserted both in the adapter test and against the rendered tablist. |
+| INSIGHTS-B-10 | CLOSED | Confirmed excluded pages is a url + reason-badge list inside a card whose header hint is `URL Inspection · N of M`; the render test asserts zero `<table>` on the tab. The subtitle and the six-column table are gone. |
+| INSIGHTS-B-11 | CLOSED | Closed by batch 10 (`INSIGHTS_SECTIONS` = analytics, seo, geo) and unchanged here. |
+| INSIGHTS-B-12 | CLOSED | The Page leaders `<thead>` is exactly Page, Clicks, Impressions, CTR, Position. |
+| INSIGHTS-B-13 | CLOSED | Both SEO tables are static `<thead>` cells; no header button and no classification badge exists in the component. |
+| INSIGHTS-B-14 | CLOSED | GEO Overview renders the KPI grid, the search-intelligence band, the priority grid, the highlight grid and the callout grid as five unlabelled blocks; the render test asserts "Top Priorities" and "Insights" are absent. |
+| INSIGHTS-B-15 | CLOSED | `buildGeoMethodology` returns exactly four paragraphs with the design's four bold leads; the render test asserts the removed "Topic clusters" paragraph is gone. The engine list is read from `AI_SOURCE_DOMAINS` so the copy cannot drift from the filter the GA4 reports send. |
+| INSIGHTS-B-16 | CLOSED | A finding row is severity chip + title + description and nothing else — asserted by the absence of "Recommended fix" and "Affected pages". |
+| INSIGHTS-B-17 | CLOSED | Closed by batch 10; the shell head carries eyebrow + h1 + chips only. |
+| INSIGHTS-B-18 | CLOSED | Each GEO table card carries exactly one mono hint inside its header band; there is no second paragraph anywhere in the tab bodies. |
+| INSIGHTS-B-19 | CLOSED | `SortableTable` is deleted (it had no remaining importer); the render test asserts zero `thead button` in the GEO tables. |
+| INSIGHTS-B-20 | CLOSED | Closed by batch 10 — the range control is the shell's first head chip. Neither tab body mounts a `DateRangePicker`, which `lib/comparison-preset-contract.test.ts` now asserts for all three Insights bodies. |
+| INSIGHTS-B-21 | CLOSED | All six GEO KPI cards carry a sub-line: the two static ones verbatim (`composite · deterministic`, `proxy · capped at 50`), and the other four from served data — `+38% vs prev 28d` from the new previous-window read, both `site avg` lines, and `N sessions · X% of AI traffic` from the new top-source fields. |
+| INSIGHTS-B-22 | CLOSED | The four cards are Pages audited / Critical / Warnings / Passed, rendered above the two side-by-side cards. `Passed` is derived honestly — audited pages minus the distinct paths that carry any finding — and renders `—` when the audit count is absent. |
+| INSIGHTS-B-23 | CLOSED | Traffic changes renders four compact mover cards (label / clicks / delta pill) with the mono `clicks · 28d vs prev` hint and the design's trailing note; the render test asserts zero `<table>`. |
+| INSIGHTS-B-24 | CLOSED | The sixth Queries column is `Δ pos`, fed from `SeoEntityChange.positionDelta`. The sign is inverted deliberately: the provider's `positionDelta` is `position − previousPosition`, so an improvement is negative, and the chip prints the improvement as the design does. |
+| INSIGHTS-B-25 | CLOSED | `GEO_QUERY_FILTERS` is `ai, all, hi, weak, rising`, asserted in the adapter test and against the rendered pill order. |
+| INSIGHTS-B-26 | CLOSED | The footnote is the last child of the query table's card, below the table, with the design's wording; the count comes from the served dataset size, not a seeded 220. |
+| INSIGHTS-B-27 | CLOSED | See B-08 — the caption is `Playbook`. |
+| INSIGHTS-B-28 | CLOSED | The KPI card is label / value + delta pill / mono `prev N`. Avg position prints `↑ 1.1 better`, the design's own phrasing, computed from the served previous value. |
+| INSIGHTS-B-29 | CLOSED | Closed by batch 10 — `.tab[data-active="true"]` is `#0b1020`. |
+| INSIGHTS-B-30 | CLOSED | `.kpiCard[data-highlighted="true"]` is `border-color: #cbd9ff; background: #f8faff`, and only the GEO opportunity score card sets it (asserted in the adapter test). |
+| INSIGHTS-B-31 | CLOSED | Both strips use `.tab[data-active="true"] { font-weight: 600 }` with the 2px `#0b1020` underline. |
+| INSIGHTS-B-32 | CLOSED | `.techSplit` is `repeat(auto-fit, minmax(380px, 1fr))` with `align-items: start`. |
+| INSIGHTS-B-33 | CLOSED | The explainer band carries the design's full sentence including "measured from your own traffic and search data", asserted in the render test. |
+| INSIGHTS-B-34 | CLOSED | The label is `Avg position`. |
+| INSIGHTS-B-35 | CLOSED | The AI Sources `<thead>` is the design's nine columns and the seventh reads `CVR`. |
+| INSIGHTS-B-36 | CLOSED | The Intent / format cell is one badge holding `✦ ` plus `{intentLabel} · {formatLabel}`; the confidence dot is gone and the priority dot stays where the design puts it, in the Query cell. |
+| INSIGHTS-B-37 | CLOSED | Topic Authority opens on the card list and closes with the design's trailing note; there is no intro paragraph. |
+| INSIGHTS-B-38 | CLOSED | **New.** The canonical leaves `/c/[businessId]/analytics/seo` and `/geo` mounted `SeoClient` / `GeoClient` — a completely different surface (source panels plus a flat field list) — so no SEO or GEO parity work was reachable from the canonical route family or its `/app/analytics/**` twins. Both now mount the same exact screens, asserted in `analytics-routes.test.tsx`, which also pins the login redirect and the foreign-tenant refusal on both leaves. |
+| INSIGHTS-B-39 | CLOSED | **New.** `getDemoGeoOverview()` served `insights: [{ severity, title, description }]`, but `/api/geo/overview` serves `GeoInsight` — `{ type, text }` (`lib/geo-intelligence.ts:418`). No consumer could read the fixture, so the demo business showed zero callouts while every real business showed them. The fixture now matches the served shape. |
+| INSIGHTS-B-40 | CLOSED | **New.** `AiBriefCard` — the only component that rendered the design's What changed / Likely causes / 30-day plan block — was imported by nothing but the deleted `page.test.tsx`, so a green test suite was covering an unreachable surface. It is deleted with `seo-intelligence-support.tsx`; the block now lives in `InsightsSeoExact` and is asserted against the mounted component. |
+| INSIGHTS-B-41 | BLOCKED | **New.** The design's Technical findings severity ladder is Critical / Warning / **Passed** (script L4021-4027), a per-page verdict. `lib/seo/findings.ts` emits `critical | warning | opportunity` and never emits a passing finding, so the third chip is captioned `Opportunity` — its real severity — rather than the design's word. **Contract required:** `SeoTechnicalFinding.severity` would have to gain a `passed` member and `buildSeoTechnicalFindings` would have to emit one finding per audited page that clears every check, at which point the chip can read `Passed`. Until then the caption states the served fact. |
 
 ### INSIGHTS-B-01 · HIGH · EXTRA — Both SEO and AI Visibility repeat a page header (h2 + paragraph) that the design does not have inside the tab
 

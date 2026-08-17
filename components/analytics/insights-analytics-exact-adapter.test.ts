@@ -111,6 +111,37 @@ describe("KPI cards", () => {
     expect(model.kpis[0]?.deltaTone).toBe("neutral");
     expect(model.kpis[5]?.value).toBe("—");
   });
+
+  it("refuses a delta against a zero compare window, ratio and point alike", () => {
+    // An all-zero previous period has no baseline. The ratio branch always
+    // guarded it; the point branch used to print the full current value as a
+    // "+" movement, so Engagement rate and Purchase CVR read as improving
+    // against nothing.
+    const model = buildInsightsAnalyticsExactModel(
+      input({
+        overview: {
+          kpis: {
+            sessions: 100,
+            engagementRate: 0.42,
+            purchaseCvr: 0.031,
+            revenue: 900,
+          },
+          previousKpis: {
+            sessions: 0,
+            engagementRate: 0,
+            purchaseCvr: 0,
+            revenue: 0,
+          },
+        },
+      }),
+    );
+    const [sessions, , engagement, , cvr] = model.kpis;
+    expect(sessions.delta).toBe("—");
+    expect(engagement.delta).toBe("—");
+    expect(engagement.deltaTone).toBe("neutral");
+    expect(cvr.delta).toBe("—");
+    expect(cvr.deltaTone).toBe("neutral");
+  });
 });
 
 describe("new vs returning cards", () => {

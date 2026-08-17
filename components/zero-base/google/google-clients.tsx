@@ -1,7 +1,11 @@
 "use client";
 
 /**
- * Data boundaries for the five Google read leaves.
+ * Data boundaries for the remaining generic Google read leaves.
+ *
+ * Overview, Advisor, Search and Products are served by their canonical
+ * Dashboard v2 surfaces through `GoogleWorkspaceScreen`; only the leaves that
+ * still have no exact screen are adapted here.
  *
  * Each reads its existing Google endpoint. Nothing here fabricates a value: a
  * field the API did not send becomes an explicit absence, and a portfolio whose
@@ -295,28 +299,6 @@ function collection(path: string, title: string, rowKeys: string[], columns: { i
     );
   };
 }
-
-export const GoogleSearchClient = collection(
-  "/api/google-ads/search-intelligence",
-  "Google search",
-  ["rows", "searchTerms", "terms", "clusters"],
-  [
-    { id: "term", header: "Term" },
-    { id: "clicks", header: "Clicks", numeric: true },
-    { id: "cost", header: "Cost", numeric: true },
-  ],
-);
-
-export const GoogleProductsClient = collection(
-  "/api/google-ads/products",
-  "Google products",
-  ["rows", "products"],
-  [
-    { id: "title", header: "Product" },
-    { id: "clicks", header: "Clicks", numeric: true },
-    { id: "conversions", header: "Conversions", numeric: true },
-  ],
-);
 
 export const GoogleAssetsClient = collection(
   "/api/google-ads/assets",

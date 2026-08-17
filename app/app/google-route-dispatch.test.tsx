@@ -9,6 +9,8 @@ const dispatcherMocks = vi.hoisted(() => ({
   }),
   overviewPage: vi.fn(),
   advisorPage: vi.fn(),
+  searchPage: vi.fn(),
+  productsPage: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -21,6 +23,12 @@ vi.mock("@/app/c/[businessId]/google/overview/page", () => ({
 }));
 vi.mock("@/app/c/[businessId]/google/advisor/page", () => ({
   default: dispatcherMocks.advisorPage,
+}));
+vi.mock("@/app/c/[businessId]/google/search/page", () => ({
+  default: dispatcherMocks.searchPage,
+}));
+vi.mock("@/app/c/[businessId]/google/products/page", () => ({
+  default: dispatcherMocks.productsPage,
 }));
 
 const SessionScopedPage = (await import("@/app/app/[[...path]]/page")).default;
@@ -42,12 +50,16 @@ beforeEach(() => {
   } as never);
   dispatcherMocks.overviewPage.mockResolvedValue(null);
   dispatcherMocks.advisorPage.mockResolvedValue(null);
+  dispatcherMocks.searchPage.mockResolvedValue(null);
+  dispatcherMocks.productsPage.mockResolvedValue(null);
 });
 
 describe("/app Google route dispatch", () => {
   it.each([
     ["overview", dispatcherMocks.overviewPage],
     ["advisor", dispatcherMocks.advisorPage],
+    ["search", dispatcherMocks.searchPage],
+    ["products", dispatcherMocks.productsPage],
   ] as const)(
     "inherits the canonical %s route and preserves explicit account scope",
     async (leaf, routedPage) => {

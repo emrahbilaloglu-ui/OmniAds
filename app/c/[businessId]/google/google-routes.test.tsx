@@ -13,7 +13,7 @@ const routeMocks = vi.hoisted(() => ({
   }),
   workspace: vi.fn(
     (_props: {
-      panel: "summary" | "insights";
+      panel: "summary" | "insights" | "search" | "products";
       title: string;
       authorizedScope: GoogleAuthorizedScope;
     }) => null,
@@ -46,6 +46,12 @@ const GoogleOverviewPage = (
 ).default;
 const GoogleAdvisorPage = (
   await import("@/app/c/[businessId]/google/advisor/page")
+).default;
+const GoogleSearchPage = (
+  await import("@/app/c/[businessId]/google/search/page")
+).default;
+const GoogleProductsPage = (
+  await import("@/app/c/[businessId]/google/products/page")
 ).default;
 const auth = await import("@/lib/auth");
 const access = await import("@/lib/access");
@@ -104,7 +110,11 @@ const catalog = {
 };
 
 async function renderRoute(
-  route: typeof GoogleOverviewPage | typeof GoogleAdvisorPage,
+  route:
+    | typeof GoogleOverviewPage
+    | typeof GoogleAdvisorPage
+    | typeof GoogleSearchPage
+    | typeof GoogleProductsPage,
   searchParams: Record<string, string | string[] | undefined> = {},
 ) {
   const element = await route({
@@ -133,6 +143,8 @@ describe("Google canonical route authority", () => {
   it.each([
     ["Overview", GoogleOverviewPage, "summary"],
     ["Advisor", GoogleAdvisorPage, "insights"],
+    ["Search intelligence", GoogleSearchPage, "search"],
+    ["Products & feed", GoogleProductsPage, "products"],
   ] as const)(
     "passes immutable business/account metadata into %s",
     async (title, route, panel) => {
@@ -193,6 +205,37 @@ describe("Google canonical route authority", () => {
 
     expect(routeMocks.workspace).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["Search", GoogleSearchPage],
+    ["Products", GoogleProductsPage],
+  ] as const)(
+    "refuses a foreign account on %s rather than reading another scope",
+    async (_label, route) => {
+      vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValueOnce(null);
+
+      await expect(
+        renderRoute(route, { providerAccountId: "foreign_account" }),
+      ).rejects.toThrow("NEXT_NOT_FOUND");
+
+      expect(routeMocks.workspace).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["Search", GoogleSearchPage],
+    ["Products", GoogleProductsPage],
+  ] as const)(
+    "redirects %s before any provider scope read when there is no session",
+    async (_label, route) => {
+      vi.mocked(auth.getSessionFromCookies).mockResolvedValueOnce(null as never);
+
+      await expect(renderRoute(route)).rejects.toThrow("NEXT_REDIRECT:");
+
+      expect(pageAccess.requireBusinessPageContext).not.toHaveBeenCalled();
+      expect(providerScope.readProviderScopeCatalog).not.toHaveBeenCalled();
+    },
+  );
 
   it("downgrades reviewers and demo sessions before the client surface mounts", async () => {
     vi.mocked(pageAccess.requireBusinessPageContext).mockResolvedValueOnce(

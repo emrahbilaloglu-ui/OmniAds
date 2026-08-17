@@ -52,6 +52,10 @@ import {
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
 import { applyCanonicalGoogleAdsProductFields } from "@/lib/google-ads/product-name";
+import {
+  countGoogleAdsKeywordInsights,
+  type GoogleAdsKeywordInsightRow,
+} from "@/lib/google-ads/keyword-insights";
 import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import {
   createGoogleAdsWarehouseFreshness,
@@ -3270,7 +3274,16 @@ export async function getGoogleAdsKeywordsReport(
   const analysis = analyzeKeywords(report.rows);
   return {
     rows: analysis.rows,
-    summary: analysis.summary,
+    summary: {
+      ...analysis.summary,
+      // The Search screen's three keyword tallies. They were computed only on
+      // the live report path, so the warehouse-served screen had nothing to
+      // read and invented row counts in their place. Same predicates, one
+      // module, both readers.
+      ...countGoogleAdsKeywordInsights(
+        report.rows as unknown as GoogleAdsKeywordInsightRow[],
+      ),
+    },
     insights: analysis.insights,
     meta: report.meta,
   };

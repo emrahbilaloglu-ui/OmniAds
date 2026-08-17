@@ -73,10 +73,12 @@ export const PRODUCT_INSTRUMENTATION_EVENT_NAMES = [
   "report_share_created",
   "report_print_opened",
   "report_csv_created",
-  // Google escape hatches
-  "google_copy_used",
-  "google_csv_used",
-  "google_deep_link_used",
+  // The Google escape-hatch events (google_copy_used, google_csv_used,
+  // google_deep_link_used) were retired with the escape hatch itself: the
+  // canonical Search screen draws no export or deep-link control, so nothing
+  // emits them. They stay in the database CHECK so already-recorded rows remain
+  // valid, and are out of the vocabulary so no new emission can claim a use
+  // that no control produces.
   // Provider health recovery
   "provider_health_recovery_started",
   "provider_health_recovery_completed",

@@ -36,9 +36,6 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   report_share_created: "app/api/reports/[reportId]/share/route.ts",
   report_print_opened: "components/reports/report-print-page.tsx",
   report_csv_created: "app/api/reports/[reportId]/export/route.ts",
-  // Google escape hatches
-  google_copy_used: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
-  google_csv_used: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   // Provider health recovery
   provider_health_recovery_started:
     "components/integrations/integrations-card.tsx",
@@ -50,8 +47,6 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   guarded_action_verified: "lib/meta/ads-action-log.ts",
   guarded_action_failed: "lib/meta/ads-action-log.ts",
   guarded_action_ambiguous: "lib/meta/ads-action-log.ts",
-  google_deep_link_used:
-    "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   // Notification lifecycle -- server-owned, never from the client endpoint.
   notification_attempted: "lib/notification-store.ts",
   notification_delivered: "lib/notification-store.ts",

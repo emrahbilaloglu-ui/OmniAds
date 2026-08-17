@@ -131,6 +131,8 @@ describe("GoogleWorkspaceScreen server scope", () => {
   it.each([
     ["summary", "Overview"],
     ["insights", "Advisor"],
+    ["search", "Search intelligence"],
+    ["products", "Products & feed"],
   ] as const)(
     "keeps the legacy exact %s skeleton mounted while connection state is unavailable",
     (panel, title) => {
@@ -152,7 +154,7 @@ describe("GoogleWorkspaceScreen server scope", () => {
 
   it("retains the legacy loading guard on a non-exact Google leaf", () => {
     const html = renderToStaticMarkup(
-      <GoogleWorkspaceScreen panel="search" title="Search" />,
+      <GoogleWorkspaceScreen panel="assets" title="Assets" />,
     );
 
     expect(html).toContain("bootstrap-loading");

@@ -130,6 +130,12 @@ export interface ProductRow {
   conversions: number;
   statusLabel?: "scale" | "stable" | "test" | "reduce";
   contributionState?: "positive" | "neutral" | "negative";
+  /**
+   * Server-assigned product classification from the shopping report
+   * (`analyzeProducts`): scale_product | hidden_winner |
+   * underperforming_product | stable_product.
+   */
+  classification?: string;
 }
 
 export interface ProductsResponse {

@@ -34,8 +34,12 @@ const ROUTE_OWNED_META_SURFACES = new Set([
 const ROUTE_OWNED_GOOGLE_SURFACES = new Set([
   "/platforms/google",
   "/platforms/google/advisor",
+  "/platforms/google/search",
+  "/platforms/google/products",
   "/app/google/overview",
   "/app/google/advisor",
+  "/app/google/search",
+  "/app/google/products",
 ]);
 
 function publicDashboardPath(pathname: string | null) {

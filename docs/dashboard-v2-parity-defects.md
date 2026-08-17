@@ -1958,6 +1958,157 @@ authority tests, `shell-redesign.test.tsx`, and the marker-locked
 
 ## Google Ads Search + Products
 
+### Batch 7 implementation status
+
+Canonical source read in full for this batch: `Google Ads · Search` markup lines
+**1359–1459** and `Google Ads · Products` markup lines **1460–1524**, with their
+complete model bindings at lines **3795–3852** (`gSearchTabs`, `gTermStats`,
+`gTermsAll`, `tCount`, `gTermFilters`, `gTermRows`, `gKwStats`,
+`gKeywordRows`, `gFeedTiles`, `gProductRows`, `gAllocation`) plus `mkTabs`
+(3670), `neu` (3671) and the `C` palette (3237) of
+`Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+`GoogleSearchExact` and `GoogleProductsExact` are the shared presentation
+surfaces now reached by the legacy `/platforms/google/{search,products}`,
+`/c/[businessId]/google/{search,products}` and `/app/google/{search,products}`
+route families — all three converge through `GoogleWorkspaceScreen` and the
+shared dashboard controller. `google-search-exact-adapter.ts` and
+`google-products-exact-adapter.ts` are pure functions from served provider rows
+to the view model; the components render the view model and nothing else.
+
+Backend wiring done for this batch:
+
+- `lib/google-ads/keyword-insights.ts` (new) holds the three keyword-diagnostic
+  predicates. `lib/google-ads/reporting.ts` now calls it instead of its inline
+  copies, and `getGoogleAdsKeywordsReport` in `lib/google-ads/serving.ts` — the
+  warehouse path `/api/google-ads/keywords` actually serves — now returns the
+  same three tallies, which it never did. The screen reads them; it no longer
+  substitutes row counts.
+- The Search and Products screens read `/api/business-commercial-settings` for
+  the operator's `targetPack.targetRoas` and `breakEvenRoas`, which is what
+  gives every ROAS chip a bar to clear.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render/adapter
+tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned
+reference/current/diff matrix has been run, so strict pixel parity remains
+explicitly unclaimed. The numbered 01–26 blocks below preserve the original
+pre-resolution audit evidence; findings 27–34 are new and were found by this
+batch's own read.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| GOOGLE-SEARCH-PRODUCTS-01 | CLOSED | The Escape hatch card, both export buttons and the Google Ads deep link are deleted; `deep-link-wiring.test.ts` asserts no render site remains and the builder still refuses. |
+| GOOGLE-SEARCH-PRODUCTS-02 | CLOSED | No geo or device element exists on the screen, and the `gads-geo` / `gads-devices` reads are gone from the controller. |
+| GOOGLE-SEARCH-PRODUCTS-03 | CLOSED | The only pill rows are the two tabs and the four canonical filters; the source-count strip is deleted. |
+| GOOGLE-SEARCH-PRODUCTS-04 | CLOSED | `GoogleProductsExact` imports no advisor panel, empty state or skeleton; the grid holds exactly the Products table and the Allocation read. |
+| GOOGLE-SEARCH-PRODUCTS-05 | CLOSED | Stat grid, filter row, both tables and both footnotes are direct children of the 16px screen column; no outer bordered card and no caption sentence. |
+| GOOGLE-SEARCH-PRODUCTS-06 | CLOSED | The `Search terms` / `Keywords` pill row renders at h32/px13/12.5px/600, and the two bodies mount mutually exclusively. |
+| GOOGLE-SEARCH-PRODUCTS-07 | CLOSED | The tiles are Products serving / Limited / Disapproved / Feed synced. Products serving is a real count of items that took impressions; the three Merchant Center facts render `—` (see BLOCKED contract under finding 07 below). |
+| GOOGLE-SEARCH-PRODUCTS-08 | CLOSED | Stats are wasted spend on zero-conversion terms (`#D64550`), converting-terms-not-yet-keywords count (`#6C41BE`) and high-performing count (`#0E9F6E`), with the design's wording and the window label. |
+| GOOGLE-SEARCH-PRODUCTS-09 | CLOSED | Pills read All terms / Wasteful / KW opportunity / High performing, the fourth backed by converting rows at or above the operator's target. |
+| GOOGLE-SEARCH-PRODUCTS-10 | CLOSED | `googleSearchRoasTone` spreads positive/neutral/warning/negative around the target-pack ROAS and its break-even, and returns neutral — never amber — when no target exists. |
+| GOOGLE-SEARCH-PRODUCTS-11 | CLOSED | `googleSearchTermTags` produces one tag set that feeds both the pill count and the visible rows, with no `slice`; a pill reading 12 opens on 12 rows. |
+| GOOGLE-SEARCH-PRODUCTS-12 | CLOSED | Active tab and filter pills are `#0B1020` / `#ffffff` / `#0B1020`; inactive `#ffffff` / `#45526B` / `#E4E8F0`. No `--adv-accent` token is referenced. |
+| GOOGLE-SEARCH-PRODUCTS-13 | CLOSED | The three pills carry the design's wording and `#B45309` / `#2F6BFF` / `#6C41BE`, fed by the server tallies the keywords route now serves. |
+| GOOGLE-SEARCH-PRODUCTS-14 | CLOSED | Keyword ROAS renders in the same tinted chip as the terms table (radius 6, 2px 8px, 11.5px/700). |
+| GOOGLE-SEARCH-PRODUCTS-15 | CLOSED | QS is right-aligned bold coloured text reading `8/10` with no background. |
+| GOOGLE-SEARCH-PRODUCTS-16 | CLOSED | Match type is a tinted Title-Case chip (radius 6, 1px 7px, 10px/600) on one flex row with the keyword at gap 6. |
+| GOOGLE-SEARCH-PRODUCTS-17 | CLOSED | The chip reads `row.intent` Title-Cased, keyed transactional/commercial/informational/navigational; `ownershipClass` is no longer used for it. |
+| GOOGLE-SEARCH-PRODUCTS-18 | CLOSED | Feed status is Serving (green) or the server-assigned Hidden winner (violet); an item that did not serve renders `—` instead of a conversion verdict. |
+| GOOGLE-SEARCH-PRODUCTS-19 | CLOSED | Both eyebrows read `Google Ads · {accountId} · {currency} · {window} window`, em dash per unreported segment, no timezone. |
+| GOOGLE-SEARCH-PRODUCTS-20 | CLOSED | Both footnotes are 11px `IBM Plex Mono` `#98A4BA`. |
+| GOOGLE-SEARCH-PRODUCTS-21 | CLOSED | The QS-components sub-line is 9.5px mono `#98A4BA`. |
+| GOOGLE-SEARCH-PRODUCTS-22 | CLOSED | The IS cell is 12px mono `#7A869E`. |
+| GOOGLE-SEARCH-PRODUCTS-23 | CLOSED | Both screen roots are `display:flex;flex-direction:column;gap:16px`. |
+| GOOGLE-SEARCH-PRODUCTS-24 | CLOSED | Terms table `min-width:860px`, keywords table `880px`, products table `640px`. |
+| GOOGLE-SEARCH-PRODUCTS-25 | CLOSED | Both exact eyebrows are 11px; the shared legacy workspace eyebrow was corrected to 11px as well. |
+| GOOGLE-SEARCH-PRODUCTS-26 | CLOSED | The Allocation read card is an unconditional second child of the grid and keeps its head and closing copy with no findings scoped. |
+| GOOGLE-SEARCH-PRODUCTS-27 | CLOSED | Keyword CTR is printed from the already-percent served value; a served `5.8` renders `5.8%`, not `580.0%`. |
+| GOOGLE-SEARCH-PRODUCTS-28 | CLOSED | `getGoogleAdsKeywordsReport` now returns the three tallies from the shared predicate module, so the warehouse-served route supplies what the pills print. |
+| GOOGLE-SEARCH-PRODUCTS-29 | CLOSED | `/c/[businessId]/google/{search,products}` resolve membership and assigned account server-side and mount `GoogleWorkspaceScreen`; `/app/google/{search,products}` inherit them. |
+| GOOGLE-SEARCH-PRODUCTS-30 | CLOSED | Both routes are in `ROUTE_OWNED_GOOGLE_SURFACES`, so the shell no longer injects its generic mobile read-only banner above them. |
+| GOOGLE-SEARCH-PRODUCTS-31 | CLOSED | The Products table renders every served row with no 50-row cap and no "Showing the top 50" notice. |
+| GOOGLE-SEARCH-PRODUCTS-32 | CLOSED | The screen reads the served search-term report directly; served terms are no longer dropped by an intersection with the campaign table's current filter. |
+| GOOGLE-SEARCH-PRODUCTS-33 | CLOSED | `google_copy_used`, `google_csv_used` and `google_deep_link_used` left the instrumentation vocabulary with the controls that emitted them; the database CHECK still accepts already-recorded rows. |
+| GOOGLE-SEARCH-PRODUCTS-34 | BLOCKED | Merchant Center item state. See the contract below. |
+
+**BLOCKED — GOOGLE-SEARCH-PRODUCTS-34, Merchant Center feed evidence.** The
+design's `Limited`, `Disapproved` and `Feed synced` tiles, the `of N in feed`
+sub-line, and the `Missing GTIN` / `Disapproved` feed-status chips all describe
+Merchant Center state. The only product resource this account reads is
+`shopping_performance_view` (`buildProductPerformanceQuery`), which selects
+`segments.product_item_id`, `segments.product_title` and five metrics and no
+approval, availability or item-issue field; `google_ads_product_dimensions`
+therefore stores `normalized_status = NULL` for every row. There is no Merchant
+Center integration, credential or sync anywhere in the repo. The elements keep
+their exact geometry and print `—`.
+
+Contract required to close it: a Merchant Center read (Content API
+`productstatuses.list`, or the Google Ads `product_status`/`shopping_product`
+resources on an account where they are available) persisted per item and
+exposed by `/api/google-ads/products` as
+`feed: { totalItemsInFeed, limitedItemCount, disapprovedItemCount, syncedAt }`
+plus a per-row `feedStatus: "serving" | "limited" | "disapproved"` with its
+issue list. `buildGoogleProductsExactViewModel` already accepts exactly that
+shape through its `feed` input and tints the counts as soon as they are real —
+`google-products-exact-adapter.test.ts` covers both the unread and the served
+case — so closing this is a data contract, not a presentation change.
+
+Executable evidence: `google-search-exact-adapter.test.ts`,
+`google-products-exact-adapter.test.ts`, `GoogleSearchExact.test.tsx`,
+`GoogleProductsExact.test.tsx`, `google-search-products-wiring.test.tsx`,
+`lib/google-ads/keyword-insights.test.ts`, `GoogleWorkspaceScreen.test.tsx`,
+`app/c/[businessId]/google/google-routes.test.tsx`,
+`app/app/google-route-dispatch.test.tsx`,
+`lib/google-ads/deep-link-wiring.test.ts`,
+`lib/product-instrumentation-emitters.test.ts` and the marker-locked
+`lib/typography-floor.test.ts`.
+
+### GOOGLE-SEARCH-PRODUCTS-27 · HIGH · WRONG — Keywords table multiplied an already-percent CTR by a hundred
+
+- **Design:** 07-google-ads-search.html:90 prints `{{ r.ctr }}`; data-model.js seeds `ctr: '5.8%'`, `'12.4%'`, `'1.6%'` — single-digit percentages.
+- **Code:** components/google-ads/GoogleKeywordsTable.tsx:40-44 defined `percent()` as `${(value * 100).toFixed(...)}%` and :161 applied it to `row.ctr`. But the served keyword row's `ctr` is already a percentage: `readGoogleAdsAggregatedRange` (lib/google-ads/warehouse.ts) computes `ctr: Number(((clicks / impressions) * 100).toFixed(2))` and that value overwrites the payload's own. A keyword at 5.8% CTR therefore rendered `580.0%`. The sibling terms table got this right (`${row.ctr.toFixed(2)}%`), which is what made the divergence invisible in review.
+- **Fix:** Format the keyword CTR from the percentage the report serves, and keep the fraction-to-percent conversion only for impression share, which genuinely is a fraction. Covered by `google-search-exact-adapter.test.ts` ("does not multiply the already-percent keyword CTR by a hundred").
+
+### GOOGLE-SEARCH-PRODUCTS-28 · HIGH · MISSING — The route the keyword pills read never served the three tallies they print
+
+- **Design:** data-model.js gKwStats carries three server-side diagnostic counts.
+- **Code:** `lib/google-ads/reporting.ts:762-774` computed `highCtrLowConvCount`, `highConvLowBudgetCount` and `deserveOwnAdGroupCount` — but that is the live report path. `app/api/google-ads/keywords/route.ts` calls `getGoogleAdsKeywordsReport` in `lib/google-ads/serving.ts`, whose summary carried only `scaleKeywordCount` / `weakKeywordCount` / `negativeCandidateCount` / `accountAverageRoas`. The UI had nothing to read, which is why it printed row counts and QS buckets instead.
+- **Fix:** Extract the predicates into `lib/google-ads/keyword-insights.ts` and call them from both readers, so the number cannot depend on which path served the window. `lib/google-ads/keyword-insights.test.ts` asserts both call sites.
+
+### GOOGLE-SEARCH-PRODUCTS-29 · HIGH · WRONG — The `/c` and `/app` route families did not reach the Google workspace at all
+
+- **Design:** Every route family must converge on the same screen.
+- **Code:** `app/c/[businessId]/google/search/page.tsx` and `.../products/page.tsx` rendered `GoogleSearchClient` / `GoogleProductsClient` from `components/zero-base/google/google-clients.tsx` — a generic three-column collection table (`Term / Clicks / Cost`, `Product / Clicks / Conversions`) with a row-cap sentence, sharing nothing with the design. `/app/google/search` and `/app/google/products` dispatch into those same files, so two of the three route families never showed the Search or Products screen.
+- **Fix:** Both `/c` routes now resolve session, membership and assigned account server-side and mount `GoogleWorkspaceScreen` with `panel="search"` / `panel="products"`, exactly as Overview and Advisor do; the two orphaned zero-base clients are deleted.
+
+### GOOGLE-SEARCH-PRODUCTS-30 · MEDIUM · EXTRA — The shell injected its generic mobile read-only banner above both screens
+
+- **Design:** Neither fragment draws a banner.
+- **Code:** `components/layout/dashboard-frame.tsx:35-39` listed only `/platforms/google`, `/platforms/google/advisor`, `/app/google/overview` and `/app/google/advisor` as route-owned mobile surfaces, so `mobileSurfaceForPath` returned the generic note for Search and Products.
+- **Fix:** Add `/platforms/google/search`, `/platforms/google/products`, `/app/google/search` and `/app/google/products` to `ROUTE_OWNED_GOOGLE_SURFACES`.
+
+### GOOGLE-SEARCH-PRODUCTS-31 · MEDIUM · EXTRA — The Products table capped at 50 rows and printed a cap notice the design does not draw
+
+- **Design:** 08-google-ads-products.html:19-43 — the table ends at `</table>`; there is no trailing row, sentence or cap.
+- **Code:** components/google-ads/GoogleProductsTable.tsx:55 `const VISIBLE_ROWS = 50;` and :147-152 rendered `Showing the top 50 of N served products by spend.` inside the design's card.
+- **Fix:** Render every served row. The shopping query's own `limit` (1000) bounds the report, so no client-side cap is needed to keep the table finite.
+
+### GOOGLE-SEARCH-PRODUCTS-32 · MEDIUM · WRONG — Served search terms were dropped by an intersection with the campaign table's current filter
+
+- **Design:** The Search screen has no campaign filter; the table is the served search-term report for the account and window.
+- **Code:** GoogleAdsIntelligenceDashboard.tsx `scopedSearchTerms` filtered the search-term rows to campaigns present in `sortedRows`, which is itself the product of the Overview channel filter, the campaign multi-select and the active/inactive toggle. A term whose campaign was excluded — or whose `campaignId`/`campaign` did not join — silently vanished from a screen that has no control explaining the absence.
+- **Fix:** The exact Search screen reads `searchTermsData.rows` directly.
+
+### GOOGLE-SEARCH-PRODUCTS-33 · LOW · EXTRA — Three instrumentation events outlived the controls that emitted them
+
+- **Design:** No export or deep-link control exists on this screen.
+- **Code:** `lib/product-instrumentation.ts` declared `google_copy_used`, `google_csv_used` and `google_deep_link_used`, whose only emitter was the deleted Escape hatch. Leaving them in the vocabulary would let a future caller record a "use" of a control that does not exist.
+- **Fix:** Remove the three names from the vocabulary and from the emitter map. The database CHECK keeps them so already-recorded rows stay valid.
+
+
 ### GOOGLE-SEARCH-PRODUCTS-01 · HIGH · EXTRA — Search screen carries an "Escape hatch" card with Copy negatives / Download CSV buttons and a Google Ads deep link
 
 - **Design:** 07-google-ads-search.html read end to end (lines 1-98): the only interactive elements are the tab pills (line 11) and the four filter pills (line 25). Nothing sits between the filter row (23-27) and the table article (28); there is no button, no anchor, no secondary card anywhere in the fragment.

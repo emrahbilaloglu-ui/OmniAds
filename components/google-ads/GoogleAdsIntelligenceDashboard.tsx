@@ -20,14 +20,17 @@ import {
 } from "@/components/google-ads/BudgetScalingTab";
 import { GoogleCampaignsTable } from "@/components/google-ads/GoogleCampaignsTable";
 import { GoogleWhereToLookFirst } from "@/components/google-ads/GoogleWhereToLookFirst";
-import { GoogleSearchTermsTable } from "@/components/google-ads/GoogleSearchTermsTable";
+import { GoogleSearchExact } from "@/components/google-ads/GoogleSearchExact";
+import { GoogleProductsExact } from "@/components/google-ads/GoogleProductsExact";
 import {
-  GoogleKeywordsTable,
-  type GoogleKeywordRow,
-} from "@/components/google-ads/GoogleKeywordsTable";
+  buildGoogleSearchExactViewModel,
+  type GoogleSearchExactKeywordSource,
+  type GoogleSearchExactTab,
+  type GoogleSearchTermFilterKey,
+} from "@/components/google-ads/google-search-exact-adapter";
+import { buildGoogleProductsExactViewModel } from "@/components/google-ads/google-products-exact-adapter";
+import type { GoogleAdsKeywordInsightCounts } from "@/lib/google-ads/keyword-insights";
 import { GoogleAdvisorTiles } from "@/components/google-ads/GoogleAdvisorTiles";
-import { GoogleFeedTiles } from "@/components/google-ads/GoogleFeedTiles";
-import { GoogleProductsTable } from "@/components/google-ads/GoogleProductsTable";
 import { GoogleActivityTable } from "@/components/google-ads/GoogleActivityTable";
 import type { GoogleAdsActivityEntry } from "@/lib/google-ads/advisor-memory";
 import {
@@ -47,10 +50,6 @@ import {
   type GoogleAdvisorSyncTone,
 } from "@/components/google-ads/GoogleAdvisorExact";
 import type { GoogleAuthorizedScope } from "@/components/google-ads/google-authorized-scope";
-import {
-  GoogleSearchStats,
-  type SearchTermFilter,
-} from "@/components/google-ads/GoogleSearchStats";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
@@ -83,9 +82,6 @@ import {
   type ProductRow,
   type ProductsResponse,
   type SearchIntelligenceResponse,
-  type GeoResponse,
-  type DeviceRow,
-  type DevicesResponse,
   type PanelKey,
   type TrendLabelMode,
   type GoogleAdsTrendsResponse,
@@ -107,14 +103,9 @@ import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 import { newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { MISSING_VALUE } from "@/lib/metric-format";
 import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
-import {
-  buildNegativeKeywordList,
-  buildSearchTermCsv,
-} from "@/lib/google-ads/search-term-export";
 import {
   compareModeForPreset,
   customComparisonIsComplete,
@@ -541,45 +532,6 @@ function withGoogleAccount(href: string, providerAccountId: string | null): stri
 }
 
 
-/**
- * The escape hatch reports its own result.
- *
- * What the copy and CSV buttons are for is that an operator can take the work
- * out of the product when the product cannot help. Hardcoding `outcome: "ok"`
- * would make the metric answer "was the button clicked" instead, so the hatch
- * would look healthiest in exactly the browsers where it silently does nothing.
- */
-async function reportGoogleEscapeHatch(input: {
-  eventName: "google_copy_used" | "google_csv_used";
-  businessId: string;
-  itemCount: number;
-  run: () => Promise<unknown>;
-}) {
-  try {
-    await input.run();
-    emitProductInstrumentation({
-      eventName: input.eventName,
-      surface: "google_ads",
-      outcome: "ok",
-      scope: "business",
-      businessId: input.businessId,
-      provider: "google",
-      itemCount: input.itemCount,
-    });
-  } catch {
-    // Failed, not withheld: withheld means we chose not to, and we tried.
-    emitProductInstrumentation({
-      eventName: input.eventName,
-      surface: "google_ads",
-      outcome: "failed",
-      scope: "business",
-      businessId: input.businessId,
-      provider: "google",
-      itemCount: input.itemCount,
-    });
-  }
-}
-
 export function GoogleAdsIntelligenceDashboard({
   businessId: requestedBusinessId,
   panel,
@@ -613,10 +565,10 @@ export function GoogleAdsIntelligenceDashboard({
   const [selectedPanel, setSelectedPanel] = useState<PanelKey>(panel ?? "summary");
   const activePanel = panel ?? selectedPanel;
   const setActivePanel = setSelectedPanel;
-  const [focusedSearchTerms, setFocusedSearchTerms] = useState<string[]>([]);
-  const [searchTermFilter, setSearchTermFilter] = useState<SearchTermFilter>("all");
+  const [searchTab, setSearchTab] = useState<GoogleSearchExactTab>("terms");
+  const [searchTermFilter, setSearchTermFilter] =
+    useState<GoogleSearchTermFilterKey>("all");
   const [assetView, setAssetView] = useState<AssetViewKey>("groups");
-  const [focusedProducts, setFocusedProducts] = useState<string[]>([]);
   const [focusedAssets, setFocusedAssets] = useState<string[]>([]);
   const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
   const [resolvedGoogleReferenceDate, setResolvedGoogleReferenceDate] = useState<string | null>(null);
@@ -638,7 +590,11 @@ export function GoogleAdsIntelligenceDashboard({
     staleTime: 60 * 1000,
   });
 
-  const exactRouteSurface = activePanel === "summary" || activePanel === "insights";
+  const exactRouteSurface =
+    activePanel === "summary" ||
+    activePanel === "insights" ||
+    activePanel === "search" ||
+    activePanel === "products";
   const legacyRequestedAccountId = authorizedScope
     ? null
     : searchParams.get("providerAccountId")?.trim() || null;
@@ -729,25 +685,6 @@ export function GoogleAdsIntelligenceDashboard({
     resolvedGoogleReferenceDate ??
     getTodayIsoForTimeZone(effectiveGoogleTimeZoneLabel);
 
-  // Page-head identity and freshness, read off the status payload. Anything the
-  // server has not reported stays an em dash rather than a guessed value.
-  const workspaceEyebrow = useMemo(() => {
-    const status = baseStatusQuery.data;
-    const accountId = authorizedScope
-      ? authorizedScope.providerAccountId
-      : status?.platformDateBoundary?.primaryAccountId ??
-        status?.assignedAccountIds?.[0] ??
-        null;
-    const accountIdentity = authorizedScope?.accountLabel?.trim()
-      ? authorizedScope.accountLabel
-      : accountId
-        ? `Account ${accountId}`
-        : "Account —";
-    return `Google Ads · ${accountIdentity} · ${
-      effectiveGoogleTimeZoneLabel
-    }`;
-  }, [authorizedScope, baseStatusQuery.data, effectiveGoogleTimeZoneLabel]);
-
   const syncPill = useMemo<{ tone: "pos" | "warn" | "neg" | "neutral"; label: string }>(() => {
     const status = baseStatusQuery.data;
     if (!status) return { tone: "neutral", label: "Synced —" };
@@ -812,6 +749,29 @@ export function GoogleAdsIntelligenceDashboard({
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
   );
+
+  // Page-head identity, read off the status payload. The canonical eyebrow is
+  // four segments — platform, bare account id, currency, window — and anything
+  // the server has not reported stays an em dash rather than a guessed value.
+  // The account timezone was never one of them.
+  const workspaceEyebrow = useMemo(() => {
+    const status = baseStatusQuery.data;
+    const accountId = authorizedScope
+      ? authorizedScope.providerAccountId
+      : status?.platformDateBoundary?.primaryAccountId ??
+        status?.assignedAccountIds?.[0] ??
+        null;
+    const days = inclusiveDayCount(startDate, endDate);
+    return `Google Ads · ${accountId ?? MISSING_VALUE} · ${
+      resolvedAccountMetadata?.currency?.trim() || MISSING_VALUE
+    } · ${days === null ? MISSING_VALUE : `${days}d`} window`;
+  }, [
+    authorizedScope,
+    baseStatusQuery.data,
+    endDate,
+    resolvedAccountMetadata?.currency,
+    startDate,
+  ]);
   const needsAdvisorData =
     activePanel === "summary" ||
     activePanel === "insights" ||
@@ -975,7 +935,7 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsAssetsData,
   });
 
-  const { data: productsData, isLoading: isProductsLoading } = useQuery<ProductsResponse>({
+  const { data: productsData } = useQuery<ProductsResponse>({
     queryKey: ["gads-products", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
       if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
@@ -1025,7 +985,7 @@ export function GoogleAdsIntelligenceDashboard({
     [budgetData?.recommendations],
   );
 
-  const { data: searchTermsData, isLoading: isSearchTermsLoading } = useQuery<SearchIntelligenceResponse>({
+  const { data: searchTermsData } = useQuery<SearchIntelligenceResponse>({
     queryKey: ["gads-search-intelligence", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
       if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
@@ -1043,7 +1003,10 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsSearchData && hasResolvedReadScope,
   });
 
-  const { data: keywordsData } = useQuery<{ rows?: GoogleKeywordRow[] }>({
+  const { data: keywordsData } = useQuery<{
+    rows?: GoogleSearchExactKeywordSource[];
+    summary?: Partial<GoogleAdsKeywordInsightCounts>;
+  }>({
     queryKey: ["gads-keywords", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
       if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
@@ -1061,40 +1024,21 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsSearchData && hasResolvedReadScope,
   });
 
-  const { data: geoData, isLoading: isGeoLoading } = useQuery<GeoResponse>({
-    queryKey: ["gads-geo", businessId, resolvedProviderAccountId, startDate, endDate],
+  // The operator's own commercial targets. A ROAS tint is a verdict against a
+  // target, so the Search and Products screens read the target pack rather than
+  // tinting every positive row the same colour with no bar to clear.
+  const { data: commercialSettings } = useQuery<{
+    snapshot?: { targetPack?: { targetRoas?: number | null; breakEvenRoas?: number | null } | null };
+  }>({
+    queryKey: ["business-commercial-targets", businessId],
     queryFn: async () => {
-      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
-      const params = buildGoogleAdsDataQueryParams({
-        businessId,
-        accountId: resolvedProviderAccountId,
-        startDate,
-        endDate,
-      });
-      const res = await fetch(`/api/google-ads/geo?${params}`);
-      if (!res.ok) throw new Error("geo fetch failed");
+      const params = new URLSearchParams({ businessId });
+      const res = await fetch(`/api/business-commercial-settings?${params}`);
+      if (!res.ok) throw new Error("commercial settings fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData && hasResolvedReadScope,
-  });
-
-  const { data: devicesData, isLoading: isDevicesLoading } = useQuery<DevicesResponse>({
-    queryKey: ["gads-devices", businessId, resolvedProviderAccountId, startDate, endDate],
-    queryFn: async () => {
-      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
-      const params = buildGoogleAdsDataQueryParams({
-        businessId,
-        accountId: resolvedProviderAccountId,
-        startDate,
-        endDate,
-      });
-      const res = await fetch(`/api/google-ads/devices?${params}`);
-      if (!res.ok) throw new Error("devices fetch failed");
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData && hasResolvedReadScope,
+    enabled: (needsSearchData || needsProductsData || needsBudgetData) && Boolean(businessId),
   });
 
   const { data: trendsData } = useQuery<GoogleAdsTrendsResponse>({
@@ -1564,81 +1508,36 @@ export function GoogleAdsIntelligenceDashboard({
     [productsData?.rows]
   );
 
-  const scopedSearchTerms = useMemo(() => {
-    const rows = searchTermsData?.rows ?? [];
-    if (sortedRows.length === 0) return rows;
-    const campaignIds = new Set(sortedRows.map((r) => r.id));
-    const campaignNames = new Set(sortedRows.map((r) => r.name));
-    return rows.filter((row) => {
-      const idMatch = row.campaignId ? campaignIds.has(row.campaignId) : false;
-      const nameMatch = row.campaign ? campaignNames.has(row.campaign) : false;
-      return idMatch || nameMatch;
-    });
-  }, [searchTermsData?.rows, sortedRows]);
-
-  const searchTermNegativeRows = useMemo(
-    () =>
-      scopedSearchTerms
-        .filter(
-          (row) =>
-            row.negativeKeywordFlag === true ||
-            row.wasteFlag === true ||
-            (row.spend > 20 && row.conversions === 0) ||
-            (row.spend > 20 && row.roas < 1.3)
-        )
-        .sort((a, b) => b.spend - a.spend)
-        .slice(0, 8),
-    [scopedSearchTerms]
-  );
-
-  const searchTermPositiveRows = useMemo(
-    () =>
-      scopedSearchTerms
-        .filter(
-          (row) =>
-            row.recommendation === "Add as exact keyword" ||
-            row.recommendation === "Promote in headlines" ||
-            row.keywordOpportunityFlag === true ||
-            (row.conversions > 0 && row.roas >= Math.max(blendedRoas, 2))
-        )
-        .sort((a, b) => b.conversions - a.conversions)
-        .slice(0, 8),
-    [scopedSearchTerms, blendedRoas]
-  );
-
-  const negativeSpendTotal = searchTermNegativeRows.reduce((sum, row) => sum + row.spend, 0);
-  const positiveSpendTotal = searchTermPositiveRows.reduce((sum, row) => sum + row.spend, 0);
-
-  const topGeoRows = useMemo(
-    () => [...(geoData?.rows ?? [])].sort((a, b) => b.spend - a.spend).slice(0, 4),
-    [geoData?.rows]
-  );
-  const topDeviceRows = useMemo(
-    () => [...(devicesData?.rows ?? [])].sort((a, b) => b.spend - a.spend).slice(0, 4),
-    [devicesData?.rows]
-  );
-
   const campaignAdvisorMap = useMemo(() => {
     const rows = advisorCurrent?.summary.campaignRoles ?? [];
     return new Map(rows.map((row) => [row.campaignId, row]));
   }, [advisorCurrent?.summary.campaignRoles]);
 
-  const searchSourceCounts = useMemo(() => {
-    let pmax = 0;
-    let search = 0;
-    for (const row of scopedSearchTerms) {
-      const source = (row.matchSource ?? row.source ?? "").toString().toUpperCase();
-      if (source.includes("PERFORMANCE_MAX") || source.includes("CAMPAIGN_SEARCH_TERM_VIEW")) {
-        pmax += 1;
-      } else {
-        search += 1;
-      }
-    }
-    return { pmax, search };
-  }, [scopedSearchTerms]);
-
   const exactWindowDays = inclusiveDayCount(startDate, endDate);
   const exactWindowLabel = exactWindowDays === null ? null : `${exactWindowDays}d`;
+  const commercialTargetRoas =
+    typeof commercialSettings?.snapshot?.targetPack?.targetRoas === "number" &&
+    Number.isFinite(commercialSettings.snapshot.targetPack.targetRoas)
+      ? commercialSettings.snapshot.targetPack.targetRoas
+      : null;
+  const commercialBreakEvenRoas =
+    typeof commercialSettings?.snapshot?.targetPack?.breakEvenRoas === "number" &&
+    Number.isFinite(commercialSettings.snapshot.targetPack.breakEvenRoas)
+      ? commercialSettings.snapshot.targetPack.breakEvenRoas
+      : null;
+  // The three keyword tallies the design's pills carry. They are server-side
+  // counts; an unread summary keeps the pill shells and prints `—` rather than
+  // substituting a row count.
+  const keywordInsightCounts: GoogleAdsKeywordInsightCounts | null =
+    typeof keywordsData?.summary?.highCtrLowConvCount === "number" &&
+    typeof keywordsData.summary.highConvLowBudgetCount === "number" &&
+    typeof keywordsData.summary.deserveOwnAdGroupCount === "number"
+      ? {
+          highCtrLowConvCount: keywordsData.summary.highCtrLowConvCount,
+          highConvLowBudgetCount: keywordsData.summary.highConvLowBudgetCount,
+          deserveOwnAdGroupCount: keywordsData.summary.deserveOwnAdGroupCount,
+        }
+      : null;
   const exactFreshness = resolveExactGoogleFreshness(
     syncStatus ?? baseStatusQuery.data,
   );
@@ -1666,6 +1565,40 @@ export function GoogleAdsIntelligenceDashboard({
     campaigns: campaignsReadComplete ? data?.rows ?? [] : null,
     advisorRecommendations: advisorCurrent?.recommendations ?? null,
     budgetCampaigns: budgetReadComplete ? budgetData?.rows ?? [] : null,
+    targets: { roas: commercialTargetRoas, breakevenRoas: commercialBreakEvenRoas },
+  });
+
+  const exactSearchModel = buildGoogleSearchExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    tab: searchTab,
+    termFilter: searchTermFilter,
+    terms: searchTermsData?.rows ?? null,
+    keywords: keywordsData?.rows ?? null,
+    keywordInsights: keywordInsightCounts,
+    roasTarget: commercialTargetRoas,
+    roasBreakEven: commercialBreakEvenRoas,
+  });
+
+  const exactProductsModel = buildGoogleProductsExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    products: productsData?.rows ? productRows : null,
+    advisorRecommendations: advisorCurrent?.recommendations ?? null,
+    roasTarget: commercialTargetRoas,
+    roasBreakEven: commercialBreakEvenRoas,
+    // Merchant Center item state has no reader in this product; the tiles keep
+    // their shells and print the em dash rather than answering with a
+    // performance verdict.
+    feed: null,
   });
 
   const exactPlanHref = dashboardHrefForRouteFamily(
@@ -1812,6 +1745,18 @@ export function GoogleAdsIntelligenceDashboard({
                 : null}
         </span>
       </>
+    ) : activePanel === "search" ? (
+      <GoogleSearchExact
+        model={exactSearchModel}
+        syncTone={exactFreshness.advisorTone}
+        onTabChange={setSearchTab}
+        onFilterChange={setSearchTermFilter}
+      />
+    ) : activePanel === "products" ? (
+      <GoogleProductsExact
+        model={exactProductsModel}
+        syncTone={exactFreshness.advisorTone}
+      />
     ) : null;
 
   if (exactSurface) return exactSurface;
@@ -1823,25 +1768,16 @@ export function GoogleAdsIntelligenceDashboard({
   const panelSurfaceLookup = new Map(
     (syncStatus?.panel?.surfaceStates ?? []).map((surface) => [surface.scope, surface])
   );
-  const searchSurfaceState = panelSurfaceLookup.get("search_term_daily") ?? null;
-  const productSurfaceState = panelSurfaceLookup.get("product_daily") ?? null;
   const assetSurfaceState = panelSurfaceLookup.get("asset_daily") ?? null;
   const assetGroupSurfaceState = panelSurfaceLookup.get("asset_group_daily") ?? null;
   const audienceSurfaceState = panelSurfaceLookup.get("audience_daily") ?? null;
-  const geoSurfaceState = panelSurfaceLookup.get("geo_daily") ?? null;
-  const deviceSurfaceState = panelSurfaceLookup.get("device_daily") ?? null;
-  const searchRangeCompletion = syncStatus?.rangeCompletionBySurface?.search_term_daily ?? null;
-  const productRangeCompletion = syncStatus?.rangeCompletionBySurface?.product_daily ?? null;
   const assetRangeCompletion = syncStatus?.rangeCompletionBySurface?.asset_daily ?? null;
   const assetGroupRangeCompletion =
     syncStatus?.rangeCompletionBySurface?.asset_group_daily ?? null;
   const audienceRangeCompletion =
     syncStatus?.rangeCompletionBySurface?.audience_daily ?? null;
-  const geoRangeCompletion = syncStatus?.rangeCompletionBySurface?.geo_daily ?? null;
-  const deviceRangeCompletion = syncStatus?.rangeCompletionBySurface?.device_daily ?? null;
 
   const summaryEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Campaign data");
-  const insightsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Search insights", searchSurfaceState);
   const assetGroupEmptyState = getGoogleAdsSyncEmptyState(
     syncStatus,
     "Asset groups",
@@ -1852,13 +1788,6 @@ export function GoogleAdsIntelligenceDashboard({
     "Audience performance",
     audienceSurfaceState
   );
-  const geoEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Geo performance", geoSurfaceState);
-  const deviceEmptyState = getGoogleAdsSyncEmptyState(
-    syncStatus,
-    "Device performance",
-    deviceSurfaceState
-  );
-  const productsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Product performance", productSurfaceState);
   const assetsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset performance", assetSurfaceState);
   const campaignScopeLabel = isLoading
     ? "Loading campaign data..."
@@ -1901,12 +1830,6 @@ export function GoogleAdsIntelligenceDashboard({
     "asset_group_structure",
     "pmax_scaling_fit",
     "geo_device_adjustment",
-  ]);
-
-  const productsAdvisor = filterAdvisorByTypes(advisorCurrent, [
-    "shopping_launch_or_split",
-    "product_allocation",
-    "budget_reallocation",
   ]);
 
   const assetsAdvisor = filterAdvisorByTypes(advisorCurrent, [
@@ -1956,8 +1879,6 @@ export function GoogleAdsIntelligenceDashboard({
       ...(recommendation.keepSeparateAssetGroups ?? []),
     ];
 
-    setFocusedSearchTerms(searchFocus);
-    setFocusedProducts(productFocus);
     setFocusedAssets(assetFocus);
     setFocusedAssetGroups(assetGroupFocus);
 
@@ -1995,7 +1916,7 @@ export function GoogleAdsIntelligenceDashboard({
       {/* v2 page head — identity in a mono eyebrow, workspace name in display type. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
             {workspaceEyebrow}
           </p>
           <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
@@ -2420,222 +2341,6 @@ export function GoogleAdsIntelligenceDashboard({
         </section>
       ) : null}
 
-      {activePanel === "search" ? (
-        <section className="space-y-3">
-          {scopedSearchTerms.length > 0 ? (
-            <GoogleSearchStats
-              rows={scopedSearchTerms}
-              active={searchTermFilter}
-              onFilterChange={setSearchTermFilter}
-              currencyFormatter={fmtCurrency}
-            />
-          ) : null}
-          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
-          <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
-          <div className="space-y-2">
-            <SurfaceRecoveryNotice surface={searchSurfaceState} rangeCompletion={searchRangeCompletion} />
-            <SurfaceRecoveryNotice surface={geoSurfaceState} rangeCompletion={geoRangeCompletion} />
-            <SurfaceRecoveryNotice surface={deviceSurfaceState} rangeCompletion={deviceRangeCompletion} />
-          </div>
-          {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[14px]" />)}</div>
-          ) : scopedSearchTerms.length === 0 && topGeoRows.length === 0 && topDeviceRows.length === 0 ? (
-            <EmptyState title={insightsEmptyState.title} description={insightsEmptyState.description} />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
-                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">PMax {searchSourceCounts.pmax}</span>
-                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
-                <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Negative {searchTermNegativeRows.length}</span>
-                <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Positive {searchTermPositiveRows.length}</span>
-              </div>
-
-              {/* Escape hatch. The design closes this screen on the served
-                  tables, but an operator who decides to act still needs a way
-                  out to Google Ads, and it has to be aimed at the account these
-                  numbers actually cover. */}
-              <div className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-3 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
-                      Escape hatch
-                    </p>
-                    <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-3)]">
-                      Read-only hop into Google Ads, scoped to the account in view.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
-                    <button
-                      type="button"
-                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
-                      title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
-                      onClick={() => {
-                        // Reported from the clipboard's own result: a browser
-                        // with no Clipboard API, or a denied permission, must
-                        // not record a clean success for a copy that never
-                        // happened.
-                        void reportGoogleEscapeHatch({
-                          eventName: "google_copy_used",
-                          businessId,
-                          itemCount: searchTermNegativeRows.length,
-                          run: () => {
-                            if (!navigator.clipboard?.writeText) {
-                              return Promise.reject(new Error("clipboard_unavailable"));
-                            }
-                            return navigator.clipboard.writeText(
-                              buildNegativeKeywordList(searchTermNegativeRows, "phrase"),
-                            );
-                          },
-                        });
-                      }}
-                    >
-                      Copy negatives
-                    </button>
-                    <button
-                      type="button"
-                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
-                      title="Download the scoped search terms as CSV"
-                      onClick={() => {
-                        void reportGoogleEscapeHatch({
-                          eventName: "google_csv_used",
-                          businessId,
-                          itemCount: scopedSearchTerms.length,
-                          run: async () => {
-                            const csv = buildSearchTermCsv(scopedSearchTerms);
-                            const url = URL.createObjectURL(
-                              new Blob([csv], { type: "text/csv;charset=utf-8" }),
-                            );
-                            const anchor = document.createElement("a");
-                            anchor.href = url;
-                            anchor.download = "search-terms.csv";
-                            anchor.click();
-                            URL.revokeObjectURL(url);
-                          },
-                        });
-                      }}
-                    >
-                      Download CSV
-                    </button>
-                    {scopedSearchTerms.length > 0 ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
-                          Search terms
-                        </span>
-                        {/*
-                          Scoped deep link into Google Ads. Refused rather than
-                          guessed when the account cannot be named -- landing on
-                          the wrong account is worse than no link, because the
-                          operator then acts on someone else's data. The guard
-                          and the href call the same builder with the same
-                          target, so a refused link cannot render as an anchor
-                          pointing nowhere.
-                        */}
-                        {buildGoogleAdsDeepLink({
-                          accountId: advisorExecutionAccountId,
-                          target: { kind: "search_terms" },
-                        }) ? (
-                          <a
-                            href={
-                              buildGoogleAdsDeepLink({
-                                accountId: advisorExecutionAccountId,
-                                target: { kind: "search_terms" },
-                              }) ?? undefined
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-fill)] px-2 py-0.5 text-[var(--adv-ink-2)] hover:bg-[var(--adv-surface)]"
-                            onClick={() =>
-                              emitProductInstrumentation({
-                                eventName: "google_deep_link_used",
-                                surface: "google_ads",
-                                outcome: "ok",
-                                scope: "business",
-                                businessId,
-                                provider: "google",
-                              })
-                            }
-                          >
-                            {describeGoogleAdsDeepLink({ kind: "search_terms" })}
-                          </a>
-                        ) : null}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              {/* The design renders one served search-terms table, not two
-                  ad-hoc waste/opportunity lists. */}
-              <GoogleSearchTermsTable
-                rows={
-                  searchTermFilter === "waste" || searchTermFilter === "negative"
-                    ? searchTermNegativeRows
-                    : searchTermFilter === "opportunity"
-                      ? searchTermPositiveRows
-                      : scopedSearchTerms
-                }
-                currencyFormatter={fmtCurrency}
-              />
-
-              {/* The design closes the screen on the served keyword report. */}
-              <GoogleKeywordsTable
-                rows={keywordsData?.rows ?? []}
-                currencyFormatter={fmtCurrency}
-              />
-
-              <div className="grid gap-2 xl:grid-cols-2">
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
-                  <div className="mt-2 space-y-1.5">
-                    {topGeoRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {geoSurfaceState && geoSurfaceState.state !== "ready"
-                          ? geoSurfaceState.message
-                          : geoEmptyState.description}
-                      </p>
-                    ) : (
-                      topGeoRows.map((row, index) => (
-                        <div
-                          key={`${row.country}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
-                        >
-                          <span className="truncate font-medium">{row.country}</span>
-                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
-                  <div className="mt-2 space-y-1.5">
-                    {topDeviceRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {deviceSurfaceState && deviceSurfaceState.state !== "ready"
-                          ? deviceSurfaceState.message
-                          : deviceEmptyState.description}
-                      </p>
-                    ) : (
-                      topDeviceRows.map((row, index) => (
-                        <div
-                          key={`${row.device}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
-                        >
-                          <span className="truncate font-medium">{row.device}</span>
-                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-          </div>
-        </section>
-      ) : null}
 
       {activePanel === "assetGroupAudience" ? (
         <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
@@ -2771,51 +2476,6 @@ export function GoogleAdsIntelligenceDashboard({
         </section>
       ) : null}
 
-      {activePanel === "products" ? (
-        <section className="space-y-3">
-          {productRows.length > 0 ? (
-            <GoogleFeedTiles rows={productRows} currencyFormatter={fmtCurrency} />
-          ) : null}
-          <div className="grid gap-3 items-start [grid-template-columns:minmax(0,1.6fr)_minmax(290px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
-          <div className="flex flex-col gap-3">
-          <SurfaceRecoveryNotice surface={productSurfaceState} rangeCompletion={productRangeCompletion} />
-          {isProductsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-[14px]" />)}</div>
-          ) : productRows.length === 0 ? (
-            <EmptyState title={productsEmptyState.title} description={productsEmptyState.description} />
-          ) : (
-            <GoogleProductsTable
-              rows={productRows}
-              currencyFormatter={fmtCurrency}
-              focusedTitles={focusedProducts}
-            />
-          )}
-          {productsAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel
-              advisor={productsAdvisor}
-              onFocusEntity={focusAdvisorEntity}
-              businessId={businessId}
-              accountId={advisorExecutionAccountId}
-              onRefreshAdvisor={refreshAdvisorView}
-            />
-          ) : (
-            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
-          )}
-          </div>
-          <GoogleAllocationRead
-            recommendations={summaryAdvisor?.recommendations ?? []}
-            layer="Shopping & Products"
-            subtitle="advisor · product allocation"
-            footnote="Cluster reads are directional — restructures apply from Advisor → Plan as guarded writes."
-          />
-          </div>
-          {/* The design closes Products on the Merchant Center boundary note. */}
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
-            A disapproval blocks the whole listing group — the fix lives in
-            Merchant Center, never edited here.
-          </p>
-        </section>
-      ) : null}
 
       {activePanel === "assets" ? (
         <section className="flex flex-col gap-4">

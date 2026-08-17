@@ -61,7 +61,14 @@ export function GoogleWorkspaceScreen({
     (isBootstrapping ||
       googleView.status === "loading_data" ||
       (bootstrapStatus !== "ready" && !hasGoogleAccess));
-  const ownsExactState = panel === "summary" || panel === "insights";
+  // The exact R3 surfaces own their own loading, empty, partial and
+  // account-unavailable states, so the legacy bootstrap and integration gates
+  // must not replace their bodies with generic chrome.
+  const ownsExactState =
+    panel === "summary" ||
+    panel === "insights" ||
+    panel === "search" ||
+    panel === "products";
 
   // The page frame owns the gutters, so these surfaces carry no padding of
   // their own and no nested scroll container.

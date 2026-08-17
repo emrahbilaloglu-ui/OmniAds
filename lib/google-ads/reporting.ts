@@ -37,6 +37,7 @@ import {
   buildSearchTermCoreQuery,
   type GoogleAdsNamedQuery,
 } from "@/lib/google-ads/query-builders";
+import { countGoogleAdsKeywordInsights } from "@/lib/google-ads/keyword-insights";
 import {
   asInteger,
   asNumber,
@@ -760,18 +761,9 @@ export async function getGoogleAdsKeywordsReport(
       weakKeywordCount: keywordAnalysis.summary.weakKeywordCount,
       negativeCandidateCount: keywordAnalysis.summary.negativeCandidateCount,
       accountAverageRoas: keywordAnalysis.summary.accountAverageRoas,
-      highCtrLowConvCount: rows.filter(
-        (keyword) => keyword.ctr > 5 && keyword.conversions === 0 && keyword.clicks >= 20
-      ).length,
-      highConvLowBudgetCount: rows.filter(
-        (keyword) =>
-          keyword.conversions >= 3 &&
-          typeof keyword.impressionShare === "number" &&
-          keyword.impressionShare < 0.4
-      ).length,
-      deserveOwnAdGroupCount: rows.filter(
-        (keyword) => keyword.conversions >= 5 && keyword.spend > 100
-      ).length,
+      // Shared with the warehouse serving path so the Search screen's keyword
+      // tallies cannot differ by which reader served the window.
+      ...countGoogleAdsKeywordInsights(rows),
     },
     insights: keywordAnalysis.insights,
     meta,

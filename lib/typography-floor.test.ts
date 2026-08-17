@@ -76,6 +76,12 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE =
+  "components/google-ads/GoogleSearchProductsExact.module.css";
+const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START =
+  "/* dashboard-v2-google-search-products-exact-reference-type:start */";
+const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END =
+  "/* dashboard-v2-google-search-products-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +99,11 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE
+                    ? [
+                        EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START,
+                        EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END,
+                      ]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
@@ -406,6 +417,44 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Google Search/Products values narrow and exact", () => {
+    const source = readFileSync(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(
+      EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE,
+      source,
+    );
+    expect(bounds).not.toBeNull();
+    const exactSearchProducts = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactSearchProducts.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    expect(declarations).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".guardCopy, .cardSubtitle", size: 10.5 },
+      { selector: ".statLabel, .allocationNote", size: 11.5 },
+      { selector: ".filterCount", size: 10 },
+      { selector: ".table th", size: 10 },
+      { selector: ".chip, .matchChip", size: 10 },
+      { selector: ".roasChip", size: 11.5 },
+      { selector: ".keywordComponents, .allocationLabel", size: 9.5 },
+      { selector: ".productSku", size: 10 },
+      { selector: ".statusChip", size: 11 },
+      { selector: ".tileLabel", size: 9.5 },
+      { selector: ".tileSub, .footnote", size: 11 },
     ]);
   });
 

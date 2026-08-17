@@ -4,6 +4,7 @@ import {
   buildFirstSyncModel,
   buildFirstSyncSteps,
   buildIntegrationsExactModel,
+  ga4FirstSyncSignals,
   googleFirstSyncSignals,
   INTEGRATIONS_LIVE_ORDER,
   INTEGRATIONS_META_NOT_CONNECTED,
@@ -11,10 +12,13 @@ import {
   isFirstImportConnection,
   metaFirstSyncSignals,
   resolveFirstSyncPercent,
+  searchConsoleFirstSyncSignals,
   shopifyFirstSyncSignals,
 } from "@/components/integrations/integrations-exact-adapter";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-status";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import type {
   IntegrationProvider,
@@ -629,5 +633,217 @@ describe("buildIntegrationsExactModel", () => {
       "Snapchat",
     ]);
     expect(model.soonCards.every((card) => card.eta === "—")).toBe(true);
+  });
+});
+
+/**
+ * GA4 and Search Console: two sources whose importer is the report warmer.
+ *
+ * Both now serve a status endpoint, so both must obey the same five-condition
+ * rule as Meta, Google and Shopify — and neither may claim a backfill share,
+ * because their importer stores a window whole or not at all.
+ */
+function ga4Status(
+  overrides: Partial<GoogleAnalyticsStatusResponse> = {},
+): GoogleAnalyticsStatusResponse {
+  return {
+    provider: "ga4",
+    connected: true,
+    state: "syncing",
+    connectedAt: "2026-08-17T10:00:00.000Z",
+    property: { id: "properties/3322114455", name: "Aurora Store GA4" },
+    propertyReady: true,
+    backfillPercent: null,
+    snapshotReady: false,
+    snapshotAt: null,
+    latestSync: null,
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
+function searchConsoleStatus(
+  overrides: Partial<SearchConsoleStatusResponse> = {},
+): SearchConsoleStatusResponse {
+  return {
+    provider: "search_console",
+    connected: true,
+    state: "syncing",
+    connectedAt: "2026-08-17T10:00:00.000Z",
+    site: { url: "sc-domain:aurora.example", type: "domain" },
+    siteReady: true,
+    googleAuthority: { connected: true, hasSearchConsoleScope: true },
+    backfillPercent: null,
+    snapshotReady: false,
+    snapshotAt: null,
+    latestSync: null,
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
+describe("ga4FirstSyncSignals / searchConsoleFirstSyncSignals", () => {
+  it("returns nothing at all when the provider serves no status", () => {
+    expect(ga4FirstSyncSignals(null, "2026-08-17T10:00:00.000Z")).toBeNull();
+    expect(
+      searchConsoleFirstSyncSignals(undefined, "2026-08-17T10:00:00.000Z"),
+    ).toBeNull();
+  });
+
+  it("maps GA4's in-flight warm job onto an import with an unknown backfill", () => {
+    const signals = ga4FirstSyncSignals(
+      ga4Status(),
+      "2026-08-17T10:00:00.000Z",
+    );
+    expect(signals).toEqual({
+      connected: true,
+      importing: true,
+      entitiesReady: true,
+      backfillFraction: null,
+      snapshotReady: false,
+      connectedAt: "2026-08-17T10:00:00.000Z",
+    });
+    // An unknown backfill parks the bar at the start of its own stage rather
+    // than drifting upward — the same reading Shopify already gets.
+    expect(resolveFirstSyncPercent(signals, NOW)).toBe(35);
+  });
+
+  it("maps Search Console's in-flight warm job the same way", () => {
+    const signals = searchConsoleFirstSyncSignals(
+      searchConsoleStatus(),
+      "2026-08-17T10:00:00.000Z",
+    );
+    expect(signals?.importing).toBe(true);
+    expect(signals?.entitiesReady).toBe(true);
+    expect(signals?.backfillFraction).toBeNull();
+    expect(resolveFirstSyncPercent(signals, NOW)).toBe(35);
+  });
+
+  it("holds GA4 at the entities stage until a property is selected", () => {
+    const signals = ga4FirstSyncSignals(
+      ga4Status({ state: "syncing", propertyReady: false, property: { id: null, name: null } }),
+      "2026-08-17T10:00:00.000Z",
+    );
+    expect(signals?.entitiesReady).toBe(false);
+    expect(resolveFirstSyncPercent(signals, NOW)).toBe(8);
+  });
+
+  it("refuses to paint a bar for any non-importing state", () => {
+    for (const state of [
+      "connected_no_property",
+      "awaiting_first_sync",
+      "first_sync_stalled",
+      "ready",
+    ] as const) {
+      const signals = ga4FirstSyncSignals(
+        ga4Status({ state, snapshotReady: state === "ready" }),
+        "2026-08-17T10:00:00.000Z",
+      );
+      expect(resolveFirstSyncPercent(signals, NOW)).toBeNull();
+    }
+    for (const state of [
+      "connected_no_site",
+      "awaiting_first_sync",
+      "first_sync_stalled",
+      "action_required",
+      "ready",
+    ] as const) {
+      const signals = searchConsoleFirstSyncSignals(
+        searchConsoleStatus({ state, snapshotReady: state === "ready" }),
+        "2026-08-17T10:00:00.000Z",
+      );
+      expect(resolveFirstSyncPercent(signals, NOW)).toBeNull();
+    }
+  });
+
+  it("never calls a long-connected GA4 property a first import", () => {
+    const signals = ga4FirstSyncSignals(
+      ga4Status(),
+      // Connected in March: older than the window the first import backfills.
+      "2026-03-02T00:00:00.000Z",
+    );
+    expect(signals?.importing).toBe(true);
+    expect(resolveFirstSyncPercent(signals, NOW)).toBeNull();
+  });
+});
+
+describe("GA4 and Search Console cards", () => {
+  function cardFor(
+    provider: "ga4" | "search_console",
+    status: GoogleAnalyticsStatusResponse | SearchConsoleStatusResponse,
+    viewOverrides: Partial<ProviderViewState> = JUST_CONNECTED,
+  ) {
+    const views = baseViews();
+    views[provider] = view(provider, viewOverrides);
+    const model = buildIntegrationsExactModel({
+      views,
+      ga4Status: provider === "ga4" ? (status as GoogleAnalyticsStatusResponse) : null,
+      searchConsoleStatus:
+        provider === "search_console" ? (status as SearchConsoleStatusResponse) : null,
+      connectableProviders: CONNECTABLE,
+      logoFor,
+      now: NOW,
+    });
+    return model.cards.find((card) => card.provider === provider)!;
+  }
+
+  it("shows the design's block for a GA4 property that just started importing", () => {
+    const card = cardFor("ga4", ga4Status());
+    expect(card.syncing).toBe(true);
+    expect(card.status).toBe("Connecting");
+    expect(card.meta).toBe(INTEGRATIONS_META_SYNCING);
+    expect(card.button).toBeNull();
+    expect(card.firstSync?.percentLabel).toBe("35%");
+    expect(card.firstSync?.steps.map((step) => step.state)).toEqual([
+      "done",
+      "done",
+      "current",
+      "pending",
+    ]);
+  });
+
+  it("shows the block for a Search Console site that just started importing", () => {
+    const card = cardFor("search_console", searchConsoleStatus());
+    expect(card.syncing).toBe(true);
+    expect(card.firstSync?.percentLabel).toBe("35%");
+  });
+
+  it("shows no block for a GA4 property connected months ago", () => {
+    const card = cardFor("ga4", ga4Status(), CONNECTED);
+    expect(card.firstSync).toBeNull();
+    expect(card.syncing).toBe(false);
+    expect(card.status).toBe("Connected");
+    expect(card.button).toEqual({ caption: "Manage", kind: "manage" });
+  });
+
+  it("names a Search Console card whose Google authority is broken", () => {
+    const card = cardFor(
+      "search_console",
+      searchConsoleStatus({
+        state: "action_required",
+        googleAuthority: { connected: false, hasSearchConsoleScope: false },
+      }),
+      { ...JUST_CONNECTED, status: "action_required", isConnected: false },
+    );
+    expect(card.firstSync).toBeNull();
+    expect(card.status).toBe("Action required");
+    expect(card.statusTone).toBe("attention");
+  });
+
+  it("leaves both cards blockless when neither status has been served yet", () => {
+    const views = baseViews();
+    views.ga4 = view("ga4", JUST_CONNECTED);
+    views.search_console = view("search_console", JUST_CONNECTED);
+    const model = buildIntegrationsExactModel({
+      views,
+      connectableProviders: CONNECTABLE,
+      logoFor,
+      now: NOW,
+    });
+    for (const provider of ["ga4", "search_console"] as const) {
+      const card = model.cards.find((entry) => entry.provider === provider)!;
+      expect(card.firstSync).toBeNull();
+      expect(card.syncing).toBe(false);
+    }
   });
 });

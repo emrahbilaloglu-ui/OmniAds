@@ -6,7 +6,9 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 
 import { buildDefaultProviderDomains } from "@/store/integrations-support";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-status";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import type { IntegrationProvider } from "@/store/integrations-store";
 
@@ -31,6 +33,8 @@ const statusState = vi.hoisted(() => ({
   meta: undefined as unknown,
   google: undefined as unknown,
   shopify: undefined as unknown,
+  ga4: undefined as unknown,
+  searchConsole: undefined as unknown,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -117,6 +121,8 @@ beforeEach(() => {
   statusState.meta = undefined;
   statusState.google = undefined;
   statusState.shopify = undefined;
+  statusState.ga4 = undefined;
+  statusState.searchConsole = undefined;
   integrationsState.byBusinessId = { biz_1: {} };
   integrationsState.domainsByBusinessId = { biz_1: buildDefaultProviderDomains() };
   integrationsState.assignedAccountsByBusiness = { biz_1: {} };
@@ -128,7 +134,11 @@ beforeEach(() => {
         ? statusState.meta
         : key === "google-ads-sync-status"
           ? statusState.google
-          : statusState.shopify;
+          : key === "ga4-sync-status"
+            ? statusState.ga4
+            : key === "search-console-sync-status"
+              ? statusState.searchConsole
+              : statusState.shopify;
     return {
       data,
       isLoading: false,
@@ -251,6 +261,88 @@ describe("/integrations route", () => {
     const { container } = render(<IntegrationsPage />);
     const card = container.querySelector('article[data-provider="shopify"]')!;
     expect(within(card as HTMLElement).queryByTestId("integration-first-sync")).toBeNull();
+  });
+
+  it("drives the GA4 card's block from the served GA4 status", () => {
+    integrationsState.domainsByBusinessId = {
+      biz_1: connectDomains(["ga4"], { connectedAt: justConnectedAt() }),
+    };
+    statusState.ga4 = {
+      provider: "ga4",
+      connected: true,
+      state: "syncing",
+      propertyReady: true,
+      backfillPercent: null,
+      snapshotReady: false,
+    } as unknown as GoogleAnalyticsStatusResponse;
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="ga4"]')!;
+    const block = within(card as HTMLElement).getByTestId("integration-first-sync");
+    expect(within(block).getByText("First sync")).toBeTruthy();
+    // GA4 exposes no share of the backfill window, so the bar parks at the
+    // start of that stage instead of approximating one.
+    expect(within(block).getByText("35%")).toBeTruthy();
+    expect(within(block).getByText("Backfill 28 days")).toBeTruthy();
+    expect(card.textContent).toContain("first import running");
+  });
+
+  it("drives the Search Console card's block from the served Search Console status", () => {
+    integrationsState.domainsByBusinessId = {
+      biz_1: connectDomains(["search_console"], { connectedAt: justConnectedAt() }),
+    };
+    statusState.searchConsole = {
+      provider: "search_console",
+      connected: true,
+      state: "syncing",
+      siteReady: true,
+      googleAuthority: { connected: true, hasSearchConsoleScope: true },
+      backfillPercent: null,
+      snapshotReady: false,
+    } as unknown as SearchConsoleStatusResponse;
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="search_console"]')!;
+    expect(
+      within(within(card as HTMLElement).getByTestId("integration-first-sync")).getByText("35%"),
+    ).toBeTruthy();
+  });
+
+  it("shows no block for a GA4 property that has been connected for months", () => {
+    integrationsState.domainsByBusinessId = { biz_1: connectDomains(["ga4"]) };
+    statusState.ga4 = {
+      provider: "ga4",
+      connected: true,
+      state: "syncing",
+      propertyReady: true,
+      backfillPercent: null,
+      snapshotReady: false,
+    } as unknown as GoogleAnalyticsStatusResponse;
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="ga4"]')!;
+    expect(within(card as HTMLElement).queryByTestId("integration-first-sync")).toBeNull();
+    expect(card.textContent).not.toContain("first import running");
+  });
+
+  it("shows no block for a Search Console card whose Google authority is broken", () => {
+    integrationsState.domainsByBusinessId = {
+      biz_1: connectDomains(["search_console"], { connectedAt: justConnectedAt() }),
+    };
+    statusState.searchConsole = {
+      provider: "search_console",
+      connected: true,
+      state: "action_required",
+      siteReady: true,
+      googleAuthority: { connected: false, hasSearchConsoleScope: false },
+      backfillPercent: null,
+      snapshotReady: false,
+    } as unknown as SearchConsoleStatusResponse;
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="search_console"]')!;
+    expect(within(card as HTMLElement).queryByTestId("integration-first-sync")).toBeNull();
+    expect(card.textContent).not.toContain("first import running");
   });
 
   it("lists the three roadmap providers under a single Coming soon heading", () => {

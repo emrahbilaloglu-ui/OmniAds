@@ -30,7 +30,9 @@ import { getOAuthStartUrl } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-status";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 
@@ -115,6 +117,48 @@ async function fetchShopifyStatus(
   return payload as ShopifyStatusResponse;
 }
 
+async function fetchGa4Status(
+  businessId: string
+): Promise<GoogleAnalyticsStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(
+    `/api/google-analytics/status?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `GA4 status request failed (${response.status})`
+    );
+  }
+  return payload as GoogleAnalyticsStatusResponse;
+}
+
+async function fetchSearchConsoleStatus(
+  businessId: string
+): Promise<SearchConsoleStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(
+    `/api/google-search-console/status?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Search Console status request failed (${response.status})`
+    );
+  }
+  return payload as SearchConsoleStatusResponse;
+}
+
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
   const priorityWindowReady =
@@ -172,6 +216,26 @@ function getShopifyStatusRefetchInterval(status: ShopifyStatusResponse | undefin
     return 15_000;
   }
   return 30_000;
+}
+
+/**
+ * GA4 and Search Console poll only while something can still change.
+ *
+ * Their importer is the report warmer, whose windows finish in seconds once it
+ * starts, so an in-flight first sync is worth a tight poll; every other state
+ * is either terminal or waiting on the operator, and polling it would be a
+ * request per card per interval that can never learn anything new.
+ */
+function getReportWarmerStatusRefetchInterval(
+  status:
+    | Pick<GoogleAnalyticsStatusResponse, "connected" | "state">
+    | Pick<SearchConsoleStatusResponse, "connected" | "state">
+    | undefined,
+) {
+  if (!status?.connected) return false;
+  if (status.state === "syncing") return 5_000;
+  if (status.state === "awaiting_first_sync") return 30_000;
+  return false;
 }
 
 function hasRenderableProviderViews(
@@ -264,6 +328,26 @@ export default function IntegrationsPage() {
       ),
     queryFn: () => fetchShopifyStatus(businessId!),
   });
+  const ga4StatusQuery = useQuery({
+    queryKey: ["ga4-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getReportWarmerStatusRefetchInterval(
+        query.state.data as GoogleAnalyticsStatusResponse | undefined
+      ),
+    queryFn: () => fetchGa4Status(businessId!),
+  });
+  const searchConsoleStatusQuery = useQuery({
+    queryKey: ["search-console-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getReportWarmerStatusRefetchInterval(
+        query.state.data as SearchConsoleStatusResponse | undefined
+      ),
+    queryFn: () => fetchSearchConsoleStatus(businessId!),
+  });
 
   useTierZeroFreshness({
     surface: "integrations",
@@ -274,7 +358,10 @@ export default function IntegrationsPage() {
     // A provider we could not read is a hole in the picture, not a healthy
     // provider: say which one rather than showing a confident row.
     partialReason:
-      googleAdsStatusQuery.error || shopifyStatusQuery.error
+      googleAdsStatusQuery.error ||
+      shopifyStatusQuery.error ||
+      ga4StatusQuery.error ||
+      searchConsoleStatusQuery.error
         ? "Some providers could not be read; connection status is incomplete"
         : null,
     // Each provider's own last sync. `dataUpdatedAt` would report when the
@@ -287,6 +374,10 @@ export default function IntegrationsPage() {
       void metaStatusQuery.refetch();
       if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
       if (shopifyStatusQuery.isError) void shopifyStatusQuery.refetch();
+      if (ga4StatusQuery.isError) void ga4StatusQuery.refetch();
+      if (searchConsoleStatusQuery.isError) {
+        void searchConsoleStatusQuery.refetch();
+      }
     },
   });
 
@@ -488,12 +579,16 @@ export default function IntegrationsPage() {
         metaStatus: metaStatusQuery.data ?? null,
         googleStatus: googleAdsStatusQuery.data ?? null,
         shopifyStatus: shopifyStatusQuery.data ?? null,
+        ga4Status: ga4StatusQuery.data ?? null,
+        searchConsoleStatus: searchConsoleStatusQuery.data ?? null,
         connectableProviders: CONNECTABLE_PROVIDERS,
         logoFor: getProviderLogo,
       }),
     [
+      ga4StatusQuery.data,
       googleAdsStatusQuery.data,
       metaStatusQuery.data,
+      searchConsoleStatusQuery.data,
       shopifyStatusQuery.data,
       viewsByProvider,
     ],

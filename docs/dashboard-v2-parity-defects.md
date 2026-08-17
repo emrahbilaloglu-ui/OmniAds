@@ -3836,6 +3836,113 @@ introduced by the batch itself. All five are closed; the evidence is below.
 
 ## Creative evidence window + Copy detail drawer
 
+### Batch 14 implementation status
+
+Canonical source read in full for this batch, from the local file only (every
+API read of it truncates at 262,144 bytes / line 2225): Creative evidence
+window markup lines **3020–3117**, Copy detail drawer markup lines
+**3118–3175**, and the model bindings they reference in the script block —
+`cdOpen`/`openCd`/`closeCd`/`stopEvt`/`goCreativeStudio` and `cdMap` at
+**3578–3651**, `copyRow`/`copyRows`/`copyDetail`/`closeCo`/`co` at
+**3391–3446**, plus the two triggers at **556** (Decision Center creative
+decision card) and **820** (Creative Studio copies table row) — of
+`Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+Trigger provenance established first, because it settles DRAWERS-06: the
+design opens the evidence window **only** from the Decision Center's creative
+decision card (`open: openCd('c3'|'c4'|'c1')`, markup 556). No Creative Studio
+surface opens an evidence drawer; the Studio copies row opens `copyOpen`, the
+copy detail drawer. Both drawers are therefore new exact components:
+
+- `components/creatives/CreativeEvidenceWindowExact.tsx` + `.module.css` +
+  `creative-evidence-window-exact-adapter.ts`, mounted by
+  `components/meta/redesign/MetaPlatformPage.tsx` behind the design's own
+  `Evidence →` trigger. Every Decision Center route family
+  (`/platforms/meta`, `/c/[businessId]/meta/decisions`, `/app/meta/decisions`)
+  converges on that body.
+- `components/creatives/CopyDetailDrawerExact.tsx` + `.module.css` +
+  `copy-detail-drawer-exact-adapter.ts`, mounted by
+  `app/(dashboard)/platforms/meta/copies/legacy-page.tsx`, which every copies
+  route family (`/platforms/meta/copies`, `/c/[businessId]/creative/copies`,
+  `/app/creative/copies`) already reaches.
+
+Backend wiring done in this batch (no server guard was changed):
+
+- The workspace adapter callback already received the presentation decision
+  (`MetaOsAdDecision`) beside the canonical envelope and **discarded it**
+  (`onCreativeReview: (_decision, canonicalDecision) => …`). It is now kept, so
+  the window serves real `frequency`, `ctr`, ad-set identity, action code and
+  scope note that the canonical contract does not carry.
+- The funnel, thumbstop, first-seen date and multi-ad-set split are ad-grain
+  facts `lib/meta/decisions-workspace-contract.ts` does not model. They are read
+  from `/api/meta/creatives` with `creativeId=<creative>&groupBy=ad`, a route
+  that already filters by creative server-side and keeps its own
+  `requireBusinessAccess({ minRole: "guest" })` gate. No new authority.
+- The copy drawer's benchmark sub-lines are computed as medians over the same
+  server rows the copies table renders, not from prototype seed numbers.
+- The `CTR · 28d` / `Frequency · 28d` pair reads a new `GET /api/meta/ads/series`
+  over `meta_ad_daily`, which had stored the daily trail all along. Same
+  `requireBusinessAccess({ minRole: "guest" })` gate as its sibling read routes,
+  narrowed to the business's assigned Meta accounts. No new authority.
+
+A note on how the BLOCKED rows are worded, after a verification pass corrected
+three of them: a block must name the fact that is actually missing. Saying a
+table "has no revenue" when it has a `revenue` column, or that `reach` exists
+"nowhere" when it is stored, typed and served, sends the next implementer to
+build a gap that is not there. DRAWERS-04, DRAWERS-20 and DRAWERS-39 below were
+re-stated for that reason, and DRAWERS-20 turned out not to be blocked at all.
+
+`CLOSED` below means the source-level DOM/geometry/data-contract divergence is
+removed and covered by the named component, adapter, page or wiring tests. It
+does **not** mean a zero-RGBA pixel diff has been proved.
+
+| ID         | Status  | Current proof |
+| ---------- | ------- | ------------- |
+| DRAWERS-01 | CLOSED  | The Spend / ROAS / Purchases / ROAS·7d tile grid is deleted with `MetaCreativeEvidenceDrawer`; the money statement is the contract card's single 17px/700 line plus its 11.5px sub. `CreativeEvidenceWindowExact.test.tsx` asserts `ROAS · 7d` is absent. |
+| DRAWERS-02 | CLOSED  | `StudioOsView.renderUsageDrawer` and its ad-usage list are removed; `creative-evidence-window-wiring.test.ts` asserts `Exact ad usages` no longer exists in the repo's view layer. |
+| DRAWERS-03 | CLOSED  | `Where it runs` renders one row per ad set with name, spend and a ROAS pill plus the literal footnote `ROAS per ad set · same 28d window`; fed by the ad-grain read, falling back to the decision's own ad set. Adapter test `groups Where it runs by ad set with a spend-weighted ROAS`. |
+| DRAWERS-04 | BLOCKED | The `Placement mix` card exists with the design's geometry and three em-dashed rows. **Contract required:** a placement breakdown carrying a **campaign / ad set / ad key**. The gap is the entity key alone: `meta_breakdown_daily` is `UNIQUE (business_id, provider_account_id, date, breakdown_type, breakdown_key)` with no entity column (`lib/migrations.ts:7779-7809`), so every placement row is account-wide and a per-creative share is not a function of it. Money is **not** the gap — the DDL has `revenue` and `roas` columns and `MetaBreakdownDailyRow → MetaWarehouseBaseRow → MetaWarehouseMetricSet` carries both (`lib/meta/warehouse-types.ts:168-181, 649`); an earlier revision of this row claimed otherwise and was wrong. `lib/meta/entity-signals-backfill.ts:713` reports the same account-grain limit as `meta_breakdown_daily_has_no_campaign_or_adset_key`. |
+| DRAWERS-05 | CLOSED  | The body opens on the 148px preview card; the served `media.thumbnail.url` renders inside it and the confidence band is a pill on the footer row. Component test `renders the served asset inside the preview stage`. |
+| DRAWERS-06 | CLOSED  | One evidence window remains, on the design's own trigger. The Studio-table drawer, its loader, its state and its trigger button are removed from `StudioOsView` (which no route mounted after batch 4 replaced Creative Studio with `CreativeStudioExact`). |
+| DRAWERS-07 | CLOSED  | The `Evidence context` eyebrow and the 7-row engine-plumbing list are gone; the grid renders the design's six creative-evidence keys in order. Adapter test `serves the design's six evidence keys in order`. |
+| DRAWERS-08 | CLOSED  | Same six keys, same order, and the four unit-economics keys (CPM, CPC·link, CTR·link, CPA) are gone with the Studio drawer. |
+| DRAWERS-09 | CLOSED  | Three footer controls always render: the server decision's own caption in its tone, `Compare in Studio`, `Ads Manager ↗`. The footer no longer collapses when the creative link is missing — the primary degrades to a disabled button carrying the caption. Component test `keeps the design's three footer buttons even when the primary has no destination`. |
+| DRAWERS-10 | CLOSED  | Header is the `#0B1020` band: eyebrow `Creative evidence · Meta` (mono 9.5px `#8B93A7`), the name at 16px/600 white, and the decision chip in the header row. |
+| DRAWERS-11 | CLOSED  | The `Trends (7 / 28 / 90d)` accordion is removed with the Studio drawer; the exact window's trend affordance is the always-visible sparkline pair. |
+| DRAWERS-12 | CLOSED  | The breadcrumb row and the ad-grain disclosure paragraph are removed with the Studio drawer. |
+| DRAWERS-13 | CLOSED  | The Usage / Ad-grain spend / Weighted ROAS strip is removed; nothing sits between the navy header and the preview card. |
+| DRAWERS-14 | CLOSED  | No `Signals` section exists; component test asserts its absence. |
+| DRAWERS-15 | CLOSED  | No `Blockers` section exists, and blocker text is not lost: `buildVerdictSub` appends every `classification.blockers[].label` to the design's `cd.verdictSub` slot. Adapter test `folds authority blockers into the verdict sub-line`. |
+| DRAWERS-16 | CLOSED  | The header text column holds exactly the eyebrow and the title; engine version now rides the provenance line at the foot of the body. |
+| DRAWERS-17 | CLOSED  | `.drawer { width: 560px; background: #f3f5f9; box-shadow: -28px 0 70px rgba(11,16,32,0.35) }` with no border; CSS assertions in `CreativeEvidenceWindowExact.test.tsx`. |
+| DRAWERS-18 | CLOSED  | `Engine reasoning` is its own white card with one 4px tone-dotted bullet per served reason. The contract serves a single `reason: string`, so exactly one bullet is rendered — no sentence splitting. |
+| DRAWERS-19 | CLOSED  | The `Click-to-purchase funnel · 28d` card renders the design's four rows with the ad-grain impressions / link clicks / add-to-cart / purchases and their CTR / ATC / CVR sub-labels. Unserved steps keep their row and render `—` rather than a zero. |
+| DRAWERS-20 | CLOSED  | *Re-filed, then built.* This was never absent data — it was a missing **read path**. `meta_ad_daily` already stored `date`, `ad_id`, `link_clicks`, `frequency` and `ctr` (`lib/migrations.ts:7818-7859`) behind `idx_meta_ad_daily_ad (ad_id, date DESC)` (`:7912`), and the batch already resolves creative → ads; nothing read it as a series. The read path is now `getMetaAdDailySeries` (`lib/meta/warehouse.ts`) → `GET /api/meta/ads/series` (same `requireBusinessAccess` gate as its siblings, narrowed to the business's assigned accounts) → `fetchCreativeEvidenceAdSeries` in `MetaPlatformPage`. Both cards draw a real 28-point path on the design's `0 0 100 22` geometry with a computed note (`link CTR −38.2% vs prior 14d`). The series is the decision's **own ad**, matching the Frequency evidence key beside it; a cross-ad frequency would need a deduplicated reach Meta does not report, so the route weights by impressions and never sums. |
+| DRAWERS-21 | CLOSED  | The scroll body ends with the centred mono 10px provenance line `provenance: snapshot … · decision … · engine …` built from `sourceDecision.snapshotAsOf`, `decisionId` and `engineVersion`. |
+| DRAWERS-22 | CLOSED  | The funnel is exactly four steps; the `Checkout` step is gone with the Studio drawer, and the exact window keeps the precise served name `Link clicks`. |
+| DRAWERS-23 | CLOSED  | `Take to Decisions` is gone. The primary carries the server decision's action label and routes to that action's destination: `plan_promotion` → Launchpad `mode=duplicate`, `refresh_creative` → Launchpad `mode=rebuild`. |
+| DRAWERS-24 | CLOSED  | The copy drawer renders See more / CTR / Engage / ROAS in the design's order with their benchmark sub-lines; Spend and CPA are gone. Adapter test `renders the design's four tiles in order`. |
+| DRAWERS-25 | CLOSED  | The chip is bound to `row.copyAngle` with the angle palette and renders `—` while the engine's tagging is unshipped; the asset type appears only in the eyebrow. |
+| DRAWERS-26 | CLOSED  | The body is `display:flex; flex-direction:column; gap:12px` over `#F3F5F9`, and every block is its own white card with a 12–14px radius and a 1px hairline. No `border-bottom` dividers remain — the dead `.creativeDrawerBody section` rules were deleted from `MetaPlatformPage.module.css`. |
+| DRAWERS-27 | CLOSED  | The `Next step:` line is removed with the Studio drawer; the contract card holds exactly the eyebrow, the verdict paragraph and the money line. |
+| DRAWERS-28 | CLOSED  | Both drawers set the header eyebrow to `font-size: 9.5px` on the IBM Plex Mono stack; asserted in both component tests. |
+| DRAWERS-29 | CLOSED  | Both overlays use `background: rgba(11, 16, 32, 0.46)`. |
+| DRAWERS-30 | CLOSED  | The contract card carries `border-left: 4px solid var(--tone-solid)`; the copy drawer's Read card carries `border-left: 3px solid var(--tone-solid)` toned by the row's ROAS band. |
+| DRAWERS-31 | CLOSED  | `.funnelValue { width: 52px }` and `.factGrid { column-gap: 20px }`; asserted in `CreativeEvidenceWindowExact.test.tsx`. |
+| DRAWERS-32 | CLOSED  | Each stat tile carries its own tone; the ROAS tile is painted with the row's ROAS band (`.statValue.tonePositive` / `.toneNegative` / `.toneWarning`). |
+| DRAWERS-33 | CLOSED  | `.statSub` carries the IBM Plex Mono stack, matching `.statLabel` above it. |
+| DRAWERS-34 | CLOSED  | The eyebrow is `Copy detail · {asset type} · {n} chars`; adapter test `prints the asset type and the character count in the eyebrow`. |
+| DRAWERS-35 | CLOSED  | The closing footnote is a body-level paragraph after the card closes, on the mono face at 10px/1.6, and describes what this app actually does with served variants. |
+| DRAWERS-36 | CLOSED  | *New finding (not in the original list).* The design's `Alternative lines` sub-label `angle-shifted · ranked by account angle ROAS` asserts a capability we do not have — these are the other copy lines Meta served with the same creative, unranked and untagged. The sub-label now reads `served with this creative · Meta-reported`, and the per-alternate `angle`/`why` slots keep their geometry with `—`. |
+| DRAWERS-37 | CLOSED  | *New finding.* The design hard-codes `Draft all 3 in Launchpad`. The caption is now `Draft all {n} in Launchpad` from the served alternate count, and the button is disabled with no destination when the provider served none. |
+| DRAWERS-38 | BLOCKED | *New finding.* The design's fifth evidence key is decision-specific (`Fatigue confirmed` / `Better variants live` / `Days above target`). **Contract required:** any one of a persisted fatigue-confirmation age, a better-variant count within the ad set, or a days-above-target counter. None is in `MetaCanonicalDecision` or `MetaOsAdDecision`, so the slot keeps its geometry with an em-dashed key and value rather than borrowing a different fact. |
+| DRAWERS-39 | BLOCKED | *New finding.* `First-time reach` (design evidence key 2) stays em-dashed. **Contract required:** a decomposition of a day's reach into first-time and repeat people. Plain `reach` is **not** the gap and this row previously said it was, wrongly: `meta_ad_daily` has a `reach` column keyed on `ad_id` (`lib/migrations.ts:7840`), `CreativeWarehouseCommonFields` declares `reach?: number` (`lib/meta/creatives-types.ts:508`), and `lib/meta/creatives-service-support.ts:493, 654` populate it on every served row. What no served fact carries is the *first-time* share of that reach — neither Meta's insights payload nor this warehouse splits reach into new and repeat people, and `1 / frequency` is a different quantity (impressions per person, not people per exposure count). Publishing plain reach under this label would be exactly the substitution DRAWERS-40 refuses for Hold 15s. |
+| DRAWERS-40 | BLOCKED | *New finding.* `Hold 15s` (design evidence key 4) is left em-dashed on purpose. `thruplay_actions` is the nearest served fact, but Meta's ThruPlay is "15 seconds **or** to completion", so publishing it under `Hold 15s` would substitute a different metric. **Contract required:** a true 15-second video-hold rate per ad. |
+| DRAWERS-41 | BLOCKED | *New finding.* The design's evidence-window primary is the decision's action itself. For `execute`-intent decisions (`cut` with `providerMutation: "pause"`) the primary renders the caption but stays destination-less: routing a provider write from this drawer would bypass the confirmation ceremony that guards the decision row. **Contract required:** an ad-grain execute path that carries the same `confirmationCeremony` contract; per H4 the guard was left intact. |
+| DRAWERS-42 | CLOSED  | *New finding.* The design's `cd.kind` line ("carousel · 5 cards · id … · in 3 ad sets") mixes media format with identity. No decision-grain source carries media format or aspect, so the line is composed from what is served — `id {short ad id} · in {n} ad set(s)` — and em-dashes when neither is known. |
+| DRAWERS-43 | ACCEPTED GEOMETRY DIVERGENCE | *New finding. Supersedes the batch's original "bar-scale note (not a defect)", which was wrong to file this as a non-issue: the funnel sub-bars were drawn 2–3× longer than the reference (68.0 / 48.3 / 40.7 against the design's 46 / 27 / 15).* The design's bars are a log scale and the scale **is** recoverable. Solving each of its nine authored widths for the decade span `D` in `1 + log10(v / top) / D` (design file 3610, 3624, 3638) gives 3.65 · 4.35 · 4.29 / 3.45 · 4.26 · 4.23 / 4.26 · 4.27 · 4.09 — seven of the nine cluster in 4.09–4.35, so the design draws a fixed window of decades below the funnel top. `funnelShare` now uses `D = 4.25`, landing those seven within 3 points of the authored width. **The accepted residual:** the two outliers are the `Clicks` bars of the Refresh and Retire funnels (`D` 3.65 and 3.45), which the design draws at 46% and 42% where its own scale gives 53.6% and 52.9%. They are hand-authored, not computed — no single monotone rule carries them with the other seven: fitting the Clicks bars alone needs a power-law exponent of 1.34 from Retire→Refresh and 0.55 from Refresh→Scale, or a log slope of 0.59 then 0.29 bar-fraction per e-fold. Fitting them would break the seven that agree, so the divergence is kept and recorded. **A second reason the old formula was wrong, independent of length:** `log10(v + 1) / log10(top + 1)` was not scale-free — it grew toward 100% as raw counts grew, so two funnels of identical shape drew differently purely by account volume. A decade window depends on `v / top` alone. The number printed beside each bar stays the literal served count either way. |
+
 ### DRAWERS-01 · HIGH · EXTRA — Decision Center evidence drawer adds a 4-tile Spend / ROAS / Purchases / ROAS·7d metric grid the design never had
 
 - **Design:** 18-creative-evidence-window.html L11-86 scanned end to end: there is no stat-tile grid anywhere. The design's only money statement is the single line inside the Decision contract card, L23 "{{ cd.money }} <span …>{{ cd.moneySub }}</span>" at 17px/700.

@@ -16,9 +16,4 @@ tmp*
 preview*
 docs
 README.md
-name
-image_url
-thumbnail_url
-poster_url
-render_mode
 .DS_Store

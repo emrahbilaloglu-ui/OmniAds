@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
@@ -13,6 +12,11 @@ import {
 } from "@/app/(dashboard)/platforms/meta/copies/page-support";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { CopyDetailDrawerExact } from "@/components/creatives/CopyDetailDrawerExact";
+import {
+  buildCopyDetailDrawerExactViewModel,
+  type CopyDetailDrawerExactRow,
+} from "@/components/creatives/copy-detail-drawer-exact-adapter";
 import { resolveCreativeDateRange } from "@/components/creatives/CreativesTopSection";
 import { standardDateRangeToCreative } from "@/components/creatives/creatives-top-section-support";
 import { buildCreativeStudioCopiesModel } from "@/components/creatives/creative-studio-exact-adapters";
@@ -331,6 +335,7 @@ export default function CopiesPage({
     [detailRowId, rows],
   );
   const closeDetailDrawer = useCallback(() => setDetailRowId(null), []);
+  const drawerPeers = useMemo(() => rows.map(toCopyDrawerRow), [rows]);
   const tabHrefs = buildCreativeStudioTabHrefs({
     pathname,
     businessId,
@@ -356,15 +361,18 @@ export default function CopiesPage({
           tabHrefs={tabHrefs}
         />
         {activeDetailRow ? (
-          <CopyDetailDrawer
-            defaultCurrency={accountCurrency}
-            launchpadHref={launchpadHref({
-              pathname,
-              businessId,
-              providerAccountId,
-            })}
+          <CopyDetailDrawerExact
             onClose={closeDetailDrawer}
-            row={activeDetailRow}
+            viewModel={buildCopyDetailDrawerExactViewModel({
+              row: toCopyDrawerRow(activeDetailRow),
+              peers: drawerPeers,
+              targetRoas: null,
+              draftHref: launchpadHref({
+                pathname,
+                businessId,
+                providerAccountId,
+              }),
+            })}
           />
         ) : null}
       </div>
@@ -372,141 +380,22 @@ export default function CopiesPage({
   );
 }
 
-function CopyDetailDrawer({
-  row,
-  defaultCurrency,
-  launchpadHref: guardedLaunchpadHref,
-  onClose,
-}: {
-  row: CopyMotionRow;
-  defaultCurrency: string | null;
-  launchpadHref: string;
-  onClose: () => void;
-}) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const previousFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    closeButtonRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [onClose]);
-
-  const alternatives = (row.copyVariants ?? []).filter(
-    (variant) =>
-      variant.trim().length > 0 &&
-      variant.trim() !== (row.copyText ?? "").trim(),
-  );
-  const money = (value: number) =>
-    formatMoney(value, row.currency, defaultCurrency);
-  const kind = row.copyAssetType?.trim() || "—";
-
-  return (
-    <div aria-modal="true" className="fixed inset-0 z-50" role="dialog">
-      <button
-        aria-label="Close drawer overlay"
-        className="absolute inset-0"
-        onClick={onClose}
-        style={{ background: "rgba(11,16,32,0.46)" }}
-        type="button"
-      />
-      <aside
-        aria-labelledby="copy-detail-title"
-        className="absolute right-0 top-0 flex h-full w-[min(520px,100vw)] flex-col overflow-y-auto bg-[var(--adv-canvas)] shadow-2xl"
-        data-testid="copy-detail-drawer"
-      >
-        <header className="flex items-start gap-3 bg-[var(--adv-rail)] px-5 py-4 text-white">
-          <div className="min-w-0 flex-1">
-            <p className="m-0 font-mono text-[9.5px] uppercase tracking-[0.1em] text-[var(--adv-rail-ink-2)]">
-              Copy detail · {kind}
-            </p>
-            <h2 className="mt-1 text-[15px] font-semibold" id="copy-detail-title">
-              “{row.copyText || "—"}”
-            </h2>
-          </div>
-          <button
-            aria-label="Close drawer"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/20"
-            onClick={onClose}
-            ref={closeButtonRef}
-            type="button"
-          >
-            ×
-          </button>
-        </header>
-
-        <div className="grid gap-4 p-5 text-[12px] text-[var(--adv-ink)]">
-          <section className="rounded-xl border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4">
-            <p className="whitespace-pre-wrap text-[14px] font-semibold">
-              “{row.copyText || "—"}”
-            </p>
-            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <CopyStat label="Spend" value={money(row.spend)} />
-              <CopyStat
-                label="ROAS"
-                value={Number.isFinite(row.roas) ? row.roas.toFixed(2) : "—"}
-              />
-              <CopyStat
-                label="CTR"
-                value={Number.isFinite(row.linkCtr) ? `${row.linkCtr.toFixed(2)}%` : "—"}
-              />
-              <CopyStat
-                label="CVR"
-                value={
-                  Number.isFinite(row.clickToPurchase)
-                    ? `${row.clickToPurchase.toFixed(2)}%`
-                    : "—"
-                }
-              />
-            </dl>
-          </section>
-
-          <section className="rounded-xl border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4">
-            <h3 className="text-[13px] font-semibold">Served alternatives</h3>
-            {alternatives.length === 0 ? (
-              <p className="mt-2 text-[var(--adv-ink-4)]">
-                Meta supplied no additional served line for this creative.
-              </p>
-            ) : (
-              <div className="mt-3 grid gap-2">
-                {alternatives.map((variant, index) => (
-                  <div
-                    className="rounded-lg border border-[var(--adv-hairline)] p-3"
-                    key={`${variant}:${index}`}
-                  >
-                    <p className="whitespace-pre-wrap font-medium">“{variant}”</p>
-                    <Link
-                      className="mt-2 inline-flex text-[11px] font-semibold text-[var(--adv-accent)]"
-                      href={guardedLaunchpadHref}
-                    >
-                      Open in Launchpad →
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function CopyStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-[var(--adv-fill)] p-2">
-      <dt className="font-mono text-[8.5px] uppercase tracking-[0.06em] text-[var(--adv-ink-4)]">
-        {label}
-      </dt>
-      <dd className="mt-1 tabular-nums font-semibold">{value}</dd>
-    </div>
-  );
+/**
+ * Narrows a synced copy row to the drawer's pure input. See-more and
+ * engagement have no field in the Meta copies response, so they stay null and
+ * the drawer renders the design's tiles with an em dash rather than
+ * substituting a different metric.
+ */
+function toCopyDrawerRow(row: CopyMotionRow): CopyDetailDrawerExactRow {
+  return {
+    id: row.id,
+    text: row.copyText ?? null,
+    assetType: row.copyAssetType ?? null,
+    angle: row.copyAngle ?? null,
+    seeMore: null,
+    ctr: Number.isFinite(row.linkCtr) ? row.linkCtr : null,
+    engagement: null,
+    roas: Number.isFinite(row.roas) ? row.roas : null,
+    variants: row.copyVariants ?? [],
+  };
 }

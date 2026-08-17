@@ -56,6 +56,14 @@ import {
   type MetaDecisionCenterExactWindow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import { buildMetaDecisionCenterExactViewModel } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
+import { CreativeEvidenceWindowExact } from "@/components/creatives/CreativeEvidenceWindowExact";
+import {
+  buildCreativeEvidenceWindowExactViewModel,
+  buildMetaAdsManagerHref,
+  type CreativeEvidenceWindowExactAdRow,
+  type CreativeEvidenceWindowExactSeriesPayload,
+} from "@/components/creatives/creative-evidence-window-exact-adapter";
+import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import styles from "./MetaPlatformPage.module.css";
 import {
   decisionLabelForRec,
@@ -1475,190 +1483,140 @@ function MetaCreativeDecisionCard({
   );
 }
 
-function MetaCreativeEvidenceDrawer({
-  decision,
-  onClose,
-}: {
-  decision: MetaCanonicalDecision | null;
-  onClose: () => void;
-}) {
-  if (!decision) return null;
-  const metrics = [
-    ["Spend", formatMoney(decision.metrics.spend, decision.metrics.currency)],
-    [
-      "ROAS",
-      decision.metrics.roas == null ? "—" : formatRoas(decision.metrics.roas),
-    ],
-    [
-      "Purchases",
-      decision.metrics.purchases == null
-        ? "—"
-        : String(decision.metrics.purchases),
-    ],
-    [
-      "ROAS · 7d",
-      decision.metrics.recent7dRoas == null
-        ? "—"
-        : formatRoas(decision.metrics.recent7dRoas),
-    ],
-  ];
-  return (
-    <div
-      className={styles.creativeDrawerLayer}
-      data-testid="meta-creative-evidence-drawer"
-    >
-      <button
-        type="button"
-        className={styles.creativeDrawerBackdrop}
-        onClick={onClose}
-        aria-label="Close creative evidence"
-      />
-      <aside className={styles.creativeDrawer} aria-label="Ad evidence">
-        <header className={styles.creativeDrawerHeader}>
-          <div>
-            <span>Ad evidence</span>
-            <h2>
-              {decision.parentChain.ad?.name ??
-                decision.parentChain.ad?.id ??
-                "Ad identity unavailable"}
-            </h2>
-            <p>
-              {decision.identityGrain === "ad"
-                ? "Native Ad"
-                : "Legacy creative"}{" "}
-              engine · {decision.sourceDecision.engineVersion} ·{" "}
-              {decision.providerAccountId}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
-        </header>
-        <div className={styles.creativeDrawerBody}>
-          <section>
-            <span className={styles.sectionEyebrow}>Decision contract</span>
-            <div className={styles.drawerDecisionLine}>
-              <span className="chip chip--info">
-                {decision.classification.buyerLabel}
-              </span>
-              <b>
-                {Math.round(decision.sourceDecision.confidence)}% ·{" "}
-                {decision.sourceDecision.confidenceBand}
-              </b>
-            </div>
-            <p>
-              {decision.sourceDecision.reason ||
-                "No server reason was provided."}
-            </p>
-          </section>
-          <section className={styles.drawerMetrics}>
-            {metrics.map(([label, value]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <b>{value}</b>
-              </div>
-            ))}
-          </section>
-          <section>
-            <span className={styles.sectionEyebrow}>Evidence context</span>
-            <dl className={styles.drawerFacts}>
-              <div>
-                <dt>Ad ID</dt>
-                <dd>{decision.parentChain.ad?.id ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Creative group</dt>
-                <dd>
-                  {decision.parentChain.creative?.name ??
-                    decision.parentChain.creative?.id ??
-                    "Unavailable"}
-                </dd>
-              </div>
-              <div>
-                <dt>Truth source</dt>
-                <dd>{decision.sourceDecision.truthSource}</dd>
-              </div>
-              <div>
-                <dt>Target ROAS</dt>
-                <dd>
-                  {decision.metrics.effectiveTargetRoas != null
-                    ? formatRoas(decision.metrics.effectiveTargetRoas)
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt>Lifecycle role</dt>
-                <dd>
-                  {humanizeDecisionToken(
-                    decision.classification.lifecycleRole.value,
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Generated</dt>
-                <dd>{decision.sourceDecision.computedAt || "—"}</dd>
-              </div>
-              <div>
-                <dt>Risk</dt>
-                <dd>
-                  {decision.riskTier
-                    ? humanizeDecisionToken(decision.riskTier)
-                    : `Unclassified · ${decision.confirmationCeremony} ceremony`}
-                </dd>
-              </div>
-            </dl>
-          </section>
-          {decision.sourceDecision.badges.length > 0 ? (
-            <section>
-              <span className={styles.sectionEyebrow}>Signals</span>
-              <div className={styles.drawerBadges}>
-                {decision.sourceDecision.badges.map((badge) => (
-                  <span key={badge}>{humanizeDecisionToken(badge)}</span>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {decision.classification.blockers.length > 0 ? (
-            <section>
-              <span className={styles.sectionEyebrow}>Blockers</span>
-              <div className={styles.drawerBlockers}>
-                {decision.classification.blockers.map((blocker) => (
-                  <p key={blocker.code}>{blocker.label}</p>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          <div className={styles.contractNote}>
-            Decision {decision.decisionId} · episode {decision.episodeId}.{" "}
-            Response attribution: {decision.history.responses.status}; provider
-            write linkage: {decision.history.providerWrites.status}.
-          </div>
-        </div>
-        <footer className={styles.creativeDrawerFooter}>
-          {decision.parentChain.creative ? (
-            <>
-              <a
-                className="btn btn--primary"
-                href={`/platforms/meta/launchpad?fromMetaBriefing=true&providerAccountId=${encodeURIComponent(decision.providerAccountId)}&sourceDecisionId=${encodeURIComponent(decision.decisionId)}&sourceDecisionSnapshotId=${encodeURIComponent(decision.sourceSnapshotId)}&creativeIds=${encodeURIComponent(decision.parentChain.creative.id)}&mode=rebuild`}
-              >
-                Open in Launchpad
-              </a>
-              <a
-                className="btn"
-                href={`/platforms/meta/creatives?providerAccountId=${encodeURIComponent(decision.providerAccountId)}&creativeId=${encodeURIComponent(decision.parentChain.creative.id)}`}
-              >
-                Open Creative Studio
-              </a>
-            </>
-          ) : null}
-        </footer>
-      </aside>
-    </div>
+/**
+ * The decisions-workspace contract stops at spend / purchases / ROAS. The
+ * funnel, thumbstop, first-seen date and per-ad-set split the evidence window
+ * draws are ad-grain facts served by `/api/meta/creatives`, which keeps its
+ * own `requireBusinessAccess` gate. Reading them here adds no new authority.
+ */
+async function fetchCreativeEvidenceAdRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  creativeId: string;
+  start: string;
+  end: string;
+}): Promise<CreativeEvidenceWindowExactAdRow[]> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    creativeId: input.creativeId,
+    groupBy: "ad",
+    mediaMode: "metadata",
+    start: input.start,
+    end: input.end,
+  });
+  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Ad-grain creative evidence is unavailable.");
+  }
+  const payload: unknown = await response.json();
+  const rows: MetaCreativeApiRow[] =
+    payload && typeof payload === "object" && Array.isArray((payload as { rows?: unknown }).rows)
+      ? ((payload as { rows: MetaCreativeApiRow[] }).rows ?? [])
+      : [];
+  return rows
+    .filter((row) => row.creative_id === input.creativeId)
+    .map((row) => ({
+      id: row.id,
+      adsetId: row.adset_id ?? null,
+      adsetName: row.adset_name ?? null,
+      spend: numberOrNull(row.spend),
+      purchaseValue: numberOrNull(row.purchase_value),
+      roas: numberOrNull(row.roas),
+      impressions: numberOrNull(row.impressions),
+      linkClicks: numberOrNull(row.link_clicks),
+      addToCart: numberOrNull(row.add_to_cart),
+      purchases: numberOrNull(row.purchases),
+      thumbstop: numberOrNull(row.thumbstop),
+      launchDate: row.launch_date ?? null,
+    }));
+}
+
+/**
+ * The daily CTR / frequency trail behind the two sparkline cards.
+ *
+ * `meta_ad_daily` has stored date + ad_id + link_clicks + frequency all along —
+ * indexed on (ad_id, date DESC) — but nothing read it as a series, so both
+ * cards drew an empty path. `/api/meta/ads/series` is that read path and keeps
+ * its own `requireBusinessAccess` gate.
+ */
+async function fetchCreativeEvidenceAdSeries(input: {
+  businessId: string;
+  adIds: string[];
+  start: string;
+  end: string;
+}): Promise<CreativeEvidenceWindowExactSeriesPayload> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    adIds: input.adIds.join(","),
+    start: input.start,
+    end: input.end,
+  });
+  const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("The per-ad daily series is unavailable.");
+  }
+  const payload = (await response.json()) as Partial<CreativeEvidenceWindowExactSeriesPayload>;
+  return {
+    adCount: typeof payload.adCount === "number" ? payload.adCount : 0,
+    points: Array.isArray(payload.points) ? payload.points : [],
+  };
+}
+
+function numberOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The evidence window's primary carries the server decision's own caption. It
+ * only gets a destination when that decision routes to a draft; execute-intent
+ * decisions keep their confirmation ceremony on the decision row and are not
+ * given a second, unguarded trigger here.
+ */
+function creativeEvidenceLaunchpadHref(input: {
+  decision: MetaOsAdDecision | null;
+  canonical: MetaCanonicalDecision;
+  pathname: string | null;
+}): string | null {
+  const code = input.decision?.action.code ?? null;
+  const mode =
+    code === "plan_promotion"
+      ? "duplicate"
+      : code === "refresh_creative"
+        ? "rebuild"
+        : null;
+  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
+  if (!mode || !creativeId) return null;
+  const params = new URLSearchParams({
+    fromMetaBriefing: "true",
+    providerAccountId: input.canonical.providerAccountId,
+    sourceDecisionId: input.canonical.decisionId,
+    sourceDecisionSnapshotId: input.canonical.sourceSnapshotId,
+    creativeIds: creativeId,
+    mode,
+  });
+  return dashboardHrefForRouteFamily(
+    `/platforms/meta/launchpad?${params.toString()}`,
+    input.pathname ?? "",
+  );
+}
+
+function creativeEvidenceStudioHref(input: {
+  canonical: MetaCanonicalDecision;
+  pathname: string | null;
+}): string {
+  const params = new URLSearchParams({
+    providerAccountId: input.canonical.providerAccountId,
+  });
+  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
+  if (creativeId) params.set("creativeId", creativeId);
+  return dashboardHrefForRouteFamily(
+    `/platforms/meta/creatives?${params.toString()}`,
+    input.pathname ?? "",
   );
 }
 
@@ -2397,8 +2355,10 @@ export function MetaPlatformPage({
   const [minSpendOnly, setMinSpendOnly] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(6);
   const [monitorPage, setMonitorPage] = useState(1);
-  const [creativeDrill, setCreativeDrill] =
-    useState<MetaCanonicalDecision | null>(null);
+  const [creativeDrill, setCreativeDrill] = useState<{
+    decision: MetaOsAdDecision | null;
+    canonical: MetaCanonicalDecision;
+  } | null>(null);
   const [scopeRailOpen, setScopeRailOpen] = useState(false);
   const latestSearchParamsRef = useRef(searchParams.toString());
 
@@ -2453,6 +2413,63 @@ export function MetaPlatformPage({
     searchParams,
     selectedReferenceDate,
   );
+
+  const creativeEvidenceCreativeId =
+    creativeDrill?.canonical.parentChain.creative?.id?.trim() ||
+    creativeDrill?.decision?.creativeId?.trim() ||
+    null;
+  const creativeEvidenceQuery = useQuery({
+    queryKey: [
+      "meta-creative-evidence-ad-rows",
+      businessId,
+      providerAccountId,
+      creativeEvidenceCreativeId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+    ],
+    enabled: Boolean(
+      businessId && providerAccountId && creativeEvidenceCreativeId,
+    ),
+    queryFn: () =>
+      fetchCreativeEvidenceAdRows({
+        businessId,
+        providerAccountId: providerAccountId!,
+        creativeId: creativeEvidenceCreativeId!,
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  /**
+   * The sparkline pair is the decision's own ad, not the creative's whole ad
+   * set: the Frequency evidence key beside it is that ad's frequency, and a
+   * cross-ad frequency would need a deduplicated reach Meta does not report.
+   */
+  const creativeEvidenceAdId =
+    creativeDrill?.canonical.parentChain.ad?.id?.trim() ||
+    creativeDrill?.decision?.adId?.trim() ||
+    null;
+  const creativeEvidenceSeriesQuery = useQuery({
+    queryKey: [
+      "meta-creative-evidence-series",
+      businessId,
+      creativeEvidenceAdId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+    ],
+    enabled: Boolean(businessId && creativeEvidenceAdId),
+    queryFn: () =>
+      fetchCreativeEvidenceAdSeries({
+        businessId,
+        adIds: [creativeEvidenceAdId!],
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const workspaceQuery = useQuery({
     queryKey: [
@@ -3419,9 +3436,12 @@ export function MetaPlatformPage({
               : undefined,
           onStructureMenu: openDrillForRec,
           onWatchingReview: openDrillForRec,
-          onCreativeReview: (_decision, canonicalDecision) => {
+          onCreativeReview: (decision, canonicalDecision) => {
             if (canonicalDecision) {
-              setCreativeDrill(canonicalDecision);
+              // The presentation decision carries CTR, frequency and the ad
+              // set identity the canonical envelope does not; the evidence
+              // window needs both.
+              setCreativeDrill({ decision, canonical: canonicalDecision });
               return;
             }
             setNotice("Canonical creative evidence is unavailable.");
@@ -3639,10 +3659,36 @@ export function MetaPlatformPage({
         />
       </div>
 
-      <MetaCreativeEvidenceDrawer
-        decision={creativeDrill}
-        onClose={() => setCreativeDrill(null)}
-      />
+      {creativeDrill ? (
+        <CreativeEvidenceWindowExact
+          onClose={() => setCreativeDrill(null)}
+          viewModel={buildCreativeEvidenceWindowExactViewModel({
+            decision: creativeDrill.decision,
+            canonical: creativeDrill.canonical,
+            adRows: creativeEvidenceQuery.data,
+            adSeries: creativeEvidenceSeriesQuery.data,
+            fallbackCurrency: moneyCurrency,
+            hrefs: {
+              primary: creativeEvidenceLaunchpadHref({
+                decision: creativeDrill.decision,
+                canonical: creativeDrill.canonical,
+                pathname,
+              }),
+              compareInStudio: creativeEvidenceStudioHref({
+                canonical: creativeDrill.canonical,
+                pathname,
+              }),
+              adsManager: buildMetaAdsManagerHref({
+                providerAccountId: creativeDrill.canonical.providerAccountId,
+                adId:
+                  creativeDrill.canonical.parentChain.ad?.id ??
+                  creativeDrill.decision?.adId ??
+                  null,
+              }),
+            },
+          })}
+        />
+      ) : null}
 
       {labelModalOpen ? (
         <div

@@ -1,0 +1,616 @@
+.overlay,
+.overlay * {
+  box-sizing: border-box;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(11, 16, 32, 0.46);
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+}
+
+.overlay button,
+.overlay a {
+  font-family: inherit;
+}
+
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-width: 94vw;
+  height: 100%;
+  background: #f3f5f9;
+  box-shadow: -28px 0 70px rgba(11, 16, 32, 0.35);
+}
+
+/* ── header band ─────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: #0b1020;
+}
+
+.headerIdentity {
+  min-width: 0;
+  flex: 1;
+}
+
+.headerEyebrow {
+  margin: 0;
+  color: #8b93a7;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.headerTitle {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerChip {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 4px 11px;
+  border-radius: 7px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.headerClose {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #8b93a7;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.headerClose:hover,
+.headerClose:focus-visible {
+  color: #ffffff;
+}
+
+/* ── scroll body ─────────────────────────────────────────────── */
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.card {
+  padding: 12px 14px;
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.contractCard {
+  border-left: 4px solid var(--tone-solid);
+}
+
+.cardEyebrow,
+.cardEyebrowSpaced,
+.cardEyebrowReasons,
+.cardEyebrowTight {
+  margin: 0;
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cardEyebrowSpaced {
+  margin: 0 0 9px;
+}
+
+.cardEyebrowReasons {
+  margin: 0 0 7px;
+}
+
+.cardEyebrowTight {
+  margin: 0 0 3px;
+}
+
+/* preview card */
+
+.previewCard {
+  overflow: hidden;
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.previewStage {
+  display: grid;
+  place-items: center;
+  height: 148px;
+  overflow: hidden;
+}
+
+.previewImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewPlaceholder {
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #45526b;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+}
+
+.previewFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+}
+
+.previewKind {
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+}
+
+.bandPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--tone-border);
+  border-radius: 9999px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-weight: 600;
+}
+
+/* decision contract */
+
+.verdictLine {
+  margin: 6px 0 0;
+  color: #0e1526;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.moneyLine {
+  margin: 8px 0 0;
+  color: #0e1526;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.moneySub {
+  color: #7a869e;
+  font-weight: 500;
+}
+
+/* engine reasoning */
+
+.reasonLine {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 5px;
+  color: #45526b;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.reasonDot {
+  flex-shrink: 0;
+  width: 4px;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 9999px;
+  background: var(--tone-solid);
+}
+
+/* two-up grids */
+
+.pairGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin-top: 8px;
+}
+
+.seriesNote {
+  margin: 6px 0 0;
+  color: #7a869e;
+}
+
+/* funnel */
+
+.funnelRows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.funnelRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.funnelLabel {
+  flex-shrink: 0;
+  width: 84px;
+  color: #45526b;
+  font-weight: 600;
+}
+
+.funnelTrack {
+  flex: 1;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #f1f4f9;
+}
+
+.funnelFill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+
+.funnelFillA {
+  background: #2f6bff;
+}
+
+.funnelFillB {
+  background: #5c89ff;
+}
+
+.funnelFillC {
+  background: #8fadff;
+}
+
+.funnelFillD {
+  background: #0e9f6e;
+}
+
+.funnelValue {
+  flex-shrink: 0;
+  width: 52px;
+  color: #0e1526;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.funnelSub {
+  flex-shrink: 0;
+  width: 66px;
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  text-align: right;
+}
+
+/* placement mix */
+
+.placementRow {
+  margin-bottom: 8px;
+}
+
+.placementHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.placementLabel {
+  color: #45526b;
+  font-weight: 600;
+}
+
+.placementStats {
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+}
+
+.placementTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f1f4f9;
+}
+
+.placementFill {
+  height: 100%;
+  border-radius: 4px;
+  background: #2f6bff;
+}
+
+/* where it runs */
+
+.adSetRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f5f9;
+}
+
+.adSetName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #45526b;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adSetSpend {
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+}
+
+.adSetRoas {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-weight: 700;
+}
+
+.adSetNote {
+  margin: 8px 0 0;
+  color: #98a4ba;
+}
+
+/* evidence key/value grid */
+
+.factGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 20px;
+  padding: 4px 14px;
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.factRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f5f9;
+}
+
+.factLabel {
+  color: #7a869e;
+}
+
+.factValue {
+  color: #0e1526;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-weight: 500;
+}
+
+.factValue.tonePositive {
+  color: #0e9f6e;
+}
+
+.factValue.toneNegative {
+  color: #e11d48;
+}
+
+.factValue.toneWarning {
+  color: #b45309;
+}
+
+.factValueUnavailable {
+  color: #98a4ba;
+}
+
+.provenance {
+  margin: 0;
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  text-align: center;
+}
+
+/* ── footer ──────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid #e4e8f0;
+  background: #ffffff;
+}
+
+.primaryButton,
+.secondaryButton,
+.tertiaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  border-radius: 9px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.primaryButton {
+  flex: 1;
+  border: none;
+  background: var(--tone-solid);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.secondaryButton,
+.tertiaryButton {
+  padding: 0 13px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.secondaryButton {
+  color: #0e1526;
+}
+
+.tertiaryButton {
+  color: #45526b;
+}
+
+.secondaryButton:hover,
+.tertiaryButton:hover {
+  background: #f7f9fc;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.tertiaryButton:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+/* ── tones ───────────────────────────────────────────────────── */
+
+.tonePositive {
+  --tone-bg: #e7f6f0;
+  --tone-fg: #0e9f6e;
+  --tone-border: #bfe5d6;
+  --tone-solid: #0e9f6e;
+}
+
+.toneNegative {
+  --tone-bg: #fdecf0;
+  --tone-fg: #e11d48;
+  --tone-border: #f6c6d2;
+  --tone-solid: #e11d48;
+}
+
+.toneWarning {
+  --tone-bg: #fbf3e1;
+  --tone-fg: #b45309;
+  --tone-border: #ebd6a4;
+  --tone-solid: #b45309;
+}
+
+.toneInfo {
+  --tone-bg: #eaf0ff;
+  --tone-fg: #2f6bff;
+  --tone-border: #cbd9ff;
+  --tone-solid: #2f6bff;
+}
+
+.toneAutomation {
+  --tone-bg: #f1ebfb;
+  --tone-fg: #6c41be;
+  --tone-border: #dacbf2;
+  --tone-solid: #6c41be;
+}
+
+.toneNeutral {
+  --tone-bg: #f1f4f9;
+  --tone-fg: #45526b;
+  --tone-border: #e4e8f0;
+  --tone-solid: #98a4ba;
+}
+
+/*
+ * The design's own micro-type for this drawer's chrome: mono eyebrows, the
+ * confidence pill, funnel and placement sub-labels, the ad-set row and the
+ * provenance line. Every value below is the literal size at that node in the
+ * reference (design file 3020-3117), and each labels the thing beside it
+ * rather than standing as content on its own. `lib/typography-floor.test.ts`
+ * pins this list exactly, so the block cannot widen into a general exemption.
+ * Nothing outside the markers may fall below the 12px floor.
+ */
+/* dashboard-v2-evidence-window-exact-reference-type:start */
+.cardEyebrow,
+.cardEyebrowSpaced,
+.cardEyebrowReasons,
+.cardEyebrowTight {
+  font-size: 9px;
+}
+
+.headerEyebrow,
+.funnelSub,
+.placementStats {
+  font-size: 9.5px;
+}
+
+.previewPlaceholder,
+.provenance {
+  font-size: 10px;
+}
+
+.previewKind,
+.adSetSpend,
+.adSetRoas,
+.adSetNote {
+  font-size: 10.5px;
+}
+
+.bandPill,
+.seriesNote,
+.factValue {
+  font-size: 11px;
+}
+
+.moneySub,
+.funnelLabel,
+.placementHead,
+.factLabel {
+  font-size: 11.5px;
+}
+/* dashboard-v2-evidence-window-exact-reference-type:end */

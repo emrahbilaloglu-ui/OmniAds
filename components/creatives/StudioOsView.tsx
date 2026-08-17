@@ -570,7 +570,6 @@ export function StudioOsView(props: StudioOsViewProps) {
     selectedRowIds,
     onToggleRow,
     onClearSelection,
-    loadUsageRows,
     rowsState,
     rowsError,
     briefingState,
@@ -614,12 +613,6 @@ export function StudioOsView(props: StudioOsViewProps) {
   const [optimizationFilter, setOptimizationFilter] = useState<string>("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [colorMode, setColorMode] = useState<StudioColorMode>("hybrid");
-  const [usageRow, setUsageRow] = useState<MetaCreativeRow | null>(null);
-  const [usageRows, setUsageRows] = useState<MetaCreativeRow[]>([]);
-  const [usageRowsState, setUsageRowsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [usageRowsError, setUsageRowsError] = useState<string | null>(null);
-  const usageRequestId = useRef(0);
-  const [drawerTrends, setDrawerTrends] = useState(false);
   const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -650,10 +643,6 @@ export function StudioOsView(props: StudioOsViewProps) {
     setRoleFilter("all");
     setFormatFilter("all");
     setTablePages(1);
-    setUsageRow(null);
-    setUsageRows([]);
-    setUsageRowsState("idle");
-    setUsageRowsError(null);
   }, [providerAccountId]);
 
   const cardIndex = useMemo(() => indexCreativeStudioBriefingCards(briefingCards), [briefingCards]);
@@ -900,38 +889,6 @@ export function StudioOsView(props: StudioOsViewProps) {
     setDisplayOpen(false);
     setPageSizeOpen(false);
     setGridKpiOpen(false);
-  };
-
-  const closeUsageDrawer = () => {
-    usageRequestId.current += 1;
-    setUsageRow(null);
-    setUsageRows([]);
-    setUsageRowsState("idle");
-    setUsageRowsError(null);
-  };
-
-  const openUsageDrawer = async (row: MetaCreativeRow) => {
-    const requestId = usageRequestId.current + 1;
-    usageRequestId.current = requestId;
-    setUsageRow(row);
-    setUsageRows([]);
-    setUsageRowsState("loading");
-    setUsageRowsError(null);
-    setDrawerTrends(false);
-    try {
-      const rows = await loadUsageRows(row.creativeId);
-      if (usageRequestId.current !== requestId) return;
-      const exactRows = filterStudioUsageRows(rows, row.creativeId, providerAccountId);
-      setUsageRows(exactRows);
-      setUsageRowsState("ready");
-    } catch (error) {
-      if (usageRequestId.current !== requestId) return;
-      setUsageRows([]);
-      setUsageRowsState("error");
-      setUsageRowsError(
-        error instanceof Error ? error.message : "Usage rows could not load.",
-      );
-    }
   };
 
   /* ---- menu dismissal: click-outside + Escape (FIX 1) ----
@@ -2447,27 +2404,20 @@ export function StudioOsView(props: StudioOsViewProps) {
                                   <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>
                                     {(row.format || "—").toUpperCase()}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => void openUsageDrawer(row)}
-                                    title="Open exact ad usage performance"
+                                  <span
                                     style={{
                                       display: "inline-flex",
                                       alignItems: "center",
                                       gap: 3,
-                                      border: "none",
-                                      background: "transparent",
                                       color: "var(--ink3)",
                                       fontSize: "12px",
-                                      cursor: "pointer",
-                                      padding: 0,
                                     }}
                                   >
                                     <span aria-hidden style={{ fontSize: 12 }}>
                                       ▤
                                     </span>
                                     {formatUsageCount(row)}
-                                  </button>
+                                  </span>
                                 </div>
                               </div>
                               {assessment ? (
@@ -2681,7 +2631,6 @@ export function StudioOsView(props: StudioOsViewProps) {
           </div>
         </div>
 
-        {usageRow ? renderUsageDrawer(usageRow) : null}
       </div>
     );
   }
@@ -3148,416 +3097,6 @@ export function StudioOsView(props: StudioOsViewProps) {
           ) : null}
         </div>
       </div>
-    );
-  }
-
-  /* ----------------------------------------------------- usage drawer (dynamic) */
-  function renderUsageDrawer(row: MetaCreativeRow) {
-    const card = rowCard(row);
-    const action = card?.decisionCenterRow?.buyerAction ?? null;
-    const label = card?.decisionCenterRow?.buyerLabel ?? null;
-    const decision = card?.decisionCenterRow ?? null;
-    const kind = decisionKind(action);
-    const drawerCurrency = resolveCreativeCurrency(row.currency ?? null, defaultCurrency);
-    const adsManagerUrl = buildMetaAdsManagerUrl(row);
-    const measured = row.metricsAvailability !== "unavailable";
-    // The design's funnel: every step is a served Meta action count, so a step
-    // the account does not report drops out rather than showing a zero.
-    const funnelSteps = measured
-      ? ([
-          { k: "Impressions", v: row.impressions },
-          { k: "Link clicks", v: row.linkClicks },
-          { k: "Add to cart", v: row.addToCart },
-          { k: "Checkout", v: row.initiateCheckout },
-          { k: "Purchases", v: row.purchases },
-        ] as Array<{ k: string; v: number }>).filter((step) => Number.isFinite(step.v))
-      : [];
-    const funnelTop = funnelSteps.length > 0 ? Math.max(...funnelSteps.map((step) => step.v)) : 0;
-    const evidencePairs = measured
-      ? ([
-          { k: "CPM", v: formatMoney(row.cpm, drawerCurrency, defaultCurrency) },
-          { k: "CPC · link", v: formatMoney(row.cpcLink, drawerCurrency, defaultCurrency) },
-          { k: "CTR · link", v: `${row.linkCtr.toFixed(2)}%` },
-          { k: "CPA", v: formatMoney(row.cpa, drawerCurrency, defaultCurrency) },
-          {
-            k: "Frequency",
-            v: typeof row.frequency === "number" ? row.frequency.toFixed(2) : "—",
-          },
-          { k: "Thumbstop", v: `${row.thumbstop.toFixed(2)}%` },
-        ] as Array<{ k: string; v: string }>)
-      : [];
-    const measuredRows = usageRows.filter(
-      (usage) => usage.metricsAvailability !== "unavailable",
-    );
-    const usageSpend =
-      usageRowsState === "ready" && measuredRows.length > 0
-        ? measuredRows.reduce((sum, usage) => sum + usage.spend, 0)
-        : null;
-    const usageRevenue =
-      usageRowsState === "ready" && measuredRows.length > 0
-        ? measuredRows.reduce((sum, usage) => sum + usage.purchaseValue, 0)
-        : null;
-    const usageRoas =
-      usageSpend !== null && usageSpend > 0 && usageRevenue !== null
-        ? usageRevenue / usageSpend
-        : null;
-    const usageCountLabel =
-      usageRowsState === "ready"
-        ? `${usageRows.length} in window`
-        : usageRowsState === "loading"
-          ? "Loading"
-          : "—";
-    return (
-      <>
-        <div
-          className="studio-usage-overlay"
-          style={{ position: "absolute", inset: 0, zIndex: 60, background: "var(--ovl)" }}
-          onClick={closeUsageDrawer}
-        />
-        <aside
-          aria-label="Creative ad usage performance"
-          className="studio-usage-drawer"
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 61,
-            // The design's evidence window: 560px over the canvas colour, lifted
-            // by a long left shadow rather than a border.
-            width: 560,
-            maxWidth: "94vw",
-            background: "var(--s1)",
-            boxShadow: "-28px 0 70px rgba(11,16,32,0.35)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
-          {/* The design's evidence window opens on a navy band: source eyebrow,
-              creative name, the decision chip, then the close control. */}
-          <div style={{ flex: "none", padding: "14px 18px", background: "#0B1020", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <p style={{ margin: 0, fontSize: "12px", textTransform: "uppercase", letterSpacing: ".1em", color: "#8B93A7" }}>
-                Creative evidence · Meta
-              </p>
-              <p
-                style={{ margin: "3px 0 0", fontSize: 16, fontWeight: 600, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                title={row.name}
-              >
-                {row.name}
-              </p>
-            </div>
-            {label ? (
-              <span
-                style={{
-                  display: "inline-flex",
-                  borderRadius: 7,
-                  padding: "4px 11px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  background: `var(--${kind}-bg)`,
-                  color: `var(--${kind}-fg)`,
-                }}
-              >
-                {label}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              onClick={closeUsageDrawer}
-              aria-label="Close"
-              style={{
-                flex: "none",
-                width: 28,
-                height: 28,
-                display: "grid",
-                placeItems: "center",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "transparent",
-                color: "#8B93A7",
-                fontSize: 13,
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-
-          <div style={{ flex: "none", display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 18px 0" }}>
-            <div className="studio-table-media-wrap" style={{ width: 48, height: 58, borderRadius: 6 }}>
-              <CreativeRenderSurface
-                id={row.id}
-                name={row.name}
-                preview={row.preview}
-                mode="asset"
-                size="thumb"
-                className="studio-table-media"
-                assetState={previewAssetState(row)}
-                assetFallbacks={[row.cardPreviewUrl, row.imageUrl, row.thumbnailUrl, row.cachedThumbnailUrl, row.previewUrl]}
-              />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
-                {(row.format || "—").toUpperCase()} · {row.creativeId}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Usage</div>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{usageCountLabel}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Ad-grain spend</div>
-                  <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>
-                    {usageSpend === null
-                      ? "—"
-                      : formatMoney(
-                          usageSpend,
-                          resolveCreativeCurrency(row.currency ?? null, defaultCurrency),
-                          defaultCurrency,
-                        )}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Weighted ROAS</div>
-                  <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>{formatRoas(usageRoas)}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 18px 0", display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* Decision contract — the server's own verdict line and the money
-                it is about. Nothing here is recomputed in the client. */}
-            {decision ? (
-              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
-                <p style={{ margin: 0, fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>Decision contract</p>
-                <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.55, color: "var(--ink)" }}>
-                  <b>{decision.buyerLabel}</b>
-                  {decision.oneLine ? ` — ${decision.oneLine}` : ""}
-                </p>
-                <p style={{ margin: "8px 0 0", fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>
-                  {measured
-                    ? formatMoney(row.spend, drawerCurrency, defaultCurrency)
-                    : "—"}
-                  <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--ink3)", marginLeft: 6 }}>
-                    {measured
-                      ? `spend · ${formatRoas(row.roas)} ROAS · ${dateRangeLabel}`
-                      : "no measured spend in this window"}
-                  </span>
-                </p>
-                {decision.nextStep ? (
-                  <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--ink3)" }}>
-                    Next step: {decision.nextStep}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {decision && decision.reasons.length > 0 ? (
-              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
-                <p style={{ margin: "0 0 7px", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>
-                  Engine reasoning
-                </p>
-                {decision.reasons.map((reason, index) => (
-                  <p
-                    key={`${decision.creativeId}-reason-${index}`}
-                    style={{ margin: "0 0 5px", display: "flex", gap: 8, fontSize: "12.5px", lineHeight: 1.5, color: "var(--ink2)" }}
-                  >
-                    <span style={{ marginTop: 7, flex: "none", width: 4, height: 4, borderRadius: 9999, background: `var(--${kind}-fg)` }} />
-                    <span>{reason}</span>
-                  </p>
-                ))}
-              </div>
-            ) : null}
-
-            {funnelSteps.length > 0 && funnelTop > 0 ? (
-              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "12px 14px" }}>
-                <p style={{ margin: "0 0 9px", fontSize: 12, textTransform: "uppercase", letterSpacing: ".1em", color: "var(--ink3)" }}>
-                  Click-to-purchase funnel · {dateRangeLabel}
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  {funnelSteps.map((step, index) => {
-                    const previous = index === 0 ? null : funnelSteps[index - 1].v;
-                    return (
-                      <div key={step.k} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                        <span style={{ width: 84, fontSize: "12px", fontWeight: 600, color: "var(--ink2)" }}>{step.k}</span>
-                        <span style={{ flex: 1, height: 14, borderRadius: 5, background: "var(--s4)", overflow: "hidden" }}>
-                          <span
-                            style={{
-                              display: "block",
-                              height: "100%",
-                              width: `${Math.max((step.v / funnelTop) * 100, step.v > 0 ? 2 : 0)}%`,
-                              borderRadius: 5,
-                              background: `var(--${kind}-fg)`,
-                            }}
-                          />
-                        </span>
-                        <span className="tnum" style={{ width: 62, textAlign: "right", fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>
-                          {Math.round(step.v).toLocaleString()}
-                        </span>
-                        <span className="tnum" style={{ width: 66, textAlign: "right", fontSize: "12px", color: "var(--ink3)" }}>
-                          {previous === null || previous === 0 ? "—" : `${((step.v / previous) * 100).toFixed(1)}%`}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {evidencePairs.length > 0 ? (
-              <div style={{ borderRadius: 12, background: "var(--s2)", border: "1px solid var(--b1)", padding: "4px 14px", display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
-                {evidencePairs.map((pair) => (
-                  <div
-                    key={pair.k}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: "1px solid var(--s1)", padding: "8px 0" }}
-                  >
-                    <span style={{ fontSize: "12px", color: "var(--ink3)" }}>{pair.k}</span>
-                    <span className="tnum" style={{ fontSize: 12, fontWeight: 500, color: "var(--ink2)" }}>{pair.v}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-          <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 5, padding: "12px 16px 8px 16px", flexWrap: "wrap" }}>
-            <span style={{ color: "var(--info-fg)", fontSize: 12, fontWeight: 600 }}>
-              {account?.name ?? "Account"}
-            </span>
-            <span style={{ color: "var(--ink3)", fontSize: 12 }}>›</span>
-            <span style={{ fontSize: 12, color: "var(--ink3)", fontWeight: 600 }}>Exact ad usages</span>
-            <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink3)" }}>{dateRangeLabel}</span>
-          </div>
-
-          <div style={{ flex: "none", margin: "0 0 8px", padding: "8px 10px", border: "1px solid var(--b1)", borderRadius: 8, background: "var(--s3)", fontSize: 12, color: "var(--ink3)", lineHeight: 1.45 }}>
-            Rows below are provider ad-grain performance for this account and window. The badge above remains the server&apos;s
-            creative-level decision; Studio does not copy that action onto every ad usage.
-          </div>
-
-            {usageRowsState === "loading" ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12 }}>Loading exact ad usages…</div>
-            ) : usageRowsState === "error" ? (
-              <div style={{ margin: "4px 16px 12px", padding: 12, border: "1px solid var(--danger-bd)", borderRadius: 8, background: "var(--danger-bg)", color: "var(--danger-fg)", fontSize: 12 }}>
-                <strong style={{ display: "block", marginBottom: 3 }}>Usage performance unavailable</strong>
-                <span>{usageRowsError ?? "The account-scoped usage query failed."}</span>
-                <button type="button" onClick={() => void openUsageDrawer(row)} style={{ display: "block", marginTop: 8, border: "1px solid var(--danger-bd)", borderRadius: 6, background: "var(--s2)", color: "var(--danger-fg)", padding: "4px 8px", fontWeight: 600 }}>
-                  Retry
-                </button>
-              </div>
-            ) : usageRows.length === 0 ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12 }}>
-                No exact ad usage has performance in this window. No representative row is substituted.
-              </div>
-            ) : (
-              usageRows.map((usage) => (
-                <div className="studio-usage-row" key={usage.realAdId ?? usage.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--b1)" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                      <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>
-                        {usage.campaignName ?? "Campaign unavailable"}
-                      </strong>
-                      {usage.effectiveStatus ? (
-                        <span style={{ flex: "none", border: "1px solid var(--b1)", borderRadius: 5, padding: "1px 5px", color: "var(--ink3)", background: "var(--s3)", fontSize: 12, fontWeight: 600 }}>
-                          {usage.effectiveStatus}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink3)", fontSize: 12, marginTop: 2 }}>
-                      {usage.adSetName ?? "Ad set unavailable"} › {usage.name}
-                    </div>
-                    <div className="mono" style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--ink3)", fontSize: 12, marginTop: 3 }}>
-                      <span>Ad {usage.realAdId ?? usage.id}</span>
-                      {usage.optimizationGoal ? <span>{humanizeToken(usage.optimizationGoal)}</span> : null}
-                      {usage.bidStrategy ? <span>{humanizeToken(usage.bidStrategy)}</span> : null}
-                    </div>
-                  </div>
-                  <div className="studio-usage-metrics" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(66px,auto))", gap: 14, flex: "none", textAlign: "right" }}>
-                    {["spend", "roas", "purchases"].map((metricId) => (
-                      <div key={metricId}>
-                        <div style={{ fontSize: 12, color: "var(--ink3)", textTransform: "uppercase" }}>{metricLabel(metricId)}</div>
-                        <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-
-            <div style={{ padding: "12px 16px" }}>
-              <button
-                type="button"
-                onClick={() => setDrawerTrends((prev) => !prev)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  textAlign: "left",
-                  border: "1px solid var(--b1)",
-                  borderRadius: 8,
-                  background: "var(--s2)",
-                  padding: "9px 11px",
-                  color: "var(--ink2)",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                }}
-              >
-                <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>{drawerTrends ? "▾" : "▸"}</span>
-                Trends (7 / 28 / 90d)
-                <span style={{ flex: 1 }} />
-                <span style={{ fontSize: "12px", color: "var(--ink3)", fontWeight: 500 }}>collapsed by default</span>
-              </button>
-              {drawerTrends ? (
-                <div style={{ marginTop: 8, padding: 11, border: "1px solid var(--b1)", borderRadius: 8, fontSize: 12, color: "var(--ink3)", lineHeight: 1.5 }}>
-                  Exact per-ad 7 / 28 / 90-day trend series are not returned in one response. No interpolated trend is shown.
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {/* The design closes the window on an action bar: the decision's own
-              primary action, the Studio comparison, and the provider link. */}
-          <div style={{ flex: "none", display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--b1)", background: "var(--s2)" }}>
-            <Link
-              href={studioHref("/platforms/meta/decisions")}
-              onClick={closeUsageDrawer}
-              style={{
-                flex: 1,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: 38,
-                borderRadius: 9,
-                background: label ? `var(--${kind}-fg)` : "var(--ink2)",
-                color: "#ffffff",
-                fontSize: 13,
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              {label ? `Take to Decisions · ${label}` : "Take to Decisions"}
-            </Link>
-            <Link
-              href={studioHref("/platforms/meta/creatives", "winners")}
-              onClick={closeUsageDrawer}
-              style={{ display: "inline-flex", alignItems: "center", height: 38, padding: "0 13px", borderRadius: 9, border: "1px solid var(--b1)", background: "var(--s2)", fontSize: "12.5px", fontWeight: 600, color: "var(--ink)", textDecoration: "none" }}
-            >
-              Compare in Studio
-            </Link>
-            {adsManagerUrl ? (
-              <a
-                href={adsManagerUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{ display: "inline-flex", alignItems: "center", height: 38, padding: "0 13px", borderRadius: 9, border: "1px solid var(--b1)", background: "var(--s2)", fontSize: "12.5px", fontWeight: 600, color: "var(--ink2)", textDecoration: "none" }}
-              >
-                Ads Manager ↗
-              </a>
-            ) : null}
-          </div>
-        </aside>
-      </>
     );
   }
 

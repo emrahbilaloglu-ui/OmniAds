@@ -4667,6 +4667,59 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (business_id, decision_type)
         )`.catch(() => {}),
+        // ── Confirmation queue ────────────────────────────────────────────────
+        //
+        // A proposal is a PROJECTION of one persisted engine decision
+        // (`meta_decision_snapshots_daily`), never an independent judgement:
+        // every descriptive column below is copied from the decision row that
+        // produced it, and the lifecycle columns record only what an operator
+        // did about it. The unique index is the projection's idempotency key —
+        // one proposal per decision per snapshot day — so re-running a snapshot
+        // refreshes a still-pending row instead of duplicating the queue.
+        //
+        // `proposed_action` and `scope_type` carry the full allowlist the
+        // dispatch contract knows about even though the projection emits only
+        // the subset that has a real guarded endpoint today; widening a CHECK
+        // later would mean rewriting a column, which this file does not do.
+        sql`CREATE TABLE IF NOT EXISTS meta_automation_proposals (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id TEXT NOT NULL,
+          decision_key TEXT NOT NULL,
+          scope_type TEXT NOT NULL
+            CHECK (scope_type IN ('campaign', 'adset', 'ad')),
+          scope_id TEXT NOT NULL,
+          rec_id TEXT NOT NULL,
+          rec_type TEXT NOT NULL,
+          snapshot_date DATE NOT NULL,
+          engine_version TEXT NOT NULL,
+          decision_label TEXT NOT NULL,
+          proposed_action TEXT NOT NULL
+            CHECK (proposed_action IN ('pause', 'resume', 'bid', 'duplicate')),
+          action_label TEXT NOT NULL,
+          primary_caption TEXT NOT NULL,
+          entity_label TEXT,
+          reason TEXT NOT NULL,
+          evidence_label TEXT,
+          evidence_ref JSONB NOT NULL DEFAULT '{}'::jsonb,
+          expires_at TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'approved', 'failed', 'modified', 'dismissed', 'expired')),
+          decided_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          decided_at TIMESTAMPTZ,
+          decision_note TEXT,
+          receipt_json JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_projection
+          ON meta_automation_proposals (business_id, provider_account_id, decision_key, rec_type, snapshot_date)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_proposals_queue
+          ON meta_automation_proposals (business_id, provider_account_id, status, expires_at DESC)`.catch(
+          () => {},
+        ),
         sql`DO $$
           DECLARE
             action_constraint_name TEXT;

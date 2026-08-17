@@ -1380,7 +1380,7 @@ read-contract gaps. Neither status is a UI workaround.
 | LAUNCHPAD-AUTOMATION-27 | CLOSED | URL lineage identifiers are never authority. No server-owned eligibility payload exists today, so Rebuild/Duplicate stay disabled with `—` titles/descriptions; Manual is the only available start. |
 | LAUNCHPAD-AUTOMATION-28 | CLOSED | Workflow status is not relabelled as validation. Draft mode binds only `reuse_creative` → Duplicate and `rebuild_creative` → Rebuild; new/unknown modes and every untyped validation verdict render `—`. |
 | LAUNCHPAD-AUTOMATION-29 | CLOSED | Only terminal intents with a real campaign id/account link render. Time resolves `receipt.completedAt` → `intent.completedAt` → `errorReceipt.recordedAt`, and absent typed actor evidence renders `by —`. |
-| LAUNCHPAD-AUTOMATION-30 | BLOCKED · B1 | No account-scoped proposal/expiry/evidence contract or approve/modify/dismiss server boundary can populate the confirmation queue; its exact shell renders `—`. |
+| LAUNCHPAD-AUTOMATION-30 | CLOSED | `meta_automation_proposals` projects each snapshot's `cut` decisions into an account-scoped queue with expiry, evidence and a receipt; `/api/meta/automation/proposals` approves through the existing `handleMetaEntityPauseAction` guarded path and modifies/dismisses without one. |
 | LAUNCHPAD-AUTOMATION-31 | BLOCKED · B1 | No typed deterministic-rule definition, fired-count or toggle contract can populate Rules; the five-column shell and disabled `+ New rule` remain honest. |
 | LAUNCHPAD-AUTOMATION-32 | BLOCKED · backend | Current control data lacks min-ROAS, quiet-hours and per-action clean-approval progress/threshold fields. Promotion count renders only when `readCompleteness.promotionRecords === complete`; otherwise it is `—`. |
 | LAUNCHPAD-AUTOMATION-33 | BLOCKED · backend | Activity records lack typed actor, entity and result/receipt tuple fields; real time/action render while those three source columns remain `—`. |
@@ -1390,7 +1390,7 @@ read-contract gaps. Neither status is a UI workaround.
 | Phase | Contract | Required before populated parity | Current safe behavior |
 | ----- | -------- | -------------------------------- | --------------------- |
 | B1 | Launchpad draft validation | Persisted verdict, blocker count and validation timestamp tied to a draft revision. | Validation is `—`; workflow `failed` is not treated as a verdict. |
-| B1 | Automation confirmation queue | Account-scoped proposal id/action/entity/reason/evidence/expiry plus guarded approve, modify and dismiss receipts. | Fixed queue geometry renders `—`; there is no mutation or fake success. |
+| ~~B1~~ DELIVERED | Automation confirmation queue | Account-scoped proposal id/action/entity/reason/evidence/expiry plus guarded approve, modify and dismiss receipts. | `meta_automation_proposals` + `/api/meta/automation/proposals`. Approve executes through the existing `handleMetaEntityPauseAction` guarded path; an unproven read still renders `—`, and an empty proven queue renders `0`. |
 | B1 | Automation rules | Typed definitions, trigger/then/mode, 28-day fired count, locked state and guarded toggle/new-rule mutations. | Fixed five-column geometry renders `—`; New rule is disabled. |
 | Backend | Guardrails, promotion completeness and autonomy progress | Min-ROAS, quiet-hours and per-action clean-approval numerator/threshold/unlock policy, with explicit collection completeness. | Only persisted supported fields/modes render; promotion count requires a complete read and no prototype progress is inferred. |
 | Backend | Automation activity tuple | Actor, action, entity and typed result/receipt fields with account/business provenance. | Real timestamp/message render; unsupported actor/entity/result cells are `—`. |
@@ -1399,7 +1399,14 @@ Executable evidence: `launchpad-exact.test.tsx`,
 `launch-intent-receipts.test.tsx`, `launchpad-authorized-scope.test.tsx`,
 `launchpad-mobile-contract.test.ts`, the Launchpad and Automation `/c` route
 tests, both `/app` dispatcher tests, `automation/page.test.tsx`, and the
-marker-locked `typography-floor.test.ts`.
+marker-locked `typography-floor.test.ts`. The confirmation queue adds
+`lib/meta/automation-proposals.test.ts` (state machine and expiry),
+`lib/meta/automation-proposal-execution.test.ts` (the reuse of the guarded
+handler, and a source assertion that no second write path is imported),
+`app/api/meta/automation/proposals/route.test.ts` (authorization boundary,
+kill switch, Tier‑1 proof, confirmation token, dry-run guardrail),
+`automation-proposals-exact-adapter.test.ts`, and three
+`lib/meta/snapshot.test.ts` cases pinning the per-snapshot re-projection.
 
 ### LAUNCHPAD-AUTOMATION-01 · HIGH · EXTRA — Launchpad renders a whole "Templates" library section the design never defines
 
@@ -1555,8 +1562,10 @@ marker-locked `typography-floor.test.ts`.
 ### LAUNCHPAD-AUTOMATION-30 · HIGH · MISSING — No production confirmation-queue proposal/action contract
 
 - **Design:** Markup lines 1108–1130 and model lines 4382–4385 require proposal action, entity, reason, evidence, expiry, and Approve/Modify/Dismiss behavior.
-- **Backend blocker (B1):** `MetaAutomationControlPlane` exposes no account-scoped proposal collection and no guarded approve/modify/dismiss mutation/receipt contract. Mapping prototype approvals would fabricate actionable state.
-- **Current safe state:** The exact header, count/hint slots, body geometry and fixed footnote render with `—`; no action controls or provider mutations are exposed. Populated parity remains blocked on B1.
+- **Backend blocker (B1), now resolved:** `MetaAutomationControlPlane` exposed no account-scoped proposal collection and no guarded approve/modify/dismiss mutation/receipt contract. Mapping prototype approvals would fabricate actionable state.
+- **Resolution:** A proposal is a persisted **projection of an existing engine decision**, not a new record kind. `meta_automation_proposals` (additive migration) carries action, target entity, reason, evidence reference, expiry, status and the receipt of its outcome, keyed uniquely by `(business_id, provider_account_id, decision_key, rec_type, snapshot_date)`. `projectMetaAutomationProposals` runs inside `runMetaSnapshotForBusiness` immediately after the decision rows land, which is literally what "expired proposals re-evaluate on the next snapshot" means: the sweep marks aged rows `expired` (never deletes them) and the insert re-raises whatever the new snapshot still says. Only decisions that map to a real guarded endpoint are projected — `cut` → `pause` at campaign and ad-set grain — because a row whose action has no endpoint could only ever fail; `scale` is excluded for exactly that reason (this repo has no guarded budget-write endpoint at any grain), `tune`/bid because the dispatch contract declares the bid amount an operator field no decision proves, and ad grain because its write path is the decision-origin lineage contract. `/api/meta/automation/proposals` copies its sibling `/api/meta/automation` exactly: `guest` GET, `collaborator` POST, the same assigned-account resolution and reviewer read-only guard, one POST with an action discriminator. Approve adds the kill switch (`rejectIfMetaWritesBlocked`), a persisted Tier‑1 supervised readiness proof, the ceremony's own `confirmationFor` level with the `explicit_operator_confirmation` token, and the persisted `dryRunOnly` guardrail — then executes by **calling `handleMetaEntityPauseAction`**, the existing guarded handler, with the operator's own session forwarded, so the manual-operator origin, in-flight lock, fresh provider preflight and both halves of the action log all run on the real request. No second write path exists. Every outcome writes a `meta_automation_activity_ledger` row and a receipt on the proposal.
+- **Still `—` by design:** the evidence chip when the decision carries no `expected_impact`, and the entity name when the warehouse dimension has none. An unproven queue read renders the count as `—` rather than `0`.
+- **Divergence stated honestly:** the design shows a `Modify` control but never defines what it opens, and a status write declares no operator-editable field. Modify therefore records the operator's written alternative, takes the row out of the executable queue and reaches no provider; its note field appears only on operator intent, so the canonical row geometry is untouched until then.
 
 ### LAUNCHPAD-AUTOMATION-31 · HIGH · MISSING — No production deterministic-rule definition, count or mutation contract
 

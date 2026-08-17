@@ -60,7 +60,20 @@ const MONTHLY: InsightsSeoAdapterInput["monthly"] = {
     summary: "Organic growth is intact but concentrated.",
     rootCauses: [{ title: "Template titles", detail: "CTR capped at 1.9%." }],
     priorities: [
-      { title: "Fix canonical", detail: "5 PDPs excluded.", impact: "high", effort: "low", owner: "Developer" },
+      {
+        title: "Fix canonical",
+        detail: "5 PDPs excluded.",
+        impact: "medium",
+        effort: "low",
+        owner: "Developer",
+      },
+      {
+        title: "Internal links from the two top guides to money pages",
+        detail: "Guides earn links but pass no authority on.",
+        impact: "high",
+        effort: "low",
+        owner: "SEO",
+      },
     ],
     actionPlan: [{ window: "week 1", focus: "Indexation", tasks: ["Fix noindex on 5 PDPs"] }],
     structured: { executiveSummary: { topFindings: ["Top 5 queries carry 61% of clicks."] } },
@@ -86,6 +99,7 @@ const FINDINGS: InsightsSeoAdapterInput["findings"] = {
 
 function renderTab(activeTab: SeoTabId, overrides: Partial<InsightsSeoAdapterInput> = {}) {
   const onSelectTab = vi.fn();
+  const onGenerateMonthly = vi.fn();
   const model = buildInsightsSeoExactModel({
     activeTab,
     overview: OVERVIEW,
@@ -93,8 +107,14 @@ function renderTab(activeTab: SeoTabId, overrides: Partial<InsightsSeoAdapterInp
     findings: FINDINGS,
     ...overrides,
   });
-  const utils = render(<InsightsSeoExact model={model} onSelectTab={onSelectTab} />);
-  return { ...utils, onSelectTab };
+  const utils = render(
+    <InsightsSeoExact
+      model={model}
+      onSelectTab={onSelectTab}
+      onGenerateMonthly={onGenerateMonthly}
+    />,
+  );
+  return { ...utils, onSelectTab, onGenerateMonthly };
 }
 
 function headers(table: HTMLElement): string[] {
@@ -149,11 +169,32 @@ describe("InsightsSeoExact — Monthly AI", () => {
     expect(screen.getByText("One analysis per month · next window Sep 1")).toBeTruthy();
   });
 
-  it("draws no generate button — the design's cadence chip is inert", () => {
+  it("draws no generate button in the state the design draws", () => {
+    // An analysis exists, so the head is the design's inert cadence chip and
+    // the only buttons on screen are the six sub-tabs.
     const { container } = renderTab("ai");
     expect(container.querySelectorAll("button[type='button']").length).toBe(
       within(screen.getByRole("tablist")).getAllByRole("tab").length,
     );
+  });
+
+  it("offers the generator in the pre-generation state the design never draws", () => {
+    const { onGenerateMonthly } = renderTab("ai", {
+      monthly: { ...MONTHLY, status: "not_generated", canGenerate: true, analysis: null },
+    });
+    // The cadence chip's slot carries the control instead; nothing else moves.
+    expect(screen.queryByText("One analysis per month · next window Sep 1")).toBeNull();
+    const generate = screen.getByRole("button", { name: "Generate this month’s analysis" });
+    fireEvent.click(generate);
+    expect(onGenerateMonthly).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the design's chip when the server refuses a run", () => {
+    renderTab("ai", {
+      monthly: { ...MONTHLY, status: "not_generated", canGenerate: false, analysis: null },
+    });
+    expect(screen.getByText("One analysis per month · next window Sep 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /analysis$/ })).toBeNull();
   });
 });
 
@@ -195,8 +236,13 @@ describe("InsightsSeoExact — Actions", () => {
   it("renders tone groups, not an impact/effort matrix or a timeline", () => {
     const { container } = renderTab("actions");
     expect(screen.getByText("Quick wins")).toBeTruthy();
-    expect(screen.getByText("high impact")).toBeTruthy();
+    expect(screen.getByText("medium impact")).toBeTruthy();
     expect(screen.getByText("· low effort · Developer")).toBeTruthy();
+    // The design's own low-effort Strategic item stays in Strategic.
+    const strategic = screen.getByText("Strategic").closest("article") as HTMLElement;
+    expect(strategic.textContent).toContain(
+      "Internal links from the two top guides to money pages",
+    );
     expect(container.querySelectorAll("table").length).toBe(0);
     expect(
       screen.getByText(

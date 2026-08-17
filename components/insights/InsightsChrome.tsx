@@ -43,8 +43,9 @@ export function InsightsChrome({
   const scopeId = businessId ?? selectedBusinessId ?? null;
 
   // Without the bootstrap the store holds defaults, which would read as
-  // "not connected" for every business.
-  useBusinessIntegrationsBootstrap(scopeId);
+  // "not connected" for every business — a claim we have not earned until the
+  // manifest has actually been read.
+  const { bootstrapStatus } = useBusinessIntegrationsBootstrap(scopeId);
 
   const domains = useIntegrationsStore((state) =>
     scopeId ? state.domainsByBusinessId[scopeId] : undefined,
@@ -58,6 +59,9 @@ export function InsightsChrome({
       "search_console",
       domains?.search_console ?? defaults.search_console,
     ),
+    // With no business in scope there is no manifest to read; the unknown
+    // state only applies while a scope's own bootstrap is still outstanding.
+    authorityRead: scopeId === null || bootstrapStatus === "ready",
   });
 
   const [dateRange, setDateRange] = usePersistentDateRange();

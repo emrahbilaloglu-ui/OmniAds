@@ -23,9 +23,17 @@ function classNames(...values: Array<string | false | null | undefined>) {
 export function InsightsSeoExact({
   model,
   onSelectTab,
+  onGenerateMonthly,
+  isGeneratingMonthly = false,
 }: {
   model: InsightsSeoExactModel;
   onSelectTab: (tab: SeoTabId) => void;
+  /**
+   * Runs the monthly analysis. Only ever reachable from the state the design
+   * does not draw — see `SeoMonthlyGenerateModel`.
+   */
+  onGenerateMonthly?: () => void;
+  isGeneratingMonthly?: boolean;
 }) {
   return (
     <div className={styles.root}>
@@ -60,7 +68,13 @@ export function InsightsSeoExact({
         ))}
       </div>
 
-      {model.activeTab === "ai" ? <MonthlyBody model={model} /> : null}
+      {model.activeTab === "ai" ? (
+        <MonthlyBody
+          model={model}
+          onGenerate={onGenerateMonthly}
+          isGenerating={isGeneratingMonthly}
+        />
+      ) : null}
       {model.activeTab === "traffic" ? <TrafficBody model={model} /> : null}
       {model.activeTab === "queries" ? <QueriesBody model={model} /> : null}
       {model.activeTab === "pages" ? <PagesBody model={model} /> : null}
@@ -72,8 +86,17 @@ export function InsightsSeoExact({
 
 /* ── Monthly AI (L1969-2009) ──────────────────────────────────────── */
 
-function MonthlyBody({ model }: { model: InsightsSeoExactModel }) {
+function MonthlyBody({
+  model,
+  onGenerate,
+  isGenerating,
+}: {
+  model: InsightsSeoExactModel;
+  onGenerate?: () => void;
+  isGenerating?: boolean;
+}) {
   const { monthly } = model;
+  const generate = monthly.head.generate;
   return (
     <article className={styles.monthlyCard}>
       <div className={styles.monthlyHead}>
@@ -86,7 +109,18 @@ function MonthlyBody({ model }: { model: InsightsSeoExactModel }) {
           </div>
           <p className={styles.monthlyMeta}>{monthly.head.meta}</p>
         </div>
-        <span className={styles.monthlyCadence}>{monthly.head.cadence}</span>
+        {generate && onGenerate ? (
+          <button
+            type="button"
+            className={classNames(styles.monthlyCadence, styles.monthlyGenerate)}
+            disabled={isGenerating}
+            onClick={onGenerate}
+          >
+            {isGenerating ? "Generating…" : generate.label}
+          </button>
+        ) : (
+          <span className={styles.monthlyCadence}>{monthly.head.cadence}</span>
+        )}
       </div>
 
       <div className={styles.readsRow}>

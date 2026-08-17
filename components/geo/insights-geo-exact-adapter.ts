@@ -545,9 +545,22 @@ function scoreBars(breakdown: Record<string, number> | null | undefined): GeoSco
   );
 }
 
+/**
+ * "All queries" and "AI intent" restate the two facts the Overview tab's intent
+ * band already prints ("N of M ranking queries have AI / answer intent"), and
+ * both are served by `/api/geo/overview` as `totalQueryCount` and
+ * `aiStyleQueryCount`. They are read from there so the band and the pills
+ * cannot show different numbers for the same fact on the same surface.
+ *
+ * `High impressions`, `Weak CTR` and `Rising ↑` have no such served count, so
+ * they are counted over the scored rows `/api/geo/queries` returns — the same
+ * 500-row Search Console population, same window, that `totalQueryCount` is
+ * measured from.
+ */
 export function buildGeoFilters(
   queries: GeoQueryInput[] | null | undefined,
   active: GeoQueryFilterId,
+  overview?: GeoOverviewInput | null,
 ): GeoQueryFilterModel[] {
   const counts = new Map<GeoQueryFilterId, number>();
   for (const query of queries ?? []) {
@@ -555,6 +568,11 @@ export function buildGeoFilters(
       counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
   }
+  const total = num(overview?.kpis?.totalQueryCount);
+  const aiStyle = num(overview?.kpis?.aiStyleQueryCount);
+  if (total !== null) counts.set("all", Math.round(total));
+  if (aiStyle !== null) counts.set("ai", Math.round(aiStyle));
+
   return GEO_QUERY_FILTERS.map((id) => ({
     id,
     label: GEO_FILTER_LABEL[id],
@@ -563,12 +581,26 @@ export function buildGeoFilters(
   }));
 }
 
+/**
+ * The design's own table renders 8 of its 220 queries (script L4064-4073), and
+ * its `GQ` seed is ordered by GEO score descending (78, 74, 69, 66, 61, 52, 41,
+ * 38) — which is what the footnote at L2248 claims: "table shows the top rows
+ * by GEO score".
+ */
+export const GEO_QUERY_TABLE_ROWS = 8;
+
 export function buildGeoQueries(
   queries: GeoQueryInput[] | null | undefined,
   filter: GeoQueryFilterId,
 ): GeoQueryRowModel[] {
   return (queries ?? [])
     .filter((query) => geoQueryFilterTags(query).includes(filter))
+    // The route's own sort leads with breakout/rising AI-style rows, so the
+    // table is re-sorted here to be the "top rows by GEO score" the footnote
+    // promises. `sort` is stable, so ties keep the route's order.
+    .slice()
+    .sort((a, b) => (num(b?.geoScore) ?? -Infinity) - (num(a?.geoScore) ?? -Infinity))
+    .slice(0, GEO_QUERY_TABLE_ROWS)
     .map((query, index) => {
       const position = num(query?.position);
       const intentLabel = text(query?.classification?.intentLabel);
@@ -650,10 +682,12 @@ export function buildGeoTopics(topics: GeoTopicInput[] | null | undefined): GeoT
         impressions === null || maxImpressions <= 0
           ? "0%"
           : `${((impressions / maxImpressions) * 100).toFixed(0)}%`,
+      // L2274-2276 renders every entry of `t.chips`; the design's own fourth
+      // topic carries 2 (script L4082) and `hint-placeholder-count="3"` is a
+      // preview hint, not a content cap.
       chips: (topic?.queries ?? [])
         .map((query) => text(query))
-        .filter((query): query is string => query !== null)
-        .slice(0, 3),
+        .filter((query): query is string => query !== null),
       recommendationTitle: text(recommendation?.title) ?? MISSING_VALUE,
       recommendationImpact: text(recommendation?.impact) ?? MISSING_VALUE,
       recommendationEffort: text(recommendation?.effort)
@@ -755,9 +789,15 @@ export function buildInsightsGeoExactModel(
     callouts: buildGeoCallouts(input.overview),
     sources: buildGeoSources(input.sources),
     pages: buildGeoPages(input.pages),
-    filters: buildGeoFilters(input.queries, input.queryFilter),
+    filters: buildGeoFilters(input.queries, input.queryFilter, input.overview),
     queries: buildGeoQueries(input.queries, input.queryFilter),
-    queryDatasetSize: String((input.queries ?? []).length),
+    // The footnote's "full N-query dataset" is the same served ranking-query
+    // count the intent band and the "All queries" pill print, never the number
+    // of rows the table is showing.
+    queryDatasetSize:
+      num(input.overview?.kpis?.totalQueryCount) === null
+        ? MISSING_VALUE
+        : formatCount(input.overview!.kpis!.totalQueryCount),
     topics: buildGeoTopics(input.topics),
     plays: buildGeoPlays(input.opportunities),
     methodology: buildGeoMethodology(),

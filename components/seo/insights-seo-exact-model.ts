@@ -49,6 +49,27 @@ export interface SeoMonthlyHeadModel {
   meta: string;
   /** The disabled right-hand chip (L1979). */
   cadence: string;
+  /**
+   * Replaces the cadence chip when — and only when — no analysis exists for
+   * this window and the server allows a run. `null` in the state the design
+   * draws.
+   */
+  generate: SeoMonthlyGenerateModel | null;
+}
+
+/**
+ * The pre-generation control.
+ *
+ * The design draws only the state *after* a monthly analysis exists, so it
+ * models no generate affordance at all — its cadence chip (L1979) is
+ * `cursor:not-allowed` and is therefore not the trigger. This control takes
+ * that chip's slot and geometry and is present **only** in a state the design
+ * never draws: the analysis for the current window has not been produced (or
+ * failed) and the server says a run is allowed. Whenever an analysis exists,
+ * this is `null` and the design's own disabled cadence chip renders unchanged.
+ */
+export interface SeoMonthlyGenerateModel {
+  label: string;
 }
 
 export interface SeoNumberedItemModel {

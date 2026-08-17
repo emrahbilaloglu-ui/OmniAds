@@ -257,8 +257,10 @@ describe("InsightsGeoExact — Query Intelligence", () => {
       .getAllByRole("button")
       .filter((button) => /AI intent|All queries|High impressions|Weak CTR|Rising/.test(button.textContent ?? ""));
     expect(chips.map((chip) => chip.textContent)).toEqual([
-      "AI intent 1",
-      "All queries 1",
+      // "AI intent" and "All queries" restate the intent band's own served
+      // counts; the other three are counted over the scored rows.
+      "AI intent 41",
+      "All queries 220",
       "High impressions 1",
       "Weak CTR 0",
       "Rising ↑ 1",
@@ -269,7 +271,7 @@ describe("InsightsGeoExact — Query Intelligence", () => {
     const table = screen.getByRole("table");
     const card = table.closest("article") as HTMLElement;
     expect(card.textContent).toContain("✦ marks high answer-engine potential");
-    expect(card.textContent).toContain("counts reflect the full 1-query dataset");
+    expect(card.textContent).toContain("counts reflect the full 220-query dataset");
   });
 
   it("combines intent and format into one badge and expands the score breakdown on click", () => {

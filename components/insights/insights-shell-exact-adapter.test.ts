@@ -79,6 +79,27 @@ describe("insights shell adapter", () => {
     ).toMatchObject({ stateLabel: "action required", tone: "warning" });
   });
 
+  it("says the status is unread rather than claiming the source is down", () => {
+    // WP-21: before the integration manifest is read, the store holds defaults
+    // that would derive as "disconnected" for every provider. Unknown and down
+    // are different facts and must read differently.
+    expect(buildInsightsSourceChip("ga4", OFF, false)).toMatchObject({
+      stateLabel: "reading status",
+      tone: "neutral",
+    });
+    expect(buildInsightsSourceChip("ga4", CONNECTED, false).stateLabel).toBe(
+      "reading status",
+    );
+    expect(
+      buildInsightsShellExactModel({
+        pathname: "/insights/analytics",
+        ga4: CONNECTED,
+        searchConsole: OFF,
+        authorityRead: false,
+      }).sources.map((source) => source.stateLabel),
+    ).toEqual(["reading status", "reading status"]);
+  });
+
   it("builds the head the design defines and nothing more", () => {
     const model = buildInsightsShellExactModel({
       pathname: "/insights/analytics",

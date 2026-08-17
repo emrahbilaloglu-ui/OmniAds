@@ -116,10 +116,25 @@ const SOURCE_ICON: Record<InsightsSourceProvider, string> = {
   search_console: "/platform-logos/searchconsole.svg",
 };
 
+/**
+ * WP-21: "not connected" is a claim about the provider, and it may only be made
+ * once the integration authority has actually been read. Before that the state
+ * is unknown, and the chip says so rather than reporting the source as down.
+ */
 export function buildInsightsSourceChip(
   provider: InsightsSourceProvider,
   state: InsightsProviderState,
+  authorityRead = true,
 ): InsightsSourceChipModel {
+  if (!authorityRead) {
+    return {
+      id: provider,
+      label: SOURCE_LABEL[provider],
+      iconSrc: SOURCE_ICON[provider],
+      stateLabel: "reading status",
+      tone: "neutral",
+    };
+  }
   const tone: InsightsSourceChipModel["tone"] = state.isConnected
     ? "positive"
     : state.status === "action_required" || state.status === "degraded"
@@ -147,6 +162,11 @@ export interface InsightsShellAdapterInput {
   pathname: string;
   ga4: InsightsProviderState;
   searchConsole: InsightsProviderState;
+  /**
+   * Whether the integration manifest for this business has been read yet.
+   * Defaults to `true` so a caller that never bootstraps is unchanged.
+   */
+  authorityRead?: boolean;
 }
 
 export function buildInsightsShellExactModel(
@@ -158,8 +178,12 @@ export function buildInsightsShellExactModel(
     title: "Insights",
     tabs: buildInsightsSectionTabs(input.pathname),
     sources: [
-      buildInsightsSourceChip("ga4", input.ga4),
-      buildInsightsSourceChip("search_console", input.searchConsole),
+      buildInsightsSourceChip("ga4", input.ga4, input.authorityRead ?? true),
+      buildInsightsSourceChip(
+        "search_console",
+        input.searchConsole,
+        input.authorityRead ?? true,
+      ),
     ],
   };
 }

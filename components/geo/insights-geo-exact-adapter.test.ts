@@ -19,6 +19,7 @@ import {
   momentumCaption,
   scoreTone,
   GEO_QUERY_FILTERS,
+  GEO_QUERY_TABLE_ROWS,
   GEO_TABS,
   type GeoOverviewInput,
   type GeoQueryInput,
@@ -274,6 +275,25 @@ describe("buildGeoQueries", () => {
     expect(filters[0]!.active).toBe(true);
   });
 
+  it("makes the All queries and AI intent pills agree with the intent band", () => {
+    // Both restate the same served fact, so both must print the same number as
+    // "N of M ranking queries have AI / answer intent" on the Overview tab.
+    const band = buildGeoIntentBand(OVERVIEW);
+    const filters = buildGeoFilters(QUERIES, "ai", OVERVIEW);
+    const count = (label: string) =>
+      filters.find((filter) => filter.label === label)!.count;
+    expect(count("All queries")).toBe(band.totalQueries);
+    expect(count("AI intent")).toBe(band.aiQueries);
+    expect([count("All queries"), count("AI intent")]).toEqual(["220", "41"]);
+    // The three filters with no served count still read the scored rows.
+    expect(count("High impressions")).toBe("2");
+  });
+
+  it("falls back to the served rows when the overview has no counts", () => {
+    const filters = buildGeoFilters(QUERIES, "ai", { kpis: null });
+    expect(filters.map((filter) => filter.count)).toEqual(["1", "2", "2", "1", "1"]);
+  });
+
   it("combines intent and format into one badge and stars answer-shaped queries", () => {
     const [row] = buildGeoQueries(QUERIES, "ai");
     expect(row).toMatchObject({
@@ -295,6 +315,33 @@ describe("buildGeoQueries", () => {
       { key: "positionQuality", label: "Position", value: "20", width: "80%" },
       { key: "ctrGap", label: "CTR gap", value: "14", width: "56%" },
       { key: "intent", label: "Intent", value: "18", width: "90%" },
+    ]);
+  });
+
+  it("shows the top rows by GEO score, as the footnote says — bounded and re-sorted", () => {
+    // The route leads with breakout/rising AI-style rows, which is not score
+    // order; a table whose footnote promises "the top rows by GEO score" has to
+    // sort by score itself.
+    const dataset: GeoQueryInput[] = Array.from({ length: 12 }, (_, index) => ({
+      query: `q${index}`,
+      impressions: 5_000,
+      ctr: 0.05,
+      position: 4,
+      geoScore: index, // ascending, i.e. the worst row arrives first
+      momentum: { status: "stable", growthRate: 0 },
+    }));
+
+    const rows = buildGeoQueries(dataset, "all");
+    expect(rows).toHaveLength(GEO_QUERY_TABLE_ROWS);
+    expect(rows.map((row) => row.score)).toEqual([
+      "11",
+      "10",
+      "9",
+      "8",
+      "7",
+      "6",
+      "5",
+      "4",
     ]);
   });
 });
@@ -345,8 +392,16 @@ describe("buildGeoTopics", () => {
       authority: "strong authority",
       recommendationEffort: "low effort",
     });
-    // The design caps the query chips at three.
-    expect(topics[0]!.chips).toHaveLength(3);
+    // L2274-2276 renders every chip the cluster carries; the design's own
+    // fourth topic has two (script L4082), so `hint-placeholder-count="3"` is
+    // a preview hint, not a cap.
+    expect(topics[0]!.chips).toEqual([
+      "how to clean a canvas tote",
+      "canvas tote washing",
+      "tote stain removal",
+      "extra",
+    ]);
+    expect(topics[1]!.chips).toEqual(["what is recycled sailcloth"]);
     expect(topics[1]).toMatchObject({
       barWidth: "53%",
       gap: "↑ High gap",
@@ -412,8 +467,20 @@ describe("buildInsightsGeoExactModel", () => {
       queries: QUERIES,
     });
     expect(model.tabs.filter((tab) => tab.active).map((tab) => tab.id)).toEqual(["queries"]);
-    expect(model.queryDatasetSize).toBe("2");
+    // The footnote's "full N-query dataset" is the served ranking-query count,
+    // never the number of rows the table happens to be showing.
+    expect(model.queryDatasetSize).toBe("220");
     expect(model.queries).toHaveLength(2);
     expect(model.methodology).toHaveLength(4);
+  });
+
+  it("prints the em-dash rather than a row count when no dataset size is served", () => {
+    const model = buildInsightsGeoExactModel({
+      activeTab: "queries",
+      queryFilter: "all",
+      overview: null,
+      queries: QUERIES,
+    });
+    expect(model.queryDatasetSize).toBe("—");
   });
 });

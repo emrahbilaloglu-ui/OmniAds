@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { InsightsSeoExact } from "@/components/seo/InsightsSeoExact";
 import {
@@ -63,6 +63,38 @@ async function readSeo<T>(url: string, fallbackMessage: string): Promise<T> {
 }
 
 /**
+ * The only caller of `POST /api/seo/ai-analysis` in the product.
+ *
+ * Nothing else generates a monthly analysis — no cron, no worker — so the
+ * Monthly AI and Actions tabs are unfillable without this call. It runs behind
+ * the route's own `collaborator` guard; the guard is untouched here.
+ */
+async function generateSeoMonthlyAiAnalysis(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<SeoMonthlyInput> {
+  const response = await fetch("/api/seo/ai-analysis", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { message?: string; error?: string; unavailableReason?: string }
+    | null;
+  if (!response.ok) {
+    const error = new Error(
+      payload?.message ??
+        payload?.unavailableReason ??
+        "Failed to generate monthly SEO AI analysis.",
+    ) as SeoRequestError;
+    if (payload?.error) error.code = payload.error;
+    throw error;
+  }
+  return payload as SeoMonthlyInput;
+}
+
+/**
  * The Insights → SEO Intelligence data boundary.
  *
  * Reads the three Search Console-backed endpoints the design's facts come
@@ -81,6 +113,7 @@ export function InsightsSeoScreen({
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const resolvedBusinessId = scopedBusinessId ?? selectedBusinessId ?? null;
   const businessId = resolvedBusinessId ?? "";
+  const queryClient = useQueryClient();
 
   const domains = useIntegrationsStore((state) =>
     resolvedBusinessId ? state.domainsByBusinessId[resolvedBusinessId] : undefined,
@@ -143,6 +176,16 @@ export function InsightsSeoScreen({
     ...seoQueryOptions,
   });
 
+  const monthlyGenerateMutation = useMutation({
+    mutationFn: () =>
+      generateSeoMonthlyAiAnalysis({ businessId, startDate, endDate }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["insights-seo-monthly", businessId, startDate, endDate],
+      });
+    },
+  });
+
   if (!resolvedBusinessId) return <BusinessEmptyState />;
   if (showBootstrapGuard) return <LoadingSkeleton rows={4} />;
   if (!searchConsoleConnected) {
@@ -160,7 +203,7 @@ export function InsightsSeoScreen({
     activeTab === "technical"
       ? (findingsQuery.error ?? overviewQuery.error)
       : activeTab === "ai" || activeTab === "actions"
-        ? (monthlyQuery.error ?? overviewQuery.error)
+        ? (monthlyGenerateMutation.error ?? monthlyQuery.error ?? overviewQuery.error)
         : overviewQuery.error;
 
   const model = buildInsightsSeoExactModel({
@@ -205,7 +248,12 @@ export function InsightsSeoScreen({
           />
         )
       ) : null}
-      <InsightsSeoExact model={model} onSelectTab={setActiveTab} />
+      <InsightsSeoExact
+        model={model}
+        onSelectTab={setActiveTab}
+        onGenerateMonthly={() => monthlyGenerateMutation.mutate()}
+        isGeneratingMonthly={monthlyGenerateMutation.isPending}
+      />
     </>
   );
 }

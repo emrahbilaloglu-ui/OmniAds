@@ -43,26 +43,28 @@ const FONT_SIZE = /font-size:\s*([0-9.]+)px/g;
  * reference, in one table.
  *
  * This used to be three parallel structures -- a triple of consts per surface,
- * an arm in a nested ternary, and a near-identical pin test -- which meant that
- * every parity batch touched the same three places and every batch merge
- * conflicted here. One row per surface is the same assertions with one place to
- * edit.
+ * an arm in a nested ternary, and a near-identical pin test -- so every parity
+ * batch edited the same three places and every batch merge conflicted here.
+ * Three separate batches independently started collapsing it; this is that
+ * collapse finished. One row per surface, same assertions, one place to edit.
  *
- * `pins: null` registers a marker without pinning its values. Only the Creative
- * Studio fragment is in that state, because its marker has no end delimiter and
- * runs to end-of-file; it should gain an end marker and a pinned list.
- *
- * `pinsBelowFloorOnly` says whether that surface's pinned list was authored as
- * only the sub-floor declarations (true) or as every font-size inside the
- * marker (false). Both are exact; the second is stricter.
+ * Per-surface variations are data rather than forked code:
+ *  - `end: null` runs the marker to end-of-file (only Creative Studio, which
+ *    should gain an end delimiter).
+ *  - `pinsBelowFloorOnly` says whether the pinned list was authored as only the
+ *    sub-floor declarations (true) or as every font-size inside the marker
+ *    (false). Both are exact; the second is stricter.
+ *  - `stripsCommentsFromSelector` drops CSS comments before normalising the
+ *    selector, which Creative Studio's fragment needs and no other does.
  */
 interface ExactReferenceSurface {
-  readonly name: string | null;
+  readonly name: string;
   readonly file: string;
   readonly start: string;
   readonly end: string | null;
-  readonly pins: ReadonlyArray<{ selector: string; size: number }> | null;
   readonly pinsBelowFloorOnly: boolean;
+  readonly stripsCommentsFromSelector: boolean;
+  readonly pins: ReadonlyArray<{ selector: string; size: number }>;
 }
 
 const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
@@ -73,6 +75,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-shell-exact-reference-type:start */",
     end:
       "/* dashboard-v2-shell-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".adv-rail-version, .adv-rail-group", size: 9.5 },
       { selector: ".adv-rail-count", size: 10.5 },
@@ -80,7 +84,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".adv-rail-avatar", size: 11.5 },
       { selector: ".adv-kbd", size: 10 },
     ],
-    pinsBelowFloorOnly: false,
   },
   {
     name: "Meta",
@@ -89,6 +92,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-meta-exact-reference-type:start */",
     end:
       "/* dashboard-v2-meta-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".pageEyebrow, .asOfLine, .scopeRow > p", size: 11 },
       { selector: ".kpiLabel, .watchBadge, .inspectorEyebrow", size: 9.5 },
@@ -115,17 +120,77 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".creativeKind", size: 8 },
       { selector: ".creativeSparkLabel", size: 8.5 },
     ],
-    pinsBelowFloorOnly: false,
   },
   {
-    name: null,
+    name: "Creative Studio",
     file: "components/creatives/CreativeStudioExact.module.css",
     start:
       "/* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */",
     end:
       null,
-    pins: null,
-    pinsBelowFloorOnly: false,
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: true,
+    pins: [
+      { selector: ".pageEyebrow", size: 11 },
+      { selector: ".tabCount, .tabCountActive", size: 10 },
+      { selector: ".mutedMono", size: 10.5 },
+      { selector: ".unpinButton", size: 11 },
+      { selector: ".kindBadge", size: 10 },
+      { selector: ".statusBadge", size: 10.5 },
+      {
+      selector:
+      ".boardMetric > span:first-child, .summaryMetric > span:first-child",
+      size: 8.5,
+      },
+      { selector: ".columnsLabel", size: 9.5 },
+      { selector: ".metricPickerHeader > span", size: 10 },
+      { selector: ".metricCategory", size: 9 },
+      { selector: ".metricCheckbox, .metricCheckboxSelected", size: 9 },
+      { selector: ".metricDirection", size: 10 },
+      { selector: ".heatLegend", size: 10 },
+      { selector: ".assetTable th", size: 10 },
+      { selector: ".rowCheckbox, .rowCheckboxSelected", size: 10 },
+      { selector: ".creativeIdentityText > span:last-child", size: 10 },
+      { selector: ".tableStatus", size: 10.5 },
+      { selector: ".emptyTableCell", size: 11 },
+      { selector: ".closingNote", size: 11 },
+      { selector: ".angleCardHeader > span", size: 10 },
+      { selector: ".angleBestLine", size: 11.5 },
+      { selector: ".angleUsage", size: 10 },
+      { selector: ".angleCoverage > span:first-child", size: 9.5 },
+      { selector: ".angleGap", size: 11 },
+      {
+      selector: ".articleHeader > span:not(.insightPill, .heatRamp)",
+      size: 10.5,
+      },
+      { selector: ".insightPill", size: 11 },
+      { selector: ".copyTable th, .landingTable th, .matrixTable th", size: 10 },
+      { selector: ".copyCell > span:last-child", size: 10 },
+      { selector: ".anglePill", size: 10.5 },
+      { selector: ".roasPill", size: 11.5 },
+      { selector: ".emptyPanel", size: 11 },
+      { selector: ".signalPill", size: 11 },
+      { selector: ".readKind", size: 9 },
+      { selector: ".testEstimate", size: 9 },
+      {
+      selector: ".readEmpty, .historyEmpty, .breakdownEmpty, .inboxEmpty",
+      size: 11,
+      },
+      { selector: ".historyHeader span, .audienceSectionHeading span", size: 10.5 },
+      { selector: ".historyRow > span:first-child", size: 10.5 },
+      { selector: ".historyRow > span:last-child", size: 11 },
+      { selector: ".inboxColumnHeader", size: 10 },
+      { selector: ".inboxSource", size: 9 },
+      { selector: ".inboxCardNote", size: 11.5 },
+      { selector: ".avatar", size: 9 },
+      { selector: ".inboxDue", size: 10 },
+      { selector: ".inboxAction", size: 11 },
+      { selector: ".audienceNote", size: 11.5 },
+      { selector: ".breakdownHeader span", size: 8.5 },
+      { selector: ".breakdownRow > span:first-child", size: 10.5 },
+      { selector: ".breakdownRow > span:nth-child(3)", size: 10.5 },
+      { selector: ".breakdownNote", size: 11 },
+    ],
   },
   {
     name: "Launchpad",
@@ -134,6 +199,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-exact-typography:start launchpad */",
     end:
       "/* dashboard-v2-exact-typography:end launchpad */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       {
       selector:
@@ -147,7 +214,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       },
       { selector: ".exactDraftTable th", size: 10 },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "Automation",
@@ -156,6 +222,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-automation-exact-reference-type:start */",
     end:
       "/* dashboard-v2-automation-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
@@ -174,7 +242,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".autonomyNext, .ledgerUnknown", size: 11 },
       { selector: ".ledgerTime", size: 11.5 },
     ],
-    pinsBelowFloorOnly: false,
   },
   {
     name: "Google Overview",
@@ -183,6 +250,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-google-overview-exact-reference-type:start */",
     end:
       "/* dashboard-v2-google-overview-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".pageEyebrow", size: 11 },
       { selector: ".guardCopy, .sectionNote", size: 10.5 },
@@ -200,7 +269,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".budgetKpiDetail", size: 11 },
       { selector: ".budgetAmount, .budgetReason", size: 11.5 },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "Google Advisor",
@@ -209,6 +277,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-google-advisor-exact-reference-type:start */",
     end:
       "/* dashboard-v2-google-advisor-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".guardCopy", size: 10.5 },
@@ -223,7 +293,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "Google Search/Products",
@@ -232,6 +301,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-google-search-products-exact-reference-type:start */",
     end:
       "/* dashboard-v2-google-search-products-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".guardCopy, .cardSubtitle", size: 10.5 },
@@ -246,7 +317,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".tileLabel", size: 9.5 },
       { selector: ".tileSub, .footnote", size: 11 },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "Integrations",
@@ -255,6 +325,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-integrations-exact-reference-type:start */",
     end:
       "/* dashboard-v2-integrations-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".statusPill", size: 11 },
@@ -264,7 +336,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".stepNote", size: 9.5 },
       { selector: ".soonBadge", size: 8.5 },
     ],
-    pinsBelowFloorOnly: false,
   },
   {
     name: "Klaviyo",
@@ -273,11 +344,12 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-klaviyo-exact-reference-type:start */",
     end:
       "/* dashboard-v2-klaviyo-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow, .statusChip, .footNote", size: 11 },
       { selector: ".th", size: 10 },
     ],
-    pinsBelowFloorOnly: false,
   },
   {
     name: "Insights chrome",
@@ -286,12 +358,13 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-insights-shell-exact-reference-type:start */",
     end:
       "/* dashboard-v2-insights-shell-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".dateChip :global(.adv-date-range-trigger)", size: 11.5 },
       { selector: ".sourceState", size: 10.5 },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "Insights Analytics",
@@ -300,6 +373,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-insights-analytics-exact-reference-type:start */",
     end:
       "/* dashboard-v2-insights-analytics-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".kpiLabel", size: 9.5 },
       { selector: ".kpiDelta", size: 11.5 },
@@ -315,7 +390,88 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".retentionChip", size: 11 },
       { selector: ".trailingNote", size: 11.5 },
     ],
+  },
+  {
+    name: "Insights SEO",
+    file: "components/seo/InsightsSeoExact.module.css",
+    start:
+      "/* dashboard-v2-insights-seo-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-insights-seo-exact-reference-type:end */",
     pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".kpiLabel", size: 9.5 },
+      { selector: ".kpiDelta", size: 11 },
+      { selector: ".kpiPrev", size: 10.5 },
+      { selector: ".monthlyStatus", size: 10.5 },
+      { selector: ".monthlyMeta", size: 11 },
+      { selector: ".readsLabel", size: 10 },
+      { selector: ".readChip", size: 11 },
+      { selector: ".columnLabel", size: 10 },
+      { selector: ".planOrdinal", size: 10 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".moverDelta", size: 11 },
+      { selector: ".trailingNote", size: 11.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".deltaChip", size: 11 },
+      { selector: ".actionTone", size: 10.5 },
+      { selector: ".actionMeta", size: 11.5 },
+      { selector: ".excludedReason", size: 10.5 },
+      { selector: ".findingSeverity", size: 9 },
+      { selector: ".findingDetail", size: 11.5 },
+    ],
+  },
+  {
+    name: "Insights AI-visibility",
+    file: "components/geo/InsightsGeoExact.module.css",
+    start:
+      "/* dashboard-v2-insights-geo-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-insights-geo-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".statLabel", size: 9.5 },
+      { selector: ".kpiSub", size: 11 },
+      { selector: ".intentLabel", size: 10 },
+      { selector: ".priorityPill", size: 10 },
+      { selector: ".priorityMeta", size: 11.5 },
+      { selector: ".highlightLabel", size: 9.5 },
+      { selector: ".highlightPill", size: 10.5 },
+      { selector: ".highlightSub", size: 11.5 },
+      { selector: ".kindChip", size: 9 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".enginePill", size: 11.5 },
+      { selector: ".valueChip", size: 10.5 },
+      { selector: ".momentumChip", size: 10.5 },
+      { selector: ".tdRecommendation", size: 11.5 },
+      { selector: ".scorePill", size: 11 },
+      { selector: ".tdSourcedBy", size: 11.5 },
+      { selector: ".filterCount", size: 10 },
+      { selector: ".intentChip", size: 10.5 },
+      { selector: ".scoreToggle", size: 11 },
+      { selector: ".breakdownLabel", size: 8.5 },
+      { selector: ".breakdownValue", size: 9.5 },
+      { selector: ".tdPosition", size: 11.5 },
+      { selector: ".tdQueryRecommendation", size: 11.5 },
+      { selector: ".tableNote", size: 11.5 },
+      { selector: ".coveragePill", size: 10.5 },
+      { selector: ".topicPriority", size: 11 },
+      { selector: ".topicGap", size: 10 },
+      { selector: ".topicQueryCount", size: 11 },
+      { selector: ".topicChip", size: 11 },
+      { selector: ".topicRecMeta", size: 11.5 },
+      { selector: ".topicScore", size: 11 },
+      { selector: ".topicAsideCaption", size: 10.5 },
+      { selector: ".topicPosition", size: 11 },
+      { selector: ".topicAuthority", size: 10.5 },
+      { selector: ".trailingNote", size: 11.5 },
+      { selector: ".playOrdinal", size: 11 },
+      { selector: ".playChip", size: 10.5 },
+      { selector: ".methodArrow", size: 11 },
+    ],
   },
   {
     name: "Reports",
@@ -324,6 +480,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-reports-exact-reference-type:start */",
     end:
       "/* dashboard-v2-reports-exact-reference-type:end */",
+    pinsBelowFloorOnly: false,
+    stripsCommentsFromSelector: false,
     pins: [
       {
       selector:
@@ -362,7 +520,87 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       size: 11.5,
       },
     ],
-    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Commercial Truth",
+    file: "components/commercial-truth/CommercialTruthExact.module.css",
+    start:
+      "/* dashboard-v2-commercial-truth-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-commercial-truth-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".bandPill", size: 10 },
+      { selector: ".bandStatKey", size: 9 },
+      { selector: ".cardNote", size: 10 },
+      { selector: ".fieldHint", size: 11 },
+      { selector: ".packStamp", size: 10.5 },
+      { selector: ".splitValue", size: 11 },
+      { selector: ".consumerLast", size: 9.5 },
+      { selector: ".consumerReads", size: 10 },
+      { selector: ".logTime", size: 10 },
+      { selector: ".logWhy", size: 11.5 },
+      { selector: ".listFoot", size: 10 },
+      { selector: ".scenarioStubSpend", size: 10 },
+      { selector: ".scenarioSpendSymbol", size: 10.5 },
+      { selector: ".scenarioStubRoasSub", size: 9.5 },
+      { selector: ".scenarioRoasSymbol", size: 10.5 },
+      { selector: ".scenarioRowSub", size: 9.5 },
+      { selector: ".cardFoot", size: 10.5 },
+      { selector: ".bandCardRange", size: 9.5 },
+      { selector: ".bandCardShare", size: 11 },
+      { selector: ".bandCardVerdict", size: 11 },
+      { selector: ".shareNote", size: 10 },
+      { selector: ".spendTh", size: 10 },
+      { selector: ".spendMeta", size: 9.5 },
+      { selector: ".spendShareLabel", size: 10 },
+      { selector: ".spendRoasChip", size: 11.5 },
+      { selector: ".spendDeltaCell", size: 11.5 },
+      { selector: ".spendVerdictChip", size: 11 },
+      { selector: ".spendFootTarget", size: 10 },
+    ],
+  },
+  {
+    name: "Team",
+    file: "components/team/TeamExact.module.css",
+    start:
+      "/* dashboard-v2-team-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-team-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".seatsEyebrow", size: 10 },
+      { selector: ".cardSub", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".avatar", size: 11 },
+      { selector: ".memberEmail", size: 11.5 },
+      { selector: ".roleChip", size: 11 },
+      { selector: ".faChip", size: 10.5 },
+      { selector: ".actionsCell", size: 11.5 },
+      { selector: ".activeCell", size: 10.5 },
+      { selector: ".inviteListMeta", size: 11 },
+      { selector: ".inviteListRole", size: 10.5 },
+      { selector: ".inviteAction", size: 11.5 },
+      { selector: ".eventTime", size: 10 },
+      { selector: ".cardFoot", size: 10 },
+    ],
+  },
+  {
+    name: "Settings",
+    file: "components/settings/SettingsExact.module.css",
+    start:
+      "/* dashboard-v2-settings-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-settings-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+    ],
   },
   {
     name: "creative evidence window",
@@ -371,6 +609,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-evidence-window-exact-reference-type:start */",
     end:
       "/* dashboard-v2-evidence-window-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       {
       selector:
@@ -389,7 +629,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       size: 11.5,
       },
     ],
-    pinsBelowFloorOnly: true,
   },
   {
     name: "copy detail drawer",
@@ -398,6 +637,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       "/* dashboard-v2-copy-drawer-exact-reference-type:start */",
     end:
       "/* dashboard-v2-copy-drawer-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
     pins: [
       { selector: ".statLabel", size: 8.5 },
       { selector: ".statSub, .cardEyebrow, .alternateAngle", size: 9 },
@@ -406,7 +647,6 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".anglePill, .draftButton", size: 10.5 },
       { selector: ".alternateWhy", size: 11 },
     ],
-    pinsBelowFloorOnly: true,
   },
 ];
 
@@ -430,10 +670,15 @@ function markerBoundedDeclarations(surface: ExactReferenceSurface) {
           source
             .slice(bounds.start, bounds.end)
             .matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
-        ).map((match) => ({
-          selector: match[1]!.replace(/\s+/g, " ").trim(),
-          size: Number(match[2]),
-        }));
+        ).map((match) => {
+          const raw = surface.stripsCommentsFromSelector
+            ? match[1]!.replace(/\/\*[\s\S]*?\*\//g, "")
+            : match[1]!;
+          return {
+            selector: raw.replace(/\s+/g, " ").trim(),
+            size: Number(match[2]),
+          };
+        });
   return { source, bounds, declarations };
 }
 
@@ -448,7 +693,6 @@ describe("no essential text is rendered below the readable floor", () => {
   });
 
   for (const surface of EXACT_REFERENCE_SURFACES) {
-    if (surface.pins === null) continue;
     it(`keeps the marker-bounded ${surface.name} values narrow and exact`, () => {
       const { source, bounds, declarations } = markerBoundedDeclarations(surface);
       expect(source.split(surface.start)).toHaveLength(2);

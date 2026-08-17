@@ -3598,6 +3598,213 @@ introduced by the batch itself. All five are closed; the evidence is below.
 
 ## Commercial Truth + Team + Settings
 
+### Batch 13 implementation status
+
+Canonical source read in full for this batch, from the local file only (every
+API read of it truncates at 262,144 bytes / line 2225, and all three of these
+screens sit after that point): Commercial Truth markup lines **2618–2814**,
+Team markup lines **2879–2987**, Settings markup lines **2988–3019**, together
+with their complete model bindings at lines **4213–4315** (`truthStats`,
+`truthFields`, `spendData`, `bandMeta`, `truthBands`, `truthSpendRows`,
+`truthTot`, `truthCoverage`, `scCols`, `scRows`, `scReset`, `scResetLabel`,
+`econSegs`, `truthConsumers`, `truthLog`), **3179** (`tRoasStr`, `tBreakStr`,
+`scSpends`, `scRoas`), **4354–4381** (`members`, `permRows`, `invites`,
+`accessEvents`) and **4407–4411** (`settingsRows`) of
+`Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+`CommercialTruthExact`, `TeamExact` and `SettingsExact` are the shared
+presentation surfaces. Route convergence: `/commercial-truth` and
+`/c/[businessId]/manage/business` both mount `CommercialTruthScreen` (the
+second with `showHeader={false}`, because that leaf supplies its own `h1`);
+`/team` and `/c/[businessId]/manage/team` both mount the same legacy body;
+`/settings` mounts `SettingsExact`. The adapters are pure and emit `—` for any
+fact no provider or table supplies.
+
+Backend wiring done for this batch, so the surfaces are connected and not just
+shaped: the target pack, its cost structure and the live cost-model context are
+read from `/api/business-commercial-settings`; the monthly fixed base is read
+from that snapshot's `costModelContext` and written through
+`/api/business-cost-model` (`minRole: "collaborator"`, unchanged); window spend
+and revenue come from `/api/overview-summary`; the campaign table is fed by
+**both** `/api/meta/campaigns` and `/api/google-ads/campaigns`, so "all labeled
+spend" means all of it; `/api/business-commercial-settings/history` was
+extended to resolve the acting user's name from `users`, which is what lets the
+change log and the pack's "last updated by" line name a person;
+`listBusinessMembers` was extended with `u.last_login_at`, which is what makes
+the Team screen's Last active column real; `GET /api/team/members` now also
+serves a per-member 28-day `action_count`, aggregated by
+`getBusinessMemberActionCounts` from the five actor-stamped write ledgers
+(finding 42), behind its existing unchanged `minRole: "guest"` read gate; and
+`/api/team/invites` gained an `action: "resend"` backed by a new `resendInvite`
+that mints a fresh token and pushes the expiry, behind the same
+`minRole: "admin"` gate as issuing one. Every windowed read on Commercial
+Truth carries the explicit 28-day range its labels claim (finding 48) instead
+of falling through to each route's 30-day default.
+
+Every server-side authorization gate is unchanged. The Team plan gate moved
+from wrapping the whole screen to disabling the invite button only; role
+enforcement still happens on `/api/team/**` at `minRole: "admin"`, and no
+client change can reach past it.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render tests.
+It does **not** mean a zero-RGBA pixel diff has been proved; no pinned-Chromium
+reference/current/diff matrix has been run, so strict pixel parity remains
+explicitly unclaimed. `PARTIAL` means the divergence is knowingly only half
+resolved, with the remainder stated in the id's own block. The detailed 01–39
+blocks below preserve the original pre-resolution audit evidence; this table is
+the current implementation status.
+
+An adversarial verification pass over this batch then found seven defects in
+the batch's own work — one of them a false BLOCKED claim. All seven are
+resolved and recorded: 42 (a real write ledger existed all along) is now
+CLOSED; 23 is downgraded to PARTIAL; 44 keeps its HIGH severity and stays OPEN
+but is no longer painted as an entitlement; 47 records the timezone control as
+an accepted divergence; and 48–51 are the four new defects that pass turned up.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| TRUTH-TEAM-SETTINGS-01 | CLOSED | `components/settings/commercial-truth-settings.tsx` (2,606 lines, all five sections) and `commercial-truth-blocks.tsx` are deleted; both route families mount `CommercialTruthExact`, whose render test asserts none of Decision Coverage, Country Economics, Promo Calendar, Site Health or Decision Calibration appears. |
+| TRUTH-TEAM-SETTINGS-02 | CLOSED | `SettingsExact` renders one `.fieldCard` with exactly Full name, Email, Interface language, Workspace timezone; the render test asserts Workspace name, Reporting currency, Default date range, Metric display, Table density and Heatmap cells are all absent. |
+| TRUTH-TEAM-SETTINGS-03 | CLOSED | `buildSettingsExactModel` returns exactly three rows — Change password/Update, Active sessions/Revoke others, Resync warehouse/Run resync. Refresh, Clear cache, Disconnect and Delete workspace are gone, asserted by both the component and route tests. |
+| TRUTH-TEAM-SETTINGS-04 | CLOSED | `app/(dashboard)/team/legacy-page.tsx` contains no `PlanGate`; the route test renders it with a stubbed `starter` plan and asserts the Team screen itself renders and no "plan required" upsell appears. |
+| TRUTH-TEAM-SETTINGS-05 | CLOSED | `CommercialTruthExact` renders the seven-column table (Campaign, Spend · 28d, Share, Revenue, ROAS, vs target, Next-snapshot verdict) plus the "Blended · all labeled spend" tfoot with totals and "vs target {n}", fed by real Meta + Google campaign rows read over a real 28-day window (finding 48), each row labelled with the entity it actually is (finding 49). |
+| TRUTH-TEAM-SETTINGS-06 | CLOSED | The navy `#0B1020` band with the green dotted "Single source" pill, the design's sentence and the three `truthStats` sits between header and grid; the stats read the real workspace name, currency and timezone. |
+| TRUTH-TEAM-SETTINGS-07 | CLOSED | Grid left column is Target pack then "Where $100 of revenue goes"; the render test asserts the index ordering Target pack < revenue split < scenario guide < spend-vs-targets. |
+| TRUTH-TEAM-SETTINGS-08 | CLOSED | One Target pack article with the design's eight fields in order, including AOV floor (`aovAssumption`), Fixed costs / mo (`business_cost_models.fixed_monthly_cost`) and Gross margin (derived from and written back to `cogsPercent`). |
+| TRUTH-TEAM-SETTINGS-09 | CLOSED | Seven scenario rows including Fixed costs between Ad spend and Net profit / month; net profit subtracts the fixed base; every row carries its mono sub-label ("spend × ROAS", "from the pack · applies once per month", "net profit ÷ revenue", and the cost sub-labels built from the pack's real percentages). |
+| TRUTH-TEAM-SETTINGS-10 | CLOSED | Save target pack / Discard changes sit inline at the foot of the Target pack card followed by the mono last-updated line; the render test asserts the component source contains no `sticky`. |
+| TRUTH-TEAM-SETTINGS-11 | CLOSED | The reconfirm button, authority banner and confirm overlay were removed with their file; the card's only provenance is the mono "last updated {date} by {actor}" line. |
+| TRUTH-TEAM-SETTINGS-12 | CLOSED | The row `⋯` opens the minimal menu the fix permits (role change, remove); the workspace-access modal, role chips, select-all and workspace checkbox list are gone, asserted by the render test. |
+| TRUTH-TEAM-SETTINGS-13 | CLOSED | The Change password row is a single-line article whose one button navigates to `/me/account-security`; no `Current password` / `New password` fields exist on this screen. |
+| TRUTH-TEAM-SETTINGS-14 | CLOSED | `ConfirmOverlay` appears in neither `SettingsExact` nor the route body; "Revoke others" posts straight to `/api/settings/security/revoke-sessions`. |
+| TRUTH-TEAM-SETTINGS-15 | CLOSED | No `bestIdx` exists; every scenario column renders through the same cell style, asserted against the component source. |
+| TRUTH-TEAM-SETTINGS-16 | CLOSED | The invite article ends at the helper sentence; "Copy invite link" appears nowhere in `TeamExact`. |
+| TRUTH-TEAM-SETTINGS-17 | CLOSED | Every Commercial Truth card header is an `h2` at Space Grotesk 15px/600 plus a mono 10px note; no eyebrow, no tooltip, and the source contains no `Section `. |
+| TRUTH-TEAM-SETTINGS-18 | CLOSED | The identity card has no button; the name persists on blur through `PATCH /api/settings/account`. |
+| TRUTH-TEAM-SETTINGS-19 | CLOSED | All three exact components own their own header — eyebrow mono 11px/`0.12em` uppercase, `h1` Space Grotesk 26px/700/`-0.02em` — instead of routing through `.ad-workspace-*`. `app/globals.css` is untouched, as the batch rules require. |
+| TRUTH-TEAM-SETTINGS-20 | CLOSED | Both closing mono footnotes render: "Reads gross margin, shipping, fees and fixed costs from the pack …" on the scenario card and "Preview only — verdicts stamp on the next snapshot … Unlabeled spend ({n}) …" on the spend card. |
+| TRUTH-TEAM-SETTINGS-21 | CLOSED | Every pending-invite row carries the blue Resend before the red Revoke, wired to the new `PATCH /api/team/invites { action: "resend" }`; the route test covers the admin gate, the reissue and the 409 on a non-pending invite. |
+| TRUTH-TEAM-SETTINGS-22 | CLOSED | The 110×8 rounded meter, the "Seats · {plan} plan" mono eyebrow and "{used} of {allowance} used" are all built and the plan name is read from `/api/billing`. The allowance itself renders `—` and the fill `0%` — see finding 40 for the contract it needs. |
+| TRUTH-TEAM-SETTINGS-23 | PARTIAL | The captions and their order are the design's nine. The **tick pattern is not**: it is resolved from the real `minRole` on the route performing each capability, so 7 of 9 rows differ from the design. That is the correct call for a table subtitled "enforced server-side on every call" — but the fix note asked for the design's pattern too, so this is not closed. See the row-by-row comparison below. |
+| TRUTH-TEAM-SETTINGS-24 | CLOSED | The four design bands (Above target / Near target / Above breakeven / Below breakeven) with the design's ranges — mid = min(T, max(B, T × 0.85)) — and the verdicts Scale / Hold / Watch / Trim / Cut; the row reads "{n} entities → {verdict}". |
+| TRUTH-TEAM-SETTINGS-25 | CLOSED | Exactly five segments: COGS, Shipping, Fees, Ad spend, Contribution, with the design's five colours. Fulfillment and Fixed costs are no longer segments. |
+| TRUTH-TEAM-SETTINGS-26 | CLOSED | The reads line is the design's chip: inline-flex, radius 6, `#F1F4F9` on `#45526B`, padding 2px 8px, mono 10px. |
+| TRUTH-TEAM-SETTINGS-27 | CLOSED | `.root` carries `max-width: 1240px` (Commercial Truth, Team) and `920px` (Settings). The bodies no longer mount `WorkspaceSurface`, so no inner `.ad-workspace-page` cap overrides them; the only outer cap is `.adv-page` at 1560px. |
+| TRUTH-TEAM-SETTINGS-28 | CLOSED | `grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr)`; each band card is `1px solid #EDF0F6` with a 4px left border in the band tone over `#FBFCFE`. |
+| TRUTH-TEAM-SETTINGS-29 | CLOSED | The spend header stub, every spend cell and the Net profit / month row all paint `#0B1020`; the accent blue is used only on the two buttons the design paints `#2F6BFF`. |
+| TRUTH-TEAM-SETTINGS-30 | CLOSED | All four Team card headers carry `border-bottom: 1px solid #EDF0F6`; `.th` is 10px/500 IBM Plex Mono at `0.1em`. |
+| TRUTH-TEAM-SETTINGS-31 | CLOSED | `.cardSub` is mono 10.5px on all three sub-captions; the audit-trail footer is mono 10px with a `#F3F5F9` top hairline. |
+| TRUTH-TEAM-SETTINGS-32 | CLOSED | `.root` gap is 16px on Commercial Truth and Team and 12px on Settings, set on the component that actually stacks the cards. |
+| TRUTH-TEAM-SETTINGS-33 | CLOSED | The mono note "applies on the next snapshot, never retroactively" sits beside the Target pack heading and "last updated {date} by {actor}" beside the buttons; the actor is real, resolved by the extended history route. |
+| TRUTH-TEAM-SETTINGS-34 | CLOSED | The amber stub reads "ROAS" over "edit per column · defaults to target" and the button reads "Reset ROAS to target {n}×" with the design's multiplication sign. |
+| TRUTH-TEAM-SETTINGS-35 | CLOSED | The lede's second sentence is the design's verbatim: "Meta Decisions, Creative Studio and Automation guardrails anchor to these numbers deterministically." |
+| TRUTH-TEAM-SETTINGS-36 | CLOSED | The note renders "share of labeled ad spend · 28d · labeled coverage {n}% — the rest is unlabeled", computed from labeled over total spend — and the 28d is now the window actually requested (finding 48). |
+| TRUTH-TEAM-SETTINGS-37 | CLOSED | The row detail is the design's "Rebuild read models from provider data. Safe, may take minutes." — provider status is no longer appended to it. |
+| TRUTH-TEAM-SETTINGS-38 | CLOSED | The invite input placeholder is `teammate@company.com`. |
+| TRUTH-TEAM-SETTINGS-39 | CLOSED | The revenue-split sub-note is the full "derived from this pack · 28d blended pace". |
+
+### Batch 13 new findings
+
+These were turned up by this batch's own read and are appended as numbered
+findings, per the method's instruction that the list is a floor.
+
+### TRUTH-TEAM-SETTINGS-40 · MEDIUM · BLOCKED — no plan carries a seat allowance, so the seat meter has no ceiling
+
+- **Design:** 16-team.html:11 renders "4 of 5 used" with the bar filled to 80%; the 5 is the plan's seat allowance.
+- **Code:** `lib/pricing/plans.ts` `PlanLimits` is `{ adAccounts, analyticsHistoryDays, workspaces, storeConnections }` — there is no seat field on any of the four plans, and a repo-wide case-insensitive grep for `seat` over `lib/` and `app/api/` returns nothing related to membership.
+- **Status:** the meter's geometry is built and the used count and plan name are real; the allowance renders `—` and the fill `0%`.
+- **Contract needed:** a `seats: number | null` on `PlanLimits` (or a workspace-level seat allowance served by `/api/billing`), after which `buildTeamExactModel` needs only its `seatAllowance` argument populated — the meter already computes `min(100, used/allowance)`.
+
+### TRUTH-TEAM-SETTINGS-41 · LOW · BLOCKED — per-member 2FA state has no source
+
+- **Design:** data-model.js:4355-4358 gives each member "2FA on" / "2FA off" chips.
+- **Code:** the `users` table read by `getUserById`/`listBusinessMembers` exposes `password_hash`, `avatar`, `language`, `created_at`, `suspended_at`, `last_login_at`, `is_superadmin` — no second-factor column, and no enrolment table exists.
+- **Status:** the column and its chip geometry are kept and render `—`.
+- **Contract needed:** a per-user second-factor enrolment record surfaced on `/api/team/members`.
+
+### TRUTH-TEAM-SETTINGS-42 · LOW · CLOSED — "Actions · 28d" now counts the real actor-stamped write ledger
+
+- **Design:** data-model.js:4355-4358 shows "46 writes", "18 writes", "0 writes", "read-only".
+- **The earlier claim was false.** This finding was first filed BLOCKED on "no table records a write against the acting user". Five do. All five are counted:
+  - `meta_ads_action_log` (`lib/migrations.ts:4541`, indexed `(business_id, requested_at DESC)`) — the Meta provider-write log: `pause`, `resume`, `duplicate` and the three Launchpad `launch_*` kinds, written by `lib/meta/ads-action-log.ts`. Actor column `requested_by`. **This is the one that most literally means "actions" under a Members table**, and it was missing from the first pass.
+  - `meta_automation_activity_ledger` (`lib/migrations.ts:4644`, indexed `(business_id, created_at DESC)`) — the automation control plane's ledger. Actor column `created_by`. Its only three writers are in `lib/meta/automation-control-plane.ts`: kill-switch engage (:583), kill-switch release (:642), decision-type mode change (:760).
+  - `decision_workflow_events` (`lib/migrations.ts:6892`) — the live decision overlay's append-only journal, one row per operator transition, written at `lib/decision-workflow-store.ts:265` from `POST /api/meta/decision-workflow` and read back joined to `users` at `:138`.
+  - `command_center_action_journal` (`lib/migrations.ts:4855`) — the Command Center's workflow journal (`status_changed`, `assignee_changed`, `note_added`, `handoff_created`, `handoff_acknowledged`), still read by the engine at `lib/creative-decision-engine/jobs/operator-response-job.ts:316`.
+  - `command_center_action_execution_audit` (`lib/migrations.ts:5028`) — the Command Center's provider-execution ledger, `operation IN ('apply','rollback')`.
+- **Why the first three alone were not enough.** A live read-only check of production showed `decision_workflow_events` and `command_center_action_execution_audit` empty, and all 219 `command_center_action_journal` rows older than 28 days and belonging to one actor in one business. The 28-day window returned zero rows for every member of every workspace: a column that is structurally always `0 writes` is barely better than the em dash it replaced. `meta_ads_action_log` (92 rows, all 92 `requested_by` resolving to a real `users.id`) and `meta_automation_activity_ledger` (the only row anywhere inside the window) are the ledgers that actually carry the operator's writes.
+
+- **Judgement call 1 — does a requested-but-failed write count? Yes. `status` is deliberately not filtered.** The vocabulary is `pending`, `success`, `failure`, `silent_failure`; `lib/meta/ads-action-log.ts:1595` inserts every row as `pending` at request time and settles it asynchronously. Three reasons:
+  1. The column sits under a **Members** table and is headed "Actions". It measures what a person did, not what Meta accepted — the design's own cell values are "46 writes" / "0 writes", a count of operator activity.
+  2. Filtering to `success` would drop every in-flight write, so the same operator would show a different number purely by when the page was loaded.
+  3. `silent_failure` means the provider accepted the call and the change did not stick. That is the case most worth surfacing, and filtering would hide it — systematically under-reporting exactly the operators who are hitting trouble.
+- **But `dry_run` is filtered, in SQL:** `AND dry_run IS NOT TRUE`. A dry run (`dry_run BOOLEAN NOT NULL DEFAULT FALSE`, added in `lib/meta/controlled-experiment-registry.ts:1731`) is an explicitly simulated write that never reaches Meta. Counting it would inflate the number with acts that changed nothing anywhere. The predicate is `IS NOT TRUE` rather than `= FALSE` so a pre-migration NULL cannot be counted either.
+
+- **Judgement call 2 — double counting: disproved, so no deduplication.** Every writer was read:
+  - `command_center_action_execution_audit` has exactly one writer, `lib/archive/v1-v2-v21/lib/command-center-execution-store.ts:830`. Its whole import list is `@/lib/db`, `provider-account-reference-store` and types — it performs no provider write and never calls `lib/meta/ads-action-log.ts`. **A Command Center apply cannot also appear in `meta_ads_action_log`.**
+  - That same store never appends to `command_center_action_journal` either; the journal's only writer is `command-center-store.ts:1118`, and its event vocabulary is workflow-card state, not provider calls.
+  - **A Launchpad write lands in `meta_ads_action_log` only.** Nothing live imports `lib/archive/**` (the only repo-wide matches are path strings in `lib/release-authority/inventory.ts`), so no live path can write either Command Center table at all.
+  - **An automation promotion** writes `meta_automation_promotion_records` and `meta_automation_activity_ledger` together (`automation-control-plane.ts:757-770`); it touches neither the ads-action log nor the Command Center tables.
+  - The unit of the count is therefore one provider write attempt or one control-plane act, **not one button press**. A bulk pause of twenty ads counts twenty, which is what the design's "writes" label means.
+- **Fix:** `getBusinessMemberActionCounts` in `lib/account-store.ts` aggregates all five over 28 days (`MEMBER_ACTION_WINDOW_DAYS`); `GET /api/team/members` merges `action_count` onto each member and serves `actionWindowDays`. Each branch windows on its own indexed timestamp — `requested_at` for `meta_ads_action_log`, `created_at` for the other four. Rows with a null actor are excluded everywhere: an unattributed write cannot be attributed to a member.
+- **Authorization:** unchanged. The route still gates on `requireBusinessAccess({ minRole: "guest" })` and nothing else was touched, asserted in `app/api/team/members/route.test.ts`.
+- **Honesty rule:** the readiness gate is all-or-nothing across all five tables. An unreadable ledger serves `null` and the cell renders `—`; a readable ledger with no rows for a member renders a real `0 writes`. A partial count presented as a total would be worse than an em dash. A statement failure is logged (`[account-store] member_action_counts_failed`) rather than silently becoming an em dash.
+- **Validated against production, read-only** (`BEGIN READ ONLY`, `statement_timeout`, `ROLLBACK`): the statement parses and `EXPLAIN` shows an Index Scan on every table — `idx_decision_workflow_events_decision_created` with the Index Cond on `(business_id::text, created_at)`, and the `business_id, client_mutation_id` unique indexes on the two Command Center tables. The live catalog confirms the type split the statement is built around: `decision_workflow_events.business_id` is `text`, the other four are `uuid`, so the two-placeholder decision is verified rather than inferred. The statement shape is pinned by `app/api/team/members/route.test.ts` — five ledgers, the `dry_run` filter, the absence of a `status` filter, one `IS NOT NULL` per branch, and the TEXT/UUID placeholder split.
+
+### TRUTH-TEAM-SETTINGS-43 · LOW · BLOCKED — "Consumed by" cannot state a last-read time
+
+- **Design:** 14-commercial-truth.html:60 renders `{{ c.last }}` as "read 12m ago" per surface.
+- **Code:** nothing logs a per-surface read of the target pack.
+- **Status:** the mono span is kept and renders `—`; the four consumer names are the app's real reading surfaces, not the prototype's.
+- **Contract needed:** a pack-read counter stamped by each consuming surface.
+
+### TRUTH-TEAM-SETTINGS-44 · HIGH · OPEN (server) — `/api/billing` POST has no workspace-role gate
+
+- **Severity: HIGH.** This is a real pre-existing authorization hole, not a presentation choice. Any authenticated user who can guess or observe a `businessId` reaches a workspace-scoped billing write they were never granted.
+- **Code:** `app/api/billing/route.ts` POST calls `requireAuthedRequest(request)` and then acts on the `businessId` in the body without `requireBusinessAccess`. Every other workspace-scoped write on this backend goes through `requireBusinessAccess` with an explicit `minRole`.
+- **How the matrix reports it (corrected):** the row is no longer four green ticks. `Billing & plan` carries the gate kind `"ungated"`, which paints the marker `!` in `#B45309` in all four columns with a `title` naming this defect. A tick means "the server checked a role and granted it"; `!` means "the server checked no role at all". Painting a hole as an entitlement was itself a defect, and this batch's first pass did exactly that by filing the row as `guest`-gated.
+- **Not fixed here:** adding an authorization check is a server-side change with its own blast radius (a collaborator would lose the upgrade path), and this is a presentation-layer batch. Left OPEN deliberately, per H4 — the marker documents it in the product rather than hiding it.
+
+### TRUTH-TEAM-SETTINGS-45 · MEDIUM · OPEN (product) — the deleted sections were the only editors for four stored inputs
+
+- Removing `commercial-truth-settings.tsx` also removed the only UI for `countryEconomics`, `promoCalendar`, `operatingConstraints` and `calibrationProfiles`, and for the explicit target-pack reconfirmation. All four remain stored and are still read by the decision engine; saving the pack still re-stamps `updatedAt`, which is what reconfirmation did.
+- The Dashboard v2 reference defines no screen for any of them, so this batch had no design to port them to. Recorded rather than reinstated, because keeping an unmounted 2,606-line screen on disk would be the same drift these batches exist to remove.
+
+### TRUTH-TEAM-SETTINGS-46 · LOW · CLOSED — the Manage cost-model form discarded typing when its read landed late
+
+- `BusinessView` reset `costDraft` from the `costModel` prop on every identity change, so an asynchronous cost-model read that resolved after the operator started typing silently overwrote their input. It now adopts stored values only while the draft is untouched. Found because mounting `CommercialTruthScreen` in the same subtree changed the read's timing and made the existing race deterministic in `manage-flows.test.tsx`.
+
+### TRUTH-TEAM-SETTINGS-47 · LOW · ACCEPTED DIVERGENCE — Workspace timezone is a derived, disabled control where the design draws a live select
+
+- **Design:** 2988-3019 draws `<select><option>America/New_York</option><option>Europe/Istanbul</option></select>` — an operator-editable control with real alternatives.
+- **Code:** `businesses.timezone` and `businesses.timezone_source` are derived, Shopify first and GA4 second. No route on this backend writes them: `app/api/settings/**` is `account`, `password` and `security` only, and no PATCH anywhere accepts a timezone. Making the select live would need a new write path, a new precedence rule against the derived source, and a decision about what happens to every already-computed daily boundary keyed on the old zone.
+- **Decision:** keep it derived. `SettingsExact.tsx:88` renders the design's select geometry with the single derived value and `disabled`; the value states its provenance (`Europe/Istanbul · from shopify`) so the operator can see why it is not theirs to set. A live select whose choice is silently discarded would be a worse lie than a disabled one.
+- **Recorded, not silent:** this is the divergence itself, filed so the next reader does not have to rediscover it. Reversing it is a backend task, not a CSS one.
+
+### TRUTH-TEAM-SETTINGS-48 · MEDIUM · CLOSED — three figures labelled "28d" were fed by 30-day requests
+
+- **Where:** `CommercialTruthExact.tsx:535` `Spend · 28d`, `:525` `share of labeled ad spend · 28d`, `:305` `derived from this pack · 28d blended pace`.
+- **What was wrong:** every endpoint behind them was called with no dates, and every one of them defaults to 30. `lib/meta/campaigns-source.ts:75` starts at `toISODate(nDaysAgo(29))`; `lib/google-ads-request-params.ts:29` normalises a missing `dateRange` to `"30"`; `app/api/overview-summary/route.ts:111` shifts its end date by `-29`. The label was a caption over a number it did not describe.
+- **Fix:** `components/commercial-truth/commercial-truth-window.ts` states the window once — end = today in the workspace's own timezone, start = end − 27, 28 days inclusive — and `CommercialTruthScreen` passes it to all three reads: `startDate`/`endDate` to Meta and to `/api/overview-summary`, and `dateRange=custom&customStart&customEnd` to Google, whose presets have no 28 (`getDateRangeForQuery` in `lib/google-ads-gaql.ts:689` returns a custom pair verbatim).
+- **No route was relabelled instead:** all three accept an explicit window, so all three were given one. Covered by `commercial-truth-window.test.ts` and `CommercialTruthScreen.test.tsx`, which assert the inclusive day count on each outgoing request.
+
+### TRUTH-TEAM-SETTINGS-49 · MEDIUM · CLOSED — the campaign table read the entity level off `budgetLevel`
+
+- **What was wrong:** `CommercialTruthScreen.tsx:180` derived `level: row.budgetLevel === "adset" ? "Ad set" : "Campaign"`. `budgetLevel` says where the BUDGET sits, not what the entity is — `lib/meta/live.ts:354` sets it to `"campaign"` when a campaign budget exists and `null` otherwise, and `/api/meta/campaigns` returns campaign rows exclusively. In a demo workspace every seeded row is `budgetLevel: "adset"` (`lib/demo-business.ts:1010,1048,1086…`), so `Meta · {level}` read "Meta · Ad set" on every campaign on the screen.
+- **Fix:** the level is now derived from what the row is. Both readers serve campaigns, so both are `Campaign`. Asserted in `CommercialTruthScreen.test.tsx` against Meta rows deliberately seeded `budgetLevel: "adset"`.
+
+### TRUTH-TEAM-SETTINGS-50 · LOW · CLOSED — the scenario spend chip printed the ISO code beside Intl-formatted cells
+
+- **What was wrong:** `CommercialTruthExact.tsx:409` rendered `{model.currencyCode}` — "USD" — inside the chip, while every money cell in the same table is `Intl` currency-formatted to "$". One table, two notations. The design draws `$` there (markup 2719).
+- **Fix:** the adapter exposes `currencySymbol`, taken from the same `Intl.NumberFormat` instance the cells use via `formatToParts`, and the chip renders it. Where the runtime itself prints the code (TRY under `en-US`), chip and cells still agree, which is the actual invariant asserted in `commercial-truth-exact-adapter.test.ts`.
+
+### TRUTH-TEAM-SETTINGS-51 · MEDIUM · CLOSED — the plan band's sentence and button were fixed strings on every plan
+
+- **What was wrong:** `settings-exact-adapter.ts:87` rendered the design's one sentence, "Unlocks Commercial Truth. Reports & Insights need Pro; Team seats need Scale.", for every workspace, and `app/(dashboard)/settings/legacy-page.tsx:138` hard-coded the button to "Upgrade to Pro" gated only on the presence of a managed-pricing URL. On a Pro or Scale workspace the button sold a plan the operator already held.
+- **Fix:** both are derived from the plan `/api/billing` resolved. The sentence is built from this app's real gates — Commercial Truth is behind no `PlanGate` at all, `/reports` and `/insights` are both `requiredPlan="pro"`, and adding a seat is `SEAT_PLAN = "scale"` — so Starter reads "Includes Commercial Truth. Reports & Insights need Pro; Team seats need Scale." and Scale reads "Includes Commercial Truth, Reports & Insights and Team seats." with nothing still owed. The button names the plan above the current one, and on the top plan reads "Manage plan" rather than an upgrade that does not exist. The design's band geometry is untouched; only the copy is derived.
+
+
 ### TRUTH-TEAM-SETTINGS-01 · HIGH · EXTRA — Commercial Truth renders five numbered sections the design has no equivalent of
 
 - **Design:** 14-commercial-truth.html is 194 lines end-to-end and contains exactly five top-level blocks: header (:2-6), navy band (:7-13), the 1.45fr/1fr grid (:14-82: Target pack, 'Where $100 of revenue goes', 'Consumed by', 'Change history'), 'Spend × ROAS scenario guide' (:83-131) and 'Where spend sits against these targets' (:132-193). No <h2> reads Decision Coverage, Country Economics, Promo Calendar, Site Health or Decision Calibration; neither does data-model.js.
@@ -3735,6 +3942,23 @@ introduced by the batch itself. All five are closed; the evidence is below.
 - **Design:** 16-team.html:67 <sc-for list="{{ permRows }}">; data-model.js:1186-1196 lists nine rows in order: 'View dashboards & evidence' [✓✓✓—], 'Open share-link reports' [✓✓✓✓], 'Comment & annotate', 'Approve automation proposals', 'Launch drafts · provider writes', 'Edit Commercial Truth pack', 'Manage integrations', 'Invite & manage members', 'Billing & plan'.
 - **Code:** app/(dashboard)/team/legacy-page.tsx:76-84 PERM_ROWS = seven rows — 'Read every dashboard' [true,true,true,true], 'Trigger provider writes (Launchpad, automation)', 'Invite and manage members', 'Edit workspace settings', 'Release the kill switch', 'Delete the workspace', 'Cannot be removed from the workspace'. No caption matches a design row, and row 1 grants Viewer full dashboard access where the design denies it.
 - **Fix:** Replace PERM_ROWS with the design's nine captions in the design's order and tick pattern; where the backend genuinely cannot enforce a row, keep the caption and mark the cells honestly rather than inventing new rows.
+- **Resolution: PARTIAL.** The captions and the order are the design's nine. The tick pattern is not, and deliberately so: this table is subtitled "enforced server-side on every call", so every cell is resolved from the real `minRole` on the route that performs the capability. Drawing a gate the server does not enforce would make the subtitle a lie, which is a worse defect than the one being fixed. But the fix note asked for the design's pattern as well, so the id is not closed.
+- **Measured, row by row** (cells are Owner / Operator / Analyst / Viewer; roles map Owner→workspace owner, Operator→`admin`, Analyst→`collaborator`, Viewer→`guest`):
+
+  | # | Capability | Design | Enforced | Same? | Why it differs |
+  | - | ---------- | ------ | -------- | ----- | -------------- |
+  | 1 | View dashboards & evidence | ✓ ✓ ✓ — | ✓ ✓ ✓ ✓ | no | The read routes gate on `minRole: "guest"`, so a Viewer really can read dashboards. The design denies it. |
+  | 2 | Open share-link reports | ✓ ✓ ✓ ✓ | ✓ ✓ ✓ ✓ | **yes** | The only row where the design and the server agree exactly. |
+  | 3 | Comment & annotate | ✓ ✓ ✓ — | — — — — | no | No comment or annotation write route exists on this backend. Ticking any role would promise a capability that cannot be exercised. |
+  | 4 | Approve automation proposals | ✓ ✓ — — | ✓ ✓ ✓ — | no | The approval route gates on `collaborator`, so an Analyst can approve. The design reserves it for Operator and above. |
+  | 5 | Launch drafts · provider writes | ✓ ✓ — — | ✓ ✓ ✓ — | no | Same: the write routes gate on `collaborator`, not `admin`. |
+  | 6 | Edit Commercial Truth pack | ✓ — — — | ✓ ✓ ✓ — | no | `/api/business-commercial-settings` gates on `collaborator`; the design reserves the pack for the Owner alone. |
+  | 7 | Manage integrations | ✓ — — — | ✓ ✓ ✓ — | no | `/api/integrations` gates on `collaborator`, not on ownership. |
+  | 8 | Invite & manage members | ✓ — — — | ✓ ✓ — — | no | `/api/team/**` gates on `admin`, which is the Operator role — not Owner-only. |
+  | 9 | Billing & plan | ✓ — — — | ! ! ! ! | no | `app/api/billing/route.ts` POST enforces authentication and no workspace role at all (defect 44). Every role reaches it, but that is a hole, not a grant, so it draws `!` rather than a tick. |
+
+- **So: 8 of the 9 rows differ from the design; only "Open share-link reports" matches.** Seven of those eight differ because the server's real gate is looser or tighter than the prototype's; the ninth differs because the server has no gate.
+- **What would close it:** either tightening the real `minRole` on rows 1 and 4–8 to match the design's intent, or amending the design. Neither is a presentation-layer change, so both are out of scope for this batch.
 
 ### TRUTH-TEAM-SETTINGS-24 · MEDIUM · WRONG — Spend bands use different names, ranges and verdict wording than the design's four-band ROAS ladder
 

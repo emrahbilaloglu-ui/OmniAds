@@ -585,6 +585,36 @@ export async function revokeInvite(input: {
   `;
 }
 
+/**
+ * Re-issues a pending invite.
+ *
+ * The design's invite row carries Resend beside Revoke. Resending mints a fresh
+ * token and pushes the expiry out by the same seven days a new invite gets, so
+ * the previously mailed link stops working — a resend that left the old token
+ * live would be a second, unrevoked way in.
+ *
+ * Only a pending invite for this business can be re-issued; a revoked or
+ * accepted one is left exactly as it is and the caller is told nothing changed.
+ */
+export async function resendInvite(input: {
+  inviteId: string;
+  businessId: string;
+}): Promise<{ id: string; token: string; expires_at: string } | null> {
+  await assertAccountStoreTablesReady(["invites"], "account_store:resend_invite");
+  const sql = getDb();
+  const token = randomBytes(32).toString("hex");
+  const rows = (await sql`
+    UPDATE invites
+    SET token = ${token},
+        expires_at = ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
+    WHERE id = ${input.inviteId}
+      AND business_id = ${input.businessId}
+      AND status = 'pending'
+    RETURNING id, token, expires_at
+  `) as Array<{ id: string; token: string; expires_at: string }>;
+  return rows[0] ?? null;
+}
+
 export async function listBusinessMembers(businessId: string) {
   const readiness = await getDbSchemaReadiness({
     tables: ["memberships", "users"],
@@ -602,12 +632,169 @@ export async function listBusinessMembers(businessId: string) {
       m.status,
       m.joined_at,
       u.name,
-      u.email
+      u.email,
+      -- The Team screen's "Last active" column. Membership rows only carry the
+      -- join date, which is not activity; the sign-in stamp is.
+      u.last_login_at
     FROM memberships m
     JOIN users u ON u.id = m.user_id
     WHERE m.business_id = ${businessId}
     ORDER BY m.joined_at ASC
   `;
+}
+
+/** The window the Team screen's "Actions · 28d" column is labelled with. */
+export const MEMBER_ACTION_WINDOW_DAYS = 28;
+
+/**
+ * Per-actor count of workspace writes in the trailing window.
+ *
+ * Five tables carry an actor id and a timestamp beside `business_id`, and
+ * together they are this backend's whole actor-stamped write ledger:
+ *
+ *  - `meta_ads_action_log` is the Meta provider-write log — pause, resume,
+ *    duplicate and the three Launchpad `launch_*` kinds, written by
+ *    `lib/meta/ads-action-log.ts`. This is the one that most literally means
+ *    "actions" under a Members table.
+ *  - `meta_automation_activity_ledger` is the automation control plane's
+ *    ledger; its three writers all live in
+ *    `lib/meta/automation-control-plane.ts` (kill-switch engage, kill-switch
+ *    release, decision-type mode change).
+ *  - `decision_workflow_events` is the live decision overlay's append-only
+ *    journal; one row per operator transition on a Meta decision
+ *    (`lib/decision-workflow-store.ts` `persistWorkflowTransition`).
+ *  - `command_center_action_journal` is the Command Center's workflow journal —
+ *    status/assignee/note/handoff events. Still read by the engine
+ *    (`lib/creative-decision-engine/jobs/operator-response-job.ts`).
+ *  - `command_center_action_execution_audit` is the Command Center's
+ *    provider-execution ledger; only `apply` and `rollback` rows count.
+ *
+ * ## Why no deduplication is needed
+ *
+ * No single act lands in two of these. Verified by reading every writer:
+ *  - the Command Center execution store
+ *    (`lib/archive/v1-v2-v21/lib/command-center-execution-store.ts:830`, the
+ *    only writer of the audit) imports just `@/lib/db`,
+ *    `provider-account-reference-store` and types. It performs no provider
+ *    write and never calls `lib/meta/ads-action-log.ts`, so a Command Center
+ *    apply cannot also appear in `meta_ads_action_log`.
+ *  - the same store never appends to `command_center_action_journal`, whose
+ *    only writer is `command-center-store.ts:1118` and whose event vocabulary
+ *    is workflow-card state, not provider calls.
+ *  - a Launchpad write reaches `meta_ads_action_log` only. Nothing live
+ *    imports `lib/archive/**` at all, so no live path can write either
+ *    Command Center table.
+ *  - an automation promotion writes `meta_automation_promotion_records` plus
+ *    `meta_automation_activity_ledger`; it touches neither ads-action-log nor
+ *    the Command Center tables.
+ * The unit of the count is therefore one provider write attempt or one
+ * control-plane act — not one button press. A bulk pause of twenty ads is
+ * twenty writes, which is what the design's "writes" label means.
+ *
+ * ## Two filters, both in SQL
+ *
+ *  - `meta_ads_action_log.dry_run IS NOT TRUE`. A dry run is an explicitly
+ *    simulated write that never reaches Meta, so counting it would inflate the
+ *    number with acts that changed nothing anywhere.
+ *  - **`status` is deliberately NOT filtered.** The vocabulary is `pending`,
+ *    `success`, `failure`, `silent_failure`; rows are inserted `pending` at
+ *    request time and settled asynchronously. This column sits under a Members
+ *    table and counts what a person did, not what Meta accepted. Filtering to
+ *    `success` would drop every in-flight write, so the same operator would
+ *    show a different number depending on when the page loaded; it would also
+ *    hide `silent_failure`, which is precisely the case worth surfacing, and
+ *    would systematically under-report the operators hitting trouble.
+ *
+ * `business_id` is TEXT on `decision_workflow_events` and UUID on the other
+ * four, which is why the placeholder differs per branch. Rows with no actor
+ * are excluded everywhere: an unattributed write cannot be attributed.
+ *
+ * Returns `null` — not an empty map — when the ledger cannot be read, so the
+ * caller can render "unknown" rather than a false zero. A member with no rows
+ * in a readable ledger is a real `0`.
+ */
+export async function getBusinessMemberActionCounts(
+  businessId: string,
+  windowDays: number = MEMBER_ACTION_WINDOW_DAYS,
+): Promise<Record<string, number> | null> {
+  const readiness = await getDbSchemaReadiness({
+    tables: [
+      "meta_ads_action_log",
+      "meta_automation_activity_ledger",
+      "decision_workflow_events",
+      "command_center_action_journal",
+      "command_center_action_execution_audit",
+    ],
+  }).catch(() => null);
+  // Partial readiness would produce a partial count presented as a total, so
+  // the gate is all-or-nothing.
+  if (!readiness?.ready) return null;
+
+  try {
+    const rows = (await getDb().query<{ actor_user_id: string; action_count: number }>(
+      `
+        WITH ledger AS (
+          SELECT requested_by::text AS actor_user_id
+          FROM meta_ads_action_log
+          WHERE business_id = $2::uuid
+            AND requested_by IS NOT NULL
+            AND dry_run IS NOT TRUE
+            AND requested_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT created_by::text AS actor_user_id
+          FROM meta_automation_activity_ledger
+          WHERE business_id = $2::uuid
+            AND created_by IS NOT NULL
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT actor_user_id::text AS actor_user_id
+          FROM decision_workflow_events
+          WHERE business_id = $1
+            AND actor_user_id IS NOT NULL
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT actor_user_id::text AS actor_user_id
+          FROM command_center_action_journal
+          WHERE business_id = $2::uuid
+            AND actor_user_id IS NOT NULL
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT actor_user_id::text AS actor_user_id
+          FROM command_center_action_execution_audit
+          WHERE business_id = $2::uuid
+            AND actor_user_id IS NOT NULL
+            AND operation IN ('apply', 'rollback')
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+        )
+        SELECT actor_user_id, count(*)::int AS action_count
+        FROM ledger
+        GROUP BY actor_user_id
+      `,
+      // The same id twice on purpose: $1 is compared against the one TEXT
+      // `business_id` column and $2 against the four UUID ones. Reusing a
+      // single placeholder for both makes PostgreSQL deduce two conflicting
+      // types for it and refuse the whole statement — the same trap
+      // `lib/decision-workflow-store.ts:250` records.
+      [businessId, businessId, windowDays],
+    )) as Array<{ actor_user_id: string; action_count: number }>;
+
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      if (!row.actor_user_id) continue;
+      counts[row.actor_user_id] = Number(row.action_count) || 0;
+    }
+    return counts;
+  } catch (error: unknown) {
+    // A malformed business id or a revoked grant must not blank the roster —
+    // but a silent `null` would also hide a broken statement behind an em
+    // dash, so the failure is logged rather than swallowed.
+    console.error("[account-store] member_action_counts_failed", {
+      businessId,
+      windowDays,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 export async function updateMemberRole(input: {

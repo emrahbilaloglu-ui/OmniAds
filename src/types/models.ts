@@ -269,6 +269,8 @@ export interface OverviewMetricCatalogEntry {
 export interface OverviewAttributionRow {
   channel: string;
   spend: number | null;
+  /** Share of known paid spend in percentage points (0-100). */
+  spendShare: number | null;
   revenue: number | null;
   roas: number | null;
   conversions: number | null;

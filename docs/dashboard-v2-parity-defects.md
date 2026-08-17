@@ -9,17 +9,18 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **132 EXTRA**, **162
-WRONG**, **71 GEOMETRY**, and **64 MISSING**.
+px/weight/hex value differs → match it. Current totals are **134 EXTRA**, **179
+WRONG**, **81 GEOMETRY**, and **64 MISSING**.
 
-**429 verified divergences, 132 of them high severity.** The original audit
+**458 verified divergences, 139 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
-(`SHELL-10`–`SHELL-20`).
+(`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
+findings (`OVERVIEW-28`–`OVERVIEW-56`).
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
 | Shell chrome (left rail + top bar)            |       20 |    0 |
-| Overview                                      |       27 |    3 |
+| Overview                                      |       56 |   10 |
 | Meta Decision Center                          |       34 |   12 |
 | Creative Studio                               |       38 |   16 |
 | Launchpad + Automation                        |       23 |    4 |
@@ -206,6 +207,72 @@ such rather than being misreported as a second durable browser route family.
 
 ## Overview
 
+### Batch 2 implementation status
+
+Canonical source read in full for this batch: markup lines **147–367**, state
+and model lines **3178–3257** and **3295–3336**, and comparison/interaction
+lines **4415–4426** of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+| ID          | Status | Current proof                                                                                                                            |
+| ----------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| OVERVIEW-01 | CLOSED | Store & customer value is a fixed four-card projection: AOV, New customers, Repeat rate and LTV : CAC.                                   |
+| OVERVIEW-02 | CLOSED | The required New customers card binds to the real GA4 first-time-purchaser value/series and falls back to `—`.                           |
+| OVERVIEW-03 | CLOSED | Web analytics always includes the fourth Conv rate card, backed only by GA4 purchase CVR.                                                |
+| OVERVIEW-04 | CLOSED | Attribution has the canonical fixed columns; the design-absent column chooser, Clicks and CTR are absent.                                |
+| OVERVIEW-05 | CLOSED | Edit cost model is the canonical inert Overview affordance; no Overview cost-model drawer is mounted.                                    |
+| OVERVIEW-06 | CLOSED | Overview status chips, tags and sync state use the literal canonical positive, negative, warning, info and automation colours.           |
+| OVERVIEW-07 | CLOSED | Every comparison spark tooltip includes the current line and the canonical previous-value/delta second line when comparison data exists. |
+| OVERVIEW-08 | CLOSED | Attribution headings are static text, with the design's fixed `Spend ↓` caption and no sort controls.                                    |
+| OVERVIEW-09 | CLOSED | Store sparklines are always green and Web sparklines always amber, independent of trend direction.                                       |
+| OVERVIEW-10 | CLOSED | The hero metric caption is pinned to `Revenue`.                                                                                          |
+| OVERVIEW-11 | CLOSED | The first hero tile caption is pinned to `Ad Spend`.                                                                                     |
+| OVERVIEW-12 | CLOSED | The fourth hero tile caption is pinned to `Conv Rate · GA4`.                                                                             |
+| OVERVIEW-13 | CLOSED | Platform cards expose `Purchases`, not a generic Conversions caption.                                                                    |
+| OVERVIEW-14 | CLOSED | Web captions and order are Sessions, Engagement, Avg session and Conv rate.                                                              |
+| OVERVIEW-15 | CLOSED | Store captions are the canonical AOV, New customers, Repeat rate and LTV : CAC literals.                                                 |
+| OVERVIEW-16 | CLOSED | The fourth hero tile uses the literal canonical Percent glyph.                                                                           |
+| OVERVIEW-17 | CLOSED | Share snapshot preserves the server operation but renders no toast, URL panel, copy action or dismiss control.                           |
+| OVERVIEW-18 | CLOSED | Share snapshot is a text-only button with no leading glyph.                                                                              |
+| OVERVIEW-19 | CLOSED | Compact stat labels use the canonical 9px computed size.                                                                                 |
+| OVERVIEW-20 | CLOSED | Attribution table headings use the canonical 10px computed size.                                                                         |
+| OVERVIEW-21 | CLOSED | AI brief kind tags use the canonical 9px computed size.                                                                                  |
+| OVERVIEW-22 | CLOSED | The Overview eyebrow uses the canonical 11px computed size.                                                                              |
+| OVERVIEW-23 | CLOSED | Both page-head buttons use the canonical 14px horizontal padding.                                                                        |
+| OVERVIEW-24 | CLOSED | Hero-tile delta chips use 11.5px type and a 3px internal gap.                                                                            |
+| OVERVIEW-25 | CLOSED | Hero-tile icon squares use the literal canonical icon/background colours.                                                                |
+| OVERVIEW-26 | CLOSED | The cost-model affordance always reads `Edit cost model`; data availability never changes its caption.                                   |
+| OVERVIEW-27 | CLOSED | Blended ROAS always retains `· target`; a real commercial-truth target is formatted to two decimals and unavailable data renders `—`.    |
+| OVERVIEW-28 | CLOSED | Hero placement ignores persisted pin order and always renders Revenue followed by Ad Spend, Blended ROAS, Orders and Conv Rate.          |
+| OVERVIEW-29 | CLOSED | Every required hero, attribution, platform, store and web shell remains mounted; unavailable producer values render `—`.                 |
+| OVERVIEW-30 | CLOSED | Meta account rows are collapsed into one provider-level Meta card/attribution row, with ROAS and CPA recalculated from totals.           |
+| OVERVIEW-31 | CLOSED | Attribution is fixed to Meta Ads, Google Ads, Klaviyo and Organic · GA4; TikTok, Pinterest and Snapchat are absent.                      |
+| OVERVIEW-32 | CLOSED | Missing channel measures remain `null` and render `—`; no absent Klaviyo or Organic value is fabricated as zero.                         |
+| OVERVIEW-33 | CLOSED | Attribution Share is spend share over known paid spend, matching the canonical column contract; it is not filtered revenue share.        |
+| OVERVIEW-34 | CLOSED | Ad Spend uses the canonical info-blue treatment even when its comparison delta is positive.                                              |
+| OVERVIEW-35 | CLOSED | Web tiles retain the canonical order instead of producer-array order.                                                                    |
+| OVERVIEW-36 | CLOSED | LTV : CAC uses ratio formatting and Avg session uses duration formatting, including `—` for unavailable values.                          |
+| OVERVIEW-37 | CLOSED | Spark tooltip current lines use the metric's canonical formatter rather than a generic number formatter.                                 |
+| OVERVIEW-38 | CLOSED | AI brief is bounded to exactly Opportunity, Risk and Action rows; no fourth producer item can expand the card.                           |
+| OVERVIEW-39 | CLOSED | A missing hero comparison renders the canonical neutral chip treatment instead of the app's generic gray fallback.                       |
+| OVERVIEW-40 | CLOSED | Compact spark tooltip position, marker radius/stroke and hover hit geometry match the canonical chart primitive.                         |
+| OVERVIEW-41 | CLOSED | Platform sync pill dot gap and horizontal padding match the literal canonical geometry.                                                  |
+| OVERVIEW-42 | CLOSED | Attribution channel icon-to-label spacing matches the canonical row geometry.                                                            |
+| OVERVIEW-43 | CLOSED | Compact metric values do not inherit the design-absent `adv-num` tracking treatment.                                                     |
+| OVERVIEW-44 | CLOSED | Negative deltas use the canonical Unicode minus `−`, never an ASCII hyphen.                                                              |
+| OVERVIEW-45 | CLOSED | Regenerate uses the canonical caption and button radius.                                                                                 |
+| OVERVIEW-46 | CLOSED | Overview controls do not add native `title` tooltips absent from the canonical DOM.                                                      |
+| OVERVIEW-47 | CLOSED | All four hero-tile icons use the canonical literal SVG paths, including the receipt-text Ad Spend glyph.                                 |
+| OVERVIEW-48 | CLOSED | Attribution's first header and body cells use 16px padding on both sides.                                                                |
+| OVERVIEW-49 | CLOSED | Each platform pill derives `Synced <age> ago` only from a successful real `latestSync.finishedAt`; unavailable evidence renders `—`.     |
+| OVERVIEW-50 | CLOSED | Filter channels remains the canonical unbound input, with no filtering, invented empty row, or focus-border repaint.                     |
+| OVERVIEW-51 | CLOSED | Tooltip formatting is card-specific at all value sizes; currency/session compaction and integer cards follow the canonical formatter.    |
+| OVERVIEW-52 | CLOSED | Each chart has one relative wrapper and retains an empty SVG shell when real trend data is unavailable.                                  |
+| OVERVIEW-53 | CLOSED | Attribution uses fixed `en-US` punctuation instead of the host browser locale.                                                           |
+| OVERVIEW-54 | CLOSED | Share and Regenerate retain canonical opacity and caption while their existing in-flight write guards are active.                        |
+| OVERVIEW-55 | CLOSED | Share snapshot fails closed when the real business name is absent rather than minting a fabricated `Workspace` report.                   |
+| OVERVIEW-56 | CLOSED | The page header uses the canonical flex contract without shared app-only child flex-basis/grow rules.                                    |
+
 ### OVERVIEW-01 · HIGH · EXTRA — "Store & customer value" renders up to 10 tiles; the design defines exactly 4
 
 - **Design:** 00-overview.html:170 "<sc-for list="{{ storeTiles }}" as="s" hint-placeholder-count="4">"; data-model.js:152-156 storeTiles is a fixed, named four: "{ k: 'AOV' }", "{ k: 'New customers' }", "{ k: 'Repeat rate' }", "{ k: 'LTV : CAC' }". No gross-sales, refund, return or revenue-per-customer tile exists anywhere in the fragment. Verified by reading all 220 lines of the fragment and data-model.js:151-156.
@@ -367,6 +434,180 @@ such rather than being misreported as a second durable browser route family.
 - **Design:** data-model.js:122 "label: 'Blended ROAS · target 3.80'" — the second heroTile.
 - **Code:** app/api/overview-summary/route.ts:468-469 "id: "pins-blended-roas", title: "Blended ROAS"" — no target segment; metric-band.tsx:163 prints the title verbatim. The app does carry a target concept (lib/business-operating-mode.ts:157 "targetPack.targetRoas"), so the segment is implementable.
 - **Fix:** Append the workspace's configured target to the label as "Blended ROAS · target <value>", falling back to plain "Blended ROAS" when no target pack is set.
+
+### OVERVIEW-28 · HIGH · WRONG — Persisted pin preferences can reorder or replace the canonical five-metric hero
+
+- **Design:** markup lines 164–204 and model lines 3205–3227 define one Revenue hero followed by the fixed Ad Spend, Blended ROAS, Orders and Conv Rate tiles; there is no pin-preference state in the canonical model.
+- **Code before:** the page resolved a stored metric-catalog pin list and used those keys to select/reorder the hero and four supporting metrics.
+- **Resolution:** Overview ignores stored pin order and projects the canonical five IDs in the canonical order while preserving the real metric payloads.
+
+### OVERVIEW-29 · HIGH · WRONG — Required cards disappear when a producer or metric is unavailable instead of rendering the design's fixed shells with `—`
+
+- **Design:** markup lines 164–360 use fixed placeholder counts for the hero, attribution, platform, store and web regions; model lines 3205–3257 define their required identities.
+- **Code before:** provider filtering, metric filtering and empty-array branches removed whole required cards when a producer was disconnected or returned no value.
+- **Resolution:** every canonical shell remains mounted and unavailable measurements are represented as `null`/`—` under R1.
+
+### OVERVIEW-30 · HIGH · WRONG — Multiple Meta accounts render as multiple platform/attribution entries instead of one Meta provider rollup
+
+- **Design:** markup lines 268–308 and model lines 3241–3253 define exactly one Meta card and one Meta Ads attribution row.
+- **Code before:** account-level `overview.platforms` rows flowed through directly, so a workspace with multiple Meta accounts could expand the canonical provider count.
+- **Resolution:** account rows are collapsed by provider; spend, revenue, conversions and clicks are summed and ROAS/CPA are recalculated from those totals.
+
+### OVERVIEW-31 · HIGH · WRONG — Attribution channels come from enabled integrations and omit the canonical Organic row
+
+- **Design:** markup lines 227–266 and model lines 3230–3240 pin four rows in order: Meta Ads, Google Ads, Klaviyo and Organic · GA4.
+- **Code before:** the table inherited dynamic provider rows, including TikTok, Pinterest or Snapchat, and had no guaranteed Organic · GA4 row.
+- **Resolution:** the adapter returns exactly the four canonical channels in design order; unsupported providers remain confined to Integrations.
+
+### OVERVIEW-32 · HIGH · WRONG — Missing attribution values are fabricated as numeric zero
+
+- **Design:** the fixed rows are presentation identities, not evidence that a producer supplied measurements; R1 requires unavailable real values to render `—`.
+- **Code before:** absent provider/channel values were coerced through zero-valued fallbacks, making unavailable Klaviyo or Organic measurements look measured.
+- **Resolution:** missing values stay `null` through the view model and render `—`; zero is shown only when the producer actually supplies zero.
+
+### OVERVIEW-33 · HIGH · WRONG — Attribution Share is calculated from filtered revenue even though the canonical column is spend share
+
+- **Design:** markup lines 238 and 253–258 place Share alongside the spend-led attribution model; model lines 3230–3240 derive the displayed percentages from paid spend proportions.
+- **Code before:** the Share cell used each displayed row's fraction of filtered revenue, changing both its meaning and values.
+- **Resolution:** `spendShare` is computed against known paid spend and stored as percentage points; unavailable denominators render `—`.
+
+### OVERVIEW-34 · MEDIUM · WRONG — Ad Spend changes to a positive green treatment when spend rises
+
+- **Design:** model lines 3210–3216 give Ad Spend the info-blue icon/chip family; that semantic colour is fixed independently of comparison direction.
+- **Code before:** the generic trend-tone resolver painted any positive delta green, including Ad Spend.
+- **Resolution:** the Ad Spend tile owns the canonical info-blue treatment while its real comparison text remains unchanged.
+
+### OVERVIEW-35 · MEDIUM · WRONG — Web analytics tile order follows producer order instead of the canonical order
+
+- **Design:** markup lines 340–360 and model lines 3254–3257 order the tiles Sessions → Engagement → Avg session → Conv rate.
+- **Code before:** the API/page order placed Avg session before Engagement and omitted or appended Conv rate conditionally.
+- **Resolution:** the page projects the four named IDs in canonical order, independent of producer-array order.
+
+### OVERVIEW-36 · MEDIUM · WRONG — LTV : CAC and Avg session use generic numeric formatting
+
+- **Design:** model lines 3250–3257 render LTV : CAC as a ratio and Avg session as a duration, not as currency/decimal output.
+- **Code before:** both values passed through the generic compact-number/currency formatter, producing incorrect units and punctuation.
+- **Resolution:** the named cards use ratio and duration formatters respectively, and unavailable inputs remain `—`.
+
+### OVERVIEW-37 · MEDIUM · WRONG — Spark tooltip current lines ignore each metric's display formatter
+
+- **Design:** markup lines 172–357 and model lines 3295–3336 format tooltip values with the same metric semantics as their cards.
+- **Code before:** the tooltip's current line used one generic number formatter, so currency, percent, ratio and duration cards diverged.
+- **Resolution:** each sparkline receives its metric formatter for the current and previous lines.
+
+### OVERVIEW-38 · MEDIUM · EXTRA — AI brief can render an unbounded producer list beyond the canonical three rows
+
+- **Design:** markup lines 310–337 and model lines 3318–3336 define exactly Opportunity, Risk and Action.
+- **Code before:** every returned brief item was mapped, so a fourth producer item expanded the card and changed downstream geometry.
+- **Resolution:** the presentation adapter selects the three canonical kinds in canonical order and supplies no extra row.
+
+### OVERVIEW-39 · MEDIUM · WRONG — A missing hero comparison uses the app's generic gray chip instead of the canonical neutral chip
+
+- **Design:** markup lines 184–201 and model lines 3205–3227 define the neutral comparison treatment used when no directional comparison is present.
+- **Code before:** the shared fallback tone substituted a different gray background, border and ink.
+- **Resolution:** the no-comparison branch uses the canonical neutral chip colours and geometry while keeping its value honest.
+
+### OVERVIEW-40 · LOW · GEOMETRY — Compact chart hover marker and tooltip geometry differ from the canonical spark primitive
+
+- **Design:** markup lines 174–357 and interaction model lines 4415–4426 pin the tooltip offset and the hovered dot's radius/stroke relationship.
+- **Code before:** the compact chart reused the hero chart's larger hover target/marker and a different tooltip offset.
+- **Resolution:** compact charts use the canonical marker radius, stroke, hit region and tooltip position.
+
+### OVERVIEW-41 · LOW · GEOMETRY — Platform sync pill uses the wrong dot gap and horizontal padding
+
+- **Design:** markup lines 272–277 pin the sync pill's compact inline gap and horizontal inset.
+- **Code before:** the shared status-pill spacing produced a wider pill than the canonical Meta/Google cards.
+- **Resolution:** the platform card applies the literal canonical gap and horizontal padding.
+
+### OVERVIEW-42 · LOW · GEOMETRY — Attribution channel icon-to-label spacing is too wide
+
+- **Design:** markup lines 244–251 define the icon wrapper and its literal gap to the channel label.
+- **Code before:** a generic flex-gap utility expanded every channel cell.
+- **Resolution:** the channel cell uses the canonical icon/text gap.
+
+### OVERVIEW-43 · LOW · GEOMETRY — Compact metric values inherit design-absent numeric letter spacing
+
+- **Design:** markup lines 290–357 sets the compact values' size/weight but no tracking override.
+- **Code before:** `adv-num` added numeric letter spacing to platform, store and web values.
+- **Resolution:** compact values no longer carry `adv-num`; their computed tracking matches normal canonical inheritance.
+
+### OVERVIEW-44 · LOW · WRONG — Negative comparison text uses an ASCII hyphen instead of the canonical minus glyph
+
+- **Design:** model lines 3295–3336 construct negative deltas with Unicode minus `−`.
+- **Code before:** tooltip/chip formatting emitted ASCII `-`, changing both the glyph and its advance width.
+- **Resolution:** negative deltas consistently use Unicode minus `−`.
+
+### OVERVIEW-45 · LOW · GEOMETRY — AI brief Regenerate control has the wrong radius and caption geometry
+
+- **Design:** markup lines 314–320 pin the `Regenerate` caption and the button's literal radius/insets.
+- **Code before:** the shared button primitive supplied a different radius and spacing.
+- **Resolution:** the control uses the canonical caption, radius and padding while retaining the existing refresh operation.
+
+### OVERVIEW-46 · LOW · WRONG — Overview adds native browser tooltips through `title` attributes absent from the design
+
+- **Design:** markup lines 147–367 contain no native `title` tooltip on Overview controls; authored hover surfaces are limited to chart tooltips.
+- **Code before:** icon/status/control elements added explanatory `title` attributes, creating browser-native overlays outside the canonical interaction model.
+- **Resolution:** design-absent `title` attributes are removed from Overview; accessible names remain available through visible labels or ARIA where required.
+
+### OVERVIEW-47 · LOW · GEOMETRY — Ad Spend uses a different receipt glyph from the canonical literal path
+
+- **Design:** model line 3296 defines `M4 2v20… M8 7h8 M8 11h8 M8 15h5`, a receipt-text glyph, and markup lines 186–188 paint that path in the first hero tile.
+- **Code before:** `metric-band.tsx` imported Lucide `Receipt`, whose current package path contains a dollar-sign receipt and rasterises differently.
+- **Resolution:** all four hero tiles now render the literal paths from model lines 3296–3299, so package icon revisions cannot alter the design.
+
+### OVERVIEW-48 · LOW · GEOMETRY — Attribution's first column has 12px right padding instead of 16px
+
+- **Design:** markup lines 223 and 236 pin the first `th` to `9px 16px` and first `td` to `11px 16px`.
+- **Code before:** shared `.adv-table` supplied 12px right padding and only overrode the first cell's left side, shifting all later column boundaries.
+- **Resolution:** the first header/body cells own the exact two-sided padding inline.
+
+### OVERVIEW-49 · HIGH · WRONG — Platform freshness pills show readiness labels rather than the real last successful sync age
+
+- **Design:** markup line 285 and model lines 3313/3319 define `Synced <age> ago` in the positive pill.
+- **Code before:** Overview passed the generic readiness resolver, so the same slot could read `Active`, `Core ready`, `Needs attention`, or a blue fabricated fallback.
+- **Resolution:** the slot derives age only from a successful `latestSync.finishedAt`; failed, invalid or missing evidence renders the same green shell with `Synced —` under R1.
+
+### OVERVIEW-50 · MEDIUM · EXTRA — Filter channels mutates the table and invents an empty-state row
+
+- **Design:** markup line 216 is an unbound input with no handler and `outline:none`; the four attribution rows remain fixed.
+- **Code before:** controlled React state filtered the rows, emitted `No attributed channels for this window.`, and shared focus CSS repainted the border blue.
+- **Resolution:** the input is unbound and owns the literal inline geometry; it neither changes the fixed rows nor gains an app-only focus colour.
+
+### OVERVIEW-51 · MEDIUM · WRONG — One generic tooltip formatter changes card semantics at low and high values
+
+- **Design:** model lines 3295–3336 define a formatter per metric: money/session series always use one-decimal `k`, purchase/customer series use rounded integers, and ratios/percentages pin their own precision.
+- **Code before:** generic compacting emitted `900` for 900 Sessions, `1.2k` for 1,200 Purchases and `1.2m` above one million.
+- **Resolution:** `metric-format.ts` dispatches by canonical metric id, preserving those exact contracts at every value size.
+
+### OVERVIEW-52 · LOW · GEOMETRY — Chart callers add a second wrapper and missing data removes the SVG shell
+
+- **Design:** every chart in markup lines 167–206 and 296–357 has one relative wrapper containing the SVG, conditional hover nodes and scrubber.
+- **Code before:** each caller wrapped `AdvSparkline`, which then rendered a second relative div; an unavailable series returned a plain height div instead of SVG.
+- **Resolution:** margin belongs to the single `AdvSparkline` wrapper and unavailable data retains an empty labelled SVG without fabricated paths.
+
+### OVERVIEW-53 · MEDIUM · WRONG — Attribution punctuation depends on the operator's browser locale
+
+- **Design:** model lines 3301–3306 pin comma thousands and dot decimals.
+- **Code before:** attribution used `toLocaleString(undefined)`, so a Turkish locale could render dot thousands and comma decimals.
+- **Resolution:** attribution values use explicit `en-US` punctuation while retaining the real workspace currency symbol and `—` when that symbol is unavailable.
+
+### OVERVIEW-54 · LOW · GEOMETRY — In-flight write guards dim Share and Regenerate to 55% opacity
+
+- **Design:** markup lines 156 and 275 define no alternate disabled paint or caption.
+- **Code before:** the existing guarded buttons inherited `.adv-btn:disabled { opacity:.55 }` while their requests were pending.
+- **Resolution:** the write guards and disabled semantics remain intact, but the controls explicitly retain canonical opacity, cursor and captions.
+
+### OVERVIEW-55 · LOW · WRONG — Share snapshot can fabricate `Workspace` as a report owner/name
+
+- **Design:** R1 requires real data or `—`; no `Workspace` seed/fallback appears in the Overview contract.
+- **Code before:** a missing business name minted `${businessName ?? "Workspace"} snapshot`, producing a confident invented report name.
+- **Resolution:** sharing is fail-closed until both the authorized business id and its real name are present; no provider/report write is attempted otherwise.
+
+### OVERVIEW-56 · LOW · GEOMETRY — Shared page-header child rules add flex basis/grow absent from Overview
+
+- **Design:** markup lines 148–157 define only the wrapping header row and its two ordinary child divs.
+- **Code before:** `.adv-page-head` added a 360px basis/grow to the identity child plus action-cluster flex rules, changing computed layout and long-name wrap points.
+- **Resolution:** Overview uses the literal header row utilities and ordinary children, leaving the separate sub-1024 responsive contract outside the reference range.
 
 ---
 

@@ -1,46 +1,32 @@
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
+import styles from "./page.module.css";
 
-function summarizeLineage(intent: MetaLaunchIntent) {
-  const sources = [
-    intent.lineage.sourceDecisionId ? "Decision" : null,
-    intent.lineage.creativeBriefId ? "Brief" : null,
-    intent.lineage.sourceDraftId ? "Draft" : null,
-  ].filter(Boolean);
-  return sources.length > 0 ? sources.join(" -> ") : "Manual origin";
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-function statusClass(status: MetaLaunchIntent["status"]) {
-  if (status === "succeeded") return "chip chip--healthy";
-  if (
-    status === "failed" ||
-    status === "partially_succeeded" ||
-    status === "silent_failure" ||
-    status === "validation_blocked" ||
-    status === "write_blocked"
-  ) {
-    return "chip chip--action";
+/** Only persisted provider payload names are eligible for display. */
+export function launchIntentDisplayName(intent: MetaLaunchIntent) {
+  const payload = record(intent.requestPayload);
+  if (!payload) return "—";
+
+  if (intent.operation === "new_campaign") {
+    const campaign = record(payload.campaign);
+    const name = typeof campaign?.name === "string" ? campaign.name.trim() : "";
+    return name || "—";
   }
-  return "chip chip--ghost";
+
+  const targets = Array.isArray(payload.targets) ? payload.targets : [];
+  const firstTarget = record(targets[0]);
+  const targetName =
+    typeof firstTarget?.targetCampaignName === "string"
+      ? firstTarget.targetCampaignName.trim()
+      : "";
+  return targetName || "—";
 }
 
-function resultFacts(intent: MetaLaunchIntent) {
-  const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult;
-  if (!receipt) return [];
-  return [
-    receipt.campaignId ? `campaign ${receipt.campaignId}` : null,
-    receipt.adsetIds.length > 0
-      ? `${receipt.adsetIds.length} ad set${receipt.adsetIds.length === 1 ? "" : "s"}`
-      : null,
-    receipt.adIds.length > 0
-      ? `${receipt.adIds.length} ad${receipt.adIds.length === 1 ? "" : "s"}`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-}
-
-/**
- * The design closes each receipt on a provider link. It only renders when the
- * receipt actually carries the account and the campaign the write created.
- */
 function adsManagerLink(intent: MetaLaunchIntent) {
   const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult;
   const account = intent.providerAccountId?.replace(/^act_/, "").trim();
@@ -52,76 +38,97 @@ function adsManagerLink(intent: MetaLaunchIntent) {
   return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?${params.toString()}`;
 }
 
-function formatTimestamp(value: string) {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? new Date(time).toLocaleString() : "time unavailable";
+function isLandedReceipt(intent: MetaLaunchIntent) {
+  return (
+    (intent.status === "succeeded" ||
+      intent.status === "partially_succeeded" ||
+      intent.status === "failed" ||
+      intent.status === "silent_failure") &&
+    adsManagerLink(intent) != null
+  );
 }
 
+function formatTimestamp(value: string | null, actor: string | null) {
+  if (!value) return "—";
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "—";
+  const date = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(time));
+  return `${date} · by ${actor?.trim() || "—"}`;
+}
+
+function terminalTimestamp(intent: MetaLaunchIntent) {
+  return (
+    intent.resultReceipt?.completedAt ??
+    intent.completedAt ??
+    intent.errorReceipt?.recordedAt ??
+    null
+  );
+}
+
+/** Canonical Launchpad receipt row: id, name, PAUSED, time and provider link. */
 export function LaunchIntentReceiptRows({
   intents,
 }: {
   intents: MetaLaunchIntent[];
 }) {
+  const landedIntents = intents.filter(isLandedReceipt);
   return (
-    <div className="divide-y divide-[var(--border)]" data-testid="launch-intent-receipts">
-      {intents.map((intent) => {
-        const facts = resultFacts(intent);
-        const adsManagerHref = adsManagerLink(intent);
-        return (
-          <div key={intent.id} className="px-4 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-[12.5px] font-medium text-[var(--ink)]">
-                  {intent.operation === "new_campaign"
-                    ? "New campaign"
-                    : "Add to existing"}
-                </p>
-                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                  {summarizeLineage(intent)} · PAUSED only
-                </p>
-              </div>
-              <span className="flex shrink-0 items-center gap-2">
-                {/* The design stamps every landed launch PAUSED — the state the
-                    write boundary actually creates. */}
-                <span className="inline-flex rounded-md bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--adc-caution-fg)]">
-                  PAUSED
-                </span>
-                <span className={statusClass(intent.status)}>
-                  {intent.status.replaceAll("_", " ")}
-                </span>
+    <div data-testid="launch-intent-receipts">
+      {landedIntents.length > 0 ? (
+        landedIntents.map((intent) => {
+          const adsManagerHref = adsManagerLink(intent);
+          return (
+            <div
+              key={intent.id}
+              className={styles.exactReceiptRow}
+              data-testid="launchpad-receipt-row"
+            >
+              <span className={styles.exactReceiptId}>{intent.id || "—"}</span>
+              <span className={styles.exactReceiptName}>
+                {launchIntentDisplayName(intent)}
               </span>
-            </div>
-            <p className="mono mt-2 truncate text-[10px] text-[var(--muted)]" title={intent.id}>
-              {intent.id} · {formatTimestamp(intent.updatedAt)}
-            </p>
-            {facts.length > 0 ? (
-              <p className="mono mt-1 text-[10px] text-[var(--ink-3)]">
-                receipt: {facts.join(" · ")}
-              </p>
-            ) : null}
-            {intent.errorReceipt ? (
-              <p className="mono mt-1 text-[10px] text-[var(--danger)]">
-                {intent.errorReceipt.code} — {intent.errorReceipt.message}
-              </p>
-            ) : null}
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <p className="m-0 text-[10.5px] text-[var(--muted)]">
-                Immutable receipt · no automatic retry or rollback
-              </p>
+              <span className={styles.exactReceiptStatus}>
+                {intent.requestedStatus}
+              </span>
+              <span className={styles.exactReceiptTime}>
+                {formatTimestamp(terminalTimestamp(intent), null)}
+              </span>
               {adsManagerHref ? (
                 <a
                   href={adsManagerHref}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[12.5px] font-semibold text-[var(--adv-accent)]"
+                  className={styles.exactReceiptLink}
                 >
                   Open in Ads Manager ↗
                 </a>
-              ) : null}
+              ) : (
+                <span className={styles.exactReceiptUnavailable}>—</span>
+              )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      ) : (
+        <div
+          className={styles.exactReceiptRow}
+          data-testid="launchpad-receipt-empty"
+        >
+          <span className={styles.exactReceiptId}>—</span>
+          <span className={styles.exactReceiptName}>—</span>
+          <span className={styles.exactReceiptStatus} data-empty="true">
+            —
+          </span>
+          <span className={styles.exactReceiptTime}>—</span>
+          <span className={styles.exactReceiptUnavailable}>—</span>
+        </div>
+      )}
     </div>
   );
 }

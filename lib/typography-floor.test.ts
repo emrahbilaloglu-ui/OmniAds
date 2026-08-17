@@ -52,6 +52,18 @@ const EXACT_CREATIVE_TYPE_FILE =
   "components/creatives/CreativeStudioExact.module.css";
 const EXACT_CREATIVE_TYPE_START =
   "/* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */";
+const EXACT_LAUNCHPAD_TYPE_FILE =
+  "app/(dashboard)/platforms/meta/launchpad/page.module.css";
+const EXACT_LAUNCHPAD_TYPE_START =
+  "/* dashboard-v2-exact-typography:start launchpad */";
+const EXACT_LAUNCHPAD_TYPE_END =
+  "/* dashboard-v2-exact-typography:end launchpad */";
+const EXACT_AUTOMATION_TYPE_FILE =
+  "app/(dashboard)/platforms/meta/automation/automation.module.css";
+const EXACT_AUTOMATION_TYPE_START =
+  "/* dashboard-v2-automation-exact-reference-type:start */";
+const EXACT_AUTOMATION_TYPE_END =
+  "/* dashboard-v2-automation-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -61,7 +73,11 @@ function exactReferenceTypeBounds(file: string, source: string) {
         ? [EXACT_META_TYPE_START, EXACT_META_TYPE_END]
         : file === EXACT_CREATIVE_TYPE_FILE
           ? [EXACT_CREATIVE_TYPE_START, null]
-        : null;
+          : file === EXACT_LAUNCHPAD_TYPE_FILE
+            ? [EXACT_LAUNCHPAD_TYPE_START, EXACT_LAUNCHPAD_TYPE_END]
+            : file === EXACT_AUTOMATION_TYPE_FILE
+              ? [EXACT_AUTOMATION_TYPE_START, EXACT_AUTOMATION_TYPE_END]
+              : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
   const markerStart = source.indexOf(startMarker);
@@ -230,6 +246,77 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".breakdownRow > span:first-child", size: 10.5 },
       { selector: ".breakdownRow > span:nth-child(3)", size: 10.5 },
       { selector: ".breakdownNote", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Launchpad values narrow and exact", () => {
+    const source = readFileSync(EXACT_LAUNCHPAD_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_LAUNCHPAD_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_LAUNCHPAD_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_LAUNCHPAD_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactLaunchpad = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactLaunchpad.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    expect(declarations).toEqual([
+      {
+        selector:
+          ".exactHeader p, .exactReceiptId, .exactModeChip, .exactValidationChip",
+        size: 11,
+      },
+      {
+        selector:
+          ".exactStartChip, .exactSectionHeader span, .exactReceiptStatus",
+        size: 10.5,
+      },
+      { selector: ".exactDraftTable th", size: 10 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Automation values narrow and exact", () => {
+    const source = readFileSync(EXACT_AUTOMATION_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_AUTOMATION_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_AUTOMATION_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_AUTOMATION_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactAutomation = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactAutomation.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
+      { selector: ".statusPill, .killNote", size: 11.5 },
+      { selector: ".promotionCount", size: 11 },
+      {
+        selector:
+          ".confirmationCount, .confirmationHint, .sectionHint, .autonomyTier",
+        size: 10.5,
+      },
+      {
+        selector:
+          ".sectionFootnote, .rulesTable th, .ledgerTable th, .progressValue",
+        size: 10,
+      },
+      { selector: ".autonomyNext, .ledgerUnknown", size: 11 },
+      { selector: ".ledgerTime", size: 11.5 },
     ]);
   });
 

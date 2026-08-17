@@ -9,16 +9,18 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **138 EXTRA**, **188
-WRONG**, **87 GEOMETRY**, and **66 MISSING**.
+px/weight/hex value differs → match it. Current totals are **138 EXTRA**, **194
+WRONG**, **87 GEOMETRY**, and **70 MISSING**.
 
-**479 verified divergences, 150 of them high severity.** The original audit
+**489 verified divergences, 159 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
 (`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
 findings (`OVERVIEW-28`–`OVERVIEW-56`). The Batch 3 full-source re-read added 10
 Meta Decision Center findings (`META-35`–`META-44`). The Batch 4 full-source and
 route-contract re-read added 11 Creative Studio findings
-(`CREATIVE-39`–`CREATIVE-49`).
+(`CREATIVE-39`–`CREATIVE-49`). The Batch 5 full-source, route, authority and
+data-contract re-read added 10 Launchpad + Automation findings
+(`LAUNCHPAD-AUTOMATION-24`–`LAUNCHPAD-AUTOMATION-33`).
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
@@ -26,7 +28,7 @@ route-contract re-read added 11 Creative Studio findings
 | Overview                                      |       56 |   10 |
 | Meta Decision Center                          |       44 |   16 |
 | Creative Studio                               |       49 |   23 |
-| Launchpad + Automation                        |       23 |    4 |
+| Launchpad + Automation                        |       33 |   13 |
 | Google Ads Overview + Advisor                 |       35 |   13 |
 | Google Ads Search + Products                  |       26 |   11 |
 | Google Ads Assets & Audiences + Plan          |       21 |    4 |
@@ -1325,143 +1327,252 @@ the marker-locked `typography-floor.test.ts` / `studio-contrast-floor.test.ts`.
 
 ## Launchpad + Automation
 
+### Batch 5 implementation status
+
+Canonical source read in full for this batch: Launchpad markup lines
+**1019–1076**, Automation markup lines **1080–1198**, Launchpad/Automation model
+lines **3647–3669**, and approval/autonomy/rule model lines **4382–4405** of
+`Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+The legacy, `/c/[businessId]/meta/**`, and `/app/meta/**` entry points now reach
+the same Launchpad and Automation presentation bodies with server-authorized
+business/account scope.
+
+`CLOSED` means the source-level DOM, geometry, route or truthfulness divergence
+has been removed and is covered by focused tests. It does **not** claim a
+zero-RGBA pixel diff or pretend that the prototype model is production data.
+`BLOCKED · B1` and `BLOCKED · backend` mean the exact fixed shell is present and
+unavailable values are honestly `—`, but the populated canonical state cannot
+be produced until the named typed contract exists. `B1` identifies the planned
+proposal/rules contract tranche; `backend` identifies existing control-plane
+read-contract gaps. Neither status is a UI workaround.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| LAUNCHPAD-AUTOMATION-01 | CLOSED | The source landing contains no Templates library or template controls. |
+| LAUNCHPAD-AUTOMATION-02 | CLOSED | The extra Source panel is deleted; the three canonical start cards are the only source-state entry points. |
+| LAUNCHPAD-AUTOMATION-03 | CLOSED | Source state renders the bare exact landing; guarded wizard chrome appears only after an enabled mode is entered. |
+| LAUNCHPAD-AUTOMATION-04 | CLOSED | Drafts and Launch receipts are always-open articles, never `details` disclosures. |
+| LAUNCHPAD-AUTOMATION-05 | CLOSED | Launchpad starts with only the canonical eyebrow and h1; account/currency/chip/back-link chrome is absent. |
+| LAUNCHPAD-AUTOMATION-06 | CLOSED | A landed receipt row contains only id, persisted name, PAUSED, deterministic time and the Ads Manager link. |
+| LAUNCHPAD-AUTOMATION-07 | CLOSED | No tail paragraph renders after Launch receipts. |
+| LAUNCHPAD-AUTOMATION-08 | CLOSED | Automation starts with only the canonical eyebrow and h1; account scope is route-owned and invisible in the desktop body. |
+| LAUNCHPAD-AUTOMATION-09 | CLOSED | Receipt children use the canonical single horizontal flex row. |
+| LAUNCHPAD-AUTOMATION-10 | CLOSED | Both Launchpad card headers use 13px/16px padding and a 15px/600 Space Grotesk h2. |
+| LAUNCHPAD-AUTOMATION-11 | CLOSED | The exact Drafts header includes `validation runs before any provider call`. |
+| LAUNCHPAD-AUTOMATION-12 | CLOSED | All three literal Automation footnotes are restored. |
+| LAUNCHPAD-AUTOMATION-13 | CLOSED | The notice uses the exact immutable `LaunchIntent lineage` sentence. |
+| LAUNCHPAD-AUTOMATION-14 | CLOSED | The exact readiness sentence renders only for the matching persisted supervised tier; unproven or different authority remains `—`. |
+| LAUNCHPAD-AUTOMATION-15 | CLOSED | Both kill-switch statuses are static read-only spans; release controls and mutation handlers are absent from this screen. |
+| LAUNCHPAD-AUTOMATION-16 | CLOSED | Every Draft row has exactly one action and no delete control. |
+| LAUNCHPAD-AUTOMATION-17 | CLOSED | The Draft cell contains only the persisted draft name. |
+| LAUNCHPAD-AUTOMATION-18 | CLOSED | Rebuild, Duplicate and Manual use the source's purple, blue and dashed-neutral role treatments. |
+| LAUNCHPAD-AUTOMATION-19 | CLOSED | The notice uses the exact shield outline, center alignment, 12px/14px padding and 13px amber copy. |
+| LAUNCHPAD-AUTOMATION-20 | CLOSED | Both `Fired · 28d` and `Active` rule headers are right-aligned. |
+| LAUNCHPAD-AUTOMATION-21 | CLOSED | Launchpad's direct source-state stack uses the canonical 16px rhythm. |
+| LAUNCHPAD-AUTOMATION-22 | CLOSED | The fixed `Launches · new spend` manual-policy row is present with locked progress and exact copy. |
+| LAUNCHPAD-AUTOMATION-23 | CLOSED | The kill-switch footnote matches the canonical sentence verbatim. |
+| LAUNCHPAD-AUTOMATION-24 | CLOSED | Legacy, canonical business and `/app` compatibility routes share the same exact bodies instead of route-specific studio clients. |
+| LAUNCHPAD-AUTOMATION-25 | CLOSED | `/c` routes authenticate, require membership, resolve the assigned Meta account and forward explicit `null`; URL/store state cannot restore an unassigned account or trigger scoped reads. |
+| LAUNCHPAD-AUTOMATION-26 | CLOSED | At every width below 1024px both screens expose only their existing read-only mobile surface; desktop write controls are hidden. |
+| LAUNCHPAD-AUTOMATION-27 | CLOSED | URL lineage identifiers are never authority. No server-owned eligibility payload exists today, so Rebuild/Duplicate stay disabled with `—` titles/descriptions; Manual is the only available start. |
+| LAUNCHPAD-AUTOMATION-28 | CLOSED | Workflow status is not relabelled as validation. Draft mode binds only `reuse_creative` → Duplicate and `rebuild_creative` → Rebuild; new/unknown modes and every untyped validation verdict render `—`. |
+| LAUNCHPAD-AUTOMATION-29 | CLOSED | Only terminal intents with a real campaign id/account link render. Time resolves `receipt.completedAt` → `intent.completedAt` → `errorReceipt.recordedAt`, and absent typed actor evidence renders `by —`. |
+| LAUNCHPAD-AUTOMATION-30 | BLOCKED · B1 | No account-scoped proposal/expiry/evidence contract or approve/modify/dismiss server boundary can populate the confirmation queue; its exact shell renders `—`. |
+| LAUNCHPAD-AUTOMATION-31 | BLOCKED · B1 | No typed deterministic-rule definition, fired-count or toggle contract can populate Rules; the five-column shell and disabled `+ New rule` remain honest. |
+| LAUNCHPAD-AUTOMATION-32 | BLOCKED · backend | Current control data lacks min-ROAS, quiet-hours and per-action clean-approval progress/threshold fields. Promotion count renders only when `readCompleteness.promotionRecords === complete`; otherwise it is `—`. |
+| LAUNCHPAD-AUTOMATION-33 | BLOCKED · backend | Activity records lack typed actor, entity and result/receipt tuple fields; real time/action render while those three source columns remain `—`. |
+
+#### Backend contracts still required
+
+| Phase | Contract | Required before populated parity | Current safe behavior |
+| ----- | -------- | -------------------------------- | --------------------- |
+| B1 | Launchpad draft validation | Persisted verdict, blocker count and validation timestamp tied to a draft revision. | Validation is `—`; workflow `failed` is not treated as a verdict. |
+| B1 | Automation confirmation queue | Account-scoped proposal id/action/entity/reason/evidence/expiry plus guarded approve, modify and dismiss receipts. | Fixed queue geometry renders `—`; there is no mutation or fake success. |
+| B1 | Automation rules | Typed definitions, trigger/then/mode, 28-day fired count, locked state and guarded toggle/new-rule mutations. | Fixed five-column geometry renders `—`; New rule is disabled. |
+| Backend | Guardrails, promotion completeness and autonomy progress | Min-ROAS, quiet-hours and per-action clean-approval numerator/threshold/unlock policy, with explicit collection completeness. | Only persisted supported fields/modes render; promotion count requires a complete read and no prototype progress is inferred. |
+| Backend | Automation activity tuple | Actor, action, entity and typed result/receipt fields with account/business provenance. | Real timestamp/message render; unsupported actor/entity/result cells are `—`. |
+
+Executable evidence: `launchpad-exact.test.tsx`,
+`launch-intent-receipts.test.tsx`, `launchpad-authorized-scope.test.tsx`,
+`launchpad-mobile-contract.test.ts`, the Launchpad and Automation `/c` route
+tests, both `/app` dispatcher tests, `automation/page.test.tsx`, and the
+marker-locked `typography-floor.test.ts`.
+
 ### LAUNCHPAD-AUTOMATION-01 · HIGH · EXTRA — Launchpad renders a whole "Templates" library section the design never defines
 
-- **Design:** 03-launchpad.html, all 60 lines re-read. After the head (2-5) the section contains exactly: amber notice bar (6-9), the {{ launchStarts }} grid (10-19), the Drafts article (20-45), the Launch receipts article (46-57), then </section> at 58. No templates list, no "Auto" chip, no "Use" chip, no placeholder chips. data-model.js Launchpad block defines only launchStarts, drafts, receipts.
-- **Code:** app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx:2742-2825 — a third "<LaunchpadLibraryCard icon={<LayoutTemplate/>} title="Templates">" with per-row "chip chip--auto" "Auto", "chip chip--ghost" "Use", dashed mono chips "budget: placeholder — set at use" and "countries: placeholder", plus a per-row delete button (2810-2822).
-- **Fix:** Remove the Templates card from the Launchpad landing (or move it off this screen). The landing after the notice bar is exactly: start cards, Drafts, Launch receipts.
+- **Design:** Canonical lines 1019–1076 contain only the header, notice, three start cards, Drafts and Launch receipts; model lines 3647–3660 define no template surface.
+- **Current resolution:** `LaunchpadExactLanding` renders that exact sequence and no template list/control; `launchpad-exact.test.tsx` rejects `Templates`.
 
 ### LAUNCHPAD-AUTOMATION-02 · HIGH · EXTRA — Launchpad renders an extra "Source" panel with three handoff rows
 
-- **Design:** 03-launchpad.html:19-20 — the launch-start grid closes at line 19 and the Drafts <article> opens at line 20 with nothing between them. No "Source" eyebrow, no "Decision handoff"/"Reviewed brief"/"Manual or saved setup" rows, no "Creates PAUSED" chip anywhere in the fragment.
-- **Code:** app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx:2540-2613 — "<section className={styles.sourcePanel} data-testid="launchpad-source-step">" with "<p>Source</p><h2>Continue from evidence or start manually</h2>", a "chip chip--warn" "Creates PAUSED", and three "styles.sourceRow" rows each with its own button or link.
-- **Fix:** Remove the Source panel from the landing. The three launch-start cards are the design's only entry points.
+- **Design:** Canonical lines 1028–1038 close the three-card grid and open Drafts immediately; no second source chooser exists.
+- **Current resolution:** Source state mounts only `LaunchpadExactLanding`; its three fixed cards are the sole entry points and no `launchpad-source-step` remains.
 
 ### LAUNCHPAD-AUTOMATION-03 · HIGH · EXTRA — Launchpad wraps the landing in wizard chrome (frame header + sticky Back/Continue footer) the design has no counterpart for
 
-- **Design:** 03-launchpad.html:1 — "<section data-screen-label="Launchpad" style="display:flex;flex-direction:column;gap:16px">" is a plain stack; lines 1-58 contain no framing card, no mode/lineage strip and no footer bar.
-- **Code:** legacy-page.tsx:1749-1783 renders "<div className={styles.wizardFrame}>" with "styles.wizardHeader" showing "<strong>{launchpadModeLabel(mode)}</strong>" and "{sourceLineageLabel} · {providerAccountId} · {currency}"; :2056-2122 renders "<div className={styles.footer}>" (page.module.css:450-458 "position: sticky; bottom: 0") with the math line, "Create changes provider state to PAUSED and cannot begin delivery.", a Back and a Continue button. Both render whenever "step !== "progress"", and "step" starts at "source" (:591 "useState<WizardStep>(requestedStep)", :196-204 defaulting to "source"). The step rail itself is correctly "hidden" on source (:1808).
-- **Fix:** Suppress the wizard frame header and the sticky footer while step === "source" so the landing is the bare stack: notice bar, start cards, Drafts, Launch receipts.
+- **Design:** Canonical line 1019 defines a plain 16px-gap stack through line 1076, with no wizard frame/header/footer.
+- **Current resolution:** `step === "source"` returns the bare exact landing. The existing guarded wizard and its chrome mount only after a supported mode entry.
 
 ### LAUNCHPAD-AUTOMATION-04 · HIGH · WRONG — Drafts and Launch receipts are collapsed <details> disclosures instead of always-open cards
 
-- **Design:** 03-launchpad.html:20 and :46 — both are "<article style="border-radius:14px;background:#ffffff;border:1px solid #E4E8F0">" with the table/rows rendered directly inside; neither is a disclosure and neither header carries a count.
-- **Code:** legacy-page.tsx:2863-2884 "function LaunchpadLibraryCard(...)" returns "<details className={styles.librarySection}><summary className={styles.librarySummary}>{icon}<strong>{title}</strong><span>{count}</span></summary><div className={styles.libraryBody}>…" with no "open" attribute, and page.module.css:408-448 adds no "[open]" override — so Drafts (:2633) and Launch receipts (:2829) are both closed on first paint, showing only a title, an icon and a row count.
-- **Fix:** Render Drafts and Launch receipts as plain always-visible <article> cards (radius 14px, 1px #E4E8F0, white) with content shown, and drop the count from the header.
+- **Design:** Canonical lines 1038–1063 and 1064–1075 define two always-open articles with their content directly mounted.
+- **Current resolution:** Both exact cards are plain `article` elements; no `details`, summary control or header count is rendered.
 
 ### LAUNCHPAD-AUTOMATION-05 · MEDIUM · EXTRA — Launchpad page head carries a currency sub-line, two chips, an ad-account <select> and a "← Decisions" link
 
-- **Design:** 03-launchpad.html:2-5 — the head <div> holds exactly the mono eyebrow p "Meta · Guarded write surface" and the h1 "Launchpad". Nothing else.
-- **Code:** legacy-page.tsx:2253-2296 — "<div className="mono mt-1 …">{businessName} · {currency ?? "currency unavailable"}</div>" (2253-2255), "<span className="chip chip--warn">Everything launches PAUSED</span>" (2257-2259), "<label …>Ad account<select …>" (2261-2286), "<span className="chip chip--ghost">guards checked at write time</span>" (2287) and the "← Decisions" Link (2288-2296).
-- **Fix:** Reduce the head to the eyebrow and the h1. Drop the two chips, the currency sub-line and the "← Decisions" link; if the ad-account scope must stay selectable, it belongs in the shell chrome that already owns scope.
+- **Design:** Canonical lines 1020–1023 contain exactly the mono eyebrow and `Launchpad` h1.
+- **Current resolution:** `.exactHeader` contains only those two nodes; business, currency, account, guard and Decisions-link chrome is absent from source state.
 
 ### LAUNCHPAD-AUTOMATION-06 · MEDIUM · EXTRA — Launch receipt rows add a status chip, a lineage line, a receipt-facts line and a retry/rollback sentence
 
-- **Design:** 03-launchpad.html:49-55 — a receipt row has exactly five children: mono id, bold name, the PAUSED badge, the time, and the right-aligned "Open in Ads Manager ↗". No second status chip and no additional copy lines.
-- **Code:** app/(dashboard)/platforms/meta/launchpad/LaunchIntentReceiptRows.tsx:89-91 "<span className={statusClass(intent.status)}>{intent.status.replaceAll("_"," ")}</span>" beside the PAUSED badge; :79-81 "{summarizeLineage(intent)} · PAUSED only"; :97-101 "receipt: {facts.join(" · ")}"; :107-110 "Immutable receipt · no automatic retry or rollback".
-- **Fix:** Strip the row to the design's five elements — drop the status chip, the lineage line, the receipt-facts line and the retry/rollback sentence.
+- **Design:** Canonical lines 1067–1073 define exactly id, name, PAUSED, time and Ads Manager link.
+- **Current resolution:** `LaunchIntentReceiptRows` emits only those five children; lifecycle status, lineage, facts and retry/rollback prose are absent.
 
 ### LAUNCHPAD-AUTOMATION-07 · MEDIUM · EXTRA — Launchpad ends with a "supports Sales campaigns only" paragraph the design does not have
 
-- **Design:** 03-launchpad.html:57-58 — the Launch receipts </article> is immediately followed by </section>; there is no trailing copy after the last card.
-- **Code:** legacy-page.tsx:2854-2858 — "<p className="text-[11.5px] leading-relaxed text-[var(--muted)]">Launchpad currently supports Sales campaigns only. Create paths land PAUSED. Activation inside Adsecute is Proposed/contract required…</p>".
-- **Fix:** Remove the trailing paragraph; the notice bar already carries the PAUSED boundary statement the design specifies.
+- **Design:** Canonical lines 1074–1076 close Launch receipts and then the section with no trailing content.
+- **Current resolution:** `LaunchpadExactLanding` ends after the receipt article; the old Sales-campaign tail is not mounted.
 
 ### LAUNCHPAD-AUTOMATION-08 · MEDIUM · EXTRA — Automation page head adds an in-page "Ad account" select
 
-- **Design:** 04-automation.html:2-5 — the head <div> is only the mono eyebrow "Meta · Supervision control plane" and the h1 "Automation"; nothing else, and no scope control appears anywhere in the remaining 116 lines.
-- **Code:** automation-view.tsx:533-555 — "<label className={styles.canonicalAccountSelect}><span>Ad account</span><select …>" inside "styles.canonicalHeader", absolutely positioned at the head's bottom-right by automation.module.css:1157-1171.
-- **Fix:** Remove the in-page ad-account select from the Automation head; scope belongs to the shell top bar. (I am not counting the adjacent "canonicalScopeAlert" at :556-563 — it only renders when a business is unselected or a fetch failed, which is honest error handling.)
+- **Design:** Canonical lines 1081–1084 contain only the mono eyebrow and `Automation` h1; no body account selector exists through line 1198.
+- **Current resolution:** The exact desktop header contains those two nodes only. The `/c` route resolves provider scope before rendering and forwards it without visible body chrome.
 
 ### LAUNCHPAD-AUTOMATION-09 · MEDIUM · GEOMETRY — Launch receipt rows are stacked multi-line blocks instead of one horizontal flex line
 
-- **Design:** 03-launchpad.html:49 — "<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid #F3F5F9">" with the id (50), name (51), PAUSED badge (52), time (53) and the link pushed right by "margin-left:auto" (54) all on that one line.
-- **Code:** LaunchIntentReceiptRows.tsx:71-121 — "<div className="px-4 py-3">" containing a column stack: a header flex row, then the mono id+timestamp on its own line (:94-96), then optional facts/error lines, then a wrapping flex row that carries the Ads Manager link (:107-120).
-- **Fix:** Lay each receipt out as a single "display:flex;align-items:center;gap:12px" row: mono id, the row's primary label, PAUSED badge, timestamp, then the Ads Manager link pushed right. (I am not asking for the design's "r.name": MetaLaunchIntent stores no campaign name, so the app's operation label is honest — only the geometry is wrong.)
+- **Design:** Canonical line 1067 pins one horizontal flex row with 12px gap and 12px/16px padding; line 1072 pushes the link right.
+- **Current resolution:** `.exactReceiptRow` implements that one-line flex geometry and `.exactReceiptLink` owns `margin-left:auto`.
 
 ### LAUNCHPAD-AUTOMATION-10 · MEDIUM · GEOMETRY — Drafts / Launch receipts card headings are 12px bold in a 38px strip instead of the design's 15px Space Grotesk h2 in a 13px 16px header row
 
-- **Design:** 03-launchpad.html:21-22 and :47 — the card header is "<div style="padding:13px 16px;border-bottom:1px solid #EDF0F6…">" containing "<h2 style="font-family:'Space Grotesk';font-size:15px;font-weight:600;color:#0E1526">Drafts</h2>" (and the same for "Launch receipts").
-- **Code:** legacy-page.tsx:2876-2880 renders the title as "<strong>{title}</strong>" inside "styles.librarySummary", and page.module.css:416-436 sets ".librarySummary { min-height: 38px; padding: 8px 11px }" with ".librarySummary strong { font-size: 12px }" — no h2, no display font, no 13px/16px header padding, and it adds a leading icon the design has no slot for.
-- **Fix:** Emit a real "<h2>" at 15px/600 in the display font inside a "padding:13px 16px; border-bottom:1px solid #EDF0F6" header row, and drop the leading icon.
+- **Design:** Canonical lines 1039–1041 and 1065 pin 13px/16px header padding and a 15px/600 Space Grotesk h2.
+- **Current resolution:** Both `.exactSectionHeader` blocks use that geometry/type and render a real h2 without a leading icon.
 
 ### LAUNCHPAD-AUTOMATION-11 · MEDIUM · MISSING — Drafts card header loses the "validation runs before any provider call" hint
 
-- **Design:** 03-launchpad.html:21-24 — the header row is "justify-content:space-between" with the h2 "Drafts" opposite "<span style="font-family:'IBM Plex Mono';font-size:10.5px;color:#7A869E">validation runs before any provider call</span>".
-- **Code:** legacy-page.tsx:2874-2882 — the header is "<summary className={styles.librarySummary}>{icon}<strong>{title}</strong><span>{count}</span></summary>"; the right-hand slot (page.module.css:438-443, "margin-left:auto") holds a row count. The string "validation runs before any provider call" does not appear in the file.
-- **Fix:** Put the mono 10.5px #7A869E hint on the right of the Drafts card header, replacing the count.
+- **Design:** Canonical lines 1039–1041 place the literal validation hint opposite the Drafts h2 at 10.5px mono.
+- **Current resolution:** The exact Drafts header renders that literal span; no row count replaces it.
 
 ### LAUNCHPAD-AUTOMATION-12 · MEDIUM · MISSING — Automation drops three fixed footnote sentences and prints "—" instead
 
-- **Design:** 04-automation.html:51 "approving executes inside the guardrails above · every outcome lands in the ledger with a receipt · expired proposals re-evaluate on the next snapshot"; :76 "rules never write directly — they raise proposals into the confirmation queue (or hard-block, for guards)"; :93 "promotion reviews weekly on clean-approval streaks · any error demotes instantly". All three are literal markup text, not {{ }} bindings.
-- **Code:** app/(dashboard)/platforms/meta/automation/automation-view.tsx:737, :783 and :816 — each is "<p className={styles.canonicalFootnote}>—</p>".
-- **Fix:** Restore the three literal sentences. They are static policy copy, so no backend is required to show them honestly.
+- **Design:** Canonical lines 1130, 1155 and 1172 contain three literal policy footnotes rather than data bindings.
+- **Current resolution:** The confirmation, Rules and Autonomy articles render those three exact sentences; no `—` substitutes them.
 
 ### LAUNCHPAD-AUTOMATION-13 · MEDIUM · WRONG — Launchpad notice bar drops "LaunchIntent lineage" and says "receipt" instead
 
-- **Design:** 03-launchpad.html:8 — "…Every write records an immutable LaunchIntent lineage."
-- **Code:** legacy-page.tsx:1743-1747 — "Activation is a separate manual step with its own confirmation. Every write records an immutable receipt."
-- **Fix:** Restore the design's sentence verbatim: "Every write records an immutable LaunchIntent lineage."
+- **Design:** Canonical lines 1024–1027 end the warning with `Every write records an immutable LaunchIntent lineage.`
+- **Current resolution:** `launchpad-notice` renders that exact sentence and the canonical shield outline.
 
 ### LAUNCHPAD-AUTOMATION-14 · MEDIUM · WRONG — Readiness card replaces the design's fixed autonomy sentence with a derived authority string
 
-- **Design:** 04-automation.html:25 — "<p …>Every action requires operator confirmation. Per-action auto-execute is <b>locked · contract required</b> — promotion records will unlock tiers per action kind.</p>", literal markup with a bolded clause, not a binding.
-- **Code:** automation-view.tsx:696-698 — "<p className={styles.readinessCopy}>Effective authority: <b>{authority.mode}</b>. {authority.reason}</p>".
-- **Fix:** Render the design's sentence in the Readiness card with "locked · contract required" bolded. If the derived authority string must stay visible, place it outside this card's body copy.
+- **Design:** Canonical lines 1101–1105 define the readiness tier, fixed supervised-policy sentence and promotion-count slot.
+- **Current resolution:** The exact sentence and bold clause render only when persisted authority is the matching supervised tier; other/unproven authority renders `—` rather than false policy copy.
 
 ### LAUNCHPAD-AUTOMATION-15 · LOW · EXTRA — Kill switch card turns the "This business" pill into a button and adds a release-confirmation group plus a notice paragraph
 
-- **Design:** 04-automation.html:9-11 — both rows end in an identical static "<span …background:#0E9F6E…>ENABLED</span>", and the card has exactly four children: kicker, two rows, the 11.5px copy.
-- **Code:** automation-view.tsx:583-621 renders "<button type="button" className={styles.writeStatus} … onClick={…}>" for the "This business" row; :628-651 adds a "releaseActions" group with "Cancel" and "Confirm release (Admin)"; :652-656 adds "<p className={styles.killSwitchNotice}>{actionNotice}</p>".
-- **Fix:** Match the design by rendering "This business" as a static pill like "Global writes". Note this removes a real safety control, so if the engage/release flow must stay, relocate it out of the summary card rather than deleting it.
+- **Design:** Canonical lines 1086–1090 define a kicker, two static status spans and one footnote—no button or release group.
+- **Current resolution:** Both real statuses render as handler-free `span[data-read-only=true]`; the exact screen exposes no POST path, release confirmation or notice extension.
 
 ### LAUNCHPAD-AUTOMATION-16 · LOW · EXTRA — Each Drafts row carries a second delete button; the design gives a row exactly one action
 
-- **Design:** 03-launchpad.html:40 — the action cell is "<td style="padding:11px 16px;text-align:right"><button …>{{ d.btn }}</button></td>": one button, no icon button.
-- **Code:** legacy-page.tsx:2715-2731 — a "Resume" button followed by "<button … aria-label={"Delete draft ${draft.name}"}><Trash2 className="h-3.5 w-3.5"/></button>" in the same cell.
-- **Fix:** Remove the per-row trash button so each Drafts row exposes the single action the design defines (or move deletion into the row's action menu).
+- **Design:** Canonical lines 1052–1059 give each Draft row exactly one final-cell action.
+- **Current resolution:** Each real row renders one supported Resume button (or `—` when unavailable); no delete action is mounted.
 
 ### LAUNCHPAD-AUTOMATION-17 · LOW · EXTRA — Drafts rows add a summary sub-line and a stored-error line under the draft name
 
-- **Design:** 03-launchpad.html:36 — the Draft cell is exactly "<td style="padding:11px 16px;font-weight:600;color:#0E1526">{{ d.name }}</td>": one line, nothing beneath it.
-- **Code:** legacy-page.tsx:2677-2687 — inside the same cell, "<span className="mt-0.5 block text-[11px] …">{summarizeDraft(draft)}</span>" and a conditional "<span …>stored error: {storedError}</span>".
-- **Fix:** Keep only the draft name in the Draft cell to match the design's single-line row.
+- **Design:** Canonical line 1054 binds one draft-name text node in the first cell.
+- **Current resolution:** `.exactDraftName` renders only the persisted name (or `—`); summaries and stored-error lines are absent.
 
 ### LAUNCHPAD-AUTOMATION-18 · LOW · GEOMETRY — Launch-start cards use one uniform border/background/chip colour instead of the design's three per-position roles
 
-- **Design:** 03-launchpad.html:12-13 binds "border:{{ s.border }};background:{{ s.bg }}" and "background:{{ s.chipBg }};color:{{ s.chipFg }}"; data-model.js launchStarts gives card 1 "1px solid #DACBF2" on "#FDFBFF" with chip #F1EBFB/#6C41BE, card 2 "1px solid #CBD9FF" on "#FBFCFF" with chip #EAF0FF/#2F6BFF, card 3 "1px dashed #C9D2E0" on "#ffffff" with chip #F1F4F9/#45526B.
-- **Code:** legacy-page.tsx:2518 — every card is "border border-[var(--adv-border)] bg-[var(--adv-surface)]", and :2520-2522 every chip is "bg-[var(--adv-fill-2)] text-[var(--adv-ink-2)]".
-- **Fix:** Give the three cards their own border colour, background tint and chip pair by position: purple, blue, then dashed grey on white.
+- **Design:** Canonical lines 1028–1035 plus model lines 3647–3650 bind purple Rebuild, blue Duplicate and dashed-neutral Manual roles.
+- **Current resolution:** `.exactStartCard[data-role]` and its chip rules pin those three source-specific border/background/ink pairs.
 
 ### LAUNCHPAD-AUTOMATION-19 · LOW · GEOMETRY — Launchpad notice bar copy is 12px grey instead of 13px amber, and the bar is top-aligned with 13px side padding
 
-- **Design:** 03-launchpad.html:6 "display:flex;align-items:center;…padding:12px 14px"; :8 "<p style="margin:0;font-size:13px;color:#7A4A08">" wrapping both the bolded lead and the sentence.
-- **Code:** app/(dashboard)/platforms/meta/launchpad/page.module.css:20-44 — ".scopeBlock { align-items: flex-start; padding: 12px 13px }", ".scopeBlock strong { font-size: 12px }", ".scopeBlock p { color: var(--ink-3); font-size: 12px }".
-- **Fix:** Set both the bold lead and the sentence to 13px #7A4A08, and use "padding: 12px 14px" with "align-items: center".
+- **Design:** Canonical lines 1024–1027 pin center alignment, 12px/14px padding and 13px `#7A4A08` copy.
+- **Current resolution:** `.exactNotice` and its paragraph use those literal values; the marker-locked typography test protects the canonical size.
 
 ### LAUNCHPAD-AUTOMATION-20 · LOW · GEOMETRY — Rules table header "Fired · 28d" is left-aligned; the design right-aligns it
 
-- **Design:** 04-automation.html:61 — "<th style="padding:9px 12px;text-align:right;…">Fired · 28d</th>" (the Active th on :62 is also right-aligned).
-- **Code:** automation.module.css:1569-1580 ".rulesTable th, .activityTable th { … text-align: left }" with only ".rulesTable th:last-child { text-align: right }" (:1587-1590), while the cells are right-aligned by ".rulesTable td:nth-child(4) { … text-align: right }" (:1620-1625).
-- **Fix:** Add ".rulesTable th:nth-child(4) { text-align: right; }" so the header lines up with its right-aligned numbers.
+- **Design:** Canonical lines 1137–1141 right-align both `Fired · 28d` and `Active`.
+- **Current resolution:** `.rulesTable th:nth-last-child(-n + 2)` right-aligns those exact two headers.
 
 ### LAUNCHPAD-AUTOMATION-21 · LOW · GEOMETRY — Drafts and Launch receipts sit 6px apart instead of the section's 16px rhythm
 
-- **Design:** 03-launchpad.html:1 — the screen section is "display:flex;flex-direction:column;gap:16px", and the Drafts (20) and Launch receipts (46) articles are direct siblings of it, so they are 16px apart like every other block on the page.
-- **Code:** legacy-page.tsx:2629 wraps them in "<div className={styles.libraryGrid}>", and page.module.css:402-406 sets ".libraryGrid { display: grid; grid-template-columns: minmax(0,1fr); gap: 6px }".
-- **Fix:** Let the two cards be direct children of the page stack (or set the wrapper's gap to 16px) so their spacing matches the rest of the screen.
+- **Design:** Canonical line 1019 makes every direct Launchpad section child part of one 16px vertical rhythm.
+- **Current resolution:** `.exactLanding` is the single 16px-gap stack and Drafts/receipts are direct siblings within it.
 
 ### LAUNCHPAD-AUTOMATION-22 · LOW · MISSING — Autonomy ladder is missing the "Launches · new spend" policy row
 
-- **Design:** data-model.js autonomy[3] "{ kind: 'Launches · new spend', tier: 'Manual · by design', tBg: C.warn[0], tFg: C.warn[1], w: '0%', barBg: '#E4E8F0', progress: 'locked', next: 'New spend never automates. Launches stay a deliberate human act, always PAUSED first.' }", rendered by 04-automation.html:80-92.
-- **Code:** automation-view.tsx:79-84 "LADDER_ACTION_KINDS = ["pause","bid","budget","creative"]"; no launches/new-spend entry exists in the file, and the ladder maps only that array (:790-813).
-- **Fix:** Add a non-provider-backed row for launches: tier "Manual · by design", 0%-width bar, progress "locked", and the design's next-step sentence. This is fixed product policy (Launchpad already only creates PAUSED), so it needs no backend — but it must be hard-coded as policy, not faked as a control-plane row.
+- **Design:** Canonical lines 1157–1172 and model lines 4386–4391 require four rows, the last fixed as `Launches · new spend` / Manual / locked.
+- **Current resolution:** `autonomyFor()` always appends that policy row with the exact tier, locked progress and PAUSED sentence; it is not presented as a provider-backed mode.
 
 ### LAUNCHPAD-AUTOMATION-23 · LOW · WRONG — Kill switch footnote copy is rewritten
 
-- **Design:** 04-automation.html:11 — "Flipping either switch blocks every provider write instantly — server-enforced, not a UI state."
-- **Code:** automation-view.tsx:625-628 — "Business STOP blocks new Meta provider writes for this business — server-enforced, not a UI state."
-- **Fix:** Restore the design's sentence verbatim in the kill-switch card.
+- **Design:** Canonical line 1090 pins `Flipping either switch blocks every provider write instantly — server-enforced, not a UI state.`
+- **Current resolution:** `.killNote` renders that sentence verbatim beneath the two real read-only statuses.
+
+### LAUNCHPAD-AUTOMATION-24 · HIGH · WRONG — Route families rendered different Launchpad/Automation bodies
+
+- **Design:** Markup lines 1019–1198 define one Launchpad and one Automation screen identity; there is no route-family variant of either body.
+- **Code before:** Legacy `/platforms/meta/**`, canonical `/c/[businessId]/meta/**` and compatibility `/app/meta/**` entry points could terminate in different clients/presentation trees.
+- **Resolution:** Both `/c` pages import the same exact legacy bodies used by the legacy family, and the `/app` dispatcher delegates to those authorized `/c` pages. Focused dispatcher tests lock that convergence.
+
+### LAUNCHPAD-AUTOMATION-25 · HIGH · WRONG — Client URL/store scope could outrank the server-authorized Meta account
+
+- **Design:** The source carries no in-page account selector on either screen. Production account scope therefore has to be resolved before the exact body without adding visual chrome.
+- **Code before:** A client could recover a `providerAccountId` from URL/store state after the server had resolved no assigned account, risking cross-account reads and a noncanonical account picker/error replacement.
+- **Resolution:** Both `/c` routes authenticate, require business membership and call `resolveProviderAccountId`; optional body props preserve an explicit `null` as authoritative. Launchpad performs zero account reads/writes in that state, while Automation removes account-owned activity and keeps only real business-wide control rows.
+
+### LAUNCHPAD-AUTOMATION-26 · HIGH · WRONG — Tablet widths exposed desktop write surfaces instead of the retained read-only mobile contract
+
+- **Design:** Desktop exactness begins at 1024px; below that threshold the delivery plan explicitly retains the existing read-only/mobile behavior rather than claiming source pixel parity.
+- **Code before:** The Launchpad/Automation responsive switch occurred below the required boundary, so a 768px viewport could reach dense desktop controls.
+- **Resolution:** Both exact stylesheets switch at `max-width:1023px`; focused 768px tests prove the mobile-only bodies contain no button, click handler or write request.
+
+### LAUNCHPAD-AUTOMATION-27 · HIGH · WRONG — Prototype start-card identities could create unverified Rebuild/Duplicate modes
+
+- **Design:** Model lines 3647–3650 bind named Rebuild and Duplicate source entities, but those names are prototype fixture data, not production evidence.
+- **Authority boundary:** URL lineage ids, mode, creative ids and route hints are never eligibility or execution authority. The current route/body contract has no server-owned `decisionState` / `authorizedAction` / `actionEligible` payload.
+- **Resolution:** `hasServerAuthorizedLaunchpadHandoff()` therefore fails closed. Query lineage is removed from the wizard URL, Rebuild/Duplicate retain their fixed geometry but show `—` titles/descriptions and remain disabled, and Manual is the only available start.
+
+### LAUNCHPAD-AUTOMATION-28 · HIGH · WRONG — Draft workflow status was presented as a validation verdict
+
+- **Design:** Markup lines 1054–1058 give Validation its own value and styling, distinct from the draft action; the prototype model's verdicts are not production facts.
+- **Code before:** A workflow status such as `failed` could be mapped to `Failed`, `2 blockers` or another apparent validation result without a persisted validation contract.
+- **Resolution:** Draft names/updates/actions still bind to real drafts. Mode binds only an `add_to_existing` payload with `reuse_creative` → Duplicate or `rebuild_creative` → Rebuild; new-campaign, absent and unknown modes render `—`. Validation remains `—` until B1 supplies a typed revision-bound verdict, and the row keeps one supported Resume action.
+
+### LAUNCHPAD-AUTOMATION-29 · HIGH · WRONG — Non-landed intents and inferred names were rendered as Launch receipts
+
+- **Design:** Markup lines 1064–1074 define a landed PAUSED campaign receipt with provider link, not an intent lifecycle feed.
+- **Code before:** Prepared, validation-blocked, write-blocked, ready, executing or terminal-without-campaign intents could appear with status/lineage/error chrome or an operation label substituted for campaign name.
+- **Resolution:** Rows require a terminal outcome plus a real campaign id/account Ads Manager link. Failed/silent-failure rows are eligible only when a partial receipt proves a campaign landed; name comes only from persisted request payload. Time resolves terminal evidence in the order `resultReceipt.completedAt` → `intent.completedAt` → `errorReceipt.recordedAt`; the current contract has no trustworthy actor field, so the suffix is `by —` rather than `createdBy` or an inferred operator.
+
+### LAUNCHPAD-AUTOMATION-30 · HIGH · MISSING — No production confirmation-queue proposal/action contract
+
+- **Design:** Markup lines 1108–1130 and model lines 4382–4385 require proposal action, entity, reason, evidence, expiry, and Approve/Modify/Dismiss behavior.
+- **Backend blocker (B1):** `MetaAutomationControlPlane` exposes no account-scoped proposal collection and no guarded approve/modify/dismiss mutation/receipt contract. Mapping prototype approvals would fabricate actionable state.
+- **Current safe state:** The exact header, count/hint slots, body geometry and fixed footnote render with `—`; no action controls or provider mutations are exposed. Populated parity remains blocked on B1.
+
+### LAUNCHPAD-AUTOMATION-31 · HIGH · MISSING — No production deterministic-rule definition, count or mutation contract
+
+- **Design:** Markup lines 1132–1156 and model lines 4392–4405 require five rule fields, a 28-day fired count, enforced/disabled toggle behavior and New rule.
+- **Backend blocker (B1):** The control-plane payload has no rule definitions, trigger outcomes or guarded create/toggle receipts. Prototype rule rows cannot be promoted into production data.
+- **Current safe state:** The exact five-column table and literal footnote remain visible with `—`; `+ New rule` is present but disabled. Populated and interactive parity remains blocked on B1.
+
+### LAUNCHPAD-AUTOMATION-32 · MEDIUM · MISSING — Guardrail and autonomy payloads are incomplete for the canonical rows
+
+- **Design:** Markup lines 1092–1105 and 1157–1173 require four guardrails plus per-action tier, progress and next-unlock copy; model lines 4386–4391 provide the prototype progress examples.
+- **Backend blocker:** The persisted payload currently supports max budget increase, daily action cap, readiness, a promotion-record collection and standing per-type mode, but not min-ROAS, quiet-hours or per-action clean-approval numerator/threshold policy. An empty promotion array is meaningful only when `readCompleteness.promotionRecords === "complete"`.
+- **Current safe state:** Supported values and persisted modes render; promotion count renders only for a complete read. Unsupported count/guardrail/progress values remain `—`, while the fixed `Launches · new spend` row remains Manual/locked. Full populated parity remains blocked on the backend read contract, not B1.
+
+### LAUNCHPAD-AUTOMATION-33 · HIGH · MISSING — Activity records cannot populate the canonical actor/entity/result tuple
+
+- **Design:** Markup lines 1175–1197 and model lines 3664–3669 require Time, Actor, Action, Entity and Result as independently typed fields.
+- **Backend blocker:** Current activity items expose `activityType`, severity, message, payload, timestamp and source, but no authoritative typed actor/entity/result-or-receipt tuple. Parsing prose/payload opportunistically would invent semantics.
+- **Current safe state:** Real timestamp and action message render; Actor, Entity and Result remain `—` in the exact five-column geometry. Full row parity remains blocked on the backend activity contract, not B1.
 
 ---
 

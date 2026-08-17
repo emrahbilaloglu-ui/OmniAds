@@ -115,6 +115,7 @@ describe("meta automation control plane", () => {
     );
     expect(payload.businessControl.guardrails.maxBudgetIncreasePct).toBe(10);
     expect(payload.promotionRecords).toHaveLength(1);
+    expect(payload.readCompleteness?.promotionRecords).toBe("complete");
     expect(payload.activityLedger[0]?.message).toBe(
       "Meta write blocked by kill switch.",
     );
@@ -129,6 +130,42 @@ describe("meta automation control plane", () => {
     expect(actionLedgerQuery).toContain("meta_campaign_dimensions");
     expect(actionLedgerQuery).toContain("meta_adset_dimensions");
     expect(actionLedgerQuery).toContain("meta_launch_intents");
+  });
+
+  it("marks promotion records unavailable when that collection read fails", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_promotion_records")) {
+        throw Object.assign(new Error("promotion table unavailable"), {
+          code: "57P01",
+        });
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.businessControl.source).toBe("persisted");
+    expect(payload.promotionRecords).toEqual([]);
+    expect(payload.readCompleteness?.promotionRecords).toBe("unavailable");
   });
 
   it("keeps account-scoped action activity when the optional LaunchIntent table is not migrated", async () => {
@@ -172,6 +209,8 @@ describe("meta automation control plane", () => {
         }),
       ]),
     );
+    expect(payload.promotionRecords).toEqual([]);
+    expect(payload.readCompleteness?.promotionRecords).toBe("complete");
     const actionQueries = sql.mock.calls
       .map((call) => Array.from(call[0] as TemplateStringsArray).join("?"))
       .filter((query) => query.includes("FROM meta_ads_action_log"));

@@ -94,6 +94,14 @@ export interface MetaAutomationControlPlane {
     blockedReasons: string[];
   };
   promotionRecords: MetaAutomationPromotionRecord[];
+  /**
+   * Additive read provenance for collections whose empty value is otherwise
+   * ambiguous. Older payloads omit this field and must therefore be treated as
+   * unproven rather than as a confirmed empty collection.
+   */
+  readCompleteness?: {
+    promotionRecords: "complete" | "unavailable";
+  };
   activityLedger: MetaAutomationActivityItem[];
   /** Per-decision-type standing mode (persisted operator preference, or 'manual'
    *  default). Recording a change persists an audit record; it does NOT auto-execute
@@ -355,6 +363,17 @@ async function safeRead<T>(reader: () => Promise<T>, fallback: T): Promise<T> {
   } catch (error) {
     if (isUndefinedTableError(error)) return fallback;
     return fallback;
+  }
+}
+
+async function readWithCompleteness<T>(
+  reader: () => Promise<T>,
+  fallback: T,
+): Promise<{ value: T; completeness: "complete" | "unavailable" }> {
+  try {
+    return { value: await reader(), completeness: "complete" };
+  } catch {
+    return { value: fallback, completeness: "unavailable" };
   }
 }
 
@@ -766,20 +785,16 @@ export async function getMetaAutomationControlPlane(input: {
     () => readBusinessControl(businessId),
     defaultBusinessControl(businessId),
   );
-  const [
-    promotionRecords,
-    automationActivity,
-    actionActivity,
-    decisionTypeModes,
-  ] = await Promise.all([
-    safeRead(() => readPromotionRecords(businessId), []),
-    safeRead(() => readActivityLedger(businessId), []),
-    safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
-    safeRead(
-      () => readDecisionTypeModes(businessId),
-      defaultDecisionTypeModes(),
-    ),
-  ]);
+  const [promotionRead, automationActivity, actionActivity, decisionTypeModes] =
+    await Promise.all([
+      readWithCompleteness(() => readPromotionRecords(businessId), []),
+      safeRead(() => readActivityLedger(businessId), []),
+      safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
+      safeRead(
+        () => readDecisionTypeModes(businessId),
+        defaultDecisionTypeModes(),
+      ),
+    ]);
   const blockedReasons = [
     globalKillSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
     businessControl.killSwitchEngaged ? "business_kill_switch" : null,
@@ -807,7 +822,10 @@ export async function getMetaAutomationControlPlane(input: {
         globalKillSwitchEngaged || businessControl.killSwitchEngaged,
       blockedReasons,
     },
-    promotionRecords,
+    promotionRecords: promotionRead.value,
+    readCompleteness: {
+      promotionRecords: promotionRead.completeness,
+    },
     activityLedger: [...automationActivity, ...actionActivity]
       .sort(
         (left, right) =>

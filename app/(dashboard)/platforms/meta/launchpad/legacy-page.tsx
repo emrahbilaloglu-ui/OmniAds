@@ -2,25 +2,18 @@
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Bookmark,
   Check,
   Cloud,
-  ExternalLink,
-  FileCheck2,
-  FileEdit,
-  LayoutTemplate,
-  ListChecks,
   Megaphone,
   PlusCircle,
   Rocket,
   Settings2,
+  Shield,
   ShieldCheck,
-  Sparkles,
-  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
@@ -96,7 +89,6 @@ import type {
 import type { MetaLaunchStoreCapability } from "@/lib/launchpad/meta-store-capability";
 import type { MetaLaunchpadManualAuthority } from "@/lib/launchpad/meta-manual-authority";
 import { LaunchIntentReceiptRows } from "./LaunchIntentReceiptRows";
-import { launchpadLibraryCount } from "./launchpad-library-count";
 import styles from "./page.module.css";
 
 type LaunchpadMode = "new_campaign" | "add_to_existing" | "manage_existing";
@@ -140,37 +132,32 @@ interface LaunchDraft {
   lastError?: Record<string, unknown> | null;
 }
 
-/** The design's three launch-start cards; each enters the guarded workflow. */
-const DRAFT_HEAD =
-  "bg-[var(--adv-fill)] px-3 py-[9px] font-[family-name:var(--adv-font-mono)] text-[10px] font-medium uppercase tracking-[0.1em] whitespace-nowrap text-[var(--adv-ink-3)]";
+type LaunchStartRole = "rebuild" | "duplicate" | "manual";
 
+/** The design's three fixed launch-start roles. */
 const LAUNCH_START_CARDS: Array<{
+  role: LaunchStartRole;
   mode: LaunchpadMode;
   chip: string;
-  title: string;
-  desc: string;
   cta: string;
 }> = [
   {
+    role: "rebuild",
     mode: "new_campaign",
-    chip: "New campaign",
-    title: "Build a campaign from scratch",
-    desc: "Pick creatives, set the budget and targeting, then review before the guarded write.",
-    cta: "Start a campaign",
+    chip: "Rebuild",
+    cta: "Continue draft",
   },
   {
+    role: "duplicate",
     mode: "add_to_existing",
-    chip: "Add to existing",
-    title: "Add ads to a live ad set",
-    desc: "Duplicate proven creatives into an ad set that is already running, without touching its budget.",
-    cta: "Choose an ad set",
+    chip: "Duplicate",
+    cta: "Continue draft",
   },
   {
-    mode: "manage_existing",
-    chip: "Manage existing",
-    title: "Act on ads already live",
-    desc: "Pause, resume or duplicate served ads — every change returns its own receipt.",
-    cta: "Pick ads to manage",
+    role: "manual",
+    mode: "new_campaign",
+    chip: "Manual",
+    cta: "New blank draft",
   },
 ];
 
@@ -271,12 +258,23 @@ function parseLaunchpadLegacyHandoff(
   };
 }
 
-function hasVerifiedLaunchpadLineage(
+function hasCompleteLaunchpadLineageIdentifiers(
   handoff: LaunchpadLegacyHandoff | null,
 ): boolean {
   if (!handoff) return false;
   if (handoff.source === "brief") return Boolean(handoff.creativeBriefId);
   return Boolean(handoff.sourceDecisionId && handoff.sourceDecisionSnapshotId);
+}
+
+/**
+ * URL lineage identifiers are not execution authority. The current handoff
+ * contract does not forward server-owned decisionState, authorizedAction and
+ * actionEligible fields, so non-manual handoffs must remain fail-closed.
+ */
+function hasServerAuthorizedLaunchpadHandoff(
+  _handoff: LaunchpadLegacyHandoff | null,
+): boolean {
+  return false;
 }
 
 function attributionSpecFromState(adSet: LaunchpadAdSetState) {
@@ -338,12 +336,19 @@ async function readLaunchpadJson(url: string) {
 function launchStoreCapabilityFromPayload(
   payload: unknown,
 ): MetaLaunchStoreCapability | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return null;
   const capability = (payload as { capability?: unknown }).capability;
-  if (!capability || typeof capability !== "object" || Array.isArray(capability)) return null;
+  if (
+    !capability ||
+    typeof capability !== "object" ||
+    Array.isArray(capability)
+  )
+    return null;
   const candidate = capability as Partial<MetaLaunchStoreCapability>;
   if (
-    (candidate.status !== "ready" && candidate.status !== "migration_required") ||
+    (candidate.status !== "ready" &&
+      candidate.status !== "migration_required") ||
     typeof candidate.canRead !== "boolean" ||
     typeof candidate.canWrite !== "boolean" ||
     !Array.isArray(candidate.missingColumns)
@@ -431,7 +436,11 @@ function launchIntentCapabilityFromPayload(
     return null;
   }
   const capability = (payload as Record<string, unknown>).capability;
-  if (!capability || typeof capability !== "object" || Array.isArray(capability)) {
+  if (
+    !capability ||
+    typeof capability !== "object" ||
+    Array.isArray(capability)
+  ) {
     return null;
   }
   const record = capability as Record<string, unknown>;
@@ -455,41 +464,10 @@ function launchIntentCapabilityFromPayload(
   };
 }
 
-function summarizeTemplate(template: LaunchTemplate) {
-  const adSets = template.payload.adSets.length;
-  const budget = template.payload.budget.mode;
-  const source = template.source === "auto_recent" ? "Auto recent" : "Manual";
-  return `${source} · ${budget} · ${adSets} ad set${adSets === 1 ? "" : "s"}`;
-}
-
-function summarizeDraft(draft: LaunchDraft) {
-  const payload = draft.payload;
-  const mode =
-    payload.mode === "add_to_existing" ? "Add to existing" : "New campaign";
-  const creativeCount =
-    payload.creativeIds?.length ?? payload.creatives?.length ?? 0;
-  const target =
-    payload.mode === "add_to_existing"
-      ? `${payload.targets?.length ?? 1} target${(payload.targets?.length ?? 1) === 1 ? "" : "s"}`
-      : payload.campaign?.name || "campaign";
-  return `${mode} · ${creativeCount} creative${creativeCount === 1 ? "" : "s"} · ${target}`;
-}
-
-function draftStoredError(draft: LaunchDraft): string | null {
-  const error = draft.lastError;
-  if (!error || typeof error !== "object") return null;
-  const record = error as Record<string, unknown>;
-  const message =
-    typeof record.message === "string" ? record.message.trim() : "";
-  const code = typeof record.code === "string" ? record.code.trim() : "";
-  if (message && code && message !== code) return `${code} — ${message}`;
-  return message || code || null;
-}
-
 function formatRelativeTime(value: string | undefined) {
-  if (!value) return "Saved";
+  if (!value) return "—";
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) return "Saved";
+  if (!Number.isFinite(time)) return "—";
   const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
@@ -548,17 +526,36 @@ function makePlaceholderAdset(
   };
 }
 
-export default function MetaLaunchpadPage() {
+export interface MetaLaunchpadPageProps {
+  businessId?: string;
+  businessName?: string | null;
+  /**
+   * `undefined` keeps the legacy account picker contract. `null` is an
+   * authoritative server result and must never be widened by URL/store state.
+   */
+  providerAccountId?: string | null;
+}
+
+export default function MetaLaunchpadPage({
+  businessId: authorizedBusinessId,
+  businessName: authorizedBusinessName,
+  providerAccountId: authorizedProviderAccountId,
+}: MetaLaunchpadPageProps = {}) {
   const searchParams = useSearchParams();
   const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
+  const businessId = authorizedBusinessId?.trim() || selectedBusinessId || "";
   const activeBusiness = businesses.find(
-    (business) => business.id === selectedBusinessId,
+    (business) => business.id === businessId,
   );
-  const businessId = selectedBusinessId ?? "";
-  const requestedProviderAccountId =
-    searchParams?.get("providerAccountId")?.trim() ?? "";
+  const businessName =
+    authorizedBusinessName?.trim() || activeBusiness?.name || "Meta";
+  const hasAuthorizedProviderScope = authorizedProviderAccountId !== undefined;
+  const serverProviderAccountId = authorizedProviderAccountId?.trim() || "";
+  const requestedProviderAccountId = hasAuthorizedProviderScope
+    ? serverProviderAccountId
+    : (searchParams?.get("providerAccountId")?.trim() ?? "");
   const [providerAccounts, setProviderAccounts] = useState<
     MetaHistoryAccount[]
   >([]);
@@ -568,9 +565,10 @@ export default function MetaLaunchpadPage() {
   const [providerAccountsError, setProviderAccountsError] = useState<
     string | null
   >(null);
-  const providerAccountId =
-    selectedProviderAccountId ||
-    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+  const providerAccountId = hasAuthorizedProviderScope
+    ? serverProviderAccountId
+    : selectedProviderAccountId ||
+      (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
   const selectedProviderAccount =
     providerAccounts.find((account) => account.id === providerAccountId) ??
     null;
@@ -579,11 +577,17 @@ export default function MetaLaunchpadPage() {
     () => parseLaunchpadLegacyHandoff(launchpadQuery),
     [launchpadQuery],
   );
+  const serverAuthorizedHandoff =
+    hasServerAuthorizedLaunchpadHandoff(legacyHandoff);
   const requestedMode = launchpadModeFromQuery(
-    searchParams?.get("launchpadMode") ?? null,
+    legacyHandoff && !serverAuthorizedHandoff
+      ? null
+      : (searchParams?.get("launchpadMode") ?? null),
   );
   const requestedStep = launchpadStepFromQuery(
-    searchParams?.get("launchpadStep") ?? null,
+    legacyHandoff && !serverAuthorizedHandoff
+      ? null
+      : (searchParams?.get("launchpadStep") ?? null),
   );
 
   const [step, setStep] = useState<WizardStep>(requestedStep);
@@ -615,7 +619,7 @@ export default function MetaLaunchpadPage() {
     // should trust; it is also why this file is the one entry allowed to
     // hardcode null in lib/tier-zero-as-of.test.ts.
     asOf: null,
-    businessId: selectedBusinessId,
+    businessId: businessId || null,
     onRetry: () => setFreshnessRetryNonce((nonce) => nonce + 1),
   });
   const [decisions, setDecisions] = useState<DecisionOutput[]>([]);
@@ -663,7 +667,10 @@ export default function MetaLaunchpadPage() {
   const [sourceDraftId, setSourceDraftId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!businessId) {
+    if (
+      !businessId ||
+      (hasAuthorizedProviderScope && !serverProviderAccountId)
+    ) {
       setProviderAccounts([]);
       setSelectedProviderAccountId("");
       return;
@@ -707,21 +714,29 @@ export default function MetaLaunchpadPage() {
     };
     // freshnessRetryNonce is not read here; it is in the dependency list so the
     // freshness bar's retry re-runs this read.
-  }, [businessId, requestedProviderAccountId, freshnessRetryNonce]);
+  }, [
+    businessId,
+    freshnessRetryNonce,
+    hasAuthorizedProviderScope,
+    requestedProviderAccountId,
+    serverProviderAccountId,
+  ]);
 
   useEffect(() => {
     if (!legacyHandoff) return;
-    const verified = hasVerifiedLaunchpadLineage(legacyHandoff);
+    const hasLineageIdentifiers =
+      hasCompleteLaunchpadLineageIdentifiers(legacyHandoff);
+    const actionEligible = hasServerAuthorizedLaunchpadHandoff(legacyHandoff);
     const exactWorkflowAvailable = legacyHandoff.requestedMode !== "apply_bid";
     const nextMode: LaunchpadMode =
       legacyHandoff.requestedMode === "duplicate"
         ? "add_to_existing"
         : "new_campaign";
-    if (legacyHandoff.creativeIds.length > 0) {
+    if (actionEligible && legacyHandoff.creativeIds.length > 0) {
       setSelectedCreativeIds(legacyHandoff.creativeIds);
     }
-    setLegacyHandoffActive(verified && exactWorkflowAvailable);
-    if (verified && exactWorkflowAvailable) {
+    setLegacyHandoffActive(actionEligible && exactWorkflowAvailable);
+    if (actionEligible && exactWorkflowAvailable) {
       setMode(nextMode);
       setStep(
         nextMode === "add_to_existing"
@@ -736,11 +751,13 @@ export default function MetaLaunchpadPage() {
     setTemplateMessage(
       [
         `${legacyHandoff.source === "decision" ? "Decision" : "Brief"} handoff detected`,
-        verified
+        actionEligible
           ? exactWorkflowAvailable
-            ? "verified lineage will be persisted in the launch record"
+            ? "server-authorized lineage will be persisted in the launch record"
             : "apply-bid execution is not part of the Launchpad contract"
-          : "legacy URL prefill has no verifiable lineage",
+          : hasLineageIdentifiers
+            ? "lineage identifiers are present, but server-owned action eligibility is unavailable"
+            : "legacy URL prefill has no complete lineage identifiers",
         legacyHandoff.requestedMode
           ? `mode=${legacyHandoff.requestedMode}`
           : null,
@@ -1048,7 +1065,7 @@ export default function MetaLaunchpadPage() {
   ]);
 
   const activeLegacyHandoff =
-    legacyHandoffActive && hasVerifiedLaunchpadLineage(legacyHandoff)
+    legacyHandoffActive && hasServerAuthorizedLaunchpadHandoff(legacyHandoff)
       ? legacyHandoff
       : null;
   const activeSteps = LAUNCH_STEPS;
@@ -1115,6 +1132,9 @@ export default function MetaLaunchpadPage() {
   }
 
   function changeProviderAccount(nextProviderAccountId: string) {
+    // Canonical `/c/**` routes resolve account assignment on the server. A
+    // client URL or store selection cannot replace that authorized result.
+    if (hasAuthorizedProviderScope) return;
     if (nextProviderAccountId === providerAccountId) return;
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
@@ -1178,6 +1198,15 @@ export default function MetaLaunchpadPage() {
 
   function openLegacyHandoff() {
     if (!legacyHandoff) return;
+    if (!hasServerAuthorizedLaunchpadHandoff(legacyHandoff)) {
+      setLegacyHandoffActive(false);
+      setSelectedCreativeIds([]);
+      setStep("source");
+      setTemplateMessage(
+        "Lineage identifiers are present, but server-owned action eligibility is unavailable. No launch workflow was opened.",
+      );
+      return;
+    }
     if (legacyHandoff.requestedMode === "apply_bid") {
       setLegacyHandoffActive(false);
       setSelectedCreativeIds(legacyHandoff.creativeIds);
@@ -1192,7 +1221,7 @@ export default function MetaLaunchpadPage() {
         ? "add_to_existing"
         : "new_campaign";
     setMode(nextMode);
-    setLegacyHandoffActive(hasVerifiedLaunchpadLineage(legacyHandoff));
+    setLegacyHandoffActive(true);
     setAppliedTemplateName(null);
     setLaunchResult(null);
     setSelectedCreativeIds(legacyHandoff.creativeIds);
@@ -1204,47 +1233,8 @@ export default function MetaLaunchpadPage() {
           : "creatives",
     );
     setTemplateMessage(
-      hasVerifiedLaunchpadLineage(legacyHandoff)
-        ? `${legacyHandoff.source === "brief" ? "Reviewed brief" : "Decision snapshot"} lineage loaded · the launch record will be persisted before validation`
-        : `Manual setup from legacy ${legacyHandoff.source} URL prefill · lineage unavailable`,
+      `${legacyHandoff.source === "brief" ? "Reviewed brief" : "Decision snapshot"} server-authorized lineage loaded · the launch record will be persisted before validation`,
     );
-  }
-
-  function applyTemplate(template: LaunchTemplate) {
-    const next = normalizeMetaLaunchPayload(template.payload);
-    setMode("new_campaign");
-    setCampaign({
-      name: next.campaign.name || campaign.name,
-      smartPromotion: next.campaign.smartPromotionType === "GUIDED_CREATION",
-      specialAdCategories: next.campaign.specialAdCategories,
-    });
-    setBudget({
-      mode: next.budget.mode,
-      schedule: next.budget.schedule,
-      amount: next.budget.amountMinor
-        ? amountFromMinorUnits(next.budget.amountMinor)
-        : budget.amount,
-      bidStrategy: next.budget.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
-      bidAmount: next.budget.bidAmountMinor
-        ? amountFromMinorUnits(next.budget.bidAmountMinor)
-        : "",
-    });
-    if (next.adSets.length > 0) {
-      setAdSets(next.adSets.map(stateFromPayloadAdSet));
-    }
-    const existingCreativeIds = new Set(
-      launchpadCreatives.map((creative) => creative.creativeId),
-    );
-    const templateCreativeIds = next.creativeIds.filter((creativeId) =>
-      existingCreativeIds.has(creativeId),
-    );
-    if (templateCreativeIds.length > 0)
-      setSelectedCreativeIds(templateCreativeIds);
-    setAppliedTemplateName(template.name);
-    setSourceDraftId(null);
-    setLegacyHandoffActive(false);
-    setTemplateMessage(`Applied ${template.name}`);
-    setStep("creatives");
   }
 
   function applyDraft(draft: LaunchDraft) {
@@ -1383,37 +1373,6 @@ export default function MetaLaunchpadPage() {
     }
     setAppliedTemplateName(null);
     setTemplateMessage(response.ok ? "Draft saved" : "Draft save failed");
-    if (response.ok) await refreshLibrary();
-  }
-
-  async function deleteDraft(draftId: string) {
-    if (draftCapability?.canWrite !== true) {
-      setTemplateMessage("Draft storage is not writable for this account.");
-      return;
-    }
-    const response = await fetch(
-      `/api/launchpad/meta/drafts/${encodeURIComponent(draftId)}?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
-      { method: "DELETE" },
-    );
-    setAppliedTemplateName(null);
-    setTemplateMessage(response.ok ? "Draft deleted" : "Draft delete failed");
-    if (response.ok) await refreshLibrary();
-  }
-
-  async function deleteTemplate(template: LaunchTemplate) {
-    if (template.source !== "manual") return;
-    if (templateCapability?.canWrite !== true) {
-      setTemplateMessage("Saved template storage is not writable for this account.");
-      return;
-    }
-    const response = await fetch(
-      `/api/launchpad/meta/templates/${encodeURIComponent(template.id)}?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
-      { method: "DELETE" },
-    );
-    setAppliedTemplateName(null);
-    setTemplateMessage(
-      response.ok ? "Template deleted" : "Template delete failed",
-    );
     if (response.ok) await refreshLibrary();
   }
 
@@ -1607,7 +1566,51 @@ export default function MetaLaunchpadPage() {
         ? "Reviewed Creative Brief"
         : "Decision snapshot"
       : "Manual";
+  const verifiedLandingRole: LaunchStartRole | null =
+    hasServerAuthorizedLaunchpadHandoff(legacyHandoff) &&
+    legacyHandoff?.requestedMode !== "apply_bid"
+      ? legacyHandoff?.requestedMode === "duplicate"
+        ? "duplicate"
+        : legacyHandoff?.requestedMode === "rebuild"
+          ? "rebuild"
+          : null
+      : null;
+  const verifiedHandoffName =
+    verifiedLandingRole && legacyHandoff
+      ? creatives
+          .find(
+            (creative) =>
+              legacyHandoff.creativeIds.includes(creative.creativeId) &&
+              creative.name?.trim(),
+          )
+          ?.name?.trim() || null
+      : null;
+
+  function startLandingRole(role: LaunchStartRole) {
+    if (role !== "manual" && role !== verifiedLandingRole) return;
+    if (role === verifiedLandingRole) {
+      openLegacyHandoff();
+      return;
+    }
+    const card = LAUNCH_START_CARDS.find((item) => item.role === role);
+    if (card) startMode(card.mode);
+  }
   const desktopQuery = new URLSearchParams(launchpadQuery);
+  if (legacyHandoff && !serverAuthorizedHandoff) {
+    for (const key of [
+      "sourceDecisionId",
+      "sourceDecisionSnapshotId",
+      "creativeBriefId",
+      "creativeIds",
+      "campaignIds",
+      "adsetIds",
+      "fromBriefing",
+      "fromMetaBriefing",
+      "mode",
+    ]) {
+      desktopQuery.delete(key);
+    }
+  }
   desktopQuery.set("launchpadMode", mode);
   desktopQuery.set("launchpadStep", step);
   const desktopProviderAccountId =
@@ -1624,16 +1627,6 @@ export default function MetaLaunchpadPage() {
   }
   const desktopHref = `/platforms/meta/launchpad?${desktopQuery.toString()}`;
 
-  if (!businessId) {
-    return (
-      <div className="ad-final">
-        <div className="text-[13px] text-[var(--adc-ink3)] px-5 py-5">
-          Select a business.
-        </div>
-      </div>
-    );
-  }
-
   const accountScopeBlocked =
     providerAccountsLoading ||
     Boolean(providerAccountsError) ||
@@ -1641,20 +1634,22 @@ export default function MetaLaunchpadPage() {
     !currency;
 
   if (accountScopeBlocked) {
-    const scopeMessage = providerAccountsLoading
-      ? "Loading assigned Meta ad accounts."
-      : providerAccountsError
-        ? providerAccountsError
-        : !providerAccountId
-          ? "Select one assigned Meta ad account. Launch data and provider writes remain withheld until the scope is explicit."
-          : "The selected account currency is unavailable. Minor-unit budgets and provider writes remain blocked.";
+    const scopeMessage = !businessId
+      ? "Select a business. Launch data and provider writes remain withheld."
+      : providerAccountsLoading
+        ? "Loading assigned Meta ad accounts."
+        : providerAccountsError
+          ? providerAccountsError
+          : !providerAccountId
+            ? "Select one assigned Meta ad account. Launch data and provider writes remain withheld until the scope is explicit."
+            : "The selected account currency is unavailable. Minor-unit budgets and provider writes remain blocked.";
     return (
       <div
         className={`ad-final meta-launchpad-final ${styles.route}`}
         data-testid="meta-launchpad-page"
       >
         <LaunchpadMobileSurface
-          businessName={activeBusiness?.name ?? "Meta"}
+          businessName={businessName}
           currency={currency}
           mode={mode}
           step={step}
@@ -1669,27 +1664,16 @@ export default function MetaLaunchpadPage() {
           statusMessage={scopeMessage}
         />
         <div className={styles.desktopSurface}>
-          <div className={styles.workspace}>
-            <LaunchpadContextBar
-              businessId={businessId}
-              businessName={activeBusiness?.name ?? "Meta"}
-              currency={currency}
-              providerAccounts={providerAccounts}
-              providerAccountId={providerAccountId}
-              accountLoading={providerAccountsLoading}
-              onProviderAccountChange={changeProviderAccount}
-            />
-            <div
-              className={styles.scopeBlock}
-              data-testid="launchpad-account-required"
-            >
-              <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-              <div>
-                <strong>Account scope required</strong>
-                <p>{scopeMessage}</p>
-              </div>
-            </div>
-          </div>
+          <LaunchpadExactLanding
+            drafts={[]}
+            intents={[]}
+            loading={providerAccountsLoading}
+            scopeReady={false}
+            verifiedRole={verifiedLandingRole}
+            verifiedHandoffName={verifiedHandoffName}
+            onStartRole={startLandingRole}
+            onApplyDraft={applyDraft}
+          />
         </div>
       </div>
     );
@@ -1701,7 +1685,7 @@ export default function MetaLaunchpadPage() {
       data-testid="meta-launchpad-page"
     >
       <LaunchpadMobileSurface
-        businessName={activeBusiness?.name ?? "Meta"}
+        businessName={businessName}
         currency={currency}
         mode={mode}
         step={step}
@@ -1715,405 +1699,399 @@ export default function MetaLaunchpadPage() {
         desktopHref={desktopHref}
       />
       <div className={styles.desktopSurface}>
-        <div className={styles.workspace}>
-          <LaunchpadContextBar
-            businessId={businessId}
-            businessName={activeBusiness?.name ?? "Meta"}
-            currency={currency}
-            providerAccounts={providerAccounts}
-            providerAccountId={providerAccountId}
-            accountLoading={providerAccountsLoading}
-            onProviderAccountChange={changeProviderAccount}
+        {step === "source" ? (
+          <LaunchpadExactLanding
+            drafts={drafts}
+            intents={launchIntents}
+            loading={libraryLoading}
+            verifiedRole={verifiedLandingRole}
+            verifiedHandoffName={verifiedHandoffName}
+            onStartRole={startLandingRole}
+            onApplyDraft={applyDraft}
           />
-          {/* Standing write-boundary notice — the surface's contract, not a
+        ) : (
+          <div className={styles.workspace} data-testid="launchpad-wizard">
+            <LaunchpadContextBar
+              businessId={businessId}
+              businessName={businessName}
+              currency={currency}
+              providerAccounts={providerAccounts}
+              providerAccountId={providerAccountId}
+              accountLoading={providerAccountsLoading}
+              onProviderAccountChange={changeProviderAccount}
+            />
+            {/* Standing write-boundary notice — the surface's contract, not a
               transient state, so it renders on every Launchpad step. */}
-          <div
-            className={styles.scopeBlock}
-            data-testid="launchpad-write-boundary"
-          >
-            <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-            <div>
-              <strong>Launches create PAUSED campaigns.</strong>
-              <p>
-                Activation is a separate manual step with its own confirmation.
-                Every write records an immutable receipt.
-              </p>
-            </div>
-          </div>
-          <div className={styles.wizardFrame}>
-            <div className={styles.wizardHeader}>
-              <div className={styles.wizardIdentity}>
-                {step !== "source" && step !== "progress" ? (
-                  <button
-                    type="button"
-                    onClick={() => setStep("source")}
-                    className={styles.sourceButton}
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Source
-                  </button>
-                ) : null}
-                <div className={styles.wizardTitle}>
-                  <strong>{launchpadModeLabel(mode)}</strong>
-                  <span>
-                    {sourceLineageLabel} · {providerAccountId} · {currency}
-                  </span>
-                </div>
-                {wizardPrefilled ? (
-                  <span className="chip chip--info">{wizardPrefillLabel}</span>
-                ) : appliedTemplateMessageActive && appliedTemplateName ? (
-                  <span className="chip chip--info">
-                    Applied {appliedTemplateName}
-                  </span>
-                ) : null}
-              </div>
-              <div className={styles.wizardActions}>
-                {templateMessage && !wizardPrefilled ? (
-                  <span className={styles.saveMessage}>
-                    <Cloud className="h-3.5 w-3.5 text-[var(--ok)]" />
-                    {templateMessage}
-                    {appliedTemplateMessageActive ? (
-                      <button type="button" onClick={clearAppliedTemplate}>
-                        Clear
-                      </button>
-                    ) : null}
-                  </span>
-                ) : null}
-                {mode === "new_campaign" && step !== "source" ? (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={saveTemplate}
-                    disabled={templateCapability?.canWrite !== true}
-                    title={templateCapability?.canWrite === false ? "Pending account-scope database migration" : undefined}
-                  >
-                    <Bookmark className="h-3.5 w-3.5" />
-                    Save template
-                  </button>
-                ) : null}
+            <div
+              className={styles.scopeBlock}
+              data-testid="launchpad-write-boundary"
+            >
+              <ShieldCheck aria-hidden="true" className="h-4 w-4" />
+              <div>
+                <strong>Launches create PAUSED campaigns.</strong>
+                <p>
+                  Activation is a separate manual step with its own
+                  confirmation. Every write records an immutable receipt.
+                </p>
               </div>
             </div>
-
-            <div className={styles.wizardGrid}>
-              <aside
-                className={styles.stepRail}
-                aria-label="Launch steps"
-                hidden={step === "source"}
-              >
-                {step !== "progress" && step !== "source" ? (
-                  <>
-                    <LaunchpadModeChooser
-                      mode={mode}
-                      onSelectMode={startMode}
-                    />
-                    <LaunchpadStepper
-                      steps={activeSteps}
-                      currentStep={step}
-                      onSelectStep={setStep}
-                    />
-                  </>
-                ) : (
-                  <div className={styles.receiptRail}>
-                    <span className="chip chip--info">
-                      Provider write receipt
-                    </span>
-                    <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
-                      Result state comes from the completed route response. No
-                      simulated progress is shown.
-                    </p>
-                  </div>
-                )}
-              </aside>
-
-              <main className={styles.editor}>
-                {creativeError ? (
-                  <div className="mb-4 rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
-                    {creativeError}
-                  </div>
-                ) : null}
-
-                {step === "source" ? (
-                  <LaunchpadSourceStep
-                    businessId={businessId}
-                    providerAccountId={providerAccountId}
-                    onStartMode={startMode}
-                    drafts={drafts}
-                    templates={templates}
-                    launchIntents={launchIntents}
-                    launchIntentCapability={launchIntentCapability}
-                    draftCapability={draftCapability}
-                    templateCapability={templateCapability}
-                    loading={libraryLoading}
-                    message={templateMessage}
-                    appliedTemplateName={
-                      appliedTemplateMessageActive ? appliedTemplateName : null
-                    }
-                    legacyHandoff={legacyHandoff}
-                    onOpenLegacyHandoff={openLegacyHandoff}
-                    onApplyDraft={applyDraft}
-                    onApplyTemplate={applyTemplate}
-                    onClearAppliedTemplate={clearAppliedTemplate}
-                    onDeleteDraft={deleteDraft}
-                    onDeleteTemplate={deleteTemplate}
-                  />
-                ) : null}
-                {step === "scope" ? (
-                  <LaunchpadScopeStep
-                    businessName={activeBusiness?.name ?? "Meta"}
-                    providerAccountId={providerAccountId}
-                    providerAccountName={
-                      selectedProviderAccount?.name ?? providerAccountId
-                    }
-                    currency={currency}
-                    mode={mode}
-                    sourceLineageLabel={sourceLineageLabel}
-                  />
-                ) : null}
-                {step === "creatives" ? (
-                  <LaunchpadCreativeSelection
-                    rows={launchpadCreatives}
-                    selectedCreativeIds={selectedCreativeIds}
-                    decisionByCreativeId={decisionByCreativeId}
-                    loading={creativeLoading}
-                    initialStatusFilter={
-                      mode === "manage_existing" ? "all" : "active"
-                    }
-                    currency={currency}
-                    getSelectionId={(row) =>
-                      mode === "manage_existing"
-                        ? resolveLaunchpadAdActionId(row)
-                        : row.creativeId
-                    }
-                    onToggleCreative={toggleCreative}
-                    onSetSelectedCreativeIds={setSelectedCreativeIds}
-                  />
-                ) : null}
-                {step === "basics" ? (
-                  mode === "new_campaign" ? (
-                    <div className={styles.editorStack}>
-                      <LaunchpadCampaignBasics
-                        value={campaign}
-                        onChange={setCampaign}
-                      />
-                      <LaunchpadBudget
-                        value={budget}
-                        currency={currency}
-                        expectedCpa={null}
-                        onChange={setBudget}
-                      />
-                    </div>
-                  ) : (
-                    <LaunchpadBoundaryStep
-                      title={
-                        mode === "add_to_existing"
-                          ? "Campaign and budget are inherited"
-                          : "No creation settings in this workflow"
-                      }
-                      description={
-                        mode === "add_to_existing"
-                          ? "The selected target campaign and ad set remain authoritative. Launchpad does not rewrite their budget while adding PAUSED ads."
-                          : "Manage existing operates on selected ads. It does not create or edit campaign budgets."
-                      }
-                      rows={[
-                        ["Mode", launchpadModeLabel(mode)],
-                        ["Write boundary", "No budget mutation"],
-                        ["Delivery", "PAUSED or risk-reducing pause only"],
-                      ]}
-                    />
-                  )
-                ) : null}
-                {step === "adsets" ? (
-                  mode === "new_campaign" ? (
-                    <LaunchpadAdSets
-                      value={adSets}
-                      businessId={businessId}
-                      campaignName={campaign.name}
-                      budget={budget}
-                      currency={currency}
-                      onChange={setAdSets}
-                    />
-                  ) : mode === "add_to_existing" ? (
-                    <LaunchpadAddToExistingTarget
-                      businessId={businessId}
-                      value={addToExistingTarget}
-                      selectedCreatives={selectedCreatives}
-                      currency={currency}
-                      onChange={setAddToExistingTarget}
-                    />
-                  ) : (
-                    <LaunchpadBoundaryStep
-                      title="Selected ads define the provider scope"
-                      description="Pause applies only to the exact selected Meta ad IDs. Campaign and ad-set structure remains unchanged."
-                      rows={[
-                        ["Selected ads", String(selectedCreativeIds.length)],
-                        ["Current action", "Pause"],
-                        ["ACTIVE publication", "Not available"],
-                      ]}
-                    />
-                  )
-                ) : null}
-                {step === "review" && mode === "manage_existing" ? (
-                  <LaunchpadManageExistingReview
-                    selectedCreatives={selectedCreatives}
-                    onRun={runBulkStatusAction}
-                  />
-                ) : null}
-                {step === "review" && mode !== "manage_existing" ? (
-                  <LaunchpadReview
-                    mode={mode}
-                    businessId={businessId}
-                    providerAccountId={providerAccountId}
-                    payload={
-                      mode === "add_to_existing"
-                        ? addToExistingPayload
-                        : payload
-                    }
-                    currencyCode={currency}
-                    selectedCreatives={selectedCreatives}
-                    decisionByCreativeId={decisionByCreativeId}
-                    targetSummary={
-                      mode === "add_to_existing"
-                        ? {
-                            campaignName:
-                              selectedExistingTargets[0]?.campaign.name ?? null,
-                            adsetName:
-                              selectedExistingTargets[0]?.adset.name ?? null,
-                            campaignCount: selectedExistingCampaigns.length,
-                            targetCount: selectedExistingTargets.length,
-                            currentAdCount: selectedExistingTargets.reduce(
-                              (sum, target) =>
-                                sum + target.adset.currentAdCount,
-                              0,
-                            ),
-                            budgetLines: selectedExistingTargets.map(
-                              ({ campaign: targetCampaign, adset }) => ({
-                                label: `${targetCampaign.name} / ${adset.name}`,
-                                amountMinor:
-                                  adset.dailyBudgetMinor ??
-                                  adset.lifetimeBudgetMinor ??
-                                  targetCampaign.dailyBudgetMinor ??
-                                  targetCampaign.lifetimeBudgetMinor ??
-                                  null,
-                                schedule:
-                                  adset.dailyBudgetMinor != null ||
-                                  (adset.lifetimeBudgetMinor == null &&
-                                    targetCampaign.dailyBudgetMinor != null)
-                                    ? ("daily" as const)
-                                    : adset.lifetimeBudgetMinor != null ||
-                                        targetCampaign.lifetimeBudgetMinor !=
-                                          null
-                                      ? ("lifetime" as const)
-                                      : null,
-                                source:
-                                  adset.dailyBudgetMinor != null ||
-                                  adset.lifetimeBudgetMinor != null
-                                    ? ("ad set" as const)
-                                    : targetCampaign.dailyBudgetMinor != null ||
-                                        targetCampaign.lifetimeBudgetMinor !=
-                                          null
-                                      ? ("campaign" as const)
-                                      : null,
-                              }),
-                            ),
-                          }
-                        : null
-                    }
-                    onSaveTemplate={
-                      mode === "new_campaign" && templateCapability?.canWrite
-                        ? saveTemplate
-                        : undefined
-                    }
-                    onSaveDraft={draftCapability?.canWrite ? saveDraft : undefined}
-                    onLaunch={launchPaused}
-                    executionBlockedReason={
-                      mode === "add_to_existing" &&
-                      addToExistingPayload.copyMode === "rebuild_creative"
-                        ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."
-                        : launchIntentCapability?.canWrite
-                          ? null
-                          : launchIntentCapability?.status === "migration_required"
-                            ? "LaunchIntent storage migration is required before PAUSED creation can run."
-                            : "LaunchIntent storage capability is still being verified."
-                    }
-                  />
-                ) : null}
-                {step === "progress" ? (
-                  <LaunchpadProgress
-                    mode={mode}
-                    loading={launchLoading}
-                    result={launchResult}
-                    onDone={resetWizard}
-                  />
-                ) : null}
-              </main>
-            </div>
-
-            {step !== "progress" ? (
-              <div className={styles.footer}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="mono text-[12.5px] text-[var(--ink)]">
-                      <strong className="font-semibold">
-                        {launchpadFooterMathLine({
-                          mode,
-                          creativeCount: selectedCreativeIds.length,
-                          adSetCount: adSets.length,
-                          targetCount: selectedExistingTargets.length,
-                        })}
-                      </strong>
-                    </div>
-                    {selectionSummary.count > 0 ? (
-                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
-                        selection · spend{" "}
-                        {selectionSummary.totalSpend == null
-                          ? "unavailable"
-                          : formatMoney(
-                              selectionSummary.totalSpend,
-                              currency,
-                            )}{" "}
-                        · weighted ROAS{" "}
-                        {selectionSummary.averageRoas == null
-                          ? "—"
-                          : `${selectionSummary.averageRoas.toFixed(1)}x`}
-                      </div>
-                    ) : (
-                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)]">
-                        Create changes provider state to PAUSED and cannot begin
-                        delivery.
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-end gap-2">
+            <div className={styles.wizardFrame}>
+              <div className={styles.wizardHeader}>
+                <div className={styles.wizardIdentity}>
+                  {step !== "progress" ? (
                     <button
                       type="button"
-                      className="btn"
-                      disabled={currentStepIndex <= 0}
-                      onClick={goBack}
+                      onClick={() => setStep("source")}
+                      className={styles.sourceButton}
                     >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      Source
                     </button>
-                    {step === "review" ? (
-                      <span className="btn btn--ghost" aria-disabled="true">
-                        Launch action is in review
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={!canGoNext}
-                        onClick={goNext}
-                      >
-                        Continue
-                        <ArrowRight className="h-4 w-4" />
-                      </button>
-                    )}
+                  ) : null}
+                  <div className={styles.wizardTitle}>
+                    <strong>{launchpadModeLabel(mode)}</strong>
+                    <span>
+                      {sourceLineageLabel} · {providerAccountId} · {currency}
+                    </span>
                   </div>
+                  {wizardPrefilled ? (
+                    <span className="chip chip--info">
+                      {wizardPrefillLabel}
+                    </span>
+                  ) : appliedTemplateMessageActive && appliedTemplateName ? (
+                    <span className="chip chip--info">
+                      Applied {appliedTemplateName}
+                    </span>
+                  ) : null}
+                </div>
+                <div className={styles.wizardActions}>
+                  {templateMessage && !wizardPrefilled ? (
+                    <span className={styles.saveMessage}>
+                      <Cloud className="h-3.5 w-3.5 text-[var(--ok)]" />
+                      {templateMessage}
+                      {appliedTemplateMessageActive ? (
+                        <button type="button" onClick={clearAppliedTemplate}>
+                          Clear
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {mode === "new_campaign" ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={saveTemplate}
+                      disabled={templateCapability?.canWrite !== true}
+                      title={
+                        templateCapability?.canWrite === false
+                          ? "Pending account-scope database migration"
+                          : undefined
+                      }
+                    >
+                      <Bookmark className="h-3.5 w-3.5" />
+                      Save template
+                    </button>
+                  ) : null}
                 </div>
               </div>
-            ) : null}
+
+              <div className={styles.wizardGrid}>
+                <aside className={styles.stepRail} aria-label="Launch steps">
+                  {step !== "progress" ? (
+                    <>
+                      <LaunchpadModeChooser
+                        mode={mode}
+                        onSelectMode={startMode}
+                      />
+                      <LaunchpadStepper
+                        steps={activeSteps}
+                        currentStep={step}
+                        onSelectStep={setStep}
+                      />
+                    </>
+                  ) : (
+                    <div className={styles.receiptRail}>
+                      <span className="chip chip--info">
+                        Provider write receipt
+                      </span>
+                      <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
+                        Result state comes from the completed route response. No
+                        simulated progress is shown.
+                      </p>
+                    </div>
+                  )}
+                </aside>
+
+                <main className={styles.editor}>
+                  {creativeError ? (
+                    <div className="mb-4 rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] p-3 text-[13px] text-[var(--danger)]">
+                      {creativeError}
+                    </div>
+                  ) : null}
+
+                  {step === "scope" ? (
+                    <LaunchpadScopeStep
+                      businessName={businessName}
+                      providerAccountId={providerAccountId}
+                      providerAccountName={
+                        selectedProviderAccount?.name ?? providerAccountId
+                      }
+                      currency={currency}
+                      mode={mode}
+                      sourceLineageLabel={sourceLineageLabel}
+                    />
+                  ) : null}
+                  {step === "creatives" ? (
+                    <LaunchpadCreativeSelection
+                      rows={launchpadCreatives}
+                      selectedCreativeIds={selectedCreativeIds}
+                      decisionByCreativeId={decisionByCreativeId}
+                      loading={creativeLoading}
+                      initialStatusFilter={
+                        mode === "manage_existing" ? "all" : "active"
+                      }
+                      currency={currency}
+                      getSelectionId={(row) =>
+                        mode === "manage_existing"
+                          ? resolveLaunchpadAdActionId(row)
+                          : row.creativeId
+                      }
+                      onToggleCreative={toggleCreative}
+                      onSetSelectedCreativeIds={setSelectedCreativeIds}
+                    />
+                  ) : null}
+                  {step === "basics" ? (
+                    mode === "new_campaign" ? (
+                      <div className={styles.editorStack}>
+                        <LaunchpadCampaignBasics
+                          value={campaign}
+                          onChange={setCampaign}
+                        />
+                        <LaunchpadBudget
+                          value={budget}
+                          currency={currency}
+                          expectedCpa={null}
+                          onChange={setBudget}
+                        />
+                      </div>
+                    ) : (
+                      <LaunchpadBoundaryStep
+                        title={
+                          mode === "add_to_existing"
+                            ? "Campaign and budget are inherited"
+                            : "No creation settings in this workflow"
+                        }
+                        description={
+                          mode === "add_to_existing"
+                            ? "The selected target campaign and ad set remain authoritative. Launchpad does not rewrite their budget while adding PAUSED ads."
+                            : "Manage existing operates on selected ads. It does not create or edit campaign budgets."
+                        }
+                        rows={[
+                          ["Mode", launchpadModeLabel(mode)],
+                          ["Write boundary", "No budget mutation"],
+                          ["Delivery", "PAUSED or risk-reducing pause only"],
+                        ]}
+                      />
+                    )
+                  ) : null}
+                  {step === "adsets" ? (
+                    mode === "new_campaign" ? (
+                      <LaunchpadAdSets
+                        value={adSets}
+                        businessId={businessId}
+                        campaignName={campaign.name}
+                        budget={budget}
+                        currency={currency}
+                        onChange={setAdSets}
+                      />
+                    ) : mode === "add_to_existing" ? (
+                      <LaunchpadAddToExistingTarget
+                        businessId={businessId}
+                        value={addToExistingTarget}
+                        selectedCreatives={selectedCreatives}
+                        currency={currency}
+                        onChange={setAddToExistingTarget}
+                      />
+                    ) : (
+                      <LaunchpadBoundaryStep
+                        title="Selected ads define the provider scope"
+                        description="Pause applies only to the exact selected Meta ad IDs. Campaign and ad-set structure remains unchanged."
+                        rows={[
+                          ["Selected ads", String(selectedCreativeIds.length)],
+                          ["Current action", "Pause"],
+                          ["ACTIVE publication", "Not available"],
+                        ]}
+                      />
+                    )
+                  ) : null}
+                  {step === "review" && mode === "manage_existing" ? (
+                    <LaunchpadManageExistingReview
+                      selectedCreatives={selectedCreatives}
+                      onRun={runBulkStatusAction}
+                    />
+                  ) : null}
+                  {step === "review" && mode !== "manage_existing" ? (
+                    <LaunchpadReview
+                      mode={mode}
+                      businessId={businessId}
+                      providerAccountId={providerAccountId}
+                      payload={
+                        mode === "add_to_existing"
+                          ? addToExistingPayload
+                          : payload
+                      }
+                      currencyCode={currency}
+                      selectedCreatives={selectedCreatives}
+                      decisionByCreativeId={decisionByCreativeId}
+                      targetSummary={
+                        mode === "add_to_existing"
+                          ? {
+                              campaignName:
+                                selectedExistingTargets[0]?.campaign.name ??
+                                null,
+                              adsetName:
+                                selectedExistingTargets[0]?.adset.name ?? null,
+                              campaignCount: selectedExistingCampaigns.length,
+                              targetCount: selectedExistingTargets.length,
+                              currentAdCount: selectedExistingTargets.reduce(
+                                (sum, target) =>
+                                  sum + target.adset.currentAdCount,
+                                0,
+                              ),
+                              budgetLines: selectedExistingTargets.map(
+                                ({ campaign: targetCampaign, adset }) => ({
+                                  label: `${targetCampaign.name} / ${adset.name}`,
+                                  amountMinor:
+                                    adset.dailyBudgetMinor ??
+                                    adset.lifetimeBudgetMinor ??
+                                    targetCampaign.dailyBudgetMinor ??
+                                    targetCampaign.lifetimeBudgetMinor ??
+                                    null,
+                                  schedule:
+                                    adset.dailyBudgetMinor != null ||
+                                    (adset.lifetimeBudgetMinor == null &&
+                                      targetCampaign.dailyBudgetMinor != null)
+                                      ? ("daily" as const)
+                                      : adset.lifetimeBudgetMinor != null ||
+                                          targetCampaign.lifetimeBudgetMinor !=
+                                            null
+                                        ? ("lifetime" as const)
+                                        : null,
+                                  source:
+                                    adset.dailyBudgetMinor != null ||
+                                    adset.lifetimeBudgetMinor != null
+                                      ? ("ad set" as const)
+                                      : targetCampaign.dailyBudgetMinor !=
+                                            null ||
+                                          targetCampaign.lifetimeBudgetMinor !=
+                                            null
+                                        ? ("campaign" as const)
+                                        : null,
+                                }),
+                              ),
+                            }
+                          : null
+                      }
+                      onSaveTemplate={
+                        mode === "new_campaign" && templateCapability?.canWrite
+                          ? saveTemplate
+                          : undefined
+                      }
+                      onSaveDraft={
+                        draftCapability?.canWrite ? saveDraft : undefined
+                      }
+                      onLaunch={launchPaused}
+                      executionBlockedReason={
+                        mode === "add_to_existing" &&
+                        addToExistingPayload.copyMode === "rebuild_creative"
+                          ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."
+                          : launchIntentCapability?.canWrite
+                            ? null
+                            : launchIntentCapability?.status ===
+                                "migration_required"
+                              ? "LaunchIntent storage migration is required before PAUSED creation can run."
+                              : "LaunchIntent storage capability is still being verified."
+                      }
+                    />
+                  ) : null}
+                  {step === "progress" ? (
+                    <LaunchpadProgress
+                      mode={mode}
+                      loading={launchLoading}
+                      result={launchResult}
+                      onDone={resetWizard}
+                    />
+                  ) : null}
+                </main>
+              </div>
+
+              {step !== "progress" ? (
+                <div className={styles.footer}>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="mono text-[12.5px] text-[var(--ink)]">
+                        <strong className="font-semibold">
+                          {launchpadFooterMathLine({
+                            mode,
+                            creativeCount: selectedCreativeIds.length,
+                            adSetCount: adSets.length,
+                            targetCount: selectedExistingTargets.length,
+                          })}
+                        </strong>
+                      </div>
+                      {selectionSummary.count > 0 ? (
+                        <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
+                          selection · spend{" "}
+                          {selectionSummary.totalSpend == null
+                            ? "unavailable"
+                            : formatMoney(
+                                selectionSummary.totalSpend,
+                                currency,
+                              )}{" "}
+                          · weighted ROAS{" "}
+                          {selectionSummary.averageRoas == null
+                            ? "—"
+                            : `${selectionSummary.averageRoas.toFixed(1)}x`}
+                        </div>
+                      ) : (
+                        <div className="mt-0.5 text-[11px] text-[var(--muted-2)]">
+                          Create changes provider state to PAUSED and cannot
+                          begin delivery.
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={currentStepIndex <= 0}
+                        onClick={goBack}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                        Back
+                      </button>
+                      {step === "review" ? (
+                        <span className="btn btn--ghost" aria-disabled="true">
+                          Launch action is in review
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          disabled={!canGoNext}
+                          onClick={goNext}
+                        >
+                          Continue
+                          <ArrowRight className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -2245,9 +2223,7 @@ function LaunchpadContextBar({
           {businessName} · {currency ?? "currency unavailable"}
         </div>
       </div>
-      <span className="chip chip--warn">
-        Everything launches PAUSED
-      </span>
+      <span className="chip chip--warn">Everything launches PAUSED</span>
       <div className="min-w-0 flex-1" />
       <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
         Ad account
@@ -2300,7 +2276,7 @@ function formatLaunchpadPrefillLabel(
         ? "apply bid"
         : "rebuild";
   const count = Math.max(1, selectedCount);
-  return `${hasVerifiedLaunchpadLineage(handoff) ? "Verified lineage" : "Legacy prefill"} · ${handoff.source} · ${action} · ${count} creative${count === 1 ? "" : "s"}`;
+  return `${hasCompleteLaunchpadLineageIdentifiers(handoff) ? "Lineage identifiers" : "Legacy prefill"} · ${handoff.source} · ${action} · ${count} creative${count === 1 ? "" : "s"}`;
 }
 
 function launchpadFooterMathLine(input: {
@@ -2453,423 +2429,172 @@ function LaunchpadBoundaryStep({
   );
 }
 
-function LaunchpadSourceStep({
-  businessId,
-  providerAccountId,
-  drafts,
-  templates,
-  launchIntents,
-  launchIntentCapability,
-  draftCapability,
-  templateCapability,
-  loading,
-  message,
-  appliedTemplateName,
-  legacyHandoff,
-  onOpenLegacyHandoff,
-  onApplyDraft,
-  onApplyTemplate,
-  onClearAppliedTemplate,
-  onDeleteDraft,
-  onDeleteTemplate,
-  onStartMode,
-}: {
-  businessId: string;
-  providerAccountId: string;
-  onStartMode: (mode: LaunchpadMode) => void;
-  drafts: LaunchDraft[];
-  templates: LaunchTemplate[];
-  launchIntents: MetaLaunchIntent[];
-  launchIntentCapability: MetaLaunchIntentCapability | null;
-  draftCapability: MetaLaunchStoreCapability | null;
-  templateCapability: MetaLaunchStoreCapability | null;
-  loading: boolean;
-  message: string | null;
-  appliedTemplateName: string | null;
-  legacyHandoff: LaunchpadLegacyHandoff | null;
-  onOpenLegacyHandoff: () => void;
-  onApplyDraft: (draft: LaunchDraft) => void;
-  onApplyTemplate: (template: LaunchTemplate) => void;
-  onClearAppliedTemplate: () => void;
-  onDeleteDraft: (draftId: string) => Promise<void>;
-  onDeleteTemplate: (template: LaunchTemplate) => Promise<void>;
-}) {
-  const verifiedHandoff = hasVerifiedLaunchpadLineage(legacyHandoff);
-  const applyBidUnsupported = legacyHandoff?.requestedMode === "apply_bid";
-  return (
-    <>
-      {/* The design's landing surface: the three ways a launch can start. Each
-          card enters the same guarded workflow, which takes over the frame from
-          the next step onward. */}
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(270px,1fr))]">
-        {LAUNCH_START_CARDS.map((card) => (
-          <article
-            key={card.mode}
-            className="flex flex-col gap-2 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-4"
-          >
-            <span className="inline-flex w-fit rounded-md bg-[var(--adv-fill-2)] px-2 py-0.5 font-[family-name:var(--adv-font-mono)] text-[10.5px] font-bold uppercase tracking-[0.06em] text-[var(--adv-ink-2)]">
-              {card.chip}
-            </span>
-            <p className="m-0 text-[14.5px] font-semibold text-[var(--adv-ink)]">
-              {card.title}
-            </p>
-            <p className="m-0 text-[12.5px] leading-[1.5] text-[var(--adv-ink-2)]">
-              {card.desc}
-            </p>
-            <button
-              type="button"
-              onClick={() => onStartMode(card.mode)}
-              className="mt-auto w-fit text-[12.5px] font-semibold text-[var(--adv-accent)]"
-            >
-              {card.cta} →
-            </button>
-          </article>
-        ))}
-      </div>
-
-      <section
-        className={styles.sourcePanel}
-        data-testid="launchpad-source-step"
-      >
-        <div className={styles.sourceHeading}>
-          <div>
-            <p>Source</p>
-            <h2>Continue from evidence or start manually</h2>
-          </div>
-          <span className="chip chip--warn">Creates PAUSED</span>
-        </div>
-        <div className={styles.sourceRows}>
-          <div className={styles.sourceRow}>
-            <ListChecks aria-hidden="true" className="h-4 w-4" />
-            <div>
-              <strong>Decision handoff</strong>
-              <span>Decision and snapshot lineage are required.</span>
-            </div>
-            {legacyHandoff?.source === "decision" ? (
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={onOpenLegacyHandoff}
-              >
-                {applyBidUnsupported
-                  ? "Review handoff limit"
-                  : verifiedHandoff
-                    ? "Continue verified handoff"
-                    : "Use prefill"}
-              </button>
-            ) : (
-              <Link href={buildMetaScopedHref("/platforms/meta", { businessId, providerAccountId })} className="btn btn--sm">
-                Decisions
-                <ExternalLink className="h-3.5 w-3.5" />
-              </Link>
-            )}
-          </div>
-          <div className={styles.sourceRow}>
-            <FileCheck2 aria-hidden="true" className="h-4 w-4" />
-            <div>
-              <strong>Reviewed brief</strong>
-              <span>Reviewed Creative Brief lineage is preserved.</span>
-            </div>
-            {legacyHandoff?.source === "brief" ? (
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={onOpenLegacyHandoff}
-              >
-                {applyBidUnsupported
-                  ? "Review handoff limit"
-                  : verifiedHandoff
-                    ? "Continue reviewed brief"
-                    : "Use prefill"}
-              </button>
-            ) : (
-              <Link href={buildMetaScopedHref("/platforms/meta/creatives", { businessId, providerAccountId })} className="btn btn--sm">
-                Creative Studio
-                <ExternalLink className="h-3.5 w-3.5" />
-              </Link>
-            )}
-          </div>
-          <div className={styles.sourceRow}>
-            <FileEdit aria-hidden="true" className="h-4 w-4" />
-            <div>
-              <strong>Manual or saved setup</strong>
-              <span>
-                Choose the workflow mode in the step rail or resume below.
-              </span>
-            </div>
-            <span className="chip chip--ghost">Available</span>
-          </div>
-        </div>
-      </section>
-
-      {message ? (
-        <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--ink-3)] sm:flex-row sm:items-center sm:justify-between">
-          <span>{message}</span>
-          {appliedTemplateName ? (
-            <button
-              type="button"
-              onClick={onClearAppliedTemplate}
-              className="btn btn--sm w-fit"
-            >
-              Clear applied template
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className={styles.libraryGrid}>
-        <LaunchpadLibraryCard
-          icon={<FileEdit className="h-4 w-4 text-[var(--muted)]" />}
-          title="Drafts"
-          count={launchpadLibraryCount({
-            rowCount: drafts.length,
-            loading,
-            capabilityStatus: draftCapability?.status ?? null,
-          })}
-        >
-          {draftCapability?.status === "migration_required" ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--warn)]">
-              Draft storage requires the pending account-scope database migration. Save and delete are disabled.
-            </p>
-          ) : null}
-          {loading && drafts.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              Loading drafts...
-            </p>
-          ) : null}
-          {!loading && drafts.length === 0 && draftCapability?.status !== "migration_required" ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              No drafts yet.
-            </p>
-          ) : null}
-          {/* The design lists drafts as a table: name, mode, validation state,
-              when it moved, and the one action that applies to it. */}
-          {drafts.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse text-[13px]">
-                <thead>
-                  <tr>
-                    <th className={`${DRAFT_HEAD} px-4 text-left`}>Draft</th>
-                    <th className={`${DRAFT_HEAD} text-left`}>Mode</th>
-                    <th className={`${DRAFT_HEAD} text-left`}>Validation</th>
-                    <th className={`${DRAFT_HEAD} text-left`}>Updated</th>
-                    <th className={`${DRAFT_HEAD} px-4`} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {drafts.map((draft) => {
-                    const failed = draft.status === "failed";
-                    const storedError = draftStoredError(draft);
-                    return (
-                      <tr key={draft.id} className="border-t border-[var(--adv-hairline)]">
-                        <td className="px-4 py-[11px] font-semibold text-[var(--adv-ink)]">
-                          {draft.name}
-                          <span className="mt-0.5 block text-[11px] font-normal text-[var(--adv-ink-4)]">
-                            {summarizeDraft(draft)}
-                          </span>
-                          {failed && storedError ? (
-                            <span className="mt-1 block font-[family-name:var(--adv-font-mono)] text-[11px] font-normal text-[var(--adc-danger-fg)]">
-                              stored error: {storedError}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-[11px]">
-                          <span className="inline-flex rounded-md bg-[var(--adv-fill-2)] px-2 py-0.5 text-[11px] font-semibold text-[var(--adv-ink-2)]">
-                            {draft.payload.mode === "add_to_existing"
-                              ? "Add to existing"
-                              : "New campaign"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-[11px]">
-                          <span
-                            className="inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold"
-                            style={
-                              failed
-                                ? {
-                                    background: "var(--adc-danger-bg)",
-                                    color: "var(--adc-danger-fg)",
-                                  }
-                                : {
-                                    background: "var(--adc-pos-bg)",
-                                    color: "var(--adc-pos-fg)",
-                                  }
-                            }
-                          >
-                            {failed ? "Failed" : "Ready"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-[11px] text-[12.5px] text-[var(--adv-ink-3)]">
-                          {formatRelativeTime(draft.updatedAt)}
-                        </td>
-                        <td className="px-4 py-[11px] text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => onApplyDraft(draft)}
-                            className="inline-flex h-[30px] items-center rounded-lg bg-[var(--adv-accent)] px-[13px] text-[12px] font-semibold text-white"
-                          >
-                            Resume
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void onDeleteDraft(draft.id);
-                            }}
-                            className="ml-1.5 inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[var(--adv-ink-4)] transition hover:bg-[var(--adc-danger-bg)] hover:text-[var(--adc-danger-fg)]"
-                            aria-label={`Delete draft ${draft.name}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </LaunchpadLibraryCard>
-
-        <LaunchpadLibraryCard
-          icon={<LayoutTemplate className="h-4 w-4 text-[var(--muted)]" />}
-          title="Templates"
-          count={launchpadLibraryCount({
-            rowCount: templates.length,
-            loading,
-            capabilityStatus: templateCapability?.status ?? null,
-          })}
-        >
-          {templateCapability?.status === "migration_required" ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--warn)]">
-              Saved templates require the pending account-scope migration. Recent account structures remain available below.
-            </p>
-          ) : null}
-          {loading && templates.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              Loading templates...
-            </p>
-          ) : null}
-          {!loading && templates.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              No templates yet.
-            </p>
-          ) : null}
-          <div className="divide-y divide-[var(--border)]">
-            {templates.map((template) => (
-              <div
-                key={`${template.source}-${template.id}`}
-                className="group flex w-full items-center gap-3 px-4 py-3 transition hover:bg-[var(--hover)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onApplyTemplate(template)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                >
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--surface-3)] text-[var(--ink-3)]">
-                    <LayoutTemplate className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="min-w-0 truncate text-[13px] font-medium text-[var(--ink)]">
-                        {template.name}
-                      </span>
-                      {template.source === "auto_recent" ? (
-                        <span className="chip chip--auto shrink-0">
-                          <Sparkles className="h-3 w-3" />
-                          Auto
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
-                      {template.description ?? summarizeTemplate(template)}
-                    </span>
-                    {template.source === "auto_recent" ? (
-                      <span className="mt-1 flex flex-wrap gap-1.5">
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
-                          budget: placeholder — set at use
-                        </span>
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
-                          countries: placeholder
-                        </span>
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="hidden shrink-0 text-right text-[11px] text-[var(--muted)] sm:block">
-                    <span className="chip chip--ghost">Use</span>
-                  </span>
-                </button>
-                {template.source === "manual" && templateCapability?.canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void onDeleteTemplate(template);
-                    }}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--muted-2)] opacity-80 transition hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] group-hover:opacity-100"
-                    aria-label={`Delete template ${template.name}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </LaunchpadLibraryCard>
-
-        <LaunchpadLibraryCard
-          icon={<FileCheck2 className="h-4 w-4 text-[var(--muted)]" />}
-          title="Launch receipts"
-          count={launchpadLibraryCount({
-            rowCount: launchIntents.length,
-            loading,
-            capabilityStatus: launchIntentCapability?.status ?? null,
-          })}
-        >
-          {loading && launchIntents.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              Loading launch lineage...
-            </p>
-          ) : null}
-          {!loading && launchIntents.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-[var(--muted)]">
-              {launchIntentCapability?.status === "migration_required"
-                ? "Launch records are unavailable until the pending LaunchIntent database migration is applied."
-                : launchIntentCapability?.status === "ready"
-                  ? "No account-scoped launch records yet."
-                  : "Launch record storage capability is unavailable."}
-            </p>
-          ) : null}
-          <LaunchIntentReceiptRows intents={launchIntents} />
-        </LaunchpadLibraryCard>
-      </div>
-
-      <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
-        Launchpad currently supports Sales campaigns only. Create paths land
-        PAUSED. Activation inside Adsecute is Proposed/contract required and no
-        current one-click ACTIVE action is rendered.
-      </p>
-    </>
-  );
+function draftLandingMode(draft: LaunchDraft) {
+  if (draft.payload.mode !== "add_to_existing") return "—";
+  if (draft.payload.copyMode === "rebuild_creative") return "Rebuild";
+  if (draft.payload.copyMode === "reuse_creative") return "Duplicate";
+  return "—";
 }
 
-function LaunchpadLibraryCard({
-  icon,
-  title,
-  count,
-  children,
+function draftLandingValidation() {
+  return "—";
+}
+
+export function LaunchpadExactLanding({
+  drafts,
+  intents,
+  loading,
+  scopeReady = true,
+  verifiedRole,
+  verifiedHandoffName,
+  onStartRole,
+  onApplyDraft,
 }: {
-  icon: ReactNode;
-  title: string;
-  count: number | "Loading" | "Unavailable";
-  children: ReactNode;
+  drafts: LaunchDraft[];
+  intents: MetaLaunchIntent[];
+  loading: boolean;
+  scopeReady?: boolean;
+  verifiedRole: LaunchStartRole | null;
+  verifiedHandoffName: string | null;
+  onStartRole: (role: LaunchStartRole) => void;
+  onApplyDraft: (draft: LaunchDraft) => void;
 }) {
   return (
-    <details className={styles.librarySection}>
-      <summary className={styles.librarySummary}>
-        {icon}
-        <strong>{title}</strong>
-        <span>{count}</span>
-      </summary>
-      <div className={styles.libraryBody}>{children}</div>
-    </details>
+    <section
+      className={styles.exactLanding}
+      data-screen-label="Launchpad"
+      data-testid="launchpad-exact"
+    >
+      <div className={styles.exactHeader}>
+        <p>Meta · Guarded write surface</p>
+        <h1>Launchpad</h1>
+      </div>
+
+      <div className={styles.exactNotice} data-testid="launchpad-notice">
+        <Shield aria-hidden="true" />
+        <p>
+          <b>Launches create PAUSED campaigns.</b> Activation is a separate
+          manual step with its own confirmation. Every write records an
+          immutable LaunchIntent lineage.
+        </p>
+      </div>
+
+      <div className={styles.exactStarts} data-testid="launchpad-starts">
+        {LAUNCH_START_CARDS.map((card) => {
+          const hasVerifiedName =
+            card.role === verifiedRole && Boolean(verifiedHandoffName);
+          const roleReady =
+            card.role === "manual" || card.role === verifiedRole;
+          const title =
+            card.role === "manual"
+              ? "Start from scratch"
+              : `${card.chip} “${hasVerifiedName ? verifiedHandoffName : "—"}”`;
+          const description =
+            card.role === "manual"
+              ? "Blank campaign draft. Validation and the PAUSED boundary apply the same way."
+              : "—";
+          return (
+            <article
+              key={card.role}
+              className={styles.exactStartCard}
+              data-role={card.role}
+              data-testid={`launchpad-start-${card.role}`}
+            >
+              <span className={styles.exactStartChip}>{card.chip}</span>
+              <p className={styles.exactStartTitle}>{title}</p>
+              <p className={styles.exactStartDescription}>{description}</p>
+              <button
+                type="button"
+                onClick={() => onStartRole(card.role)}
+                className={styles.exactStartAction}
+                disabled={!scopeReady || !roleReady}
+              >
+                {card.cta} →
+              </button>
+            </article>
+          );
+        })}
+      </div>
+
+      <article className={styles.exactTableCard} data-testid="launchpad-drafts">
+        <div className={styles.exactSectionHeader}>
+          <h2>Drafts</h2>
+          <span>validation runs before any provider call</span>
+        </div>
+        <table className={styles.exactDraftTable}>
+          <thead>
+            <tr>
+              <th>Draft</th>
+              <th>Mode</th>
+              <th>Validation</th>
+              <th>Updated</th>
+              <th aria-label="Action" />
+            </tr>
+          </thead>
+          <tbody>
+            {drafts.length > 0 ? (
+              drafts.map((draft) => {
+                const validation = draftLandingValidation();
+                const resumable =
+                  scopeReady &&
+                  (draft.status === "draft" || draft.status === "failed");
+                return (
+                  <tr key={draft.id} data-testid="launchpad-draft-row">
+                    <td className={styles.exactDraftName}>
+                      {draft.name || "—"}
+                    </td>
+                    <td>
+                      <span className={styles.exactModeChip}>
+                        {draftLandingMode(draft)}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={styles.exactValidationChip}
+                        data-status="unknown"
+                      >
+                        {validation}
+                      </span>
+                    </td>
+                    <td className={styles.exactUpdated}>
+                      {formatRelativeTime(draft.updatedAt)}
+                    </td>
+                    <td className={styles.exactDraftActionCell}>
+                      <button
+                        type="button"
+                        onClick={() => onApplyDraft(draft)}
+                        disabled={!resumable}
+                      >
+                        {resumable ? "Resume editing" : "—"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr data-testid="launchpad-draft-empty">
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td className={styles.exactDraftActionCell}>—</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </article>
+
+      <article
+        className={styles.exactReceiptCard}
+        data-testid="launchpad-receipts"
+        aria-busy={loading}
+      >
+        <div className={styles.exactSectionHeader}>
+          <h2>Launch receipts</h2>
+        </div>
+        <LaunchIntentReceiptRows intents={intents} />
+      </article>
+    </section>
   );
 }
 

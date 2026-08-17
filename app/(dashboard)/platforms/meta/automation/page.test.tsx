@@ -1,11 +1,10 @@
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import {
-  deriveEffectiveAuthority,
-  MetaAutomationView,
-} from "./automation-view";
+import { describe, expect, it, vi } from "vitest";
+
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
+import { MetaAutomationView } from "./automation-view";
 
 const payload: MetaAutomationControlPlane = {
   contractVersion: "meta-automation-control-plane.v1",
@@ -15,7 +14,7 @@ const payload: MetaAutomationControlPlane = {
   businessControl: {
     businessId: "biz_1",
     killSwitchEngaged: true,
-    killSwitchReason: "Owner paused automation.",
+    killSwitchReason: "Operator stop.",
     autoExecutionEnabled: false,
     readinessTier: "manual_review",
     guardrails: {
@@ -31,37 +30,38 @@ const payload: MetaAutomationControlPlane = {
       requireRollbackPlan: true,
       dryRunOnly: true,
     },
-    updatedAt: null,
-    updatedBy: null,
+    updatedAt: "2026-08-15T12:00:00.000Z",
+    updatedBy: "user_1",
     source: "persisted",
   },
   execution: {
     autoExecutionAllowed: false,
     writeEndpointsBlocked: true,
-    blockedReasons: ["business_kill_switch", "auto_execution_not_enabled"],
+    blockedReasons: ["business_kill_switch"],
   },
   promotionRecords: [
     {
       id: "promo_1",
       recId: "rec_1",
       entityType: "decision_type_mode",
-      entityId: "bid",
+      entityId: "budget",
       sourceTier: "manual",
       targetTier: "semi_auto",
       status: "approved",
       reason: "Backtest ready.",
-      createdAt: "2026-07-07T10:00:00.000Z",
+      createdAt: "2026-08-15T10:00:00.000Z",
     },
   ],
+  readCompleteness: { promotionRecords: "complete" },
   activityLedger: [
     {
-      id: "act_1",
-      activityType: "meta_pause",
-      severity: "warning",
-      message: "Meta write blocked by kill switch.",
-      payload: { endpoint: "/ad_1" },
-      createdAt: "2026-07-07T10:05:00.000Z",
-      source: "meta_action_log",
+      id: "activity_1",
+      activityType: "business_kill_switch_engaged",
+      severity: "danger",
+      message: "Business kill switch engaged — all Meta writes stopped.",
+      payload: { internal: "not-presented-as-a-result" },
+      createdAt: "2026-08-15T14:31:00.000Z",
+      source: "automation_ledger",
     },
   ],
   decisionTypeModes: [
@@ -75,14 +75,6 @@ const payload: MetaAutomationControlPlane = {
     },
     {
       decisionType: "bid",
-      mode: "semi_auto",
-      lockReason: null,
-      updatedAt: "2026-07-07T09:00:00.000Z",
-      updatedBy: "user_1",
-      source: "persisted",
-    },
-    {
-      decisionType: "budget",
       mode: "manual",
       lockReason: null,
       updatedAt: null,
@@ -90,382 +82,220 @@ const payload: MetaAutomationControlPlane = {
       source: "default",
     },
     {
+      decisionType: "budget",
+      mode: "semi_auto",
+      lockReason: "Backtest contract required before auto-execute.",
+      updatedAt: "2026-08-15T09:00:00.000Z",
+      updatedBy: "user_1",
+      source: "persisted",
+    },
+    {
       decisionType: "creative",
       mode: "auto",
-      lockReason: "Evidence review pending.",
-      updatedAt: "2026-07-07T08:00:00.000Z",
+      lockReason: null,
+      updatedAt: "2026-08-15T08:00:00.000Z",
       updatedBy: "user_2",
       source: "persisted",
     },
   ],
 };
 
-describe("MetaAutomationView", () => {
-  it("renders the ten product action classes mapped to the four backend preference groups", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccounts={[
-          {
-            id: "act_1",
-            name: "Main account",
-            currency: "EUR",
-            timezone: "Europe/Istanbul",
-          },
-        ]}
-        providerAccountId="act_1"
-        payload={payload}
-      />,
-    );
+function render(input: MetaAutomationControlPlane | null = payload) {
+  return renderToStaticMarkup(
+    <MetaAutomationView payload={input} providerAccountId="act_1" />,
+  );
+}
 
-    expect(html).toContain("Automation");
+function mobileMarkup(html: string) {
+  return (
+    html.match(
+      /<section[^>]*data-testid="meta-mobile-automation"[\s\S]*?<\/section>/,
+    )?.[0] ?? ""
+  );
+}
+
+describe("Dashboard v2 exact Automation presentation", () => {
+  it("keeps the canonical one-page hierarchy and copy without legacy extras", () => {
+    const html = render();
+
+    expect(html).toContain('data-screen-label="Automation"');
     expect(html).toContain("Meta · Supervision control plane");
-    expect(html).toContain("Effective authority");
-    expect(html).toContain("Evidence");
+    expect(html).toContain(">Automation</h1>");
+    expect(html.match(/<article/g)).toHaveLength(7);
+    expect(html).toContain("Kill switch");
     expect(html).toContain("Guardrails");
-    expect(html).toContain("Activity");
-    expect(html).toContain('data-testid="automation-authority-panel"');
-    expect(html).not.toContain('data-testid="automation-evidence-panel"');
-    expect(html).not.toContain('data-testid="automation-guardrails-panel"');
-    expect(html).not.toContain('data-testid="automation-activity-panel"');
-    expect(html.match(/data-action-class=/g)).toHaveLength(10);
-    expect(html).toContain("Provider evidence");
-    expect(html).toContain(
-      "Business controls cover all assigned Meta accounts",
-    );
-
-    // Canonical authority is stated once; raw v1 preferences remain evidence.
-    expect(html).toContain("Observe");
-    expect(html).toContain("Recommend");
-    expect(html).toContain("Approval Required");
-    expect(html).toContain("Auto-execute");
-    expect(html).toContain("Raw v1 value");
-    expect(html).toContain("semi_auto");
-
-    // A write STOP demotes effective authority. Guardrail controls remain isolated in their tab.
-    expect(html).toContain("STOP engaged");
-    expect(html).toContain("Owner paused automation.");
-    expect(html).not.toContain('data-testid="review-release-business-stop"');
-
-    // The route-owned mobile surface is read-only and preserves current context.
-    expect(html).toContain('data-testid="meta-mobile-automation"');
-    expect(html).toContain("Read-only status");
-    expect(html).toContain(
-      'href="/platforms/meta/automation?automationTab=authority&amp;businessId=biz_1&amp;providerAccountId=act_1"',
-    );
-    expect(html).toContain(
-      'href="/platforms/meta?businessId=biz_1&amp;providerAccountId=act_1"',
-    );
-    expect(html).not.toContain("ad-mobile-device");
-  });
-
-  it("keeps evidence isolated in its tab and closes every missing gate", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={payload}
-        initialTab="evidence"
-      />,
-    );
-
-    expect(html).toContain('data-testid="automation-evidence-panel"');
-    expect(html).not.toContain('data-testid="automation-authority-panel"');
-    expect(html.match(/data-action-class=/g)).toHaveLength(10);
-    expect(html).toContain("Pause underperformer");
-    expect(html).toContain("Apply bid or cost cap");
-    expect(html).toContain("Scale budget step");
-    expect(html).toContain("Promote test to Main");
-    expect(html).toContain("Resume paused");
-    expect(html).toContain("n &gt;= 30 per calibration cell");
-    expect(html).toContain("ECE &lt;= 0.05 per label");
-    expect(html).toContain("Mature outcomes; unknown excluded");
-    expect(html).toContain("Zero critical or silent failures");
-    expect(html).toContain("10 promotions closed");
-    expect(html).toContain("Not in v1");
-  });
-
-  it("shows only the real Business STOP engage path and stored guardrails", () => {
-    const clearPayload: MetaAutomationControlPlane = {
-      ...payload,
-      businessControl: {
-        ...payload.businessControl,
-        killSwitchEngaged: false,
-        killSwitchReason: null,
-      },
-      execution: {
-        ...payload.execution,
-        writeEndpointsBlocked: false,
-        blockedReasons: ["auto_execution_not_enabled"],
-      },
-    };
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={clearPayload}
-        initialTab="guardrails"
-      />,
-    );
-
-    expect(html).toContain('data-testid="automation-guardrails-panel"');
-    expect(html).toContain("Business STOP");
-    expect(html).toContain("Environment STOP");
-    expect(html).toContain("META_ADS_WRITE_KILL_SWITCH");
-    expect(html).toContain("Engage Business STOP");
-    expect(html).toContain('data-testid="engage-business-stop"');
-    expect(html).toContain("Server-enforced");
-    expect(html).not.toContain("Account stop");
-    expect(html).not.toContain("Resume writes");
-    expect(html).not.toContain("Release unavailable");
-
-    expect(html).toContain(
-      "Configured defaults, not yet enforced by an automation executor.",
-    );
-    expect(html).toContain("Daily auto-action cap");
-    expect(html).toContain("3 / day");
-    expect(html).toContain("Per-action spend ceiling");
-    expect(html).toContain("€50.00");
-    expect(html).toContain("Configured only");
-  });
-
-  /**
-   * The autonomy ladder.
-   *
-   * The design also shows a per-kind promotion count. Promotion records are
-   * keyed by entity, not by action kind, so a per-row number would be invented;
-   * the row states the tier and what holds it, and the total sits in the header
-   * where it is actually true.
-   */
-  it("reports each action kind's tier and its hold, and never a per-kind streak", () => {
-    const laddered: MetaAutomationControlPlane = {
-      ...payload,
-      decisionTypeModes: [
-        {
-          decisionType: "pause",
-          mode: "semi_auto",
-          lockReason: "Backtest contract required before auto-execute.",
-          updatedAt: "2026-08-01T09:30:00.000Z",
-          updatedBy: "operator@adsecute.com",
-          source: "persisted",
-        },
-      ],
-    };
-
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={laddered}
-        initialTab="guardrails"
-      />,
-    );
-
+    expect(html).toContain("Readiness");
+    expect(html).toContain("Needs your confirmation");
+    expect(html).toContain("Rules");
     expect(html).toContain("Autonomy ladder");
-    // The kind that carries a stored mode reports it, with its reason and date.
-    expect(html).toContain('data-testid="automation-ladder-pause"');
-    expect(html).toContain("Tier 2 · backtest");
-    expect(html).toContain("Backtest contract required before auto-execute.");
-    expect(html).toContain("2026-08-01");
-    expect(html).toContain("operator@adsecute.com");
-    // Every other kind falls back to supervised rather than inheriting it.
-    expect(html).toContain('data-testid="automation-ladder-budget"');
-    expect(html).toContain("Tier 1 · supervised");
-    // The total is stated once, from the records themselves, and counts one
-    // record as one record rather than "1 promotion records".
-    const total = laddered.promotionRecords.length;
+    expect(html).toContain("Activity ledger");
     expect(html).toContain(
-      total === 1 ? "1 promotion record" : `${total} promotion records`,
+      "Flipping either switch blocks every provider write instantly — server-enforced, not a UI state.",
     );
+
+    expect(html).not.toContain("Effective authority");
+    expect(html).not.toContain("Provider posture");
+    expect(html).not.toContain("Automation &amp; Meta Stop");
+    expect(html).not.toContain("accountSelect");
+    expect(html).not.toContain("Back to Meta");
+    expect(html).not.toContain("Retry read");
   });
 
-  it("exposes only the first Admin review step when Business STOP is engaged", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={payload}
-        initialTab="guardrails"
-      />,
-    );
+  it("maps only supported persisted summary fields and leaves unsupported values blank", () => {
+    const html = render();
 
-    expect(html).toContain("Review release (Admin)");
-    expect(html).toContain('data-testid="review-release-business-stop"');
-    expect(html).not.toContain('data-testid="confirm-release-business-stop"');
-    expect(html).toContain("fresh persisted-state preflight");
+    expect(html).toMatch(
+      /data-field="global-writes"[^>]*data-read-only="true"[^>]*>ENABLED/,
+    );
+    expect(html).toMatch(
+      /data-field="business-writes"[^>]*data-read-only="true"[^>]*>STOPPED/,
+    );
+    expect(html).toContain("Max budget change / day");
+    expect(html).toContain("+15% max");
+    expect(html).toContain("Min ROAS floor (pause)");
+    expect(html).not.toContain("Min ROAS floor · pause");
+    expect(html).toContain("Max actions / day");
+    expect(html).toContain(">3</strong>");
+    expect(html).toMatch(/guardrail-roas-floor[\s\S]*?<strong>—<\/strong>/);
+    expect(html).toMatch(/guardrail-quiet-hours[\s\S]*?<strong>—<\/strong>/);
+    expect(html).not.toContain("2.50");
+    expect(html).not.toContain("00:00–07:00 ET");
+    expect(html).not.toContain("±15%");
+    expect(html).toContain("Tier 1 — Supervised");
+    expect(html).toContain("1 promotion record");
   });
 
-  it("keeps activity and partial receipts isolated in the activity tab", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={payload}
-        initialTab="activity"
-      />,
-    );
-
-    expect(html).toContain('data-testid="automation-activity-panel"');
-    expect(html).not.toContain('data-testid="automation-authority-panel"');
-    expect(html).toContain("Meta write blocked by kill switch.");
-    expect(html).toContain("Provider action log");
-    expect(html).toContain("Partial receipt evidence");
-    expect(html).toContain(
-      "not expose prior, intended, and observed state or verifiedAt",
-    );
-    expect(html).toContain("Backtest ready.");
-    expect(html).toContain("not evidence-gated proposals");
-  });
-
-  it("does not invent business state when no business is selected", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessName={null}
-        payload={null}
-        initialTab="guardrails"
-      />,
-    );
-
-    expect(html).toContain("Select a business.");
-    expect(html).toContain("No default account is assumed.");
-    expect(html).toContain("Not loaded");
-    expect(html).toContain("No business scope");
-    expect(html).toContain("Guardrail configuration is not loaded.");
-    expect(html).toContain("disabled");
-  });
-
-  it("fails closed on an unreadable control plane but leaves scoped STOP available", () => {
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        providerAccountId="act_1"
-        payload={null}
-        error="Database read failed."
-        initialTab="guardrails"
-        onRetry={() => undefined}
-      />,
-    );
-
-    expect(html).toContain("Control plane unreadable - fail closed.");
-    expect(html).toContain("No authority or clearing action is inferred.");
-    expect(html).toContain("Database read failed.");
-    expect(html).toContain("Effective authority");
-    expect(html).toContain("Observe");
-    expect(html).toContain("Engage Business STOP");
-    expect(html).toContain('data-testid="engage-business-stop"');
-    expect(html).toContain("Retry read");
-    expect(html).not.toContain("Resume writes");
-  });
-
-  it("treats a default control source as unverified rather than authoritative", () => {
-    const defaultPayload: MetaAutomationControlPlane = {
+  it("does not hide the real global env read when business control has no persisted row", () => {
+    const html = render({
       ...payload,
+      globalKillSwitch: {
+        engaged: true,
+        reason: "META_ADS_WRITE_KILL_SWITCH",
+      },
       businessControl: {
         ...payload.businessControl,
         source: "default",
-        killSwitchEngaged: false,
-        killSwitchReason: null,
-      },
-      execution: {
-        autoExecutionAllowed: false,
-        writeEndpointsBlocked: false,
-        blockedReasons: [
-          "auto_execution_not_enabled",
-          "dry_run_only_guardrail",
-        ],
-      },
-    };
-
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        payload={defaultPayload}
-      />,
-    );
-
-    expect(deriveEffectiveAuthority(defaultPayload)).toMatchObject({
-      mode: "Observe",
-    });
-    expect(html).toContain("Persisted business control is not proven.");
-    expect(html).toContain("The payload source is default.");
-    expect(html).toContain("Unverified");
-    expect(html).toContain("authority fails closed");
-    expect(html).toContain("Persisted business control is not proven");
-  });
-
-  it("surfaces a server-allowed auto flag without fabricating an executor", () => {
-    const serverAllowedPayload: MetaAutomationControlPlane = {
-      ...payload,
-      businessControl: {
-        ...payload.businessControl,
-        killSwitchEngaged: false,
-        killSwitchReason: null,
-        autoExecutionEnabled: true,
         readinessTier: "auto_execute",
-        guardrails: {
-          ...payload.businessControl.guardrails,
-          dryRunOnly: false,
-        },
       },
-      execution: {
-        autoExecutionAllowed: true,
-        writeEndpointsBlocked: false,
-        blockedReasons: [],
-      },
-    };
-
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        payload={serverAllowedPayload}
-      />,
-    );
-
-    expect(deriveEffectiveAuthority(serverAllowedPayload)).toMatchObject({
-      mode: "Approval Required",
     });
-    expect(html).toContain(
-      "Server policy allows Auto-execute; executor absent.",
-    );
-    expect(html).toContain("This is a policy flag, not proof");
-    expect(html).toContain("Stage B remains person-initiated");
-    expect(html).toContain(
-      "Auto-execute remains unavailable without an executor",
-    );
+
+    expect(html).toMatch(/data-field="global-writes"[^>]*>STOPPED/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
+    expect(html).toMatch(/data-field="readiness-tier">—/);
+    expect(html).toMatch(/data-field="promotion-count">—/);
+    expect(html).not.toContain("Every action requires operator confirmation.");
+    expect(html).not.toContain("+15% max");
   });
 
-  it("does not assign a currency when the contract omits it", () => {
-    const unknownCurrencyPayload: MetaAutomationControlPlane = {
+  it("shows a zero promotion count only when the collection read is proven complete", () => {
+    const complete = render({
       ...payload,
-      businessControl: {
-        ...payload.businessControl,
-        guardrails: {
-          ...payload.businessControl.guardrails,
-          perActionSpendCeilingCurrency: null,
-        },
-      },
-    };
+      promotionRecords: [],
+      readCompleteness: { promotionRecords: "complete" },
+    });
+    const unavailable = render({
+      ...payload,
+      promotionRecords: [],
+      readCompleteness: { promotionRecords: "unavailable" },
+    });
+    const legacyWithoutProvenance = render({
+      ...payload,
+      promotionRecords: [],
+      readCompleteness: undefined,
+    });
 
-    const html = renderToStaticMarkup(
-      <MetaAutomationView
-        businessId="biz_1"
-        businessName="IwaStore"
-        payload={unknownCurrencyPayload}
-        initialTab="guardrails"
-      />,
+    expect(complete).toMatch(
+      /data-field="promotion-count">0 promotion records/,
+    );
+    expect(unavailable).toMatch(/data-field="promotion-count">—/);
+    expect(legacyWithoutProvenance).toMatch(/data-field="promotion-count">—/);
+  });
+
+  it("preserves canonical empty geometry without inventing proposals, rules or actions", () => {
+    const html = render();
+
+    expect(html).toContain('data-testid="confirmation-empty"');
+    expect(html).toContain('data-testid="rules-empty"');
+    expect(html).toContain("+ New rule</button>");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>\+ New rule<\/button>/);
+    expect(html).not.toContain("Approve &amp; apply");
+    expect(html).not.toContain(">Modify</button>");
+    expect(html).not.toContain(">Dismiss</button>");
+    expect(html).not.toContain("Breakeven guard");
+    expect(html).not.toContain("Scale window");
+    expect(html).not.toContain("data-rule-id");
+    expect(html.match(/<button/g)).toHaveLength(1);
+  });
+
+  it("uses only persisted per-kind modes, never fabricates progress, and keeps launches manual", () => {
+    const html = render();
+
+    expect(html).toContain("Budget changes ≤ +15%");
+    expect(html).toContain("Tier 2 · Backtest");
+    expect(html).toContain("Backtest contract required before auto-execute.");
+    expect(html).toContain("Pause / resume");
+    expect(html).toMatch(
+      /data-decision-type="pause"[\s\S]*?<span[^>]*>—<\/span>/,
+    );
+    expect(html).toContain("Creative rotation");
+    expect(html).toContain("Tier 3 · Auto-execute");
+    expect(html).toContain("Manual · by design");
+    expect(html).toContain("New spend never automates.");
+    expect(html).not.toContain("18 / 30");
+    expect(html).not.toContain("22 / 30");
+    expect(html).not.toContain("4 / 20");
+  });
+
+  it("renders real ledger records while leaving unavailable tuple fields as em dashes", () => {
+    const html = render();
+
+    expect(html).toContain('data-ledger-id="activity_1"');
+    expect(html).toContain("Aug 15, 14:31");
+    expect(html).toContain(
+      "Business kill switch engaged — all Meta writes stopped.",
+    );
+    expect(html).not.toContain("System guard");
+    expect(html).not.toContain("Success record");
+    expect(html).not.toContain("not-presented-as-a-result");
+    expect(html.match(/<td>—<\/td>/g)).toHaveLength(2);
+  });
+
+  it("keeps both exact kill-status pills static and exposes no write path", () => {
+    const html = render();
+    const source = readFileSync(
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+      "utf8",
     );
 
-    expect(html).toContain("5,000 minor units - currency unknown");
-    expect(html).not.toContain("€50.00");
-    expect(html).not.toContain("$50.00");
+    expect(html).not.toContain('data-testid="business-stop-toggle"');
+    expect(html.match(/data-read-only="true"/g)?.length).toBeGreaterThanOrEqual(
+      3,
+    );
+    expect(source).not.toContain('method: "POST"');
+    expect(source).not.toContain("window.confirm");
+    expect(source).not.toContain("engage_kill_switch");
+    expect(source).not.toContain("release_kill_switch");
+  });
+
+  it("mounts a handler-free read-only surface at the 768px contract", () => {
+    const html = render();
+    const mobile = mobileMarkup(html);
+    const css = readFileSync(
+      "app/(dashboard)/platforms/meta/automation/automation.module.css",
+      "utf8",
+    );
+
+    expect(mobile).toContain('data-read-only="true"');
+    expect(mobile).toContain("Read-only");
+    expect(mobile).not.toContain("<button");
+    expect(mobile).not.toContain("onClick");
+    expect(css).toContain("@media (max-width: 1023px)");
+    expect(css).toMatch(
+      /@media \(max-width: 1023px\)[\s\S]*?\.desktopSurface \{[\s\S]*?display: none/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 1023px\)[\s\S]*?\.mobileSurface \{[\s\S]*?display: grid/,
+    );
+    expect(css).toContain("@media (min-width: 1024px)");
   });
 });

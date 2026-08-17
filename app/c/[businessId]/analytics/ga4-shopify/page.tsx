@@ -3,10 +3,17 @@ import { notFound, redirect } from "next/navigation";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
-import { AnalyticsSourceClient } from "@/components/zero-base/analytics/analytics-clients";
+import { InsightsAnalyticsScreen } from "@/components/analytics/InsightsAnalyticsScreen";
+import { InsightsChrome } from "@/components/insights/InsightsChrome";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The canonical twin of `/insights/analytics` (contract leaf L-C-AN-GA).
+ *
+ * Both route families mount the same exact screen; only the authorization in
+ * front of it differs, and that stays server-side.
+ */
 export default async function AnalyticsGa4ShopifyPage({
   params,
 }: {
@@ -20,5 +27,12 @@ export default async function AnalyticsGa4ShopifyPage({
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  return <AnalyticsSourceClient businessId={businessId} />;
+  return (
+    <InsightsChrome
+      businessId={businessId}
+      pathname={`/c/${businessId}/analytics/ga4-shopify`}
+    >
+      <InsightsAnalyticsScreen businessId={businessId} />
+    </InsightsChrome>
+  );
 }

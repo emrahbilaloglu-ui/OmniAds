@@ -10,9 +10,18 @@ import type {
   MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
+import {
+  createAutomationRuleRequest,
+  setAutomationRuleActiveRequest,
+  type AutomationRuleDraftInput,
+} from "@/lib/meta/automation-rules-client";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import { useAppStore } from "@/store/app-store";
 
+import {
+  buildAutomationRulesViewModel,
+  type AutomationRuleRowViewModel,
+} from "./automation-rules-exact-adapter";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
@@ -192,12 +201,301 @@ function formatLedgerTime(value: string) {
   return `${part("month")} ${part("day")}, ${part("hour")}:${part("minute")}`;
 }
 
+function AutomationRuleRow({
+  row,
+  busy,
+  canMutate,
+  onToggle,
+}: {
+  row: AutomationRuleRowViewModel;
+  busy: boolean;
+  canMutate: boolean;
+  onToggle: () => void;
+}) {
+  const interactive = canMutate && !row.locked;
+  return (
+    <tr
+      className={styles.rulesRow}
+      data-rule-id={row.id}
+      data-active={row.active ? "true" : "false"}
+    >
+      <td className={styles.ruleCell}>
+        <span className={styles.ruleName}>{row.name}</span>
+        <span className={styles.ruleTrigger}>{row.trigger}</span>
+      </td>
+      <td className={styles.ruleThen}>{row.then}</td>
+      <td className={styles.ruleModeCell}>
+        <span className={styles.modeChip} data-mode={row.modeTone}>
+          {row.mode}
+        </span>
+      </td>
+      <td className={styles.ruleFired}>{row.fired}</td>
+      <td className={styles.ruleToggleCell}>
+        <button
+          type="button"
+          className={styles.ruleToggle}
+          title={row.toggleTitle}
+          aria-label={`${row.name} — ${row.toggleTitle}`}
+          aria-pressed={row.active}
+          data-on={row.active ? "true" : "false"}
+          data-locked={row.locked ? "true" : "false"}
+          disabled={!interactive || busy}
+          onClick={interactive ? onToggle : undefined}
+        >
+          <span className={styles.ruleToggleKnob} />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+const COMPOSER_TRIGGER_KINDS = [
+  { value: "roas_below_anchor", label: "ROAS below anchor" },
+  { value: "roas_at_or_above_anchor", label: "ROAS at or above anchor" },
+  { value: "cpa_above_anchor", label: "CPA above anchor" },
+  { value: "cpa_at_or_below_anchor", label: "CPA at or below anchor" },
+] as const;
+
+const COMPOSER_ANCHORS = {
+  roas: [
+    { value: "break_even_roas", label: "Breakeven ROAS" },
+    { value: "target_roas", label: "Target ROAS" },
+  ],
+  cpa: [
+    { value: "break_even_cpa", label: "Breakeven CPA" },
+    { value: "target_cpa", label: "Target CPA" },
+  ],
+} as const;
+
+const COMPOSER_ACTIONS = [
+  { value: "propose_pause", label: "Propose pause into the queue" },
+  { value: "propose_budget_decrease", label: "Propose budget decrease" },
+  { value: "propose_budget_increase", label: "Propose budget increase" },
+  { value: "flag_for_review", label: "Flag for review · no write" },
+] as const;
+
+/**
+ * The composer only offers anchors, never numbers.
+ *
+ * There is no field here for "ROAS below 2.5". A trigger picks a Commercial
+ * Truth anchor and a bounded multiplier, so a rule cannot drift away from the
+ * pack the workspace actually agreed on. The action list likewise contains no
+ * executing option — the strongest thing a rule can be built to do is queue a
+ * proposal.
+ */
+function AutomationRuleComposer({
+  busy,
+  error,
+  onCancel,
+  onSubmit,
+}: {
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onSubmit: (draft: AutomationRuleDraftInput) => void;
+}) {
+  const [name, setName] = useState("");
+  const [entityLevel, setEntityLevel] = useState<"adset" | "campaign">("adset");
+  const [triggerKind, setTriggerKind] =
+    useState<(typeof COMPOSER_TRIGGER_KINDS)[number]["value"]>(
+      "roas_below_anchor",
+    );
+  const [anchor, setAnchor] = useState<string>("break_even_roas");
+  const [anchorMultiplier, setAnchorMultiplier] = useState("1");
+  const [consecutiveDays, setConsecutiveDays] = useState("3");
+  const [actionKind, setActionKind] =
+    useState<(typeof COMPOSER_ACTIONS)[number]["value"]>("propose_pause");
+  const [budgetChangePct, setBudgetChangePct] = useState("10");
+  const [mode, setMode] = useState<"confirm" | "suggest">("confirm");
+
+  const anchorFamily = triggerKind.startsWith("roas") ? "roas" : "cpa";
+  const anchorOptions = COMPOSER_ANCHORS[anchorFamily];
+  const anchorValue = anchorOptions.some((option) => option.value === anchor)
+    ? anchor
+    : anchorOptions[0].value;
+  const wantsBudgetPct =
+    actionKind === "propose_budget_decrease" ||
+    actionKind === "propose_budget_increase";
+
+  return (
+    <form
+      className={styles.ruleComposer}
+      data-testid="rule-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit({
+          name: name.trim(),
+          entityLevel,
+          trigger: {
+            kind: triggerKind,
+            anchor: anchorValue as never,
+            anchorMultiplier: Number(anchorMultiplier),
+            consecutiveDays: Number(consecutiveDays),
+          },
+          action: {
+            kind: actionKind,
+            budgetChangePct: wantsBudgetPct ? Number(budgetChangePct) : null,
+          },
+          mode,
+        });
+      }}
+    >
+      <div className={styles.ruleComposerGrid}>
+        <label className={styles.ruleField}>
+          <span>Rule name</span>
+          <input
+            value={name}
+            maxLength={80}
+            required
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <label className={styles.ruleField}>
+          <span>Level</span>
+          <select
+            value={entityLevel}
+            onChange={(event) =>
+              setEntityLevel(event.target.value as "adset" | "campaign")
+            }
+          >
+            <option value="adset">Ad set</option>
+            <option value="campaign">Campaign</option>
+          </select>
+        </label>
+        <label className={styles.ruleField}>
+          <span>When</span>
+          <select
+            value={triggerKind}
+            onChange={(event) =>
+              setTriggerKind(
+                event.target.value as typeof triggerKind,
+              )
+            }
+          >
+            {COMPOSER_TRIGGER_KINDS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.ruleField}>
+          <span>Anchor</span>
+          <select
+            value={anchorValue}
+            onChange={(event) => setAnchor(event.target.value)}
+          >
+            {anchorOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.ruleField}>
+          <span>Anchor ×</span>
+          <input
+            type="number"
+            min="0.1"
+            max="3"
+            step="0.05"
+            value={anchorMultiplier}
+            onChange={(event) => setAnchorMultiplier(event.target.value)}
+          />
+        </label>
+        <label className={styles.ruleField}>
+          <span>Consecutive days</span>
+          <input
+            type="number"
+            min="1"
+            max="30"
+            step="1"
+            value={consecutiveDays}
+            onChange={(event) => setConsecutiveDays(event.target.value)}
+          />
+        </label>
+        <label className={styles.ruleField}>
+          <span>Then</span>
+          <select
+            value={actionKind}
+            onChange={(event) =>
+              setActionKind(event.target.value as typeof actionKind)
+            }
+          >
+            {COMPOSER_ACTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {wantsBudgetPct ? (
+          <label className={styles.ruleField}>
+            <span>Budget change %</span>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              step="1"
+              value={budgetChangePct}
+              onChange={(event) => setBudgetChangePct(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <label className={styles.ruleField}>
+          <span>Mode</span>
+          <select
+            value={mode}
+            onChange={(event) =>
+              setMode(event.target.value as "confirm" | "suggest")
+            }
+          >
+            <option value="confirm">Confirm</option>
+            <option value="suggest">Suggest</option>
+          </select>
+        </label>
+      </div>
+      <p className={styles.ruleComposerNote}>
+        Rules raise proposals into the confirmation queue. Nothing created here
+        can execute a provider write.
+      </p>
+      {error ? (
+        <p className={styles.ruleError} role="status">
+          {error}
+        </p>
+      ) : null}
+      <div className={styles.ruleComposerActions}>
+        <button type="submit" className={styles.rulePrimary} disabled={busy}>
+          Create rule
+        </button>
+        <button
+          type="button"
+          className={styles.ruleSecondary}
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function MetaAutomationView({
   payload,
   providerAccountId = null,
+  businessId = null,
+  onRulesChanged,
 }: {
   payload: AutomationPayload | null;
   providerAccountId?: string | null;
+  /**
+   * Server-authorized scope. Absent means this render has no authority to
+   * mutate anything, so the toggle and "+ New rule" stay inert rather than
+   * pretending to work.
+   */
+  businessId?: string | null;
+  onRulesChanged?: (next: AutomationPayload) => void;
 }) {
   const globalStatus = statusForGlobalKillSwitch(payload);
   const businessStatus = statusForBusinessKillSwitch(payload);
@@ -209,6 +507,62 @@ export function MetaAutomationView({
   const showCanonicalReadinessCopy =
     hasPersistedBusinessControl(payload) &&
     payload!.businessControl.readinessTier === "manual_review";
+
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerBusy, setComposerBusy] = useState(false);
+  const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
+  const [ruleError, setRuleError] = useState<string | null>(null);
+
+  const rules = buildAutomationRulesViewModel({
+    payload,
+    // Creation needs a proven read and a server-authorized scope. Without
+    // either, the control is present but inert — the design's geometry with
+    // none of its authority.
+    canCreate:
+      Boolean(businessId) && payload?.readCompleteness?.rules === "complete",
+  });
+
+  async function toggleRule(row: AutomationRuleRowViewModel) {
+    if (!businessId || row.locked || pendingRuleId) return;
+    setPendingRuleId(row.id);
+    setRuleError(null);
+    try {
+      const next = await setAutomationRuleActiveRequest({
+        businessId,
+        providerAccountId,
+        ruleId: row.id,
+        active: !row.active,
+      });
+      onRulesChanged?.(next);
+    } catch (error) {
+      setRuleError(
+        error instanceof Error ? error.message : "Rule change was not applied.",
+      );
+    } finally {
+      setPendingRuleId(null);
+    }
+  }
+
+  async function createRule(draft: AutomationRuleDraftInput) {
+    if (!businessId || composerBusy) return;
+    setComposerBusy(true);
+    setRuleError(null);
+    try {
+      const next = await createAutomationRuleRequest({
+        businessId,
+        providerAccountId,
+        rule: draft,
+      });
+      onRulesChanged?.(next);
+      setComposerOpen(false);
+    } catch (error) {
+      setRuleError(
+        error instanceof Error ? error.message : "Rule was not created.",
+      );
+    } finally {
+      setComposerBusy(false);
+    }
+  }
 
   return (
     <div className={styles.page}>
@@ -324,8 +678,12 @@ export function MetaAutomationView({
               <button
                 type="button"
                 className={styles.newRule}
-                disabled
-                aria-disabled="true"
+                disabled={!rules.canCreate || composerOpen}
+                aria-disabled={!rules.canCreate || composerOpen}
+                aria-expanded={composerOpen}
+                onClick={
+                  rules.canCreate ? () => setComposerOpen(true) : undefined
+                }
               >
                 + New rule
               </button>
@@ -342,12 +700,39 @@ export function MetaAutomationView({
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className={styles.rulesEmpty} data-testid="rules-empty">
-                    <td colSpan={5}>{UNKNOWN}</td>
-                  </tr>
+                  {rules.rows && rules.rows.length > 0 ? (
+                    rules.rows.map((row) => (
+                      <AutomationRuleRow
+                        key={row.id}
+                        row={row}
+                        busy={pendingRuleId === row.id}
+                        canMutate={Boolean(businessId)}
+                        onToggle={() => void toggleRule(row)}
+                      />
+                    ))
+                  ) : (
+                    <tr className={styles.rulesEmpty} data-testid="rules-empty">
+                      <td colSpan={5}>{UNKNOWN}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+            {composerOpen ? (
+              <AutomationRuleComposer
+                busy={composerBusy}
+                error={ruleError}
+                onCancel={() => {
+                  setComposerOpen(false);
+                  setRuleError(null);
+                }}
+                onSubmit={(draft) => void createRule(draft)}
+              />
+            ) : ruleError ? (
+              <p className={styles.ruleError} role="status">
+                {ruleError}
+              </p>
+            ) : null}
             <p className={styles.sectionFootnote}>
               rules never write directly — they raise proposals into the
               confirmation queue (or hard-block, for guards)
@@ -530,7 +915,9 @@ export default function MetaAutomationPage({
         ? "persisted business control not proven"
         : !providerAccountId
           ? "provider account scope unresolved"
-          : null,
+          : payload?.readCompleteness?.rules !== "complete"
+            ? "automation rules read not proven"
+            : null,
     businessId,
     onRetry: () => setRefreshKey((value) => value + 1),
   });
@@ -604,6 +991,8 @@ export default function MetaAutomationPage({
     <MetaAutomationView
       payload={payload}
       providerAccountId={providerAccountId}
+      businessId={businessId}
+      onRulesChanged={setPayload}
     />
   );
 }

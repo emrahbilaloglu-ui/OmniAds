@@ -10,6 +10,15 @@ import {
   type MetaAutomationDecisionType,
   type MetaAutomationDecisionMode,
 } from "@/lib/meta/automation-control-plane";
+import { AutomationRuleValidationError } from "@/lib/meta/automation-rules";
+import { evaluateBusinessAutomationRules } from "@/lib/meta/automation-rules-evaluation";
+import {
+  AutomationRuleDuplicateNameError,
+  AutomationRuleLockedError,
+  AutomationRuleNotFoundError,
+  createAutomationRule,
+  setAutomationRuleActive,
+} from "@/lib/meta/automation-rules-store";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
@@ -114,21 +123,36 @@ export async function POST(request: NextRequest) {
   if (!businessId) return jsonError(400, "missing_business_id", "businessId is required.");
 
   const body = (await request.json().catch(() => null)) as
-    | { action?: unknown; reason?: unknown; decisionType?: unknown; mode?: unknown }
+    | {
+        action?: unknown;
+        reason?: unknown;
+        decisionType?: unknown;
+        mode?: unknown;
+        rule?: unknown;
+        ruleId?: unknown;
+        active?: unknown;
+      }
     | null;
   const action = body?.action;
   if (
     action !== "engage_kill_switch" &&
     action !== "release_kill_switch" &&
-    action !== "set_decision_type_mode"
+    action !== "set_decision_type_mode" &&
+    action !== "create_rule" &&
+    action !== "set_rule_active" &&
+    action !== "evaluate_rules"
   ) {
     return jsonError(
       400,
       "unsupported_automation_action",
-      "Only engage_kill_switch, release_kill_switch and set_decision_type_mode are supported from Automation.",
+      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode, create_rule, set_rule_active and evaluate_rules are supported from Automation.",
     );
   }
 
+  // The rule mutations are automation-control configuration writes that never
+  // reach a provider, so they carry the same `collaborator` floor as
+  // engage_kill_switch and set_decision_type_mode — their closest siblings.
+  // `release_kill_switch` keeps its stricter `admin` floor untouched.
   const access = await requireBusinessAccess({
     request,
     businessId,
@@ -142,13 +166,17 @@ export async function POST(request: NextRequest) {
   });
   if (!accountScope.ok) return accountScope.response;
 
+  const REVIEWER_ACTION_LABELS: Record<string, string> = {
+    release_kill_switch: "automation_kill_switch_release",
+    set_decision_type_mode: "automation_decision_type_mode",
+    engage_kill_switch: "automation_kill_switch_engage",
+    create_rule: "automation_rule_create",
+    set_rule_active: "automation_rule_toggle",
+    evaluate_rules: "automation_rule_evaluate",
+  };
   const reviewerBlocked = rejectIfReviewerReadOnly(
     access,
-    action === "release_kill_switch"
-      ? "automation_kill_switch_release"
-      : action === "set_decision_type_mode"
-        ? "automation_decision_type_mode"
-        : "automation_kill_switch_engage",
+    REVIEWER_ACTION_LABELS[action],
   );
   if (reviewerBlocked) return reviewerBlocked;
 
@@ -198,6 +226,54 @@ export async function POST(request: NextRequest) {
         mode: body?.mode as MetaAutomationDecisionMode,
         reason: body?.reason,
       });
+    } else if (action === "create_rule") {
+      // A rule definition, not an action. Nothing here can reach a provider:
+      // the validated action kinds only ever produce a queued proposal or a
+      // hard block, both of which are rows in this database.
+      const draft = (
+        body?.rule && typeof body.rule === "object" ? body.rule : {}
+      ) as Record<string, unknown>;
+      await createAutomationRule({
+        businessId: access.membership.businessId,
+        userId: access.session.user.id,
+        name: draft.name,
+        entityLevel: draft.entityLevel,
+        trigger: draft.trigger,
+        action: draft.action,
+        mode: draft.mode,
+      });
+    } else if (action === "set_rule_active") {
+      const ruleId = typeof body?.ruleId === "string" ? body.ruleId.trim() : "";
+      if (!ruleId || typeof body?.active !== "boolean") {
+        return jsonError(
+          400,
+          "invalid_rule_toggle",
+          "ruleId must be a rule id and active must be a boolean.",
+        );
+      }
+      await setAutomationRuleActive({
+        businessId: access.membership.businessId,
+        userId: access.session.user.id,
+        ruleId,
+        active: body.active,
+      });
+    } else if (action === "evaluate_rules") {
+      // Runs the deterministic evaluation over the warehouse and raises any
+      // resulting proposals into the confirmation queue. It is idempotent —
+      // a re-run over an unchanged warehouse day inserts nothing — and it
+      // reaches no provider: the strongest thing it can do is queue a proposal
+      // that still needs operator confirmation.
+      if (!accountScope.providerAccountId) {
+        return jsonError(
+          400,
+          "provider_account_scope_required",
+          "Select one assigned Meta account before evaluating automation rules.",
+        );
+      }
+      await evaluateBusinessAutomationRules({
+        businessId: access.membership.businessId,
+        providerAccountId: accountScope.providerAccountId,
+      });
     } else {
       await engageMetaAutomationKillSwitch({
         businessId: access.membership.businessId,
@@ -211,6 +287,18 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ ok: true, automation });
   } catch (error) {
+    if (error instanceof AutomationRuleValidationError) {
+      return jsonError(400, error.code, error.message);
+    }
+    if (error instanceof AutomationRuleDuplicateNameError) {
+      return jsonError(409, error.code, error.message);
+    }
+    if (error instanceof AutomationRuleLockedError) {
+      return jsonError(409, error.code, error.message);
+    }
+    if (error instanceof AutomationRuleNotFoundError) {
+      return jsonError(404, error.code, error.message);
+    }
     return jsonError(500, "automation_action_failed", sanitizeErrorMessage(error));
   }
 }

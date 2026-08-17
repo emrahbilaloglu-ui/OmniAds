@@ -241,6 +241,9 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       },
       { selector: ".autonomyNext, .ledgerUnknown", size: 11 },
       { selector: ".ledgerTime", size: 11.5 },
+      { selector: ".ruleTrigger, .ruleComposerNote", size: 10 },
+      { selector: ".modeChip", size: 10.5 },
+      { selector: ".ruleFired", size: 11 },
     ],
   },
   {

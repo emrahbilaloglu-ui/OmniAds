@@ -4667,6 +4667,106 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (business_id, decision_type)
         )`.catch(() => {}),
+        // ── Deterministic automation rules (LAUNCHPAD-AUTOMATION-31) ─────────
+        //
+        // A rule is a definition, not an actor. `action_kind` deliberately has
+        // no member that executes anything: the richest outcome is a proposal
+        // into the confirmation queue, and `hard_block_writes` only ever
+        // refuses. Economic triggers carry an anchor into the Commercial Truth
+        // pack plus a bounded multiplier — never an absolute threshold.
+        //
+        // ORDER IS LOAD-BEARING here: proposals reference rules and firings
+        // reference proposals, so these cannot be three independent statements
+        // in the surrounding batch (which issues everything at once). A
+        // `CREATE TABLE … REFERENCES` against a table that does not exist yet
+        // fails outright, and the swallowed error would leave the table missing
+        // until some later run happened to win the race.
+        orderedMigrationSteps([
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rules (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset')),
+          trigger_json JSONB NOT NULL,
+          action_json JSONB NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'confirm'
+            CHECK (mode IN ('confirm', 'suggest', 'enforced')),
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (business_id, name)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rules_business
+          ON meta_automation_rules (business_id, created_at ASC)`.catch(
+              () => {},
+            ),
+          // Proposals raised by a rule. The engine only ever inserts 'pending';
+          // every transition out of it belongs to the confirmation queue.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rule_proposals (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          rule_id UUID NOT NULL REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          provider_account_id TEXT,
+          action_kind TEXT NOT NULL
+            CHECK (action_kind IN ('pause', 'budget_decrease', 'budget_increase', 'review_flag')),
+          budget_change_pct DOUBLE PRECISION,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset')),
+          entity_id TEXT NOT NULL,
+          entity_name TEXT,
+          reason TEXT NOT NULL,
+          evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          dedupe_key TEXT NOT NULL UNIQUE,
+          evaluated_for_date DATE NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'confirmed', 'dismissed', 'expired')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_proposals_business
+          ON meta_automation_rule_proposals (business_id, status, created_at DESC)`.catch(
+              () => {},
+            ),
+          // The real events behind "Fired · 28d". One row per rule/entity/day,
+          // so re-running an evaluation over an unchanged warehouse day is a
+          // no-op rather than a second count.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rule_firings (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          rule_id UUID NOT NULL REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          provider_account_id TEXT,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset', 'account')),
+          entity_id TEXT NOT NULL,
+          entity_name TEXT,
+          evaluated_for_date DATE NOT NULL,
+          outcome TEXT NOT NULL
+            CHECK (outcome IN ('proposal_raised', 'hard_block_recorded')),
+          reason TEXT NOT NULL,
+          evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          proposal_id UUID REFERENCES meta_automation_rule_proposals(id) ON DELETE SET NULL,
+          fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (rule_id, entity_id, evaluated_for_date)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_business_window
+          ON meta_automation_rule_firings (business_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_rule_window
+          ON meta_automation_rule_firings (rule_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+        ]),
         sql`DO $$
           DECLARE
             action_constraint_name TEXT;

@@ -1,5 +1,16 @@
 import { getDb } from "@/lib/db";
 import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
+import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
+import {
+  evaluateAutomationGuardRules,
+  type AutomationRuleAnchorValues,
+  type AutomationRuleDefinition,
+} from "@/lib/meta/automation-rules";
+import {
+  anchorsFromTargetPack,
+  countAutomationRuleFirings,
+  listAutomationRules,
+} from "@/lib/meta/automation-rules-store";
 
 export type MetaAutomationReadinessControlTier =
   "read_only" | "manual_review" | "backtest_candidate" | "auto_execute";
@@ -101,12 +112,37 @@ export interface MetaAutomationControlPlane {
    */
   readCompleteness?: {
     promotionRecords: "complete" | "unavailable";
+    /**
+     * Additive, and absent on older payloads. An absent value means the rules
+     * read was never attempted by this server, so an empty `rules` array must
+     * be treated as unproven rather than as "this workspace has no rules".
+     */
+    rules?: "complete" | "unavailable";
   };
+  /**
+   * Deterministic rule definitions with their real 28-day firing counts.
+   * An empty array with `readCompleteness.rules === "complete"` is an honest
+   * "no rules exist" — the surface renders the empty five-column shell.
+   */
+  rules?: MetaAutomationRule[];
+  /**
+   * The Commercial Truth anchors the rule triggers are bound to. A `null`
+   * member means the workspace pack does not supply it, and any rule anchored
+   * to it renders its threshold as an em dash and never fires.
+   */
+  commercialAnchors?: AutomationRuleAnchorValues;
   activityLedger: MetaAutomationActivityItem[];
   /** Per-decision-type standing mode (persisted operator preference, or 'manual'
    *  default). Recording a change persists an audit record; it does NOT auto-execute
    *  — writes stay gated by the kill switch, readiness tier and dry-run guardrail. */
   decisionTypeModes: MetaAutomationDecisionTypeMode[];
+}
+
+/** A persisted rule plus the real events behind the design's "Fired · 28d". */
+export interface MetaAutomationRule extends AutomationRuleDefinition {
+  locked: boolean;
+  firedCount: number;
+  lastFiredAt: string | null;
 }
 
 export interface MetaWriteBlockState {
@@ -116,8 +152,12 @@ export interface MetaWriteBlockState {
     | "business_kill_switch"
     | "demo_business_read_only"
     | "control_state_unavailable"
+    /** An enforced guard rule refused this write. Additive; never removes a block. */
+    | "automation_guard_rule"
     | null;
   message: string | null;
+  /** Set only when `reason === "automation_guard_rule"`. */
+  guardRule?: { id: string; name: string } | null;
 }
 
 type ControlDbRow = {
@@ -772,10 +812,49 @@ export async function setMetaAutomationDecisionTypeMode(input: {
   return readDecisionTypeModes(businessId);
 }
 
+/**
+ * Read the persisted rules and join each one to its real 28-day firing count.
+ *
+ * Both halves have to succeed. A rule list without counts would force the
+ * surface to either invent a number or show a rule row whose count column lies,
+ * so a count failure makes the whole read `unavailable` and the table stays on
+ * the honest empty geometry.
+ */
+async function readAutomationRules(input: {
+  businessId: string;
+  asOf: Date;
+}): Promise<{
+  rules: MetaAutomationRule[];
+  anchors: AutomationRuleAnchorValues;
+}> {
+  const [rules, counts, snapshot] = await Promise.all([
+    listAutomationRules(input.businessId),
+    countAutomationRuleFirings({
+      businessId: input.businessId,
+      asOf: input.asOf,
+    }),
+    getBusinessCommercialTruthSnapshot(input.businessId),
+  ]);
+  return {
+    rules: rules.map((rule) => {
+      const count = counts.get(rule.id);
+      return {
+        ...rule,
+        locked: rule.mode === "enforced",
+        firedCount: count?.firedCount ?? 0,
+        lastFiredAt: count?.lastFiredAt ?? null,
+      };
+    }),
+    anchors: anchorsFromTargetPack(snapshot.targetPack),
+  };
+}
+
 export async function getMetaAutomationControlPlane(input: {
   businessId: string;
   providerAccountId?: string | null;
   env?: NodeJS.ProcessEnv;
+  /** Explicit evaluation instant for the 28-day firing window. */
+  asOf?: Date;
 }): Promise<MetaAutomationControlPlane> {
   const businessId = input.businessId.trim();
   const providerAccountId = input.providerAccountId?.trim() || null;
@@ -785,16 +864,28 @@ export async function getMetaAutomationControlPlane(input: {
     () => readBusinessControl(businessId),
     defaultBusinessControl(businessId),
   );
-  const [promotionRead, automationActivity, actionActivity, decisionTypeModes] =
-    await Promise.all([
-      readWithCompleteness(() => readPromotionRecords(businessId), []),
-      safeRead(() => readActivityLedger(businessId), []),
-      safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
-      safeRead(
-        () => readDecisionTypeModes(businessId),
-        defaultDecisionTypeModes(),
-      ),
-    ]);
+  const [
+    promotionRead,
+    automationActivity,
+    actionActivity,
+    decisionTypeModes,
+    rulesRead,
+  ] = await Promise.all([
+    readWithCompleteness(() => readPromotionRecords(businessId), []),
+    safeRead(() => readActivityLedger(businessId), []),
+    safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
+    safeRead(
+      () => readDecisionTypeModes(businessId),
+      defaultDecisionTypeModes(),
+    ),
+    readWithCompleteness(
+      () => readAutomationRules({ businessId, asOf: input.asOf ?? new Date() }),
+      {
+        rules: [] as MetaAutomationRule[],
+        anchors: anchorsFromTargetPack(null),
+      },
+    ),
+  ]);
   const blockedReasons = [
     globalKillSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
     businessControl.killSwitchEngaged ? "business_kill_switch" : null,
@@ -825,7 +916,10 @@ export async function getMetaAutomationControlPlane(input: {
     promotionRecords: promotionRead.value,
     readCompleteness: {
       promotionRecords: promotionRead.completeness,
+      rules: rulesRead.completeness,
     },
+    rules: rulesRead.value.rules,
+    commercialAnchors: rulesRead.value.anchors,
     activityLedger: [...automationActivity, ...actionActivity]
       .sort(
         (left, right) =>
@@ -839,6 +933,8 @@ export async function getMetaAutomationControlPlane(input: {
 export async function getMetaWriteBlockState(input: {
   businessId: string;
   env?: NodeJS.ProcessEnv;
+  /** Explicit instant for temporal guard rules; defaults to now. */
+  at?: Date;
 }): Promise<MetaWriteBlockState> {
   const businessId = input.businessId.trim();
   const env = input.env ?? process.env;
@@ -889,14 +985,50 @@ export async function getMetaWriteBlockState(input: {
     };
   }
   const control = controlState.control;
-  if (!control.killSwitchEngaged) {
-    return { blocked: false, reason: null, message: null };
+  if (control.killSwitchEngaged) {
+    return {
+      blocked: true,
+      reason: "business_kill_switch",
+      message:
+        control.killSwitchReason ||
+        "Meta writes are disabled by business kill switch.",
+    };
   }
-  return {
-    blocked: true,
-    reason: "business_kill_switch",
-    message:
-      control.killSwitchReason ||
-      "Meta writes are disabled by business kill switch.",
-  };
+
+  // Enforced guard rules, consulted at the SAME choke point every existing
+  // write path already goes through. This can only add a block: reaching here
+  // means every prior gate said "not blocked", and the only two outcomes below
+  // are the unchanged pass and a new refusal. A missing rules table is treated
+  // as "no guards" so an un-migrated database keeps today's behaviour; any
+  // other read failure falls back to the existing fail-closed reason rather
+  // than silently permitting a write we could not check.
+  let guardRules: AutomationRuleDefinition[];
+  try {
+    guardRules = await listAutomationRules(businessId);
+  } catch (error) {
+    if (isUndefinedTableError(error)) {
+      return { blocked: false, reason: null, message: null };
+    }
+    return {
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation guard rules could not be verified.",
+    };
+  }
+
+  const guardBlock = evaluateAutomationGuardRules({
+    rules: guardRules,
+    at: input.at ?? new Date(),
+  });
+  if (guardBlock) {
+    return {
+      blocked: true,
+      reason: "automation_guard_rule",
+      message: guardBlock.reason,
+      guardRule: { id: guardBlock.ruleId, name: guardBlock.ruleName },
+    };
+  }
+
+  return { blocked: false, reason: null, message: null };
 }

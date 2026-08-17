@@ -367,3 +367,278 @@ describe("meta automation control plane", () => {
     });
   });
 });
+
+describe("enforced guard rules at the write boundary", () => {
+  const OPEN_CONTROL_ROW = {
+    business_id: BUSINESS_ID,
+    is_demo_business: false,
+    kill_switch_engaged: false,
+    kill_switch_reason: null,
+    auto_execution_enabled: false,
+    readiness_tier: "manual_review",
+    guardrails_json: {},
+    updated_at: "2026-08-17T08:00:00.000Z",
+    updated_by: "user_1",
+  };
+
+  const QUIET_HOURS_ROW = {
+    id: "rule_quiet",
+    business_id: BUSINESS_ID,
+    name: "Quiet hours",
+    entity_level: "adset",
+    trigger_json: {
+      kind: "quiet_hours",
+      timeZone: "America/New_York",
+      startHour: 0,
+      endHour: 7,
+    },
+    action_json: { kind: "hard_block_writes", budgetChangePct: null },
+    mode: "enforced",
+    active: true,
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+  };
+
+  function sqlWith(rulesResult: unknown) {
+    return vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [OPEN_CONTROL_ROW];
+      }
+      if (query.includes("FROM meta_automation_rules")) {
+        if (rulesResult instanceof Error) throw rulesResult;
+        return rulesResult;
+      }
+      return [];
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+  });
+
+  it("hard-blocks a provider write inside the guard window", async () => {
+    vi.mocked(db.getDb).mockReturnValue(sqlWith([QUIET_HOURS_ROW]) as never);
+
+    const block = await getMetaWriteBlockState({
+      businessId: BUSINESS_ID,
+      // 04:00 in New York.
+      at: new Date("2026-08-16T08:00:00.000Z"),
+    });
+
+    expect(block).toMatchObject({
+      blocked: true,
+      reason: "automation_guard_rule",
+      guardRule: { id: "rule_quiet", name: "Quiet hours" },
+    });
+  });
+
+  it("permits the write outside the window, leaving today's behaviour unchanged", async () => {
+    vi.mocked(db.getDb).mockReturnValue(sqlWith([QUIET_HOURS_ROW]) as never);
+
+    const block = await getMetaWriteBlockState({
+      businessId: BUSINESS_ID,
+      // 14:00 in New York.
+      at: new Date("2026-08-16T18:00:00.000Z"),
+    });
+
+    expect(block).toEqual({ blocked: false, reason: null, message: null });
+  });
+
+  it("keeps an un-migrated database on its existing behaviour", async () => {
+    const missingTable = Object.assign(new Error("relation does not exist"), {
+      code: "42P01",
+    });
+    vi.mocked(db.getDb).mockReturnValue(sqlWith(missingTable) as never);
+
+    const block = await getMetaWriteBlockState({
+      businessId: BUSINESS_ID,
+      at: new Date("2026-08-16T08:00:00.000Z"),
+    });
+
+    expect(block).toEqual({ blocked: false, reason: null, message: null });
+  });
+
+  it("fails closed when guard rules cannot be read at all", async () => {
+    const dbError = Object.assign(new Error("database unavailable"), {
+      code: "57P01",
+    });
+    vi.mocked(db.getDb).mockReturnValue(sqlWith(dbError) as never);
+
+    const block = await getMetaWriteBlockState({
+      businessId: BUSINESS_ID,
+      at: new Date("2026-08-16T18:00:00.000Z"),
+    });
+
+    expect(block).toMatchObject({
+      blocked: true,
+      reason: "control_state_unavailable",
+    });
+  });
+
+  it("never lets a guard rule lift an existing block", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [
+          {
+            ...OPEN_CONTROL_ROW,
+            kill_switch_engaged: true,
+            kill_switch_reason: "Owner paused automation.",
+          },
+        ];
+      }
+      return [QUIET_HOURS_ROW];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const block = await getMetaWriteBlockState({
+      businessId: BUSINESS_ID,
+      at: new Date("2026-08-16T18:00:00.000Z"),
+    });
+
+    expect(block).toMatchObject({
+      blocked: true,
+      reason: "business_kill_switch",
+    });
+  });
+});
+
+describe("rules in the control-plane payload", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("serves persisted rules with their real 28-day counts and the live anchors", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_rules")) {
+        return [
+          {
+            id: "rule_1",
+            business_id: BUSINESS_ID,
+            name: "Breakeven guard",
+            entity_level: "adset",
+            trigger_json: {
+              kind: "roas_below_anchor",
+              anchor: "break_even_roas",
+              anchorMultiplier: 1,
+              consecutiveDays: 3,
+            },
+            action_json: { kind: "propose_pause", budgetChangePct: null },
+            mode: "confirm",
+            active: true,
+            created_at: "2026-08-01T00:00:00.000Z",
+            updated_at: "2026-08-01T00:00:00.000Z",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_rule_firings")) {
+        return [
+          {
+            rule_id: "rule_1",
+            fired_count: "3",
+            last_fired_at: "2026-08-12T09:00:00.000Z",
+          },
+        ];
+      }
+      if (query.includes("FROM business_target_packs")) {
+        return [
+          {
+            target_cpa: null,
+            target_roas: 3.8,
+            break_even_cpa: null,
+            break_even_roas: 2.5,
+            contribution_margin_assumption: null,
+            aov_assumption: null,
+            new_customer_weight: null,
+            default_risk_posture: "balanced",
+            cost_cogs_percent: null,
+            cost_shipping_percent: null,
+            cost_fulfillment_percent: null,
+            cost_payment_processing_percent: null,
+            source_label: "settings_manual_entry",
+            updated_at: "2026-08-16T00:00:00.000Z",
+            updated_by_user_id: null,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      asOf: new Date("2026-08-16T00:00:00.000Z"),
+    });
+
+    expect(payload.readCompleteness?.rules).toBe("complete");
+    expect(payload.rules).toHaveLength(1);
+    expect(payload.rules?.[0]).toMatchObject({
+      id: "rule_1",
+      name: "Breakeven guard",
+      mode: "confirm",
+      locked: false,
+      active: true,
+      firedCount: 3,
+      lastFiredAt: "2026-08-12T09:00:00.000Z",
+    });
+    expect(payload.commercialAnchors).toMatchObject({
+      break_even_roas: 2.5,
+      target_roas: 3.8,
+    });
+  });
+
+  it("marks the rules read unavailable rather than reporting an empty table", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_rules")) {
+        throw Object.assign(new Error("rules table unavailable"), {
+          code: "57P01",
+        });
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.readCompleteness?.rules).toBe("unavailable");
+    expect(payload.rules).toEqual([]);
+  });
+});

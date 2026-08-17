@@ -56,6 +56,19 @@
 .ledgerTime {
   font-size: 11.5px;
 }
+
+.ruleTrigger,
+.ruleComposerNote {
+  font-size: 10px;
+}
+
+.modeChip {
+  font-size: 10.5px;
+}
+
+.ruleFired {
+  font-size: 11px;
+}
 /* dashboard-v2-automation-exact-reference-type:end */
 
 .eyebrow,
@@ -70,6 +83,9 @@
 .progressValue,
 .promotionCount,
 .ledgerTime,
+.ruleTrigger,
+.ruleFired,
+.ruleComposerNote,
 .mobileEyebrow {
   font-family: var(--adv-font-mono, "IBM Plex Mono"), monospace;
 }
@@ -332,11 +348,15 @@
   background: transparent;
   padding: 0;
   color: #2f6bff;
-  cursor: not-allowed;
+  cursor: pointer;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   opacity: 1;
+}
+
+.newRule:disabled {
+  cursor: not-allowed;
 }
 
 .tableScroll {
@@ -387,6 +407,199 @@
 .ledgerEmpty td {
   color: #98a4ba;
   text-align: center;
+}
+
+/* Rules rows — design markup lines 1145–1153. */
+.rulesRow {
+  border-top: 1px solid #edf0f6;
+}
+
+.rulesRow[data-active="false"] {
+  opacity: 0.5;
+}
+
+.ruleCell {
+  padding: 10px 16px;
+}
+
+.ruleName {
+  display: block;
+  color: #0e1526;
+  font-weight: 600;
+}
+
+.ruleTrigger {
+  display: block;
+  margin-top: 2px;
+  color: #98a4ba;
+}
+
+.ruleComposerNote {
+  margin: 0;
+  color: #98a4ba;
+  line-height: 1.5;
+}
+
+.ruleThen {
+  padding: 10px 12px;
+  color: #45526b;
+}
+
+.ruleModeCell {
+  padding: 10px 12px;
+}
+
+.modeChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.modeChip[data-mode="enforced"] {
+  background: #0b1020;
+  color: #ffffff;
+}
+
+.modeChip[data-mode="confirm"] {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.modeChip[data-mode="suggest"] {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.ruleFired {
+  padding: 10px 12px;
+  color: #7a869e;
+  text-align: right;
+}
+
+.ruleToggleCell {
+  padding: 10px 16px;
+  text-align: right;
+}
+
+.ruleToggle {
+  display: inline-flex;
+  width: 34px;
+  height: 19px;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 9999px;
+  background: #c9d2e0;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.ruleToggle[data-on="true"] {
+  justify-content: flex-end;
+  background: #0e9f6e;
+}
+
+.ruleToggle[data-locked="true"] {
+  background: #0b1020;
+  cursor: not-allowed;
+}
+
+.ruleToggle:disabled {
+  cursor: not-allowed;
+}
+
+.ruleToggleKnob {
+  width: 15px;
+  height: 15px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(14 21 38 / 25%);
+}
+
+/* Composer — not in the prototype's DOM, and collapsed by default so the
+   default geometry is exactly the design's. */
+.ruleComposer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid #edf0f6;
+  background: #f7f9fc;
+  padding: 14px 16px;
+}
+
+.ruleComposerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.ruleField {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: #45526b;
+  font-size: 12px;
+}
+
+.ruleField input,
+.ruleField select {
+  min-width: 0;
+  height: 31px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 9px;
+  color: #0e1526;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.ruleComposerActions {
+  display: flex;
+  gap: 6px;
+}
+
+.rulePrimary,
+.ruleSecondary {
+  height: 31px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rulePrimary {
+  border: none;
+  background: #2f6bff;
+  padding: 0 13px;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.ruleSecondary {
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 0 11px;
+  color: #0e1526;
+}
+
+.rulePrimary:disabled,
+.ruleSecondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ruleError {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: #e11d48;
+  font-size: 12px;
+}
+
+.ruleComposer .ruleError {
+  padding: 0;
 }
 
 .autonomyRow {

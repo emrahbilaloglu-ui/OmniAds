@@ -106,6 +106,85 @@ function render(input: MetaAutomationControlPlane | null = payload) {
   );
 }
 
+/**
+ * A payload whose rules read is PROVEN complete. Everything in it is data the
+ * server actually returned — no prototype rule from the design file.
+ */
+function withRules(): MetaAutomationControlPlane {
+  return {
+    ...payload,
+    readCompleteness: { promotionRecords: "complete", rules: "complete" },
+    commercialAnchors: {
+      target_roas: 3.8,
+      break_even_roas: 2.5,
+      target_cpa: null,
+      break_even_cpa: null,
+    },
+    rules: [
+      {
+        id: "rule_confirm",
+        businessId: "biz_1",
+        name: "Breakeven guard",
+        entityLevel: "adset",
+        trigger: {
+          kind: "roas_below_anchor",
+          anchor: "break_even_roas",
+          anchorMultiplier: 1,
+          consecutiveDays: 3,
+        },
+        action: { kind: "propose_pause", budgetChangePct: null },
+        mode: "confirm",
+        active: true,
+        locked: false,
+        firedCount: 3,
+        lastFiredAt: "2026-08-12T09:00:00.000Z",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+      {
+        id: "rule_suggest",
+        businessId: "biz_1",
+        name: "Scale window",
+        entityLevel: "adset",
+        trigger: {
+          kind: "roas_at_or_above_anchor",
+          anchor: "target_roas",
+          anchorMultiplier: 1,
+          consecutiveDays: 12,
+        },
+        action: { kind: "flag_for_review", budgetChangePct: null },
+        mode: "suggest",
+        active: false,
+        locked: false,
+        firedCount: 0,
+        lastFiredAt: null,
+        createdAt: "2026-08-02T00:00:00.000Z",
+        updatedAt: "2026-08-02T00:00:00.000Z",
+      },
+      {
+        id: "rule_guard",
+        businessId: "biz_1",
+        name: "Quiet hours",
+        entityLevel: "adset",
+        trigger: {
+          kind: "quiet_hours",
+          timeZone: "America/New_York",
+          startHour: 0,
+          endHour: 7,
+        },
+        action: { kind: "hard_block_writes", budgetChangePct: null },
+        mode: "enforced",
+        active: true,
+        locked: true,
+        firedCount: 1,
+        lastFiredAt: "2026-08-12T04:12:00.000Z",
+        createdAt: "2026-08-03T00:00:00.000Z",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+      },
+    ],
+  };
+}
+
 function mobileMarkup(html: string) {
   return (
     html.match(
@@ -275,6 +354,127 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(source).not.toContain("window.confirm");
     expect(source).not.toContain("engage_kill_switch");
     expect(source).not.toContain("release_kill_switch");
+  });
+
+  it("renders persisted rules in the design's column order with real 28-day counts", () => {
+    const html = render(withRules());
+
+    expect(html).toContain('data-rule-id="rule_confirm"');
+    expect(html).toContain("Breakeven guard");
+    expect(html).toContain("ROAS &lt; breakeven (2.50) for 3 consecutive days");
+    expect(html).toContain("Propose pause into the queue");
+    expect(html).toContain(">Confirm</span>");
+    expect(html).toContain("3× · Aug 12");
+    expect(html).toContain('data-rule-id="rule_guard"');
+    expect(html).toContain("any provider write 00:00–07:00 America/New_York");
+    expect(html).toContain("Hard block · logged");
+    expect(html).toContain(">Enforced</span>");
+    // A proven-complete read with no firings is a real zero, not an em dash.
+    expect(html).toContain("0×");
+    expect(html).not.toContain('data-testid="rules-empty"');
+  });
+
+  it("renders the anchor as an em dash when the Commercial Truth pack does not supply it", () => {
+    const html = render({
+      ...withRules(),
+      commercialAnchors: {
+        target_roas: null,
+        break_even_roas: null,
+        target_cpa: null,
+        break_even_cpa: null,
+      },
+    });
+
+    expect(html).toContain("ROAS &lt; breakeven (—) for 3 consecutive days");
+    expect(html).not.toContain("(2.50)");
+  });
+
+  it("keeps the enforced guard's toggle locked and never offers a provider action", () => {
+    const html = render(withRules());
+    const guardRow =
+      html.match(/<tr[^>]*data-rule-id="rule_guard"[\s\S]*?<\/tr>/)?.[0] ?? "";
+
+    expect(guardRow).toContain('data-locked="true"');
+    expect(guardRow).toContain("Enforced — cannot be disabled");
+    expect(guardRow).toMatch(/<button[^>]*disabled=""/);
+    expect(html).not.toContain("Approve &amp; apply");
+    expect(html).not.toContain("Execute");
+    expect(html).toContain(
+      "rules never write directly — they raise proposals into the confirmation queue (or hard-block, for guards)",
+    );
+  });
+
+  it("marks a disabled rule without removing its row", () => {
+    const html = render(withRules());
+    const disabledRow =
+      html.match(/<tr[^>]*data-rule-id="rule_suggest"[\s\S]*?<\/tr>/)?.[0] ?? "";
+
+    expect(disabledRow).toContain('data-active="false"');
+    expect(disabledRow).toContain('data-on="false"');
+  });
+
+  it("leaves the table em-dashed when the rules read was not proven complete", () => {
+    const unavailable = render({
+      ...withRules(),
+      readCompleteness: { promotionRecords: "complete", rules: "unavailable" },
+    });
+    const legacyWithoutProvenance = render({
+      ...withRules(),
+      readCompleteness: { promotionRecords: "complete" },
+    });
+
+    expect(unavailable).toContain('data-testid="rules-empty"');
+    expect(unavailable).not.toContain("data-rule-id");
+    expect(legacyWithoutProvenance).toContain('data-testid="rules-empty"');
+    expect(legacyWithoutProvenance).not.toContain("data-rule-id");
+  });
+
+  it("keeps every rule control inert without a server-authorized business scope", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={withRules()}
+        providerAccountId="act_1"
+        businessId={null}
+      />,
+    );
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>\+ New rule<\/button>/);
+    expect(html).not.toContain('data-testid="rule-composer"');
+    const toggles = html.match(/class="[^"]*ruleToggle[^"]*"[^>]*/g) ?? [];
+    expect(toggles.length).toBeGreaterThan(0);
+    for (const toggle of html.match(/<button[^>]*ruleToggle[\s\S]*?>/g) ?? []) {
+      expect(toggle).toContain('disabled=""');
+    }
+  });
+
+  it("enables + New rule only with an authorized scope and a proven read", () => {
+    const authorized = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={withRules()}
+        providerAccountId="act_1"
+        businessId="biz_1"
+      />,
+    );
+    const unproven = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...withRules(),
+          readCompleteness: { promotionRecords: "complete" },
+        }}
+        providerAccountId="act_1"
+        businessId="biz_1"
+      />,
+    );
+
+    expect(authorized).toMatch(
+      /<button[^>]*class="[^"]*newRule[^"]*"[^>]*>\+ New rule<\/button>/,
+    );
+    expect(authorized).not.toMatch(
+      /<button[^>]*newRule[^>]*disabled=""[^>]*>\+ New rule/,
+    );
+    expect(unproven).toMatch(/<button[^>]*disabled=""[^>]*>\+ New rule<\/button>/);
+    // Collapsed by default: the default DOM is exactly the design's.
+    expect(authorized).not.toContain('data-testid="rule-composer"');
   });
 
   it("mounts a handler-free read-only surface at the 768px contract", () => {

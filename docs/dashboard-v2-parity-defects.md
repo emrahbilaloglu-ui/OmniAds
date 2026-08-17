@@ -1381,7 +1381,7 @@ read-contract gaps. Neither status is a UI workaround.
 | LAUNCHPAD-AUTOMATION-28 | CLOSED | Workflow status is not relabelled as validation. Draft mode binds only `reuse_creative` → Duplicate and `rebuild_creative` → Rebuild; new/unknown modes and every untyped validation verdict render `—`. |
 | LAUNCHPAD-AUTOMATION-29 | CLOSED | Only terminal intents with a real campaign id/account link render. Time resolves `receipt.completedAt` → `intent.completedAt` → `errorReceipt.recordedAt`, and absent typed actor evidence renders `by —`. |
 | LAUNCHPAD-AUTOMATION-30 | BLOCKED · B1 | No account-scoped proposal/expiry/evidence contract or approve/modify/dismiss server boundary can populate the confirmation queue; its exact shell renders `—`. |
-| LAUNCHPAD-AUTOMATION-31 | BLOCKED · B1 | No typed deterministic-rule definition, fired-count or toggle contract can populate Rules; the five-column shell and disabled `+ New rule` remain honest. |
+| LAUNCHPAD-AUTOMATION-31 | CLOSED | `meta_automation_rules` / `_rule_firings` / `_rule_proposals` land the typed definition, the real 28-day count and the guarded toggle + `+ New rule` (`create_rule` / `set_rule_active` on `/api/meta/automation`, `collaborator` floor, reviewer read-only). Triggers anchor to the target pack — never an absolute number — and the only outcomes are a queued proposal or a hard block; proof in `lib/meta/automation-rules.test.ts`, `automation-rules-store.test.ts`, `automation-rules-evaluation.test.ts`, `app/api/meta/automation/rules-route.test.ts` and the Automation surface tests. |
 | LAUNCHPAD-AUTOMATION-32 | BLOCKED · backend | Current control data lacks min-ROAS, quiet-hours and per-action clean-approval progress/threshold fields. Promotion count renders only when `readCompleteness.promotionRecords === complete`; otherwise it is `—`. |
 | LAUNCHPAD-AUTOMATION-33 | BLOCKED · backend | Activity records lack typed actor, entity and result/receipt tuple fields; real time/action render while those three source columns remain `—`. |
 
@@ -1391,7 +1391,7 @@ read-contract gaps. Neither status is a UI workaround.
 | ----- | -------- | -------------------------------- | --------------------- |
 | B1 | Launchpad draft validation | Persisted verdict, blocker count and validation timestamp tied to a draft revision. | Validation is `—`; workflow `failed` is not treated as a verdict. |
 | B1 | Automation confirmation queue | Account-scoped proposal id/action/entity/reason/evidence/expiry plus guarded approve, modify and dismiss receipts. | Fixed queue geometry renders `—`; there is no mutation or fake success. |
-| B1 | Automation rules | Typed definitions, trigger/then/mode, 28-day fired count, locked state and guarded toggle/new-rule mutations. | Fixed five-column geometry renders `—`; New rule is disabled. |
+| ~~B1~~ DELIVERED | Automation rules | Typed definitions, trigger/then/mode, 28-day fired count, locked state and guarded toggle/new-rule mutations. | Served by `MetaAutomationControlPlane.rules` + `readCompleteness.rules`. Rows render only on a proven-complete read; an unproven read keeps the em-dashed five-column shell, and a proven-empty table is an honest empty state — no seeded example rules. |
 | Backend | Guardrails, promotion completeness and autonomy progress | Min-ROAS, quiet-hours and per-action clean-approval numerator/threshold/unlock policy, with explicit collection completeness. | Only persisted supported fields/modes render; promotion count requires a complete read and no prototype progress is inferred. |
 | Backend | Automation activity tuple | Actor, action, entity and typed result/receipt fields with account/business provenance. | Real timestamp/message render; unsupported actor/entity/result cells are `—`. |
 
@@ -1558,11 +1558,16 @@ marker-locked `typography-floor.test.ts`.
 - **Backend blocker (B1):** `MetaAutomationControlPlane` exposes no account-scoped proposal collection and no guarded approve/modify/dismiss mutation/receipt contract. Mapping prototype approvals would fabricate actionable state.
 - **Current safe state:** The exact header, count/hint slots, body geometry and fixed footnote render with `—`; no action controls or provider mutations are exposed. Populated parity remains blocked on B1.
 
-### LAUNCHPAD-AUTOMATION-31 · HIGH · MISSING — No production deterministic-rule definition, count or mutation contract
+### LAUNCHPAD-AUTOMATION-31 · CLOSED — Deterministic rules engine, real 28-day count, guarded mutations
 
 - **Design:** Markup lines 1132–1156 and model lines 4392–4405 require five rule fields, a 28-day fired count, enforced/disabled toggle behavior and New rule.
-- **Backend blocker (B1):** The control-plane payload has no rule definitions, trigger outcomes or guarded create/toggle receipts. Prototype rule rows cannot be promoted into production data.
-- **Current safe state:** The exact five-column table and literal footnote remain visible with `—`; `+ New rule` is present but disabled. Populated and interactive parity remains blocked on B1.
+- **Schema:** `meta_automation_rules` (name, entity level, `trigger_json`, `action_json`, mode, active), `meta_automation_rule_proposals` (the confirmation-queue intake, `pending` only from the engine) and `meta_automation_rule_firings` (one row per rule/entity/day, `UNIQUE (rule_id, entity_id, evaluated_for_date)`). Additive, created in an `orderedMigrationSteps` block because the foreign keys make their order load-bearing.
+- **Safety property, verbatim from the design:** rules never write directly. `AUTOMATION_RULE_ACTION_KINDS` contains no executing member; `validateAutomationRuleDraft` makes `hard_block_writes` unreachable for `confirm`/`suggest` and requires a guard trigger for `enforced`; `evaluateAutomationRules` has exactly one firing outcome (`proposal`). `lib/meta/automation-rules.ts` imports nothing — no db, no provider client — and a test asserts it.
+- **Anchoring:** a trigger names a Commercial Truth anchor (`target_roas` / `break_even_roas` / `target_cpa` / `break_even_cpa`) plus a bounded multiplier; a draft carrying `threshold`/`value` is rejected. A missing anchor makes the rule `unevaluable` and renders its caption's number as `—`.
+- **Fired · 28d:** counted from `meta_automation_rule_firings` over an explicit `asOf`. `0×` renders only when `readCompleteness.rules === "complete"`; otherwise the table stays em-dashed.
+- **Guards:** enforced quiet-hours rules are consulted inside the existing `getMetaWriteBlockState` choke point that every Meta write path already calls, adding the `automation_guard_rule` reason. A missing rules table keeps today's behaviour; any other read failure falls back to the existing fail-closed reason. The block is recorded as a firing from `getMetaAdsWriteBlockFailure`, where a write was actually attempted.
+- **Authorization:** `create_rule`, `set_rule_active` and `evaluate_rules` are actions on the existing `/api/meta/automation` POST — same `requireBusinessAccess`, same assigned-account scope, same `rejectIfReviewerReadOnly`, `collaborator` floor matching `engage_kill_switch`. No second endpoint and no second write path.
+- **Open:** nothing schedules `evaluate_rules` yet, so on a fresh workspace every rule honestly reads `0×` until it is triggered. The evaluation itself is built, authorized, idempotent and tested; only the trigger is outstanding.
 
 ### LAUNCHPAD-AUTOMATION-32 · MEDIUM · MISSING — Guardrail and autonomy payloads are incomplete for the canonical rows
 

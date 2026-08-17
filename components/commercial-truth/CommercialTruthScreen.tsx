@@ -362,35 +362,56 @@ export function CommercialTruthScreen({
         throw new Error(payload?.message ?? "Could not save the target pack.");
       }
 
-      // The monthly fixed base lives on the cost model, not the pack, so it is
-      // written through its own guarded route with the effective percentages.
-      if (drafts.fixedCosts !== undefined) {
-        const fixedCost = parseLooseNumber(drafts.fixedCosts);
+      // `business_cost_models` is the table overview profit estimates, reports
+      // and the Google advisor read (lib/overview-summary-support.ts,
+      // lib/google-ads/serving.ts). The pack's own cost structure overrides it
+      // on this screen, so writing only the pack looked correct here while the
+      // rest of the product kept costing at the stale percentages. Any edit to
+      // one of the four cost fields therefore mirrors into that table, not just
+      // an edit that happens to include the monthly fixed base.
+      const costFieldsTouched =
+        drafts.grossMargin !== undefined ||
+        drafts.shippingCost !== undefined ||
+        drafts.paymentFees !== undefined ||
+        drafts.fixedCosts !== undefined;
+      if (costFieldsTouched) {
+        // The route takes all four columns together, so an edit to one of them
+        // carries the other three at their stored values — the pack's override
+        // first, then the live cost model. Nothing the operator did not touch
+        // is blanked, and nothing absent is invented.
+        const fixedCost =
+          drafts.fixedCosts === undefined
+            ? (costModel?.fixedCost ?? null)
+            : parseLooseNumber(drafts.fixedCosts);
         const effective = {
           cogsPercent: cogsPercent ?? costModel?.cogsPercent ?? null,
           shippingPercent: shippingPercent ?? costModel?.shippingPercent ?? null,
           feePercent: paymentProcessingPercent ?? costModel?.feePercent ?? null,
         };
-        if (
+        const incomplete =
           fixedCost === null ||
           effective.cogsPercent === null ||
           effective.shippingPercent === null ||
-          effective.feePercent === null
-        ) {
+          effective.feePercent === null;
+        // The monthly fixed base lives only on the cost model, so an edit that
+        // names it and cannot be written is a failure the operator must see.
+        if (incomplete && drafts.fixedCosts !== undefined) {
           throw new Error(
             "Fixed costs need gross margin, shipping cost and payment fees to be set as well.",
           );
         }
-        const costResponse = await fetch("/api/business-cost-model", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ businessId, ...effective, fixedCost }),
-        });
-        if (!costResponse.ok) {
-          const costPayload = (await costResponse.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          throw new Error(costPayload?.message ?? "Could not save the monthly fixed base.");
+        if (!incomplete) {
+          const costResponse = await fetch("/api/business-cost-model", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ businessId, ...effective, fixedCost }),
+          });
+          if (!costResponse.ok) {
+            const costPayload = (await costResponse.json().catch(() => null)) as {
+              message?: string;
+            } | null;
+            throw new Error(costPayload?.message ?? "Could not save the cost model.");
+          }
         }
       }
 

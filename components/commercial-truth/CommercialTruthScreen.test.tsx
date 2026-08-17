@@ -10,7 +10,12 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+import {
+  createEmptyTargetPack,
+  type BusinessCommercialTruthSnapshot,
+} from "@/src/types/business-commercial";
 
 const mockAppState = {
   businesses: [
@@ -129,5 +134,164 @@ describe("CommercialTruthScreen campaign level", () => {
     expect(await screen.findAllByText("Meta · Campaign")).toHaveLength(META_ROWS.length);
     expect(screen.queryByText(/Meta · Ad set/)).toBeNull();
     expect(await screen.findAllByText("Google · Campaign")).toHaveLength(1);
+  });
+});
+
+/* --------------------------------------------------------------- cost model */
+
+/**
+ * `business_cost_models` is the table overview profit estimates, reports and
+ * the Google advisor read cost from. Commercial Truth used to write it only
+ * when the monthly fixed base was part of the same edit, so an edit to gross
+ * margin, shipping or payment fees landed on the target pack alone — where this
+ * screen's own reader prefers it, hiding the divergence — and left that table
+ * costing at the stale percentages.
+ *
+ * The route takes all four columns at once, so each of these asserts the one
+ * edited column changed and the other three went back at their stored values.
+ */
+const STORED_COSTS = {
+  cogsPercent: 0.38,
+  shippingPercent: 0.06,
+  feePercent: 0.029,
+  fixedCost: 12000,
+};
+
+const REVISION = "a".repeat(64);
+
+function costSnapshot(packCosts: boolean): BusinessCommercialTruthSnapshot {
+  return {
+    businessId: "biz_1",
+    targetPack: {
+      ...createEmptyTargetPack(),
+      targetRoas: 3.8,
+      breakEvenRoas: 2.1,
+      targetCpa: 24,
+      aovAssumption: 58,
+      costStructure: packCosts
+        ? {
+            cogsPercent: STORED_COSTS.cogsPercent,
+            shippingPercent: STORED_COSTS.shippingPercent,
+            fulfillmentPercent: null,
+            paymentProcessingPercent: STORED_COSTS.feePercent,
+          }
+        : null,
+    },
+    costModelContext: { ...STORED_COSTS, updatedAt: null },
+  } as unknown as BusinessCommercialTruthSnapshot;
+}
+
+describe("CommercialTruthScreen cost model writes", () => {
+  let costModelBodies: Array<Record<string, unknown>>;
+  let packBodies: Array<Record<string, unknown>>;
+
+  function installFetch(snapshot: BusinessCommercialTruthSnapshot) {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.startsWith("/api/business-cost-model")) {
+        costModelBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return jsonResponse({ costModel: null });
+      }
+      if (url.startsWith("/api/business-commercial-settings/history")) {
+        return jsonResponse({ entries: [] });
+      }
+      if (url.startsWith("/api/business-commercial-settings")) {
+        if (method === "PUT") packBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return jsonResponse({
+          snapshot,
+          revision: REVISION,
+          permissions: { canEdit: true },
+        });
+      }
+      if (url.startsWith("/api/overview-summary")) {
+        return jsonResponse({ summary: { pins: [] } });
+      }
+      return jsonResponse({ rows: [] });
+    }) as unknown as typeof fetch;
+  }
+
+  beforeEach(() => {
+    costModelBodies = [];
+    packBodies = [];
+    installFetch(costSnapshot(true));
+  });
+
+  async function editAndSave(testId: string, value: string) {
+    await mount();
+    fireEvent.change(screen.getByTestId(testId), { target: { value } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("commercial-settings-save"));
+    });
+  }
+
+  it("writes COGS from a gross-margin-only edit and keeps the other three columns", async () => {
+    await editAndSave("commercial-gross-margin", "60%");
+
+    expect(costModelBodies).toHaveLength(1);
+    const body = costModelBodies[0]!;
+    expect(body.businessId).toBe("biz_1");
+    // Gross margin 60% is COGS 40%; the screen stores the cost side.
+    expect(body.cogsPercent as number).toBeCloseTo(0.4, 10);
+    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
+    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
+    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
+    // The pack is still written in the same save — this adds a mirror, it does
+    // not move where the target pack lives.
+    expect(packBodies).toHaveLength(1);
+  });
+
+  it("writes shipping from a shipping-only edit and keeps the other three columns", async () => {
+    await editAndSave("commercial-cost-shipping", "7%");
+
+    expect(costModelBodies).toHaveLength(1);
+    const body = costModelBodies[0]!;
+    expect(body.shippingPercent as number).toBeCloseTo(0.07, 10);
+    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
+    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
+    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
+  });
+
+  it("writes payment fees from a fees-only edit and keeps the other three columns", async () => {
+    await editAndSave("commercial-cost-processing", "3.5%");
+
+    expect(costModelBodies).toHaveLength(1);
+    const body = costModelBodies[0]!;
+    expect(body.feePercent as number).toBeCloseTo(0.035, 10);
+    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
+    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
+    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
+  });
+
+  it("writes the monthly fixed base from a fixed-base-only edit and keeps the percentages", async () => {
+    await editAndSave("commercial-fixed-costs", "14000");
+
+    expect(costModelBodies).toHaveLength(1);
+    const body = costModelBodies[0]!;
+    expect(body.fixedCost).toBe(14000);
+    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
+    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
+    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
+  });
+
+  it("falls back to the stored cost model for untouched columns the pack does not override", async () => {
+    installFetch(costSnapshot(false));
+    await editAndSave("commercial-cost-shipping", "7%");
+
+    expect(costModelBodies).toHaveLength(1);
+    const body = costModelBodies[0]!;
+    expect(body.shippingPercent as number).toBeCloseTo(0.07, 10);
+    // The pack carries no override for these, so the live cost model supplies
+    // them rather than the write blanking what the operator never touched.
+    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
+    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
+    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
+  });
+
+  it("leaves the cost model alone when the edit touches no cost field", async () => {
+    await editAndSave("commercial-target-roas", "4.20");
+
+    expect(packBodies).toHaveLength(1);
+    expect(costModelBodies).toHaveLength(0);
   });
 });

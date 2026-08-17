@@ -928,6 +928,7 @@ export function BusinessView({
   const divergence = economicsDivergence(economics);
   const [name, setName] = useState(settings?.name ?? "");
   const [currency, setCurrency] = useState(settings?.currency ?? "");
+  const [settingsTouched, setSettingsTouched] = useState(false);
   const [costTouched, setCostTouched] = useState(false);
   const [costDraft, setCostDraft] = useState({
     cogsPercent: String((costModel?.cogsPercent ?? 0) * 100),
@@ -936,11 +937,23 @@ export function BusinessView({
     fixedCost: String(costModel?.fixedCost ?? 0),
   });
 
-  // The stored values arrive after the read; adopt them once they do.
+  /**
+   * Adopt the stored name and currency when the read lands — but never over
+   * typing, for the same reason the cost model below does not.
+   *
+   * This effect used to be unguarded, and the read is asynchronous: a refetch
+   * landing mid-edit silently replaced what the operator had typed with the
+   * stored value. It surfaced as a flaky test rather than a bug report --
+   * `manage-flows.test.tsx > saves both fields together` failed roughly one run
+   * in five, always as `expected 'Grandmix' to be 'Grandmix EU'`, because the
+   * seed raced the keystroke. The hazard was already understood three lines
+   * down; only this pair was left exposed.
+   */
   useEffect(() => {
+    if (settingsTouched) return;
     setName(settings?.name ?? "");
     setCurrency(settings?.currency ?? "");
-  }, [settings]);
+  }, [settings, settingsTouched]);
   /**
    * Adopt the stored cost model when the read lands — but never over typing.
    *
@@ -994,7 +1007,10 @@ export function BusinessView({
               data-business-name=""
               data-ctl="live:ECON-01 edit"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setSettingsTouched(true);
+                setName(event.target.value);
+              }}
               hint={copy.workspaceNameHint}
             />
             <TextInput
@@ -1002,7 +1018,10 @@ export function BusinessView({
               data-business-currency=""
               data-ctl="live:ECON-03 edit"
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
+              onChange={(event) => {
+                setSettingsTouched(true);
+                setCurrency(event.target.value);
+              }}
               hint={copy.currencyHint}
             />
             <p

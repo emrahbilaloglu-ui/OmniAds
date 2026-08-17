@@ -183,25 +183,20 @@ export function googleAssetStrengthTone(
  * The reference's four text-asset performance chips (model lines 3859-3865):
  * Best is green, Good blue, Low amber, Learning purple.
  *
- * This product's asset read serves three states — `top`, `average`,
- * `underperforming` — from its own ROAS/CTR/interaction comparison; Google's
- * `performance_label` is not selected by `asset_performance_core`, so the
- * fourth state only appears once that field is read. An unlabelled asset keeps
- * its chip slot and prints the em dash.
+ * The card's caption says the rating is Google-served, so this reads Google's
+ * own `asset_group_asset.performance_label` and nothing else. It deliberately
+ * does NOT understand this product's derived vocabulary — `top`, `average`,
+ * `underperforming`, from a local ROAS/CTR/interaction comparison — because a
+ * derived verdict rendered here would make the caption a lie. An asset Google
+ * has not labelled keeps its chip slot and prints the em dash.
  */
 export function googleAssetPerformanceView(
   label: string | null | undefined,
 ): { label: string; tone: GoogleSearchExactChipTone } {
   const value = (label ?? "").toLowerCase().trim();
-  if (value === "top" || value === "best") {
-    return { label: "Best", tone: "positive" };
-  }
-  if (value === "average" || value === "good") {
-    return { label: "Good", tone: "info" };
-  }
-  if (value === "underperforming" || value === "low") {
-    return { label: "Low", tone: "warning" };
-  }
+  if (value === "best") return { label: "Best", tone: "positive" };
+  if (value === "good") return { label: "Good", tone: "info" };
+  if (value === "low") return { label: "Low", tone: "warning" };
   if (value === "learning" || value === "pending") {
     return { label: "Learning", tone: "auto" };
   }
@@ -237,6 +232,62 @@ function eyebrowText(identity: GoogleAssetsExactIdentity) {
 }
 
 /**
+ * The reference writes this count as a word — "The advisor has one restructure
+ * queued…" (markup line 1564) — so the sentence spells small counts the way the
+ * design does and only falls back to a numeral past the words it would need.
+ */
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+] as const;
+
+export function googleCountWord(count: number): string {
+  return NUMBER_WORDS[count] ?? String(count);
+}
+
+/**
+ * The advisor recommendations whose subject this sentence may name: queued
+ * asset-group restructures only. A step the server says is already applied, or
+ * one the operator dismissed (which the memory writes as `userAction:
+ * "dismissed"` and `currentStatus: "suppressed"`), is no longer queued and
+ * cannot be asserted as such.
+ */
+export function googleAssetGroupRestructureSubjects(
+  recommendations:
+    | ReadonlyArray<{
+        type?: string | null;
+        weakAssetGroups?: string[] | null;
+        executionStatus?: string | null;
+        userAction?: string | null;
+        currentStatus?: string | null;
+      }>
+    | null
+    | undefined,
+): string[] {
+  return (recommendations ?? [])
+    .filter((item) => item.type === "asset_group_structure")
+    .filter(
+      (item) =>
+        item.executionStatus !== "applied" &&
+        item.userAction !== "dismissed" &&
+        item.currentStatus !== "suppressed",
+    )
+    .flatMap((item) => item.weakAssetGroups ?? [])
+    .filter(
+      (name): name is string => typeof name === "string" && name.trim() !== "",
+    );
+}
+
+/**
  * The reference's closing sentence under the asset-group table, built from the
  * advisor's own queued restructures. With none queued the sentence has no
  * subject, so the line keeps its geometry and prints the em dash.
@@ -248,7 +299,7 @@ export function googleAssetGroupQueueNote(names: string[]): string {
     quoted.length === 1
       ? quoted[0]
       : `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
-  return `The advisor has ${names.length} restructure${
+  return `The advisor has ${googleCountWord(names.length)} restructure${
     names.length === 1 ? "" : "s"
   } queued for ${subject} — see Advisor · Do next.`;
 }
@@ -289,7 +340,9 @@ export function buildGoogleAssetsExactViewModel(
     .filter((row) => row.type === "Headline" || row.type === "Description")
     .map((row, index) => {
       const impressions = finite(row.impressions);
-      const performance = googleAssetPerformanceView(row.performanceLabel);
+      // Google's served label, never the derived one: the card's caption claims
+      // the provider's provenance and the chip has to be able to honour it.
+      const performance = googleAssetPerformanceView(row.servedPerformanceLabel);
       return {
         key: row.id ?? `asset-${index}`,
         text: assetLabel(row),

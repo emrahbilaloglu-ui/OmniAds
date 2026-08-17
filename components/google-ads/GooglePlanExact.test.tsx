@@ -118,6 +118,44 @@ describe("GooglePlanExact structure", () => {
     expect(markup).not.toContain("Apply now");
   });
 
+  it("draws the tick on every step, applied or not, exactly as the reference does", () => {
+    // Reference markup line 1650: the polyline is unconditional with a white
+    // stroke; only the parent square's background toggles.
+    const tick = /<polyline points="20 6 9 17 4 12">/g;
+    const queued = render();
+    expect(Array.from(queued.matchAll(tick))).toHaveLength(1);
+    expect(queued).toContain('stroke="#ffffff"');
+
+    const applied = render({
+      recommendations: [
+        recommendation({
+          executionStatus: "applied",
+          transactionId: "gw_01K2F4",
+          rollbackActionType: "restore_portfolio_target",
+          rollbackPayloadPreview: { value: 2.4 },
+        }),
+      ],
+    });
+    expect(Array.from(applied.matchAll(tick))).toHaveLength(1);
+  });
+
+  it("renders one step per served recommendation, uncapped", () => {
+    const markup = render({
+      recommendations: Array.from({ length: 20 }, (_, index) =>
+        recommendation({
+          id: `rec_${index + 1}`,
+          title: `Step ${index + 1}`,
+          rankScore: 100 - index,
+        }),
+      ),
+    });
+    expect(
+      Array.from(markup.matchAll(/data-google-plan-step="/g)),
+    ).toHaveLength(20);
+    expect(markup).toContain("20 queued · 0 applied");
+    expect(markup).toContain("Step 20");
+  });
+
   it("keeps the provenance line fixed rather than a layer breadcrumb", () => {
     const markup = render();
     expect(markup).toContain("served by the advisor from the last complete day");

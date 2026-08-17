@@ -89,9 +89,6 @@ export interface GooglePlanExactInput {
   writeAuthority: "allowed" | "denied" | "unknown";
 }
 
-/** The queue is ranked, and the reference draws a short numbered list. */
-const MAX_STEPS = 12;
-
 function clean(value: string | null | undefined): string {
   const normalized = value?.trim();
   return normalized ? normalized : DASH;
@@ -167,9 +164,13 @@ export function buildGooglePlanExactViewModel(
 ): GooglePlanExactViewModel {
   const identity = input.identity ?? {};
   const allowed = input.writeAuthority === "allowed";
-  const ranked = [...(input.recommendations ?? [])]
-    .sort((left, right) => (right.rankScore ?? 0) - (left.rankScore ?? 0))
-    .slice(0, MAX_STEPS);
+  // The reference's `sc-for` over `gPlanSteps` (markup line 1638) is uncapped
+  // and its counter is `gPlanRaw.length` (model line 4443): the queue renders
+  // every served recommendation, and the head states the true length. A cap
+  // here would drop steps and print a number no server produced.
+  const ranked = [...(input.recommendations ?? [])].sort(
+    (left, right) => (right.rankScore ?? 0) - (left.rankScore ?? 0),
+  );
 
   const steps: GooglePlanExactStepViewModel[] = ranked.map(
     (recommendation, index) => {

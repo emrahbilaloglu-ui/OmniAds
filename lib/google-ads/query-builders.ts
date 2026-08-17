@@ -651,6 +651,12 @@ export function buildAssetPerformanceCoreQuery(
         "campaign.id",
         "campaign.name",
         "asset_group_asset.field_type",
+        // Google's own per-asset performance verdict. The design's Text assets
+        // card states the rating is Google-served, and this is the field that
+        // makes that true: the provider's PENDING/LEARNING/LOW/GOOD/BEST enum,
+        // never a locally recomputed score. `lib/google-ads/metrics-matrix.ts`
+        // has listed it as a primary metric of the assets tab all along.
+        "asset_group_asset.performance_label",
         "asset.id",
         "asset.name",
         "asset.type",

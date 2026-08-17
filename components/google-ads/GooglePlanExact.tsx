@@ -128,23 +128,26 @@ export function GooglePlanExact({
                     disabled={!step.applyEnabled}
                     onClick={() => onApplyStep?.(step)}
                   >
+                    {/*
+                      The reference draws the tick unconditionally with a white
+                      stroke (markup line 1650); only the parent background
+                      toggles, so an unapplied step's tick is white on white.
+                    */}
                     <span
                       className={`${styles.tick} ${step.applied ? styles.tickOn : ""}`}
                     >
-                      {step.applied ? (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#ffffff"
-                          strokeWidth={3.5}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={styles.tickMark}
-                          aria-hidden="true"
-                        >
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      ) : null}
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#ffffff"
+                        strokeWidth={3.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={styles.tickMark}
+                        aria-hidden="true"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                     </span>
                     <span
                       className={`${styles.stepStatus} ${

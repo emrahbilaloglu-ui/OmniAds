@@ -2324,6 +2324,14 @@ Backend wiring done for this batch:
   strength column now shows Google's own verdict from the next sync onward and
   `—` before it. `lib/google-ads/asset-group-ad-strength.test.ts` pins the
   select, the enum wording and the passthrough.
+- **`asset_group_asset.performance_label` is now read** (added by the follow-up
+  commit; see the corrected finding 32 / new finding 34 below). Same shape:
+  `buildAssetPerformanceCoreQuery` selects it, `reporting.ts` maps it onto
+  `servedPerformanceLabel` through `normalizeServedAssetPerformanceLabel`, the
+  `asset_daily` warehouse projection carries it, and the Text assets chip
+  renders it — so the card's "ratings are Google-served" caption is true of the
+  thing directly under it. `lib/google-ads/asset-performance-label.test.ts` pins
+  the whole path.
 - **`/api/google-ads/activity` now exists.** The controller had been reading it
   since the Activity card was built and it 404'd on every call. The new route
   applies the same authority as every other Google read
@@ -2356,7 +2364,10 @@ tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned
 reference/current/diff matrix has been run, so strict pixel parity remains
 explicitly unclaimed. The numbered 01–21 blocks below preserve the original
 pre-resolution audit evidence; findings 22–29 and 33 are new and were found by
-this batch's own read of the two design ranges.
+this batch's own read of the two design ranges. Findings 34–39 (`F1`–`F6`) were
+raised by an adversarial verification pass over the first implementation commit
+and are resolved in the follow-up commit; F1 also corrects a claim that commit
+made and that this document repeated.
 
 | ID | Status | Current proof |
 | --- | ------ | ------------- |
@@ -2390,9 +2401,15 @@ this batch's own read of the two design ranges.
 | GOOGLE-ASSETS-PLAN-28 | CLOSED | (new) The audience Audience column printed `row.adGroup` first, naming the ad group rather than the audience. It now prints the audience's own served identity (its criterion id), never a substituted one. |
 | GOOGLE-ASSETS-PLAN-29 | CLOSED | (new) The asset-group table capped at 50 rows and appended a "Showing the top 50 of N rows by spend" line the design does not define; both the cap and the line are gone from all three surfaces. |
 | GOOGLE-ASSETS-PLAN-33 | CLOSED | (new) Neither screen was in `ROUTE_OWNED_GOOGLE_SURFACES` (`components/layout/dashboard-frame.tsx`), so the shell injected its generic mobile read-only surface above them. `/platforms/google/{assets,plan}` and `/app/google/{assets-audiences,plan}` are now listed, so the screens open on the head the design draws. |
+| GOOGLE-ASSETS-PLAN-34 (F1) | CLOSED | (verifier) The Text assets chip printed the **derived** ROAS/CTR verdict under a caption that says the rating is Google-served, and finding 32 below wrongly recorded the provider field as unreadable. `asset_group_asset.performance_label` is now selected, normalised in Google's own words, carried through the `asset_daily` warehouse projection and rendered in the chip; the derived label no longer reaches it. `lib/google-ads/asset-performance-label.test.ts` pins the whole path. |
+| GOOGLE-ASSETS-PLAN-35 (F2) | CLOSED | (verifier) `google-plan-exact-adapter.ts` capped the queue at 12 steps and then reported `steps.length` as the counter, so a 20-recommendation queue read "12 queued", dropped 8 steps with no disclosure and exported only 12 rows to CSV. The design's `sc-for` (markup 1638) is uncapped and its counter is `gPlanRaw.length` (model 4443). The cap is gone; the adapter and render tests assert 20 steps and "20 queued". |
+| GOOGLE-ASSETS-PLAN-36 (F3) | CLOSED | (verifier) The Activity `When` cell inherited `.activityTable`'s 12px where design line 1679 pins 10.5px. `.activityWhen` now sets `font-size: 10.5px` inside the reference-type marker block and is pinned in `lib/typography-floor.test.ts`. |
+| GOOGLE-ASSETS-PLAN-37 (F4) | CLOSED | (verifier) The text/image asset read was gated on `activePanel === "assets"` alone while both panels render `GoogleAssetsExact`, so the `assetGroupAudience` deep link would open the "Text & image assets" tab on two empty cards. Both panels now enable the read. |
+| GOOGLE-ASSETS-PLAN-38 (F5) | CLOSED | (verifier) The group-queue sentence wrote the numeral "1" where design line 1564 writes "one", and its subject list counted asset-group restructures that were already applied or dismissed as "queued". `googleCountWord` spells counts up to ten and `googleAssetGroupRestructureSubjects` excludes `executionStatus: "applied"`, `userAction: "dismissed"` and `currentStatus: "suppressed"`. |
+| GOOGLE-ASSETS-PLAN-39 (F6) | CLOSED | (verifier) The step tick rendered its `<polyline>` only when applied; design line 1650 renders it unconditionally with stroke `#ffffff` and toggles only the parent background. It is now unconditional, asserted on both states. |
 | GOOGLE-ASSETS-PLAN-30 | BLOCKED | Audience list size. See the contract below. |
 | GOOGLE-ASSETS-PLAN-31 | BLOCKED | The Activity `Who` column. See the contract below. |
-| GOOGLE-ASSETS-PLAN-32 | BLOCKED | Google-served text-asset `performance_label`. See the contract below. |
+| GOOGLE-ASSETS-PLAN-32 | ~~BLOCKED~~ → CLOSED by 34 (F1) | The BLOCKED entry below was wrong on its facts and is corrected there. |
 
 **BLOCKED — GOOGLE-ASSETS-PLAN-30, audience list size.** The design's `Size`
 column is the audience's membership size. The only audience read in this
@@ -2436,30 +2453,63 @@ Contract required to close it: an `actor_user_id TEXT NULL` column on
 and returned by `listAdvisorExecutionEvents` as `actor: { id, name } | null`.
 Rows written before that migration stay `—`; nothing may back-fill them.
 
-**BLOCKED — GOOGLE-ASSETS-PLAN-32, Google-served text-asset performance.** The
-Text assets card's caption states the rating is Google-served. The rating this
-product serves is not: `getGoogleAdsAssetsReport` (`lib/google-ads/reporting.ts`)
-derives `performanceLabel` from its own ROAS / CTR / interaction-rate
-comparison, and `buildAssetPerformanceCoreQuery` does not select
-`asset_group_asset.performance_label` even though
-`lib/google-ads/metrics-matrix.ts:220` already lists `performance_label` as a
-primary metric of the `assets` tab. Searched: `lib/google-ads/**` for
-`performance_label`, `asset_performance_label`, `ad_group_ad_asset_view`;
-`app/api/google-ads/assets/route.ts`; and the `asset_daily` warehouse
-projection in `lib/google-ads/warehouse.ts:5058-5087`, whose `performanceLabel`
-key is fed from the derived value. The chip renders the derived label today —
-it is a real measurement, not a placeholder — so the cell is not em-dashed, but
-the caption's provenance claim is only half true until the provider field is
-read.
+**CORRECTED — GOOGLE-ASSETS-PLAN-32 was never BLOCKED. Closed as 34 (F1).**
 
-Contract required to close it: add `asset_group_asset.performance_label` to
-`buildAssetPerformanceCoreQuery`, map the enum
-(`PENDING|LEARNING|LOW|GOOD|BEST`) onto a new `googlePerformanceLabel` field on
-`AssetRow` distinct from the derived one, and let
-`googleAssetPerformanceView` prefer the provider value — it already returns the
-design's fourth `Learning`/violet chip for it. A re-sync is required before any
-historical row carries it; until then the derived label stands and the four-tone
-chip is unchanged.
+The original entry, and the commit message that summarised it, claimed Google's
+text-asset `performance_label` "has no reader anywhere in the product" and that
+the chip therefore "prints the em dash". Both halves were false:
+
+- It **is** read. `lib/google-api-routes.ts:355` selects
+  `asset_group_asset.performance_label`, `:376` maps it through
+  `normalizePerformanceLabel` (`:764-771`), and `app/api/google/assets/route.ts`
+  exports that reader as a live production `GET`. The search recorded above was
+  scoped to `lib/google-ads/**`, which is the one directory the reader is not
+  in — a narrow search reported as an absence.
+- The chip **did not** print an em dash. `google-assets-exact-adapter.ts:292`
+  fed it the derived `performanceLabel` from `reporting.ts`, a local ROAS / CTR
+  / interaction comparison. So the design's caption at markup line 1569,
+  "ratings are Google-served", sat above a locally computed verdict. That — not
+  a missing chip — was the honesty violation.
+
+What the follow-up commit does, mirroring the `asset_group.ad_strength` wiring
+this batch added one line apart:
+
+- `buildAssetPerformanceCoreQuery` (`lib/google-ads/query-builders.ts`) selects
+  `asset_group_asset.performance_label`, which
+  `lib/google-ads/metrics-matrix.ts:220` had listed as a primary metric of the
+  assets tab all along.
+- `getGoogleAdsAssetsReport` (`lib/google-ads/reporting.ts`) maps it through the
+  new `normalizeServedAssetPerformanceLabel` onto `servedPerformanceLabel`, kept
+  under its own name so it can never be confused with the derived
+  `performanceLabel` beside it. `UNSPECIFIED` / `UNKNOWN` normalise to `null` —
+  an absence, not a rating. (`reporting-support.ts` carries an older
+  `normalizeAssetPerformanceLabel` that folds the same enum *into* the derived
+  vocabulary and answers an unlabelled asset with `"average"`; it has no caller
+  anywhere in the product and is not used here.)
+- The `asset_daily` warehouse projection (`lib/google-ads/warehouse.ts`) carries
+  `servedPerformanceLabel` beside `performanceLabel`; the projection is a
+  whitelist, so a key missing there never reaches the screen. `analyzeAssets`
+  passes both through.
+- `AssetRow` (`components/google-ads/google-ads-dashboard-support.ts`) declares
+  both fields with what each one actually is.
+- `googleAssetPerformanceView` now understands **only** Google's vocabulary
+  (`Best | Good | Low | Learning | Pending`) and returns `—`/`unserved` for
+  anything else, including this product's derived words. The chip reads
+  `row.servedPerformanceLabel`. The design defines exactly one chip in that row,
+  so the derived label is not rendered on this screen at all rather than being
+  dressed up as a provider fact.
+
+Consequences stated plainly: warehouse rows synced before this change carry no
+`servedPerformanceLabel`, so the chip prints `—` until a re-sync — the honest
+answer, since nothing on those rows is Google's verdict. The demo fixture
+(`lib/demo-business.ts`) likewise carries only derived labels, so the demo
+business shows `—` in that column; nothing was invented to fill it.
+
+Note on vocabulary: `normalizePerformanceLabel` in `lib/google-api-routes.ts`
+returns `Best | Good | Low | Unknown` and would collapse Google's `LEARNING`
+into `Unknown`, losing the design's fourth (violet `Learning`) chip at model
+line 3863 — which is why the new normaliser keeps `LEARNING` and `PENDING`
+rather than reusing that one.
 
 ### GOOGLE-ASSETS-PLAN-01 · HIGH · EXTRA — Plan appends a whole Budget & scaling workspace the fragment never defines
 

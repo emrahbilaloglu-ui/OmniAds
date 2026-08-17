@@ -717,3 +717,25 @@
 }
 
 /* dashboard-v2-insights-seo-exact-reference-type:end */
+
+/*
+ * NOT from the design.
+ *
+ * The reference draws only the state after a monthly analysis exists, so it
+ * models no generate control — its cadence chip (L1979) is `cursor:not-allowed`
+ * and is therefore not the trigger. This modifier is applied together with
+ * `.monthlyCadence`, so the control keeps that chip's exact slot, border,
+ * radius, padding and type, and it only ever renders in a state the reference
+ * never draws (no analysis for the window, and the server allows a run).
+ */
+.monthlyGenerate {
+  font-family: inherit;
+  font-size: 12px;
+  color: #0e1526;
+  cursor: pointer;
+}
+
+.monthlyGenerate:disabled {
+  color: #98a4ba;
+  cursor: progress;
+}

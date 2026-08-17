@@ -10,6 +10,7 @@ import {
   buildSeoTechnical,
   seoActionGroupFor,
   seoExclusionTone,
+  seoMonthlyGenerateControl,
   seoPassedPageCount,
   SEO_TABS,
   type SeoFindingsInput,
@@ -174,10 +175,45 @@ const MONTHLY: SeoMonthlyInput = {
     rootCauses: [
       { title: "Template meta titles", detail: "Collection titles cap CTR at 1.6–1.9%." },
     ],
+    // The design's own five Actions items (script L4003-4012), with the impact
+    // and effort their copy states. The fourth is the counter-example: a
+    // low-effort item the design files under Strategic, not Quick wins.
     priorities: [
-      { title: "Fix canonical", detail: "5 PDPs excluded.", impact: "high", effort: "low", owner: "Developer" },
-      { title: "Materials hub", detail: "14 mid-tail queries.", impact: "high", effort: "medium", owner: "Content" },
-      { title: "Refresh gift guide", detail: "Seasonal.", impact: "low", effort: "medium", owner: "Content" },
+      {
+        title: "Fix canonical/noindex on 5 excluded PDPs",
+        detail: "Excluded since the Aug 6 theme update.",
+        impact: "medium",
+        effort: "low",
+        owner: "Developer",
+      },
+      {
+        title: "Rewrite meta titles on 8 position-8–12 queries",
+        detail: "Template titles cap CTR at 1.6–1.9%.",
+        impact: "medium",
+        effort: "low",
+        owner: "Content",
+      },
+      {
+        title: "Ship a “materials” hub page",
+        detail: "Joins 14 mid-tail queries.",
+        impact: "high",
+        effort: "medium",
+        owner: "Content",
+      },
+      {
+        title: "Internal links from the two top guides to money pages",
+        detail: "Guides earn links but pass no authority on.",
+        impact: "high",
+        effort: "low",
+        owner: "SEO",
+      },
+      {
+        title: "Refresh /blogs/gift-guide before Q4",
+        detail: "Declining −91 clicks; last touched Nov 2025.",
+        impact: "medium",
+        effort: "medium",
+        owner: "Content",
+      },
     ],
     actionPlan: [
       { window: "week 1", focus: "Indexation", tasks: ["Fix noindex on 5 PDPs", "Re-request indexing"] },
@@ -221,26 +257,90 @@ describe("buildSeoMonthly", () => {
   });
 });
 
+describe("seoMonthlyGenerateControl", () => {
+  it("offers no control in the state the design draws", () => {
+    expect(seoMonthlyGenerateControl(MONTHLY)).toBeNull();
+    expect(buildSeoMonthly(MONTHLY).head.generate).toBeNull();
+    // Nothing served yet: the state is unknown, so no control is offered.
+    expect(seoMonthlyGenerateControl(null)).toBeNull();
+    expect(seoMonthlyGenerateControl({ status: "available", canGenerate: true })).toBeNull();
+  });
+
+  it("offers the generator exactly when a run would be accepted", () => {
+    expect(seoMonthlyGenerateControl({ status: "not_generated", canGenerate: true })).toEqual({
+      label: "Generate this month’s analysis",
+    });
+    expect(seoMonthlyGenerateControl({ status: "failed", canGenerate: true })).toEqual({
+      label: "Retry this month’s analysis",
+    });
+    // The server refuses the run — the design's disabled chip stands instead.
+    expect(seoMonthlyGenerateControl({ status: "not_generated", canGenerate: false })).toBeNull();
+    expect(seoMonthlyGenerateControl({ status: "not_generated" })).toBeNull();
+  });
+});
+
 describe("buildSeoActionGroups", () => {
   it("routes every priority to one of the design's three tone groups", () => {
-    expect(seoActionGroupFor({ impact: "high", effort: "low" })).toBe("quick");
+    expect(seoActionGroupFor({ impact: "medium", effort: "low" })).toBe("quick");
     expect(seoActionGroupFor({ impact: "high", effort: "medium" })).toBe("strategic");
-    expect(seoActionGroupFor({ impact: "low", effort: "medium" })).toBe("supporting");
+    expect(seoActionGroupFor({ impact: "medium", effort: "medium" })).toBe("supporting");
+  });
+
+  it("puts the design's own low-effort Strategic item in Strategic, not Quick wins", () => {
+    // Script L4010: "Internal links from the two top guides to money pages" is
+    // "low effort · week 2" and the design files it under Strategic. An
+    // effort-first rule would move it into Quick wins.
+    expect(seoActionGroupFor({ impact: "high", effort: "low" })).toBe("strategic");
+
+    const groups = buildSeoActionGroups(MONTHLY);
+    const placement = new Map(
+      groups.flatMap((group) => group.items.map((item) => [item.title, group.toneLabel])),
+    );
+    expect(placement.get("Internal links from the two top guides to money pages")).toBe(
+      "Strategic",
+    );
+  });
+
+  it("reproduces every one of the design's five Actions placements", () => {
+    const groups = buildSeoActionGroups(MONTHLY);
+    expect(
+      groups.map((group) => [group.toneLabel, group.items.map((item) => item.title)]),
+    ).toEqual([
+      [
+        "Quick wins",
+        [
+          "Fix canonical/noindex on 5 excluded PDPs",
+          "Rewrite meta titles on 8 position-8–12 queries",
+        ],
+      ],
+      [
+        "Strategic",
+        [
+          "Ship a “materials” hub page",
+          "Internal links from the two top guides to money pages",
+        ],
+      ],
+      ["Supporting", ["Refresh /blogs/gift-guide before Q4"]],
+    ]);
   });
 
   it("emits only the groups that have items, in the design's order", () => {
     const groups = buildSeoActionGroups(MONTHLY);
-    expect(groups.map((group) => group.toneLabel)).toEqual([
-      "Quick wins",
-      "Strategic",
-      "Supporting",
-    ]);
     expect(groups[0]!.items[0]).toMatchObject({
-      title: "Fix canonical",
-      impact: "high impact",
+      title: "Fix canonical/noindex on 5 excluded PDPs",
+      impact: "medium impact",
       effort: "low effort · Developer",
     });
     expect(buildSeoActionGroups(null)).toEqual([]);
+    expect(
+      buildSeoActionGroups({
+        analysis: {
+          priorities: [
+            { title: "Only strategic", detail: "d", impact: "high", effort: "high" },
+          ],
+        },
+      }).map((group) => group.toneLabel),
+    ).toEqual(["Strategic"]);
   });
 });
 
@@ -269,12 +369,44 @@ const FINDINGS: SeoFindingsInput = {
       description: "Last fetched 9 days ago.",
       affectedPages: [{ path: "/products/a" }],
     },
+    {
+      id: "f3",
+      severity: "opportunity",
+      title: "Add FAQ structured data",
+      description: "Eligible for rich results.",
+      affectedPages: [{ path: "/pages/opportunity-only" }],
+    },
+  ],
+};
+
+/** Disjoint severities, so the design's own subtraction can be checked. */
+const DISJOINT_FINDINGS: SeoFindingsInput = {
+  meta: { auditedPageCount: 148 },
+  summary: { critical: 5, warning: 12, opportunity: 4 },
+  findings: [
+    {
+      id: "c",
+      severity: "critical",
+      affectedPages: Array.from({ length: 5 }, (_, i) => ({ path: `/critical/${i}` })),
+    },
+    {
+      id: "w",
+      severity: "warning",
+      affectedPages: Array.from({ length: 12 }, (_, i) => ({ path: `/warning/${i}` })),
+    },
+    {
+      id: "o",
+      severity: "opportunity",
+      affectedPages: Array.from({ length: 4 }, (_, i) => ({ path: `/opportunity/${i}` })),
+    },
   ],
 };
 
 describe("buildSeoTechnical", () => {
-  it("renders the design's four cards, deriving Passed from pages with no finding", () => {
-    // Two distinct affected paths across the findings, 148 audited pages.
+  it("renders the design's four cards, deriving Passed from critical ∪ warning pages", () => {
+    // Two distinct critical/warning paths across the findings, 148 audited.
+    // `/pages/opportunity-only` carries only an opportunity, so it is on none
+    // of the other three cards and counts as passed.
     expect(seoPassedPageCount(FINDINGS)).toBe(146);
     const technical = buildSeoTechnical(FINDINGS);
     expect(technical.cards.map((card) => [card.label, card.value])).toEqual([
@@ -283,6 +415,17 @@ describe("buildSeoTechnical", () => {
       ["Warnings", "3"],
       ["Passed", "146"],
     ]);
+  });
+
+  it("makes the four cards reconcile: audited − critical − warning = passed", () => {
+    // The design's own arithmetic, script L4013: 148 − 5 − 12 = 131.
+    expect(seoPassedPageCount(DISJOINT_FINDINGS)).toBe(131);
+    const cards = buildSeoTechnical(DISJOINT_FINDINGS).cards;
+    const value = (label: string) =>
+      Number(cards.find((card) => card.label === label)!.value.replace(/,/g, ""));
+    expect(value("Pages audited") - value("Critical") - value("Warnings")).toBe(
+      value("Passed"),
+    );
   });
 
   it("keeps the Passed card and renders the em-dash when the audit count is absent", () => {
@@ -305,7 +448,11 @@ describe("buildSeoTechnical", () => {
 
   it("captions each finding with its real severity", () => {
     const findings = buildSeoTechnical(FINDINGS).findings;
-    expect(findings.map((finding) => finding.severity)).toEqual(["Critical", "Warning"]);
+    expect(findings.map((finding) => finding.severity)).toEqual([
+      "Critical",
+      "Warning",
+      "Opportunity",
+    ]);
   });
 });
 

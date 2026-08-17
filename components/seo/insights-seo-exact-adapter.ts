@@ -16,6 +16,7 @@ import type {
   SeoExcludedRowModel,
   SeoFindingModel,
   SeoKpiModel,
+  SeoMonthlyGenerateModel,
   SeoMonthlyModel,
   SeoMoverCardModel,
   SeoMoverRowModel,
@@ -138,6 +139,8 @@ export interface SeoMonthlyInput {
   periodStart?: string | null;
   periodEnd?: string | null;
   status?: "available" | "not_generated" | "failed";
+  /** `/api/seo/ai-analysis` GET — whether a POST would actually be accepted. */
+  canGenerate?: boolean;
   overviewData?: {
     dataLayers?: Array<{ title?: string }>;
   } | null;
@@ -326,6 +329,26 @@ function nextWindowLabel(monthKey: string | null): string | null {
   });
 }
 
+/**
+ * The generator is offered only where it can honestly do something: the window
+ * has no analysis (or the last run failed) *and* the server reports the run
+ * would be accepted. In every other state — including the whole state the
+ * design draws — this is `null` and the design's disabled cadence chip stands.
+ */
+export function seoMonthlyGenerateControl(
+  monthly: SeoMonthlyInput | null | undefined,
+): SeoMonthlyGenerateModel | null {
+  const status = monthly?.status;
+  if (status !== "not_generated" && status !== "failed") return null;
+  if (monthly?.canGenerate !== true) return null;
+  return {
+    label:
+      status === "failed"
+        ? "Retry this month’s analysis"
+        : "Generate this month’s analysis",
+  };
+}
+
 export function buildSeoMonthly(monthly: SeoMonthlyInput | null | undefined): SeoMonthlyModel {
   const status = MONTHLY_STATUS[monthly?.status ?? ""] ?? {
     label: MISSING_VALUE,
@@ -392,6 +415,7 @@ export function buildSeoMonthly(monthly: SeoMonthlyInput | null | undefined): Se
       cadence: nextWindow
         ? `One analysis per month · next window ${nextWindow}`
         : "One analysis per month",
+      generate: seoMonthlyGenerateControl(monthly),
     },
     reads,
     summary: text(analysis?.summary) ?? MISSING_VALUE,
@@ -501,15 +525,30 @@ export function buildSeoPages(overview: SeoOverviewInput | null | undefined): Se
 /**
  * The design's three tone groups are a sequencing of the monthly model's
  * priorities: what to fix first, what to schedule, what to defer (L2087).
- * A priority is a quick win when it is cheap, strategic when it is expensive
- * but high impact, and supporting otherwise. Deterministic, no re-ranking.
+ *
+ * The rule is read off the design's own five items (script L4003-4012), whose
+ * impact and effort are written into their copy:
+ *
+ * | design item                                   | impact                        | effort | group      |
+ * | --------------------------------------------- | ----------------------------- | ------ | ---------- |
+ * | Fix canonical/noindex on 5 excluded PDPs       | Recover lost indexation       | low    | Quick wins |
+ * | Rewrite meta titles on 8 position-8–12 queries | +0.6–0.8 pt CTR               | low    | Quick wins |
+ * | Ship a “materials” hub page                    | New topic entry · +900/mo     | medium | Strategic  |
+ * | Internal links from the top guides to money pages | Page-1 potential for 14 queries | low | Strategic  |
+ * | Refresh /blogs/gift-guide before Q4            | Protect Q4 seasonal traffic   | medium | Supporting |
+ *
+ * The fourth row is decisive: it is a **low-effort** item the design still
+ * files under Strategic, so effort cannot be the leading test. Impact is:
+ * a top-impact item is strategic whatever it costs, a cheap item that is not
+ * top-impact is a quick win, and everything else is supporting. That order
+ * reproduces all five of the design's own placements.
  */
 export function seoActionGroupFor(item: {
   impact?: string;
   effort?: string;
 }): "quick" | "strategic" | "supporting" {
-  if (item.effort === "low") return "quick";
   if (item.impact === "high") return "strategic";
+  if (item.effort === "low") return "quick";
   return "supporting";
 }
 
@@ -567,16 +606,23 @@ const FINDING_SEVERITY: Record<string, { label: string; tone: SeoTone }> = {
 };
 
 /**
- * "Passed" is the count of audited pages that carry no finding at all. The
- * design derives the same number (148 − 5 − 12 = 131); here it is derived from
- * the real distinct affected paths, because the severity counts are counts of
- * findings and not of pages.
+ * "Passed" is the fourth term of the design's own four-card arithmetic:
+ * Pages audited − Critical − Warnings = Passed (148 − 5 − 12 = 131, script
+ * L4013). Only the two severities the other cards count are subtracted, so a
+ * reader can reproduce the number from the row of cards.
+ *
+ * `summarizeFindings` (`lib/seo/findings.ts:1233-1250`) already reports
+ * *distinct pages* per severity, so the union is taken over the same critical
+ * and warning paths. A page whose only finding is an `opportunity` is on none
+ * of the other three cards and therefore counts as passed — subtracting it too
+ * would make the four cards contradict each other.
  */
 export function seoPassedPageCount(findings: SeoFindingsInput | null | undefined): number | null {
   const audited = num(findings?.meta?.auditedPageCount);
   if (audited === null) return null;
   const affected = new Set<string>();
   for (const finding of findings?.findings ?? []) {
+    if (finding?.severity !== "critical" && finding?.severity !== "warning") continue;
     for (const page of finding?.affectedPages ?? []) {
       const path = text(page?.path);
       if (path) affected.add(path);

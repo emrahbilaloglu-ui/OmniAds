@@ -169,7 +169,12 @@ export interface SeoFindingsInput {
       succeeded?: number;
     } | null;
   } | null;
-  summary?: { critical?: number; warning?: number; opportunity?: number } | null;
+  summary?: {
+    critical?: number;
+    warning?: number;
+    opportunity?: number;
+    passed?: number;
+  } | null;
   confirmedExcludedPages?: Array<{
     path?: string;
     url?: string;
@@ -180,7 +185,7 @@ export interface SeoFindingsInput {
   }>;
   findings?: Array<{
     id?: string;
-    severity?: "critical" | "warning" | "opportunity";
+    severity?: "critical" | "warning" | "opportunity" | "passed";
     title?: string;
     description?: string;
     affectedPages?: Array<{ path?: string }>;
@@ -599,36 +604,43 @@ export function buildSeoActionGroups(
 
 /* ── Technical findings (L2085-2118) ──────────────────────────────── */
 
+/**
+ * The design's ladder is Critical / Warning / Passed (script L4021-4027).
+ * `Opportunity` is a fourth severity the provider serves that the design has
+ * no chip for; it keeps its own caption and takes the design's info tone, so
+ * the only green chip in the list is the one the design paints green.
+ */
 const FINDING_SEVERITY: Record<string, { label: string; tone: SeoTone }> = {
   critical: { label: "Critical", tone: "negative" },
   warning: { label: "Warning", tone: "warning" },
-  opportunity: { label: "Opportunity", tone: "positive" },
+  opportunity: { label: "Opportunity", tone: "info" },
+  passed: { label: "Passed", tone: "positive" },
 };
 
 /**
- * "Passed" is the fourth term of the design's own four-card arithmetic:
- * Pages audited − Critical − Warnings = Passed (148 − 5 − 12 = 131, script
- * L4013). Only the two severities the other cards count are subtracted, so a
- * reader can reproduce the number from the row of cards.
+ * The served count of pages that cleared every check the audit could run on
+ * them — `summary.passed`, emitted by `buildSeoTechnicalFindings` as a real
+ * per-page verdict rather than derived here.
  *
- * `summarizeFindings` (`lib/seo/findings.ts:1233-1250`) already reports
- * *distinct pages* per severity, so the union is taken over the same critical
- * and warning paths. A page whose only finding is an `opportunity` is on none
- * of the other three cards and therefore counts as passed — subtracting it too
- * would make the four cards contradict each other.
+ * It is deliberately not `audited − critical − warning`. That subtraction is
+ * the design's arithmetic (148 − 5 − 12 = 131, script L4013) for a data set
+ * with no `opportunity` severity and no overlap between the critical and
+ * warning page sets; against real findings it silently reclassifies a page
+ * whose only finding is an opportunity as passing, and undercounts whenever
+ * one page carries both a critical and a warning.
+ *
+ * What the four cards do reconcile to is the builder's own invariant:
+ * `Pages audited = Passed + pages carrying at least one critical, warning or
+ * opportunity finding`. Where the served data matches the design's shape, that
+ * reduces to the design's subtraction exactly.
+ *
+ * Returns null — the em-dash — when the provider has not served the count,
+ * which is the case for findings cached before the severity existed.
  */
 export function seoPassedPageCount(findings: SeoFindingsInput | null | undefined): number | null {
-  const audited = num(findings?.meta?.auditedPageCount);
-  if (audited === null) return null;
-  const affected = new Set<string>();
-  for (const finding of findings?.findings ?? []) {
-    if (finding?.severity !== "critical" && finding?.severity !== "warning") continue;
-    for (const page of finding?.affectedPages ?? []) {
-      const path = text(page?.path);
-      if (path) affected.add(path);
-    }
-  }
-  return Math.max(0, Math.round(audited) - affected.size);
+  const passed = num(findings?.summary?.passed);
+  if (passed === null) return null;
+  return Math.max(0, Math.round(passed));
 }
 
 /** Blocked or noindexed reads harder than "crawled, not indexed". */

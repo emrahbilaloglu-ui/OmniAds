@@ -82,7 +82,7 @@ const MONTHLY: InsightsSeoAdapterInput["monthly"] = {
 
 const FINDINGS: InsightsSeoAdapterInput["findings"] = {
   meta: { auditedPageCount: 148, urlInspection: { attempted: 5, succeeded: 5 } },
-  summary: { critical: 1, warning: 3, opportunity: 0 },
+  summary: { critical: 1, warning: 3, opportunity: 0, passed: 144 },
   confirmedExcludedPages: [
     { path: "/products/a", coverageState: "Excluded by ‘noindex’ tag" },
   ],
@@ -93,6 +93,13 @@ const FINDINGS: InsightsSeoAdapterInput["findings"] = {
       title: "12 product URLs went noindex",
       description: "5 remain excluded.",
       affectedPages: [{ path: "/products/a" }],
+    },
+    {
+      id: "f2",
+      severity: "passed",
+      title: "Pages cleared every technical check that ran",
+      description: "Checks that ran on these pages: title tag, H1 heading.",
+      affectedPages: [{ path: "/products/b" }],
     },
   ],
 };
@@ -266,9 +273,18 @@ describe("InsightsSeoExact — Technical findings", () => {
       ["Pages audited", "148"],
       ["Critical", "1"],
       ["Warnings", "3"],
-      // 148 audited pages, one distinct path carries a finding.
-      ["Passed", "147"],
+      // The served `summary.passed` — a per-page verdict the builder emits,
+      // not 148 minus the flagged paths.
+      ["Passed", "144"],
     ]);
+  });
+
+  it("captions the passing chip with the design's word", () => {
+    const { container } = renderTab("technical");
+    const chips = Array.from(container.querySelectorAll("[data-tone]"))
+      .filter((node) => node.textContent === "Passed" || node.textContent === "Critical")
+      .map((node) => [node.textContent, node.getAttribute("data-tone")]);
+    expect(chips).toContainEqual(["Passed", "positive"]);
   });
 
   it("reduces Confirmed excluded pages to a url + reason list, not a table", () => {

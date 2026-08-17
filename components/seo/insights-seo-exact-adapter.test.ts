@@ -349,7 +349,7 @@ const FINDINGS: SeoFindingsInput = {
     auditedPageCount: 148,
     urlInspection: { attempted: 5, succeeded: 5 },
   },
-  summary: { critical: 1, warning: 3, opportunity: 1 },
+  summary: { critical: 1, warning: 3, opportunity: 1, passed: 144 },
   confirmedExcludedPages: [
     { path: "/products/a", coverageState: "Excluded by ‘noindex’ tag" },
     { path: "/collections/b", coverageState: "Crawled - currently not indexed" },
@@ -376,13 +376,24 @@ const FINDINGS: SeoFindingsInput = {
       description: "Eligible for rich results.",
       affectedPages: [{ path: "/pages/opportunity-only" }],
     },
+    {
+      id: "f4",
+      severity: "passed",
+      title: "Pages cleared every technical check that ran",
+      description: "Checks that ran on these pages: title tag, H1 heading.",
+      affectedPages: [{ path: "/products/c" }],
+    },
   ],
 };
 
-/** Disjoint severities, so the design's own subtraction can be checked. */
-const DISJOINT_FINDINGS: SeoFindingsInput = {
+/**
+ * Shaped like the design's own data — no opportunity-only page, disjoint
+ * critical and warning page sets — so the design's subtraction is checkable
+ * against the served count.
+ */
+const DESIGN_SHAPED_FINDINGS: SeoFindingsInput = {
   meta: { auditedPageCount: 148 },
-  summary: { critical: 5, warning: 12, opportunity: 4 },
+  summary: { critical: 5, warning: 12, opportunity: 0, passed: 131 },
   findings: [
     {
       id: "c",
@@ -395,32 +406,34 @@ const DISJOINT_FINDINGS: SeoFindingsInput = {
       affectedPages: Array.from({ length: 12 }, (_, i) => ({ path: `/warning/${i}` })),
     },
     {
-      id: "o",
-      severity: "opportunity",
-      affectedPages: Array.from({ length: 4 }, (_, i) => ({ path: `/opportunity/${i}` })),
+      id: "p",
+      severity: "passed",
+      affectedPages: Array.from({ length: 131 }, (_, i) => ({ path: `/passed/${i}` })),
     },
   ],
 };
 
 describe("buildSeoTechnical", () => {
-  it("renders the design's four cards, deriving Passed from critical ∪ warning pages", () => {
-    // Two distinct critical/warning paths across the findings, 148 audited.
-    // `/pages/opportunity-only` carries only an opportunity, so it is on none
-    // of the other three cards and counts as passed.
-    expect(seoPassedPageCount(FINDINGS)).toBe(146);
+  it("reads Passed from the served count rather than subtracting", () => {
+    // 148 audited, but the card reports the 144 pages the provider actually
+    // graded as passing — not 148 − 1 − 3. `/pages/opportunity-only` carries
+    // an opportunity, so it cleared neither every check nor nothing at all,
+    // and it belongs to no card but Pages audited.
+    expect(seoPassedPageCount(FINDINGS)).toBe(144);
     const technical = buildSeoTechnical(FINDINGS);
     expect(technical.cards.map((card) => [card.label, card.value])).toEqual([
       ["Pages audited", "148"],
       ["Critical", "1"],
       ["Warnings", "3"],
-      ["Passed", "146"],
+      ["Passed", "144"],
     ]);
   });
 
-  it("makes the four cards reconcile: audited − critical − warning = passed", () => {
-    // The design's own arithmetic, script L4013: 148 − 5 − 12 = 131.
-    expect(seoPassedPageCount(DISJOINT_FINDINGS)).toBe(131);
-    const cards = buildSeoTechnical(DISJOINT_FINDINGS).cards;
+  it("makes the four cards reconcile the design's way on design-shaped data", () => {
+    // The design's own arithmetic, script L4013: 148 − 5 − 12 = 131 — which
+    // the served count matches whenever the data has the design's shape.
+    expect(seoPassedPageCount(DESIGN_SHAPED_FINDINGS)).toBe(131);
+    const cards = buildSeoTechnical(DESIGN_SHAPED_FINDINGS).cards;
     const value = (label: string) =>
       Number(cards.find((card) => card.label === label)!.value.replace(/,/g, ""));
     expect(value("Pages audited") - value("Critical") - value("Warnings")).toBe(
@@ -428,8 +441,9 @@ describe("buildSeoTechnical", () => {
     );
   });
 
-  it("keeps the Passed card and renders the em-dash when the audit count is absent", () => {
-    const technical = buildSeoTechnical({ findings: [] });
+  it("keeps the Passed card and renders the em-dash when the count is not served", () => {
+    // Findings cached before the severity existed carry no `summary.passed`.
+    const technical = buildSeoTechnical({ meta: { auditedPageCount: 148 }, findings: [] });
     expect(technical.cards).toHaveLength(4);
     expect(technical.cards[3]).toMatchObject({ label: "Passed", value: "—" });
   });
@@ -452,6 +466,19 @@ describe("buildSeoTechnical", () => {
       "Critical",
       "Warning",
       "Opportunity",
+      "Passed",
+    ]);
+  });
+
+  it("paints the design's green on Passed alone", () => {
+    // Script L4021-4027: C.neg / C.warn / C.pos. Opportunity is a severity the
+    // design has no chip for, so it takes C.info rather than a second green.
+    const findings = buildSeoTechnical(FINDINGS).findings;
+    expect(findings.map((finding) => [finding.severity, finding.tone])).toEqual([
+      ["Critical", "negative"],
+      ["Warning", "warning"],
+      ["Opportunity", "info"],
+      ["Passed", "positive"],
     ]);
   });
 });

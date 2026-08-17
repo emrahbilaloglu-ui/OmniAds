@@ -298,7 +298,7 @@ export function ReportsExact({
   const allowDrop = (event: DragEvent) => event.preventDefault();
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-screen-label="Reports">
       <section className={styles.section}>
         <div className={styles.pageHeader}>
           <div>

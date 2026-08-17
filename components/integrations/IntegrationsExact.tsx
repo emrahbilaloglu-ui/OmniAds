@@ -190,7 +190,7 @@ export function IntegrationsExact({
   onAction: (provider: IntegrationProvider, kind: "connect" | "manage") => void;
 }) {
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-screen-label="Integrations">
       <div>
         <p className={styles.eyebrow}>{EYEBROW}</p>
         <h1 className={styles.title}>{TITLE}</h1>

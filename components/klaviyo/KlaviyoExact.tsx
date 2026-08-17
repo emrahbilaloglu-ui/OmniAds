@@ -23,7 +23,7 @@ function classNames(...values: Array<string | false | null | undefined>) {
  */
 export function KlaviyoExact({ model }: { model: KlaviyoExactModel }) {
   return (
-    <section className={styles.root}>
+    <section className={styles.root} data-screen-label="Klaviyo">
       <div className={styles.header}>
         <div>
           <p className={styles.eyebrow}>{EYEBROW}</p>

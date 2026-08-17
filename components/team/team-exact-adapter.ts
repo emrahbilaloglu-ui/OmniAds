@@ -12,7 +12,7 @@
  * state. It keeps its column and renders the em dash — the design's "2FA on"
  * is a prototype seed value.
  *
- * "Actions · 28d" is real. `/api/team/members` aggregates the three
+ * "Actions · 28d" is real. `/api/team/members` aggregates the five
  * actor-stamped write ledgers (see `getBusinessMemberActionCounts`) over 28
  * days and serves `action_count` per member; a member with none is a real `0
  * writes`, and only an unreadable ledger renders the em dash.

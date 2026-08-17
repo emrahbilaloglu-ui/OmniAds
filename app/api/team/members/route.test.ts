@@ -86,9 +86,11 @@ describe("GET /api/team/members", () => {
 });
 
 /**
- * The aggregation itself needs a live PostgreSQL, which this suite has none of.
- * These guard the two properties of the statement that no type checker sees and
- * that would fail only at runtime.
+ * Statement-shape guards.
+ *
+ * The aggregation was validated against production read-only (EXPLAIN plus the
+ * aggregate; index scans on all five tables). These pin the properties that no
+ * type checker sees and that a later edit could silently break.
  */
 describe("getBusinessMemberActionCounts statement shape", () => {
   const source = readFileSync("lib/account-store.ts", "utf8");
@@ -97,20 +99,47 @@ describe("getBusinessMemberActionCounts statement shape", () => {
     source.indexOf("GROUP BY actor_user_id"),
   );
 
-  it("reads all three actor-stamped ledgers", () => {
-    expect(statement).toContain("FROM decision_workflow_events");
-    expect(statement).toContain("FROM command_center_action_journal");
-    expect(statement).toContain("FROM command_center_action_execution_audit");
+  it("reads all five actor-stamped ledgers", () => {
+    for (const table of [
+      // The Meta provider-write log: the most literal "action" of the five.
+      "FROM meta_ads_action_log",
+      "FROM meta_automation_activity_ledger",
+      "FROM decision_workflow_events",
+      "FROM command_center_action_journal",
+      "FROM command_center_action_execution_audit",
+    ]) {
+      expect(statement).toContain(table);
+    }
     // Only operations that actually reached a provider count as executions.
     expect(statement).toContain("operation IN ('apply', 'rollback')");
   });
 
+  it("excludes simulated writes but counts requested-but-failed ones", () => {
+    // A dry run never reaches Meta, so it is not a write.
+    expect(statement).toContain("dry_run IS NOT TRUE");
+    // `status` is deliberately unfiltered: rows are inserted `pending` and
+    // settled later, so filtering on it would make the count depend on when
+    // the page loaded and would hide `silent_failure` entirely.
+    expect(statement).not.toContain("status");
+  });
+
+  it("attributes nothing it cannot attribute", () => {
+    // Every branch drops rows with no actor.
+    expect(statement.match(/IS NOT NULL/g) ?? []).toHaveLength(5);
+  });
+
+  it("windows each ledger on its own indexed timestamp", () => {
+    // meta_ads_action_log is indexed on (business_id, requested_at DESC).
+    expect(statement).toContain("requested_at >= now()");
+    expect(statement.match(/created_at >= now\(\)/g) ?? []).toHaveLength(4);
+  });
+
   it("never reuses one placeholder for both the TEXT and the UUID business id", () => {
-    // `decision_workflow_events.business_id` is TEXT; the other two are UUID.
+    // `decision_workflow_events.business_id` is TEXT; the other four are UUID.
     // One placeholder for both makes PostgreSQL deduce two conflicting types
     // and refuse the whole statement — the trap decision-workflow-store hit.
     expect(statement).toContain("business_id = $1\n");
-    expect(statement).toContain("business_id = $2::uuid");
+    expect(statement.match(/business_id = \$2::uuid/g) ?? []).toHaveLength(4);
     expect(statement).not.toContain("business_id = $1::uuid");
   });
 });

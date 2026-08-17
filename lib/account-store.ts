@@ -649,23 +649,65 @@ export const MEMBER_ACTION_WINDOW_DAYS = 28;
 /**
  * Per-actor count of workspace writes in the trailing window.
  *
- * Three tables carry `(business_id, actor_user_id, created_at)` and together
- * they are this backend's whole actor-stamped write ledger. They are disjoint —
- * no single act is journalled twice:
+ * Five tables carry an actor id and a timestamp beside `business_id`, and
+ * together they are this backend's whole actor-stamped write ledger:
  *
+ *  - `meta_ads_action_log` is the Meta provider-write log — pause, resume,
+ *    duplicate and the three Launchpad `launch_*` kinds, written by
+ *    `lib/meta/ads-action-log.ts`. This is the one that most literally means
+ *    "actions" under a Members table.
+ *  - `meta_automation_activity_ledger` is the automation control plane's
+ *    ledger; its three writers all live in
+ *    `lib/meta/automation-control-plane.ts` (kill-switch engage, kill-switch
+ *    release, decision-type mode change).
  *  - `decision_workflow_events` is the live decision overlay's append-only
  *    journal; one row per operator transition on a Meta decision
  *    (`lib/decision-workflow-store.ts` `persistWorkflowTransition`).
  *  - `command_center_action_journal` is the Command Center's workflow journal —
  *    status/assignee/note/handoff events. Still read by the engine
  *    (`lib/creative-decision-engine/jobs/operator-response-job.ts`).
- *  - `command_center_action_execution_audit` is the provider-execution ledger;
- *    only `apply` and `rollback` rows are counted, because those are the two
- *    operations that actually reached a provider. Its writer never appends to
- *    the journal above, so counting both cannot double-count one act.
+ *  - `command_center_action_execution_audit` is the Command Center's
+ *    provider-execution ledger; only `apply` and `rollback` rows count.
  *
- * `business_id` is TEXT on the first table and UUID on the other two, which is
- * why the casts differ per branch.
+ * ## Why no deduplication is needed
+ *
+ * No single act lands in two of these. Verified by reading every writer:
+ *  - the Command Center execution store
+ *    (`lib/archive/v1-v2-v21/lib/command-center-execution-store.ts:830`, the
+ *    only writer of the audit) imports just `@/lib/db`,
+ *    `provider-account-reference-store` and types. It performs no provider
+ *    write and never calls `lib/meta/ads-action-log.ts`, so a Command Center
+ *    apply cannot also appear in `meta_ads_action_log`.
+ *  - the same store never appends to `command_center_action_journal`, whose
+ *    only writer is `command-center-store.ts:1118` and whose event vocabulary
+ *    is workflow-card state, not provider calls.
+ *  - a Launchpad write reaches `meta_ads_action_log` only. Nothing live
+ *    imports `lib/archive/**` at all, so no live path can write either
+ *    Command Center table.
+ *  - an automation promotion writes `meta_automation_promotion_records` plus
+ *    `meta_automation_activity_ledger`; it touches neither ads-action-log nor
+ *    the Command Center tables.
+ * The unit of the count is therefore one provider write attempt or one
+ * control-plane act — not one button press. A bulk pause of twenty ads is
+ * twenty writes, which is what the design's "writes" label means.
+ *
+ * ## Two filters, both in SQL
+ *
+ *  - `meta_ads_action_log.dry_run IS NOT TRUE`. A dry run is an explicitly
+ *    simulated write that never reaches Meta, so counting it would inflate the
+ *    number with acts that changed nothing anywhere.
+ *  - **`status` is deliberately NOT filtered.** The vocabulary is `pending`,
+ *    `success`, `failure`, `silent_failure`; rows are inserted `pending` at
+ *    request time and settled asynchronously. This column sits under a Members
+ *    table and counts what a person did, not what Meta accepted. Filtering to
+ *    `success` would drop every in-flight write, so the same operator would
+ *    show a different number depending on when the page loaded; it would also
+ *    hide `silent_failure`, which is precisely the case worth surfacing, and
+ *    would systematically under-report the operators hitting trouble.
+ *
+ * `business_id` is TEXT on `decision_workflow_events` and UUID on the other
+ * four, which is why the placeholder differs per branch. Rows with no actor
+ * are excluded everywhere: an unattributed write cannot be attributed.
  *
  * Returns `null` — not an empty map — when the ledger cannot be read, so the
  * caller can render "unknown" rather than a false zero. A member with no rows
@@ -677,6 +719,8 @@ export async function getBusinessMemberActionCounts(
 ): Promise<Record<string, number> | null> {
   const readiness = await getDbSchemaReadiness({
     tables: [
+      "meta_ads_action_log",
+      "meta_automation_activity_ledger",
       "decision_workflow_events",
       "command_center_action_journal",
       "command_center_action_execution_audit",
@@ -690,6 +734,19 @@ export async function getBusinessMemberActionCounts(
     const rows = (await getDb().query<{ actor_user_id: string; action_count: number }>(
       `
         WITH ledger AS (
+          SELECT requested_by::text AS actor_user_id
+          FROM meta_ads_action_log
+          WHERE business_id = $2::uuid
+            AND requested_by IS NOT NULL
+            AND dry_run IS NOT TRUE
+            AND requested_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT created_by::text AS actor_user_id
+          FROM meta_automation_activity_ledger
+          WHERE business_id = $2::uuid
+            AND created_by IS NOT NULL
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
           SELECT actor_user_id::text AS actor_user_id
           FROM decision_workflow_events
           WHERE business_id = $1
@@ -699,6 +756,7 @@ export async function getBusinessMemberActionCounts(
           SELECT actor_user_id::text AS actor_user_id
           FROM command_center_action_journal
           WHERE business_id = $2::uuid
+            AND actor_user_id IS NOT NULL
             AND created_at >= now() - ($3::integer * INTERVAL '1 day')
           UNION ALL
           SELECT actor_user_id::text AS actor_user_id
@@ -712,10 +770,11 @@ export async function getBusinessMemberActionCounts(
         FROM ledger
         GROUP BY actor_user_id
       `,
-      // The same id twice on purpose: $1 is compared against a TEXT column and
-      // $2 against a UUID one. Reusing one placeholder for both makes
-      // PostgreSQL deduce two conflicting types for it and refuse the whole
-      // statement — the same trap `lib/decision-workflow-store.ts:250` records.
+      // The same id twice on purpose: $1 is compared against the one TEXT
+      // `business_id` column and $2 against the four UUID ones. Reusing a
+      // single placeholder for both makes PostgreSQL deduce two conflicting
+      // types for it and refuse the whole statement — the same trap
+      // `lib/decision-workflow-store.ts:250` records.
       [businessId, businessId, windowDays],
     )) as Array<{ actor_user_id: string; action_count: number }>;
 

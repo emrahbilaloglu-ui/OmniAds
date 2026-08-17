@@ -68,6 +68,17 @@ vi.mock("@/lib/meta/entity-signals-backfill", () => ({
   runMetaSignalsBackfillForBusiness: vi.fn(),
 }));
 
+// The confirmation-queue projection is a collaborator of this pipeline with its
+// own tests; mocked here so its statements do not appear in the decision-row
+// payloads these tests inspect.
+vi.mock("@/lib/meta/automation-proposals", () => ({
+  projectMetaAutomationProposals: vi.fn(async () => ({
+    projected: 0,
+    expired: 0,
+    ran: true,
+  })),
+}));
+
 vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/meta/commercial-targets")>();
   return {
@@ -99,6 +110,7 @@ const evidenceTrail = await import("@/lib/meta/evidence-trail");
 const entitySignals = await import("@/lib/meta/entity-signals");
 const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
 const commercialTargets = await import("@/lib/meta/commercial-targets");
+const automationProposals = await import("@/lib/meta/automation-proposals");
 
 function makeSqlMock(tagRows: unknown[] = []) {
   const calls: string[] = [];
@@ -270,6 +282,48 @@ describe("meta snapshot job", () => {
 
     expect(sql.calls.filter((text) => text.includes("DELETE FROM meta_decision_snapshots_daily"))).toHaveLength(2);
     expect(sql.calls.filter((text) => text.includes("INSERT INTO meta_decision_snapshots_daily"))).toHaveLength(2);
+  });
+
+  it("re-projects the confirmation queue on every snapshot, after the rows land", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    const result = await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    // This is what "expired proposals re-evaluate on the next snapshot" means
+    // mechanically: the projection runs inside the pipeline, for the day whose
+    // decisions were just written.
+    expect(automationProposals.projectMetaAutomationProposals).toHaveBeenCalledWith(
+      { businessId: "biz_1", snapshotDate: "2026-05-06" },
+    );
+    expect(result.proposals).toEqual({ projected: 0, expired: 0 });
+  });
+
+  it("reports an unrun projection as unknown rather than as zero proposals", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(
+      automationProposals.projectMetaAutomationProposals,
+    ).mockResolvedValueOnce({ projected: 0, expired: 0, ran: false });
+
+    const result = await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    expect(result.proposals).toBeNull();
+  });
+
+  it("does not fail the snapshot when the queue projection throws", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(
+      automationProposals.projectMetaAutomationProposals,
+    ).mockRejectedValueOnce(new Error("projection exploded"));
+
+    const result = await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    // The decisions themselves are already durable; losing the projection must
+    // not lose them.
+    expect(result.proposals).toBeNull();
+    expect(result.snapshotDate).toBe("2026-05-06");
   });
 
   it("publishes an act-to-watch safety exit immediately in the snapshot path", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import type {
@@ -11,9 +11,16 @@ import type {
   MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
+import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { useAppStore } from "@/store/app-store";
 
+import {
+  EMPTY_AUTOMATION_PROPOSALS_MODEL,
+  buildAutomationProposalsModel,
+  type AutomationProposalsModel,
+} from "./automation-proposals-exact-adapter";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
@@ -279,13 +286,37 @@ function formatLedgerTime(value: string) {
   return `${part("month")} ${part("day")}, ${part("hour")}:${part("minute")}`;
 }
 
+/** The three controls the design puts on every proposal row. */
+export type ProposalControl = "approve" | "modify" | "dismiss";
+
 export function MetaAutomationView({
   payload,
   providerAccountId = null,
+  proposals = EMPTY_AUTOMATION_PROPOSALS_MODEL,
+  onProposalControl,
+  pendingProposalId = null,
+  proposalError = null,
 }: {
   payload: AutomationPayload | null;
   providerAccountId?: string | null;
+  proposals?: AutomationProposalsModel;
+  /** Absent on a server render; the controls are then inert rather than fake. */
+  onProposalControl?: (
+    proposalId: string,
+    control: ProposalControl,
+    note?: string,
+  ) => void;
+  pendingProposalId?: string | null;
+  proposalError?: string | null;
 }) {
+  // Modify has no operator-editable field on the proposal itself (a status
+  // write declares none), so the only thing it can carry is what the operator
+  // wants instead. The note field appears on intent and is absent otherwise, so
+  // the design's row geometry is untouched until an operator asks for it.
+  const [modifyingProposalId, setModifyingProposalId] = useState<string | null>(
+    null,
+  );
+  const [modificationNote, setModificationNote] = useState("");
   const globalStatus = statusForGlobalKillSwitch(payload);
   const businessStatus = statusForBusinessKillSwitch(payload);
   const guardrails = guardrailsFor(payload);
@@ -382,18 +413,128 @@ export function MetaAutomationView({
         <article className={styles.confirmationCard}>
           <div className={styles.confirmationHeader}>
             <h2>Needs your confirmation</h2>
-            <span className={styles.confirmationCount}>{UNKNOWN}</span>
+            <span
+              className={styles.confirmationCount}
+              data-field="confirmation-count"
+            >
+              {proposals.count}
+            </span>
             <span className={styles.confirmationHint}>
               engine proposals wait here — nothing executes without you at Tier
               1
             </span>
           </div>
-          <div
-            className={styles.confirmationEmpty}
-            data-testid="confirmation-empty"
-          >
-            {UNKNOWN}
-          </div>
+          {proposals.rows.length > 0 ? (
+            proposals.rows.map((row) => (
+              <div key={row.id}>
+                <div
+                  className={styles.proposalRow}
+                  data-proposal-id={row.id}
+                >
+                  <span className={styles.proposalAction} data-tone={row.tone}>
+                    {row.action}
+                  </span>
+                  <div className={styles.proposalBody}>
+                    <p className={styles.proposalEntity}>{row.entity}</p>
+                    <p className={styles.proposalWhy}>{row.why}</p>
+                  </div>
+                  <span className={styles.proposalEvidence}>
+                    {row.evidence}
+                  </span>
+                  <span className={styles.proposalExpiry}>
+                    expires {row.expires}
+                  </span>
+                  <div className={styles.proposalControls}>
+                    <button
+                      type="button"
+                      className={styles.proposalPrimary}
+                      data-tone={row.tone}
+                      data-control="approve"
+                      disabled={!onProposalControl || pendingProposalId !== null}
+                      onClick={() => onProposalControl?.(row.id, "approve")}
+                    >
+                      {row.primaryCaption}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.proposalSecondary}
+                      data-control="modify"
+                      aria-expanded={modifyingProposalId === row.id}
+                      disabled={!onProposalControl || pendingProposalId !== null}
+                      onClick={() => {
+                        setModificationNote("");
+                        setModifyingProposalId(
+                          modifyingProposalId === row.id ? null : row.id,
+                        );
+                      }}
+                    >
+                      Modify
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.proposalTertiary}
+                      data-control="dismiss"
+                      disabled={!onProposalControl || pendingProposalId !== null}
+                      onClick={() => onProposalControl?.(row.id, "dismiss")}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+                {modifyingProposalId === row.id ? (
+                  <div
+                    className={styles.proposalModify}
+                    data-testid="proposal-modify"
+                  >
+                    <label htmlFor={`proposal-note-${row.id}`}>
+                      What should happen instead
+                    </label>
+                    <input
+                      id={`proposal-note-${row.id}`}
+                      type="text"
+                      value={modificationNote}
+                      onChange={(event) =>
+                        setModificationNote(event.target.value)
+                      }
+                    />
+                    <button
+                      type="button"
+                      className={styles.proposalSecondary}
+                      data-control="modify-submit"
+                      disabled={
+                        !onProposalControl ||
+                        pendingProposalId !== null ||
+                        modificationNote.trim().length === 0
+                      }
+                      onClick={() => {
+                        onProposalControl?.(
+                          row.id,
+                          "modify",
+                          modificationNote.trim(),
+                        );
+                        setModifyingProposalId(null);
+                        setModificationNote("");
+                      }}
+                    >
+                      Record modification
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <div
+              className={styles.confirmationEmpty}
+              data-testid="confirmation-empty"
+            >
+              {UNKNOWN}
+            </div>
+          )}
+          {proposalError ? (
+            <p className={styles.proposalError} role="status">
+              {proposalError}
+            </p>
+          ) : null}
           <p className={styles.sectionFootnote}>
             approving executes inside the guardrails above · every outcome lands
             in the ledger with a receipt · expired proposals re-evaluate on the
@@ -570,6 +711,53 @@ export function MetaAutomationView({
   );
 }
 
+interface ProposalQueueRead {
+  readCompleteness: "complete" | "unavailable";
+  proposals: MetaAutomationProposal[];
+}
+
+const UNAVAILABLE_QUEUE: ProposalQueueRead = {
+  readCompleteness: "unavailable",
+  proposals: [],
+};
+
+function parseProposalQueue(body: unknown): ProposalQueueRead {
+  const payload = body as
+    | {
+        ok?: boolean;
+        readCompleteness?: { proposals?: string };
+        proposals?: MetaAutomationProposal[];
+      }
+    | null;
+  // An `unavailable` read is not an empty queue, and the two must not be
+  // collapsed here: the count badge says `—` for one and `0` for the other.
+  if (
+    payload?.ok !== true ||
+    payload.readCompleteness?.proposals !== "complete" ||
+    !Array.isArray(payload.proposals)
+  ) {
+    return UNAVAILABLE_QUEUE;
+  }
+  return { readCompleteness: "complete", proposals: payload.proposals };
+}
+
+async function readProposalQueue(input: {
+  businessId: string;
+  providerAccountId: string;
+  signal?: AbortSignal;
+}): Promise<ProposalQueueRead> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
+  const response = await fetch(
+    `/api/meta/automation/proposals?${query.toString()}`,
+    { cache: "no-store", credentials: "same-origin", signal: input.signal },
+  );
+  if (!response.ok) return UNAVAILABLE_QUEUE;
+  return parseProposalQueue(await response.json().catch(() => null));
+}
+
 async function readAutomation(input: {
   businessId: string;
   providerAccountId: string;
@@ -620,6 +808,11 @@ export default function MetaAutomationPage({
   const [readLoading, setReadLoading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [queue, setQueue] = useState<ProposalQueueRead>(UNAVAILABLE_QUEUE);
+  const [pendingProposalId, setPendingProposalId] = useState<string | null>(
+    null,
+  );
+  const [proposalError, setProposalError] = useState<string | null>(null);
 
   useTierZeroFreshness({
     surface: "automation",
@@ -702,10 +895,91 @@ export default function MetaAutomationPage({
     return () => controller.abort();
   }, [businessId, initialPayload, providerAccountId, refreshKey]);
 
+  useEffect(() => {
+    if (!businessId || !providerAccountId) {
+      setQueue(UNAVAILABLE_QUEUE);
+      return;
+    }
+    const controller = new AbortController();
+    readProposalQueue({
+      businessId,
+      providerAccountId,
+      signal: controller.signal,
+    })
+      .then((next) => {
+        if (!controller.signal.aborted) setQueue(next);
+      })
+      .catch(() => {
+        // A failed read is `unavailable`, never an empty queue: telling an
+        // operator that nothing needs confirmation when we do not know is the
+        // one wrong answer this surface can give.
+        if (!controller.signal.aborted) setQueue(UNAVAILABLE_QUEUE);
+      });
+    return () => controller.abort();
+  }, [businessId, providerAccountId, refreshKey]);
+
+  const onProposalControl = useCallback(
+    (proposalId: string, control: ProposalControl, note?: string) => {
+      if (!businessId || !providerAccountId || pendingProposalId) return;
+      setPendingProposalId(proposalId);
+      setProposalError(null);
+      const query = new URLSearchParams({ businessId, providerAccountId });
+      fetch(`/api/meta/automation/proposals?${query.toString()}`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposalId,
+          action: control,
+          ...(note ? { note } : {}),
+          // The explicit operator confirmation the guarded write path demands.
+          // Sent only for the control that reaches a provider.
+          ...(control === "approve"
+            ? { manualConfirmation: MANUAL_CONFIRMATION }
+            : {}),
+        }),
+      })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            error?: { message?: string };
+          } | null;
+          if (!response.ok || body?.ok !== true) {
+            // The server's own refusal, verbatim. Re-wording it here would
+            // describe a guard this surface does not own.
+            setProposalError(
+              body?.error?.message ??
+                "The confirmation queue could not record that decision.",
+            );
+            setQueue(UNAVAILABLE_QUEUE);
+            return;
+          }
+          setQueue(parseProposalQueue(body));
+        })
+        .catch(() => {
+          setProposalError(
+            "The confirmation queue could not record that decision.",
+          );
+          setQueue(UNAVAILABLE_QUEUE);
+        })
+        .finally(() => setPendingProposalId(null));
+    },
+    [businessId, pendingProposalId, providerAccountId],
+  );
+
   return (
     <MetaAutomationView
       payload={payload}
       providerAccountId={providerAccountId}
+      proposals={buildAutomationProposalsModel({
+        readCompleteness: queue.readCompleteness,
+        proposals: queue.proposals,
+        now: new Date(),
+      })}
+      onProposalControl={onProposalControl}
+      pendingProposalId={pendingProposalId}
+      proposalError={proposalError}
     />
   );
 }

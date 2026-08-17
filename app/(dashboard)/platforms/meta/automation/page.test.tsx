@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
+import type { AutomationProposalsModel } from "./automation-proposals-exact-adapter";
 import { MetaAutomationView } from "./automation-view";
 
 const payload: MetaAutomationControlPlane = {
@@ -118,6 +119,27 @@ function render(input: MetaAutomationControlPlane | null = payload) {
     <MetaAutomationView payload={input} providerAccountId="act_1" />,
   );
 }
+
+function renderWithQueue(proposals: AutomationProposalsModel) {
+  return renderToStaticMarkup(
+    <MetaAutomationView
+      payload={payload}
+      providerAccountId="act_1"
+      proposals={proposals}
+    />,
+  );
+}
+
+const queuedRow = {
+  id: "11111111-1111-4111-8111-111111111111",
+  action: "Pause ad set",
+  tone: "negative" as const,
+  entity: "Retargeting 7d — DPA",
+  why: "ROAS 1.94 below breakeven 2.50 for 6 consecutive days.",
+  evidence: "frees $680/d",
+  expires: "in 3h",
+  primaryCaption: "Approve & apply",
+};
 
 function mobileMarkup(html: string) {
   return (
@@ -238,6 +260,74 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("Scale window");
     expect(html).not.toContain("data-rule-id");
     expect(html.match(/<button/g)).toHaveLength(1);
+  });
+
+  it("renders a real proposal in the canonical row shape with all three controls", () => {
+    const html = renderWithQueue({
+      readCompleteness: "complete",
+      count: "1",
+      rows: [queuedRow],
+    });
+
+    expect(html).toContain(
+      'data-proposal-id="11111111-1111-4111-8111-111111111111"',
+    );
+    expect(html).toContain(">Pause ad set</span>");
+    expect(html).toContain(">Retargeting 7d — DPA</p>");
+    expect(html).toContain("ROAS 1.94 below breakeven 2.50");
+    expect(html).toContain(">frees $680/d</span>");
+    expect(html).toContain("expires in 3h");
+    expect(html).toContain("Approve &amp; apply</button>");
+    expect(html).toContain(">Modify</button>");
+    expect(html).toContain(">Dismiss</button>");
+    expect(html).toContain('data-field="confirmation-count">1<');
+    expect(html).not.toContain('data-testid="confirmation-empty"');
+  });
+
+  it("leaves every control inert when no handler is bound", () => {
+    // A server render has no action handler. The controls must be visibly
+    // unavailable rather than look armed and do nothing on click.
+    const html = renderWithQueue({
+      readCompleteness: "complete",
+      count: "1",
+      rows: [queuedRow],
+    });
+
+    expect(html.match(/data-control="[a-z-]+"[^>]*disabled=""/g)).toHaveLength(
+      3,
+    );
+  });
+
+  it("distinguishes a proven empty queue from an unproven read", () => {
+    const proven = renderWithQueue({
+      readCompleteness: "complete",
+      count: "0",
+      rows: [],
+    });
+    const unproven = renderWithQueue({
+      readCompleteness: "unavailable",
+      count: "—",
+      rows: [],
+    });
+
+    expect(proven).toContain('data-field="confirmation-count">0<');
+    expect(proven).toContain('data-testid="confirmation-empty"');
+    expect(unproven).toContain('data-field="confirmation-count">—<');
+    expect(unproven).toContain('data-testid="confirmation-empty"');
+  });
+
+  it("keeps the queue off the read-only mobile surface", () => {
+    const mobile = mobileMarkup(
+      renderWithQueue({
+        readCompleteness: "complete",
+        count: "1",
+        rows: [queuedRow],
+      }),
+    );
+
+    expect(mobile).not.toContain("Approve");
+    expect(mobile).not.toContain("<button");
+    expect(mobile).toContain('data-read-only="true"');
   });
 
   it("uses only persisted per-kind modes, never fabricates progress, and keeps launches manual", () => {
@@ -453,10 +543,17 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html.match(/data-read-only="true"/g)?.length).toBeGreaterThanOrEqual(
       3,
     );
-    expect(source).not.toContain('method: "POST"');
     expect(source).not.toContain("window.confirm");
     expect(source).not.toContain("engage_kill_switch");
     expect(source).not.toContain("release_kill_switch");
+    // The confirmation queue is the ONE mutation this screen may issue, and it
+    // goes to its own boundary. Asserted as an exact allowlist rather than a
+    // blanket ban on POST, so the kill-switch guarantee stays enforced while
+    // the queue the design requires can exist.
+    expect(source.match(/method: "POST"/g)).toHaveLength(1);
+    expect(source).toMatch(
+      /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
+    );
   });
 
   it("mounts a handler-free read-only surface at the 768px contract", () => {

@@ -56,6 +56,15 @@
 .ledgerTime {
   font-size: 11.5px;
 }
+
+.proposalAction {
+  font-size: 11.5px;
+}
+
+.proposalEvidence,
+.proposalExpiry {
+  font-size: 10px;
+}
 /* dashboard-v2-automation-exact-reference-type:end */
 
 .eyebrow,
@@ -293,6 +302,164 @@
   border-top: 1px solid #f3f5f9;
   color: #98a4ba;
   font-size: 13px;
+}
+
+/* Confirmation-queue row — canonical source lines 1115–1129. */
+.proposalRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #f3f5f9;
+  padding: 13px 16px;
+}
+
+.proposalAction {
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 7px;
+  padding: 4px 11px;
+  font-weight: 700;
+}
+
+.proposalAction[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.proposalAction[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.proposalBody {
+  min-width: 220px;
+  flex: 1;
+}
+
+.proposalEntity {
+  margin: 0;
+  color: #0e1526;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.proposalWhy {
+  margin: 3px 0 0;
+  color: #7a869e;
+  font-size: 12px;
+}
+
+.proposalEvidence {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid #e4e8f0;
+  border-radius: 6px;
+  background: #f7f9fc;
+  padding: 3px 9px;
+  color: #45526b;
+  font-family: var(--adv-font-mono, "IBM Plex Mono"), monospace;
+}
+
+.proposalExpiry {
+  flex-shrink: 0;
+  color: #b45309;
+  font-family: var(--adv-font-mono, "IBM Plex Mono"), monospace;
+}
+
+.proposalControls {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.proposalPrimary,
+.proposalSecondary,
+.proposalTertiary {
+  height: 31px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.proposalPrimary {
+  border: none;
+  padding: 0 13px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.proposalPrimary[data-tone="negative"] {
+  background: #e11d48;
+}
+
+.proposalPrimary[data-tone="positive"] {
+  background: #0e9f6e;
+}
+
+.proposalSecondary,
+.proposalTertiary {
+  border: 1px solid #e4e8f0;
+  background: #fff;
+  padding: 0 11px;
+  font-weight: 600;
+}
+
+.proposalSecondary {
+  color: #0e1526;
+}
+
+.proposalTertiary {
+  color: #7a869e;
+}
+
+.proposalSecondary:hover:not(:disabled),
+.proposalTertiary:hover:not(:disabled) {
+  background: #f7f9fc;
+}
+
+.proposalPrimary:disabled,
+.proposalSecondary:disabled,
+.proposalTertiary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/*
+ * Not in the canonical source: the design shows a Modify control but never
+ * defines what it opens, and a pause proposal has no operator-editable field.
+ * This row appears only after an operator asks for it, so the canonical row
+ * geometry above is untouched until then.
+ */
+.proposalModify {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #f3f5f9;
+  padding: 10px 16px 13px;
+  color: #45526b;
+  font-size: 12px;
+}
+
+.proposalModify input {
+  min-width: 220px;
+  flex: 1;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #0e1526;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.proposalError {
+  margin: 0;
+  border-top: 1px solid #f3f5f9;
+  padding: 10px 16px;
+  color: #b45309;
+  font-size: 12px;
 }
 
 .sectionFootnote {

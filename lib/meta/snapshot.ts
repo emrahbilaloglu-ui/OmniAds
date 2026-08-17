@@ -29,6 +29,7 @@ import {
   type MetaEvidenceTrail,
 } from "@/lib/meta/evidence-trail";
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
+import { projectMetaAutomationProposals } from "@/lib/meta/automation-proposals";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
@@ -70,6 +71,14 @@ export interface RunMetaSnapshotResult {
   calibration: RunMetaCalibrationResult;
   recommendationsWritten: number;
   anomaliesWritten: number;
+  /**
+   * Confirmation-queue projection for this run.
+   *
+   * `null` when the projection could not run at all (schema not ready, or the
+   * projection threw). A count of zero and "we do not know" are different
+   * facts, and the queue's read completeness depends on telling them apart.
+   */
+  proposals: { projected: number; expired: number } | null;
 }
 
 export interface RunMetaSnapshotAllBusinessesResult {
@@ -955,12 +964,36 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
     rows,
   });
+  // The confirmation queue is a projection of the rows that just landed, so it
+  // is refreshed here and nowhere else. This is what "expired proposals
+  // re-evaluate on the next snapshot" means literally: the sweep ages out what
+  // the previous snapshot proposed, and the insert re-raises whatever this one
+  // still says. A failure degrades to "the queue was not projected" rather than
+  // failing the snapshot — the decisions themselves are already durable.
+  const proposals = await projectMetaAutomationProposals({
+    businessId,
+    snapshotDate: normalizedSnapshotDate,
+  })
+    .then((result) =>
+      result.ran
+        ? { projected: result.projected, expired: result.expired }
+        : null,
+    )
+    .catch((error) => {
+      console.warn("[meta-snapshot] proposal_projection_failed", {
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
   return {
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibration,
     recommendationsWritten: recommendations.length,
     anomaliesWritten: anomalies.length,
+    proposals,
   };
 }
 

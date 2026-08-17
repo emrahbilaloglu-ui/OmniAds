@@ -9,10 +9,10 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **139 EXTRA**, **206
+px/weight/hex value differs → match it. Current totals are **140 EXTRA**, **208
 WRONG**, **88 GEOMETRY**, and **70 MISSING**.
 
-**503 verified divergences, 168 of them high severity.** The original audit
+**506 verified divergences, 171 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
 (`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
 findings (`OVERVIEW-28`–`OVERVIEW-56`). The Batch 3 full-source re-read added 10
@@ -23,6 +23,9 @@ data-contract re-read added 10 Launchpad + Automation findings
 (`LAUNCHPAD-AUTOMATION-24`–`LAUNCHPAD-AUTOMATION-33`). The Batch 6 full-source,
 route-family, account-authority and truth-contract re-read added 14 Google Ads
 Overview + Advisor findings (`GOOGLE-OVERVIEW-ADVISOR-36`–`GOOGLE-OVERVIEW-ADVISOR-49`).
+A read-only coverage sweep across all three route families then added 3
+cross-family findings (`ROUTE-01`–`ROUTE-03`): the same design screen rendered
+by a different component depending on which URL served it.
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
@@ -40,6 +43,7 @@ Overview + Advisor findings (`GOOGLE-OVERVIEW-ADVISOR-36`–`GOOGLE-OVERVIEW-ADV
 | Reports (incl. the drag-drop builder)         |       35 |   25 |
 | Commercial Truth + Team + Settings            |       39 |    9 |
 | Creative evidence window + Copy detail drawer |       35 |   10 |
+| Canonical route family divergence             |        3 |    3 |
 
 ---
 
@@ -4090,12 +4094,15 @@ with their complete model bindings at lines **4213–4315** (`truthStats`,
 `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
 
 `CommercialTruthExact`, `TeamExact` and `SettingsExact` are the shared
-presentation surfaces. Route convergence: `/commercial-truth` and
-`/c/[businessId]/manage/business` both mount `CommercialTruthScreen` (the
-second with `showHeader={false}`, because that leaf supplies its own `h1`);
-`/team` and `/c/[businessId]/manage/team` both mount the same legacy body;
-`/settings` mounts `SettingsExact`. The adapters are pure and emit `—` for any
-fact no provider or table supplies.
+presentation surfaces. Route convergence (as amended by `ROUTE-02` and
+`ROUTE-03` below — this paragraph originally recorded
+`/c/[businessId]/manage/business` mounting `CommercialTruthScreen` with
+`showHeader={false}` beneath the zero-base business ledger, and `SettingsExact`
+reaching only `/settings`): `/commercial-truth` and
+`/c/[businessId]/manage/business` both mount the same preserved body, header
+included; `/team` and `/c/[businessId]/manage/team` both mount the same legacy
+body; `/settings` and `/c/[businessId]/manage/plan` both mount `SettingsExact`.
+The adapters are pure and emit `—` for any fact no provider or table supplies.
 
 Backend wiring done for this batch, so the surfaces are connected and not just
 shaped: the target pack, its cost structure and the live cost-model context are
@@ -4852,5 +4859,175 @@ does **not** mean a zero-RGBA pixel diff has been proved.
 - **Design:** 19-copy-detail-drawer.html L44 — a body-level paragraph AFTER the card closes at L43, styled "font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.6;color:#98A4BA".
 - **Code:** app/(dashboard)/platforms/meta/copies/legacy-page.tsx:1100-1103 places it inside the card (the card's closing "</div>" is at :1104) and styles it "{ margin: 0, fontSize: 10, lineHeight: 1.6, color: "var(--adv-ink-4)" }" with no font-family, so it renders in the body face.
 - **Fix:** Move the paragraph out of the card to body level and set the mono family. (The reworded text itself is fine — it describes what this app actually does with served variants; do not restore the design's seed wording about angle-shifted drafts.)
+
+---
+
+## Canonical route family divergence
+
+Everything above compares one rendered surface against the design. These three
+compare two surfaces against **each other**: the same design screen rendered by
+a different component depending on which route family served the request.
+
+Adsecute has three route families for the same screens.
+`proxy.ts` → `resolvePublicRouteRedirect` (`lib/zero-base/public-routes.ts`)
+307s every `/c/:businessId/**` request to
+`/switch-business/:id?next=/app/…`, so `/c/**` is a **module library**;
+`/app/**` is the **dispatcher** that imports those very modules
+(`app/app/[[...path]]/page.tsx`); and the legacy `/(dashboard)/**` paths are
+served directly by `compatibilityPage(route, LegacyBody)`
+(`lib/zero-base/compatibility-page.tsx`), which renders the preserved legacy
+body while `ZERO_BASE_UI_MODE` is off and redirects to the canonical URL
+otherwise. `ZERO_BASE_UI_MODE` is unset today, which parses to `off`
+(`lib/zero-base/rollout.ts:28-31`), so the legacy bodies are what is on screen
+and the design port is visible.
+
+21 of the 24 design screen-states landed on their exact component in every
+family. Three did not — and because they only diverge once the mode flips, no
+test, typecheck or visual smoke could see it. Post-login already lands on
+`/app/home` when canonical is on (`lib/zero-base/auth-routing.ts:72`), so
+`ROUTE-01` was the front door.
+
+All three are **CLOSED** by
+`app/c/[businessId]/canonical-exact-bodies.test.tsx` (the `/c` leaf mounts the
+exact body, with its authorization prologue asserted) and
+`app/app/home-and-manage-route-dispatch.test.tsx` (the `/app` dispatcher lands
+on that same leaf carrying only the session's authorized business id).
+
+### ROUTE-01 · HIGH · WRONG — Overview rendered `HomeView` in the canonical family instead of the exact Overview screen
+
+- **Design:** `overview` is one screen; `lib/dashboard-v2/screen-registry.ts:96-97`
+  binds `/overview` **and** `/app/home` to it.
+- **Code (before):** `app/c/[businessId]/home/page.tsx:7` imported
+  `HomeView` from `components/zero-base/home/home-view.tsx` and fed it
+  `readHomePageModel(...)`; the file even stated the intent at `:19` — "The
+  legacy `/overview` body is deliberately not mounted". The exact v2 Overview
+  (`AiBriefCard`, `AttributionCard`, `HeroMetricCard`/`HeroTile`/`StatTile`,
+  `PlatformMiniDashboard`) existed only in
+  `app/(dashboard)/overview/legacy-page.tsx`. `/app/home` dispatches to that
+  same `/c` module (`app/app/[[...path]]/page.tsx:19`), so both canonical
+  spellings showed the zero-base surface.
+- **Fix (applied):** the `/c` leaf now mounts
+  `app/(dashboard)/overview/legacy-page` inside `LegacyInteriorBridge`, the
+  pattern `/c/[businessId]/manage/team` already used. The `?range=` server-side
+  window was dropped with it: the exact Overview owns its window through the
+  shared persistent date-range preference, exactly as it does on `/overview`,
+  and a second server-side source for the same window is how the two families
+  would drift again.
+- **Guards preserved:** `getSessionFromCookies` → `loginUrlFor("/c/{id}/home")`
+  before anything reads membership; `requireBusinessPageContext({ businessId })`
+  → `notFound()` on anything but `ok`.
+
+### ROUTE-02 · HIGH · WRONG — Settings rendered the zero-base plan ledger in the canonical family
+
+- **Design:** `settings` is one screen; `lib/dashboard-v2/screen-registry.ts:158-159`
+  binds `/settings` **and** `/app/manage/plan` to it.
+- **Code (before):** `components/settings/SettingsExact.tsx` had exactly one
+  importer — `app/(dashboard)/settings/legacy-page.tsx` — which is unreachable
+  in canonical mode. The rail's Settings entry
+  (`components/layout/nav-items.ts:269-274`, `href: "/settings"`) resolves
+  through `dashboardHrefForRouteFamily` to `/app/manage/plan`, which reached
+  `PlanClient` → `PlanView` (`components/zero-base/manage/manage-views.tsx:1187`),
+  an inline-styled ledger card with none of the design's field card, plan band
+  or three action rows.
+- **Fix (applied):** the `/c` leaf mounts
+  `app/(dashboard)/settings/legacy-page` inside `LegacyInteriorBridge`. No plan
+  information is lost: `SettingsExact`'s plan band reads `/api/billing` for the
+  same workspace that `PlanView` read.
+- **Guards preserved:** `getSessionFromCookies` → `loginUrlFor("/c/{id}/manage")`;
+  `requireBusinessPageContext({ businessId })` → `notFound()`.
+
+### ROUTE-03 · HIGH · EXTRA — Commercial Truth rendered as a headerless fragment inside a foreign page
+
+- **Design:** Commercial Truth draws seven blocks and owns its own header
+  (`components/commercial-truth/CommercialTruthExact.tsx:228-235`).
+  `/commercial-truth` redirects to `/c/[businessId]/manage/business`
+  (`lib/zero-base/generated-contracts.ts:1035`), and
+  `lib/dashboard-v2/screen-registry.ts:152-153` binds both spellings to the
+  `commercial-truth` screen.
+- **Code (before):** `app/c/[businessId]/manage/business/page.tsx` mounted
+  `BusinessClient` → `BusinessView`
+  (`components/zero-base/manage/manage-views.tsx:890`), a zero-base ledger that
+  embedded `<CommercialTruthScreen businessId={businessId} showHeader={false} />`
+  at `:1120` beneath four sections the design does not draw on this screen: a
+  workspace name/currency form, an "Overview cost model" form, an economics
+  source grid, a read-only "recommended mode" block, and a delete-business
+  ceremony. The screen therefore appeared without its eyebrow, `h1` and lede,
+  surrounded by a different product.
+- **Fix (applied):** the `/c` leaf mounts
+  `app/(dashboard)/commercial-truth/legacy-page` inside `LegacyInteriorBridge`,
+  so the screen renders with `showHeader` at its default `true`.
+- **Guards preserved:** `getSessionFromCookies` → `loginUrlFor("/c/{id}/manage")`;
+  `requireBusinessPageContext({ businessId })` → `notFound()`. `BusinessClient`
+  used `access.context.role` only to decide *client-side* whether to disable its
+  own controls; every write it fronted is gated server-side on its own route, so
+  dropping the prop weakens nothing.
+- **Capability check for each removed block** — none of them was the only way to
+  perform its action:
+  - *Cost structure* (gross margin / shipping / payment fees / monthly fixed
+    base): editable on Commercial Truth itself
+    (`components/commercial-truth/CommercialTruthScreen.tsx:304-395`), which
+    writes the target pack through `/api/business-commercial-settings` and the
+    monthly fixed base through the same `/api/business-cost-model` `PUT` the
+    removed form used. One narrowing remains and is stated rather than hidden:
+    Commercial Truth writes `business_cost_model` only when the fixed-costs
+    field is part of the edit (`:367`), so changing only COGS in that table now
+    requires touching fixed costs in the same save. The removed form could write
+    the four columns independently.
+  - *Delete business*: still reachable at `/select-business`
+    (`app/(dashboard)/select-business/page.tsx:111-145`), behind a
+    type-the-workspace-name confirmation, hitting the identical
+    `DELETE /api/businesses/{id}`. `/select-business` is an **alias** mapping
+    (`lib/zero-base/generated-contracts.ts:606`), so its URL is unchanged in
+    both modes and the rollout cannot take it away.
+  - *Economics source grid* and *recommended mode*: read-only displays. The same
+    facts are on Commercial Truth's own "Consumed by" block, and the recommended
+    mode was explicitly non-editable (`RECOMMENDED_MODE_READ_ONLY`).
+  - *Workspace name / currency*: this is the one capability with no surviving
+    UI. It was not part of any Dashboard v2 screen, and
+    `PATCH /api/businesses/{id}` is untouched, but no rendered surface calls it
+    any more. Recorded here as an open product decision, not as something the
+    port silently deleted.
+
+### What became orphaned
+
+Route-orphaned by the three fixes, deliberately **not** deleted: `HomeView` and
+`readHomePageModel`; `BusinessClient`, `PlanClient`, `BusinessView` and
+`PlanView`; and `economicsPanelHref`, whose `…/manage/business#economics`
+anchor no longer exists. All of them are still referenced by their own unit
+tests and by the zero-base frame harness (`scripts/zero-base/frame-registry.tsx`,
+`scripts/zero-base/build-shell-harness.tsx`), which is what the visual specs in
+`playwright/tests/zero-base-visual.spec.ts` render. Removing them is a separate
+decision about the harness, not part of closing this gap.
+
+### `SettingsChooser` and the `/settings` split
+
+`/settings` is the one legacy path with **two** canonical destinations —
+`/me/account-security` and `/c/[businessId]/manage/business`
+(`lib/zero-base/generated-contracts.ts:628` and `:1035`) — so
+`scopeFor` types it `split` (`lib/zero-base/compatibility.ts:70-77`) and
+`decideCompatibility` returns `{ kind: "chooser" }` rather than picking a half
+(`:263-273`). That was correct for the zero-base decomposition it was written
+for: the old `/settings` page held a password *and* a currency, and guessing
+would have sent half the traffic to the wrong place.
+
+Dashboard v2 re-unified Settings into one screen and gave it a third
+destination the split does not know about: `/app/manage/plan`
+(`lib/dashboard-v2/screen-registry.ts:159`). So with canonical mode on, an
+operator who follows the rail reaches the exact Settings screen, while one who
+types `/settings` gets a two-item menu offering Account & Security and — since
+this change — Commercial Truth, which is not settings at all. The chooser is now
+a worse answer than it was, and it is stale in a specific, checkable way: its
+business-side destination points at a screen that no longer contains what the
+link promises.
+
+Left in place in this change, on purpose. Correcting it means editing the
+generated route contract (`generated-contracts.ts` is asserted immutable by
+`app/compatibility-shims.route.test.tsx:249-251`, which pins the split's identity
+at 47 records over 46 paths), so it is a route-registry decision with its own
+test surface, not a wiring fix. The recommendation is to retarget the split's
+business half from `/c/[businessId]/manage/business` to
+`/c/[businessId]/manage/plan` — after which `/settings` still asks the only
+question that is genuinely ambiguous (the person, or the workspace), and both
+answers land on a screen the design actually draws.
 
 ---

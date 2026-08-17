@@ -66,10 +66,14 @@ describe("every route family that reaches Commercial Truth uses one component", 
     expect(source).not.toContain("commercial-truth-blocks");
   });
 
-  it("the /c/[businessId]/manage/business leaf mounts the same screen", () => {
-    // `/commercial-truth` redirects here, so the two must not diverge.
-    const source = readFileSync("components/zero-base/manage/manage-views.tsx", "utf8");
-    expect(source).toContain("CommercialTruthScreen");
-    expect(source).not.toContain("CommercialTruthSettingsSection");
+  it("the /c/[businessId]/manage/business leaf mounts the same body", () => {
+    // `/commercial-truth` redirects here, so the two must not diverge. The leaf
+    // mounts the preserved legacy body itself rather than embedding the screen
+    // inside the zero-base business ledger, so it carries its own header and
+    // none of the five sections the design has no equivalent of.
+    const source = readFileSync("app/c/[businessId]/manage/business/page.tsx", "utf8");
+    expect(source).toContain('@/app/(dashboard)/commercial-truth/legacy-page');
+    expect(source).not.toContain("BusinessClient");
+    expect(source).not.toContain("showHeader");
   });
 });

@@ -1111,9 +1111,11 @@ export function BusinessView({
                 </Button>
               ) : null}
             </section>
-            {/* Both route families that reach Commercial Truth — `/commercial-truth`
-                and this leaf, which that path redirects to — render the same exact
-                screen. The header is suppressed because this page already has one. */}
+            {/* No route mounts this view any more: `/c/[businessId]/manage/business`
+                and `/app/manage/business` mount the Commercial Truth body directly,
+                with its own header, exactly as `/commercial-truth` does. This
+                embed survives only for the zero-base frame harness and its tests;
+                the header stays suppressed because this shell supplies one. */}
             <div style={{ marginTop: 16 }} data-commercial-truth-editor="">
               <CommercialTruthScreen businessId={businessId} showHeader={false} />
             </div>

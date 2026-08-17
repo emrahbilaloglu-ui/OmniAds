@@ -12,6 +12,7 @@ import {
 } from "@/app/(dashboard)/platforms/meta/copies/page-support";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import { CopyDetailDrawerExact } from "@/components/creatives/CopyDetailDrawerExact";
 import {
   buildCopyDetailDrawerExactViewModel,
@@ -356,7 +357,7 @@ export default function CopiesPage({
         <CreativeStudioExact
           activeTab="copies"
           copies={model}
-          counts={{ copies: state === "ready" || state === "empty" ? rows.length : null }}
+          counts={buildCreativeStudioTabCounts({})}
           onExport={rows.length > 0 ? () => exportCopiesCsv(rows, accountCurrency) : undefined}
           tabHrefs={tabHrefs}
         />

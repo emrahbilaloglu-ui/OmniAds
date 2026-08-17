@@ -299,7 +299,13 @@ function TabCount({
 }) {
   if (count === 0 || count === undefined) return null;
   return (
-    <span className={active ? styles.tabCountActive : styles.tabCount}>
+    <span
+      // A number is part of what the tab says and is announced with it. The em
+      // dash is not: it means "this screen was not served the count", and
+      // "Inbox, dash" is noise rather than information.
+      aria-hidden={count === null ? "true" : undefined}
+      className={active ? styles.tabCountActive : styles.tabCount}
+    >
       {count === null ? EM_DASH : count}
     </span>
   );

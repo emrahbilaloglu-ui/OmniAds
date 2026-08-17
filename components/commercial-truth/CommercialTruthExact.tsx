@@ -104,6 +104,15 @@ export function CommercialTruthExact({
   }, [model.currencyCode]);
 
   const targetLabel = scenario.targetRoas === null ? TRUTH_DASH : scenario.targetRoas.toFixed(2);
+  // The reference composes this as `'Reset ROAS to target ' + T.toFixed(2) + '×'`
+  // (script line 4297). Substituting the em dash for an unserved T left a
+  // dangling "target —×": a multiplication sign attached to nothing. The
+  // caption drops the value and its sign instead — the control still does the
+  // one thing it does, which is clear the column edits.
+  const scenarioResetLabel =
+    scenario.targetRoas === null
+      ? "Reset ROAS to target"
+      : `Reset ROAS to target ${targetLabel}×`;
 
   const columns: ScenarioColumn[] = spends.map((spendValue, index) => {
     const roasValue =
@@ -395,7 +404,7 @@ export function CommercialTruthExact({
             className={styles.scenarioReset}
             onClick={() => setRoasOverrides(spends.map(() => null))}
           >
-            Reset ROAS to target {targetLabel}×
+            {scenarioResetLabel}
           </button>
         </div>
         <div className={styles.tableScroll}>

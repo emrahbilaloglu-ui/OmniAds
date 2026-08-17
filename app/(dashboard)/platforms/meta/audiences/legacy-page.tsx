@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import type {
   CreativeStudioAudiencesModel,
   CreativeStudioBreakdown,
@@ -111,7 +112,7 @@ export default function MetaAudiencesPage({
       <CreativeStudioExact
         activeTab="audiences"
         audiences={model}
-        counts={{}}
+        counts={buildCreativeStudioTabCounts({})}
         tabHrefs={tabHrefs}
       />
     </main>

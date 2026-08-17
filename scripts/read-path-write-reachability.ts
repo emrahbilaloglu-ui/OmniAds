@@ -208,6 +208,14 @@ export const REQUEST_PATH_WRITE_EXCEPTIONS: ReadonlyArray<RequestPathWriteExcept
       "The Klaviyo twin of the Google credential refresh, and registered for integration_credentials ONLY for the same reason. Klaviyo access tokens expire in about an hour and Klaviyo ROTATES the refresh token on every grant, so a refresh that is not persisted strands the connection at the next call with an invalid_grant. It is reached from the ingest lane and from the OAuth callback's first import, never from a page read: the Klaviyo screen reads the warehouse, not the provider.",
   },
 
+  {
+    writeSite: "lib/google-analytics-property-currency.ts#persistGa4PropertyCurrency",
+    via: "lib/google-analytics-property-currency.ts#resolveAndPersistGa4PropertyCurrency",
+    tables: ["integration_credentials"],
+    reason:
+      "The second sanctioned read-path write, and the narrowest one: it sets integration_credentials.metadata.ga4PropertyCurrency and nothing else, only when that key is absent. The code is written at property selection, so every workspace that chose its property before that write existed had none — and a selection is not an act users repeat, which made the unit permanently unknown and every GA4 revenue figure a dash. Registered for integration_credentials ONLY: it must never reach provider_connections, because it cannot change a connection's identity, its selection or its credential, and it carries the selection route's connection-generation compare-and-set so a reconnect landing inside its Admin round trip loses the write instead of stamping the old principal's currency onto the new connection. Every failure path returns null and the read still answers.",
+  },
+
   // ── OAuth callbacks: connect/reconnect, GET only because of the redirect ───
   {
     writeSite: "lib/integrations.ts#upsertIntegration",

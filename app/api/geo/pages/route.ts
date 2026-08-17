@@ -42,9 +42,13 @@ export async function GET(request: NextRequest) {
     ({ accessToken, propertyId } = await getGA4TokenAndProperty(businessId));
   } catch (err) {
     if (err instanceof GA4AuthError) {
+      // `action` names the one step that resolves this, and the screen decides
+      // between "not set up yet" and "this failed" from it. Dropping it — as
+      // this route did — made a 422 "no property selected" arrive as a 401
+      // crash with a Retry button that can never fix it.
       return NextResponse.json(
-        { error: err.code, message: err.message },
-        { status: err.code === "integration_not_found" ? 404 : 401 }
+        { error: err.code, message: err.message, action: err.action },
+        { status: err.status }
       );
     }
     throw err;

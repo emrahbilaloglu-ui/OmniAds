@@ -5150,3 +5150,186 @@ the evidence that they are now not.
   which is the missing write itself.
 
 ---
+
+## Running-app walk (2026-08-17)
+
+Five defects found by opening the running application against the reference,
+rather than by reading it. Every one of them was invisible to `tsc`, to ESLint,
+to the whole Vitest suite and to the production build, because each is about
+what the browser actually renders. They are numbered `E4-F1`–`E4-F5`.
+
+### E4-F1 · HIGH · WRONG — GA4 revenue was permanently em-dashed on every workspace that already had a property
+
+- **Was it real:** yes, and on every existing customer. `ga4PropertyCurrency` is
+  written in exactly one place — `app/api/google-analytics/select-property/route.ts:317`,
+  from the Admin API's `Property.currencyCode` — and read in one,
+  `lib/google-analytics-reporting.ts`. There was no backfill and no lazy fetch,
+  so a workspace that chose its property before that write existed had
+  `ga4PropertyId` and no currency, forever: selecting a property is not an act
+  users repeat. Read-only against production, the whole GA4 population:
+
+  ```
+  name           | status       | property             | has_currency
+  Bilsem Zeka    | disconnected |                      | f
+  BskTR          | connected    | properties/497333531 | f
+  Grandmix       | connected    |                      | f
+  Halıcızade     | connected    | properties/295018363 | f
+  IwaStore       | disconnected |                      | f
+  Silveristic    | disconnected |                      | f
+  TheSwaf        | disconnected |                      | f
+  Tiles Workshop | connected    | properties/501951775 | f
+  ```
+
+  Three workspaces with a selected property, zero with a currency. In the
+  browser the Insights → Analytics Revenue KPI rendered `—` while its delta still
+  read `+52.4%`: a percentage change of a number the screen would not name. The
+  screen had gone from a possibly-wrong `$` to a permanently blank value.
+- **Change:** the currency is now resolved rather than only stored.
+  `resolveGa4AnalyticsContext` (`lib/google-analytics-reporting.ts`) serves the
+  stored code when there is one, and otherwise calls
+  `backfillGa4PropertyCurrency` (`lib/google-analytics-property-currency.ts`),
+  which reuses `fetchGA4PropertyMetadata` — the same Admin `properties/{id}` GET
+  the selection route uses — and persists the result beside
+  `ga4PropertyTimeZone`. Exactly once: the write means later reads find it
+  stored, and an in-process in-flight join means the five endpoints one Analytics
+  render fans out to make ONE Admin call between them, not five. A property whose
+  Admin read fails is left alone for 15 minutes rather than re-asked on every
+  request.
+- **Why it is safe on a read path:** `lib/google-analytics-reporting.ts` is a
+  guarded read-path module (`lib/get-read-path-module-guard.test.ts`) and must
+  not reach `upsertIntegration` or any unregistered guarded-table write. It does
+  neither. The new writer sets ONE metadata key, only when that key is absent or
+  unusable, writes `integration_credentials` and nothing else, and carries the
+  selection route's compare-and-set: the `connection_generation:status` token is
+  taken from the integration row that produced the credential, captured before
+  the credential is resolved, and re-compared under `FOR UPDATE OF connection`
+  along with a re-check that the selected property has not moved. A reconnect
+  landing inside the Admin round trip therefore loses this write rather than
+  stamping the previous principal's currency onto the new connection. The edge is
+  registered in `REQUEST_PATH_WRITE_EXCEPTIONS`
+  (`scripts/read-path-write-reachability.ts`) for `integration_credentials`
+  alone. Every failure path — Admin refusal, compare-and-set refusal, dead
+  database — resolves `null` and the report still answers with the em dash,
+  exactly as before. No currency is ever substituted for a real workspace; the
+  only hardcoded `"USD"` remains the demo workspace's own declaration.
+- **Proof:** `lib/google-analytics-reporting.test.ts`, 12 tests. A missing
+  currency triggers exactly one fetch, persists `{"ga4PropertyCurrency":"TRY"}`
+  and serves `TRY`; a stored currency triggers none; three concurrent resolutions
+  make one Admin call and one write; a failed Admin call resolves `null`, writes
+  nothing, does not throw, and is not retried on the next two reads; a failed
+  persist still answers the read; a connection whose generation moved and a
+  selection that moved are both refused; and `requireProperty: false` — the
+  selection route resolving a credential in order to choose a property — does not
+  backfill at all. `lib/get-read-path-module-guard.test.ts` (62) and
+  `lib/get-route-side-effect-guard.test.ts` both stay green, which is what proves
+  the write is registered rather than smuggled.
+
+### E4-F2 · HIGH · WRONG — A setup step was presented as a crash, with a remedy that could not work
+
+- **Was it real:** yes, on Grandmix — GA4 connected, no property selected, which
+  the table above confirms. `lib/google-analytics-reporting.ts` throws
+  `GA4AuthError("no_property_selected", …, 422, "select_property")`. That error
+  has always carried the one step that resolves it. Both screens threw it away:
+  `InsightsAnalyticsScreen` rendered every error through `ErrorState`, whose
+  title is "Something went wrong" and whose only control is Retry, and
+  `InsightsGeoScreen` did not even keep the error code, constructing a bare
+  `Error` from the message alone. `/api/geo/pages` and
+  `/api/geo/traffic-sources` compounded it by dropping `action` from the payload
+  and rewriting the status: `err.code === "integration_not_found" ? 404 : 401`
+  turned a 422 configuration state into a 401.
+- **Change:** a configuration state now renders as one.
+  `components/states/ga4-setup-state.ts` maps `connect_ga4`, `select_property`
+  and `reconnect_ga4` onto the `IntegrationEmptyState` both screens already use
+  for "GA4 is not connected" — same visual language, and its control goes to
+  Integrations, where the fix lives. `retry_later` is deliberately not mapped: it
+  is the one action a Retry genuinely resolves, so it keeps the error card. The
+  action is read from the `action` field and, failing that, from the error code,
+  so a route that has not been taught to forward it is still read correctly.
+  The two GEO routes now forward `action` and their error's own status, and
+  `readGeo` keeps both on the thrown error. The design draws no error state on
+  these screens; nothing new was invented for one.
+- **Proof:** `components/states/ga4-setup-state.test.ts` (11) pins the mapping,
+  the code fallback, and that a retryable failure stays out of the setup state.
+  `components/analytics/insights-analytics-setup-state.test.tsx` (6) renders both
+  screens against a real 422 `no_property_selected` response: "Something went
+  wrong" is absent, there is no Retry, the title reads "Select a GA4 property to
+  unlock Analytics" / "…AI Visibility", the control is "Open Integrations", the
+  server's own sentence survives, and a genuine 502 still gets the error card and
+  its Retry.
+
+### E4-F3 · MEDIUM · WRONG — Creative Studio's tab count chip followed the active tab
+
+- **Was it real:** yes, twice over. The reference (`Adsecute Dashboard v2.dc.html`
+  script line 3379) builds the row from
+  `[['assets','Assets',8], ['copies','Copies',0], ['landers','Landing Pages',0],
+  ['inbox','Inbox',5], ['audiences','Audiences',0]]` with `count: d[2] || ''`, so
+  the count is a property of the TAB and a zero draws no chip at all. Each of the
+  five Studio routes passed only its own tab's number
+  (`counts={{ assets: … }}`, `counts={{ copies: … }}`, `counts={{ inbox: null }}`,
+  `counts={{}}`), so the chip appeared to move: `/platforms/meta/creatives` read
+  "Assets —, Copies, Landing Pages, Inbox, Audiences" and
+  `/platforms/meta/copies` read "Assets, Copies —, Landing Pages, Inbox,
+  Audiences". Both divergences are visible in that one line — the count is not
+  per-tab, and Copies, which the reference gives no chip, had one.
+- **Change:** `components/creatives/creative-studio-tab-counts.ts` builds the
+  row's counts, and all five routes use it. It can only express the two tabs the
+  reference chips — Assets (how much is here) and Inbox (how much is waiting) —
+  so Copies, Landing Pages and Audiences carry no chip on any route, as the
+  reference draws them. Assets is the creatives served for the current window
+  (`assetsModel.syncedCount`, already `null` while loading or on error); Inbox is
+  the scoped decision items awaiting triage, which is all of them, because that
+  surface serves no workflow status, owner or due date and therefore assigns no
+  card to a column. Neither count is claimed on a route that was not served it:
+  the Assets population is `groupBy: "creative"` and the Landing Pages page reads
+  `groupBy: "ad"`, and the Inbox briefing is a different query again, so stating
+  either number on the other's route would be inventing agreement between two
+  different queries. An unserved count renders the em dash with the chip's
+  geometry intact, and that em dash is `aria-hidden`: a number is part of what
+  the tab says, a dash is not.
+- **Proof:** `components/creatives/creative-studio-tab-counts.test.tsx` (5). The
+  builder can only name `assets` and `inbox`; an unserved count em-dashes in
+  place instead of moving the chip to the active pill; the chip set is
+  byte-identical with `activeTab="assets"` and `activeTab="audiences"`; a served
+  zero draws no chip; and served numbers render.
+
+### E4-F4 · LOW · WRONG — Two disabled Decision Center buttons had no accessible name
+
+- **Was it real:** yes. On `/platforms/meta` the row action
+  (`MetaDecisionCenterExact_primaryAction__*`) and the inspector action
+  (`MetaDecisionCenterExact_inspectorPrimary__*`) render `display(…)` of an
+  unserved label, which is the em dash, with `disabled` and no `title` or
+  `aria-label`. Correctly inert, and keeping the design's geometry is right, but
+  a screen reader announces an unnamed dimmed button with nothing to say why.
+- **Change:** `unservedActionName` gives a button whose whole rendered label is
+  the em dash an `aria-label` that states the reason — "No action available: this
+  decision was served without one" / "…this creative was served without one" /
+  "…the inspector has no selection to act on". A served label keeps its own text
+  as its accessible name, because the helper returns `undefined` for anything
+  that is not the dash. Nothing visual changes.
+- **Proof:** `components/meta/decision-center/MetaDecisionCenterExact.test.tsx`,
+  3 new tests: sweeping every rendered `<button>` for one whose text is `—` with
+  neither `aria-label` nor `title` returns an empty list in the structure lane
+  and in the creatives lane; both named buttons are still `disabled` and still
+  render `—`; and a fully served view model adds no `aria-label` at all.
+
+### E4-F5 · LOW · WRONG — Two composed captions read wrong when the value behind them was one, or was missing
+
+- **Was it real:** yes, both.
+  - Team's "Actions · 28d" cell built `${member.action_count} writes`
+    (`components/team/team-exact-adapter.ts:259`), so a member with exactly one
+    write read "1 writes". The count is a real English quantity — the adapter's
+    own comment says a zero is a real `0 writes` — not a template slot.
+  - Commercial Truth's scenario reset button composed the reference's
+    `'Reset ROAS to target ' + T.toFixed(2) + '×'` (design line 4297) with the em
+    dash substituted for an unserved target, producing "Reset ROAS to target —×":
+    a multiplication sign attached to nothing.
+- **Change:** the Team cell pluralises on the count. The Commercial Truth caption
+  is composed rather than interpolated: with no target served it reads "Reset
+  ROAS to target" and drops the value and its sign together, which still names
+  what the control does — clear the per-column edits.
+- **Proof:** `components/team/team-exact-adapter.test.ts` — a member with
+  `action_count: 1` renders "1 write", alongside the existing "46 writes" and
+  "0 writes" cases. `components/commercial-truth/CommercialTruthExact.test.tsx` —
+  a model built with `targetPack: null` renders "Reset ROAS to target" and
+  contains neither "target —×" nor "—×" anywhere, while the served model still
+  renders "Reset ROAS to target 3.80×".

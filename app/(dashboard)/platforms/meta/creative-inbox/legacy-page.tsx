@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { buildCreativeStudioTabHrefs } from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import type {
   CreativeStudioInboxColumn,
   CreativeStudioInboxModel,
@@ -273,7 +274,12 @@ export default function MetaCreativeInboxPage({
     <div data-inbox-state={state} data-testid="creative-inbox-studio-page">
       <CreativeStudioExact
         activeTab="inbox"
-        counts={{ inbox: null }}
+        // Every scoped card is awaiting triage: this surface serves no workflow
+        // status, owner or due date, so no card is in a column yet. The count is
+        // the number of scoped decision items, and only once they are served.
+        counts={buildCreativeStudioTabCounts({
+          inbox: state === "ready" || state === "empty" ? scoped.cards.length : null,
+        })}
         inbox={model}
         tabHrefs={tabHrefs}
       />

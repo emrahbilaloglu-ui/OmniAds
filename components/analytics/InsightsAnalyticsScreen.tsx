@@ -18,6 +18,12 @@ import type { AnalyticsTabId } from "@/components/analytics/insights-analytics-e
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import {
+  formatGa4ErrorMessage,
+  resolveGa4SetupState,
+  type Ga4ActionableError,
+  type Ga4ErrorAction,
+} from "@/components/states/ga4-setup-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { getPresetDates } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
@@ -34,7 +40,7 @@ import {
 interface AnalyticsApiErrorPayload {
   error?: string;
   message?: string;
-  action?: "connect_ga4" | "select_property" | "reconnect_ga4" | "retry_later";
+  action?: Ga4ErrorAction;
   reconnectRequired?: boolean;
 }
 
@@ -43,34 +49,15 @@ function buildAnalyticsRequestError(
   fallbackMessage: string,
 ) {
   const message = payload.message ?? fallbackMessage;
-  const error = new Error(message) as Error & {
-    code?: string;
-    action?: AnalyticsApiErrorPayload["action"];
-    reconnectRequired?: boolean;
-  };
+  const error = new Error(message) as Ga4ActionableError;
   error.code = payload.error;
   error.action = payload.action;
   error.reconnectRequired = payload.reconnectRequired;
   return error;
 }
 
-export function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof Error)) return fallback;
-  const typed = error as Error & { action?: AnalyticsApiErrorPayload["action"] };
-  if (typed.action === "connect_ga4") {
-    return `${typed.message} Connect GA4 in Integrations to continue.`;
-  }
-  if (typed.action === "select_property") {
-    return `${typed.message} Select a GA4 property in Integrations to continue.`;
-  }
-  if (typed.action === "reconnect_ga4") {
-    return `${typed.message} Reconnect GA4 in Integrations.`;
-  }
-  if (typed.action === "retry_later") {
-    return `${typed.message} The page stopped retrying automatically to avoid consuming more GA4 quota.`;
-  }
-  return typed.message || fallback;
-}
+/** Kept as the screen's own name for the shared composer. */
+export const formatAnalyticsErrorMessage = formatGa4ErrorMessage;
 
 const analyticsQueryOptions = {
   retry: false,
@@ -275,11 +262,26 @@ export function InsightsAnalyticsScreen({
     cohorts: cohortsQuery.data ?? null,
   });
 
+  // A GA4 property that was never selected is a setup step, not a crash, and
+  // Retry can never resolve it. It gets the same empty state the unconnected
+  // case gets, with the control that goes where the fix lives.
+  const setupState = resolveGa4SetupState(activeError, {
+    surfaceLabel: "Analytics",
+    fallbackMessage: "Failed to load analytics data.",
+  });
+
   return (
     <>
-      {activeError ? (
+      {setupState ? (
+        <IntegrationEmptyState
+          providerLabel="GA4"
+          status={setupState.status}
+          title={setupState.title}
+          description={setupState.description}
+        />
+      ) : activeError ? (
         <ErrorState
-          description={formatAnalyticsErrorMessage(
+          description={formatGa4ErrorMessage(
             activeError,
             "Failed to load analytics data.",
           )}

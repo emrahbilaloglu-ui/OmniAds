@@ -120,6 +120,32 @@ describe("CommercialTruthExact", () => {
     expect(html).toContain("Reset ROAS to target 3.80×");
   });
 
+  it("drops the value and its sign when no target is served", () => {
+    // "Reset ROAS to target —×" — a multiplication sign attached to nothing —
+    // is what substituting the em dash into the reference's caption produced.
+    const unservedTarget = buildCommercialTruthExactModel({
+      business: { name: "Grandmix", currency: "USD", timezone: "Europe/Istanbul" },
+      targetPack: null,
+      costModel: null,
+      window: { spend: null, revenue: null },
+      campaigns: [],
+      history: [],
+      pack: { canEdit: false, saving: false, dirty: false, error: null, lastUpdatedActor: null },
+    });
+    const html = renderToStaticMarkup(
+      React.createElement(CommercialTruthExact, {
+        model: unservedTarget,
+        onFieldChange: () => {},
+        onSave: () => {},
+        onDiscard: () => {},
+      }),
+    );
+
+    expect(html).toContain("Reset ROAS to target");
+    expect(html).not.toContain("target —×");
+    expect(html).not.toContain("—×");
+  });
+
   it("renders the seven-column campaign table and the blended tfoot", () => {
     const html = render();
     for (const header of [

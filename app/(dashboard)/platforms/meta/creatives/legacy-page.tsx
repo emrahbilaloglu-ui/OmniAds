@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import type {
   CreativeStudioAssetRow,
   CreativeStudioAssetsModel,
@@ -574,7 +575,7 @@ export default function MetaCreativeStudioPage({
         <CreativeStudioExact
           activeTab="assets"
           tabHrefs={tabHrefs}
-          counts={{ assets: assetsModel.syncedCount }}
+          counts={buildCreativeStudioTabCounts({ assets: assetsModel.syncedCount })}
           onExport={handleCsvExport}
           onShare={openShareModal}
           assets={assetsModel}

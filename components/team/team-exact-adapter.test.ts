@@ -88,6 +88,12 @@ describe("buildTeamExactModel", () => {
     expect(model.members[1].actions).toBe("0 writes");
   });
 
+  it("says '1 write', not '1 writes'", () => {
+    const single = input();
+    single.members[1]!.action_count = 1;
+    expect(buildTeamExactModel(single).members[1].actions).toBe("1 write");
+  });
+
   it("dashes the action count only when the ledger itself could not be read", () => {
     // The third seeded member carries no `action_count` at all, which is what
     // `/api/team/members` serves when `getBusinessMemberActionCounts` is null.

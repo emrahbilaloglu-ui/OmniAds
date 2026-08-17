@@ -4,6 +4,8 @@ import {
   normalizeCurrencyCode,
   refreshGA4AccessToken,
 } from "@/lib/google-analytics-accounts";
+import { backfillGa4PropertyCurrency } from "@/lib/google-analytics-property-currency";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   buildGoogleRequestSignature,
   getGoogleRequestAuditContext,
@@ -92,10 +94,14 @@ export interface GA4ResolvedAnalyticsContext {
   propertyName: string | null;
   propertyResourceName: string | null;
   /**
-   * ISO 4217 code of the property, stored at selection from the Admin API's
-   * `Property.currencyCode`. Every GA4 money metric is quoted in it. `null` for
-   * a property selected before it was persisted, or one whose Admin read failed
-   * — callers serve the null through and the surfaces render the missing value.
+   * ISO 4217 code of the property, from the Admin API's `Property.currencyCode`.
+   * Every GA4 money metric is quoted in it.
+   *
+   * Written at selection, and — for the properties selected before that write
+   * existed — filled in on the first read that needs it and persisted, so the
+   * fetch happens once rather than once per request. `null` only when the Admin
+   * read itself could not establish one; callers serve that null through
+   * untouched and the surfaces render the missing value rather than dollars.
    */
   propertyCurrency: string | null;
 }
@@ -309,7 +315,13 @@ export async function resolveGa4AnalyticsContext(
     typeof metadata.ga4PropertyName === "string"
       ? metadata.ga4PropertyName
       : "";
-  const propertyCurrency = normalizeCurrencyCode(metadata.ga4PropertyCurrency);
+  const storedPropertyCurrency = normalizeCurrencyCode(metadata.ga4PropertyCurrency);
+
+  // Captured from the row that also produced the credential below, strictly
+  // before that credential is resolved — the ordering the selection route
+  // documents, and the reason a reconnect landing inside the Admin round trip
+  // is a refusal rather than a silent overwrite.
+  const connectionGeneration = connectionGenerationTokenFromIntegration(integration);
 
   if (requireProperty && !propertyId) {
     throw new GA4AuthError(
@@ -368,6 +380,24 @@ export async function resolveGa4AnalyticsContext(
     );
   }
 
+  // The currency is stored at selection, so every property selected before that
+  // write existed has none — and a selection is not an act users repeat, which
+  // made "unknown" permanent and every GA4 revenue figure a dash. Fill it from
+  // the same Admin read the selection uses, once, and persist it.
+  //
+  // Only on a read that needs the property: `requireProperty: false` is the
+  // selection route resolving a credential in order to CHOOSE a property, and it
+  // does its own metadata read immediately afterwards.
+  let propertyCurrency = storedPropertyCurrency;
+  if (requireProperty && propertyResourceName && !propertyCurrency) {
+    propertyCurrency = await backfillGa4PropertyCurrency({
+      businessId,
+      propertyResourceName,
+      accessToken,
+      expectedConnectionGeneration: connectionGeneration,
+    });
+  }
+
   return {
     businessId,
     integrationId: integration.id,
@@ -390,9 +420,10 @@ export async function getGA4TokenAndProperty(
   propertyId: string;
   propertyName: string;
   /**
-   * The property's ISO 4217 code, or `null` when it was never stored. Callers
-   * that serve money must pass it through untouched: `null` means the unit is
-   * unknown, which renders as the missing value, not as dollars.
+   * The property's ISO 4217 code, or `null` when the Admin API could not
+   * establish one. Callers that serve money must pass it through untouched:
+   * `null` means the unit is unknown, which renders as the missing value, not
+   * as dollars.
    */
   currencyCode: string | null;
 }> {

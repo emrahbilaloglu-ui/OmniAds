@@ -397,6 +397,62 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
     expect(document.querySelector("[data-meta-exact-inspector]")).toBeTruthy();
   });
 
+  it("names the inert action buttons whose whole label is the em dash", () => {
+    // The geometry is right — the button stays, dimmed and inert — but its
+    // rendered label is one dash, so it announced as an unnamed dimmed button.
+    render(<MetaDecisionCenterExact viewModel={{ actionRows: [{ id: "unserved" }] }} />);
+
+    const unnamed = Array.from(document.querySelectorAll("button")).filter(
+      (button) =>
+        button.textContent?.trim() === "—" &&
+        !button.getAttribute("aria-label") &&
+        !button.getAttribute("title"),
+    );
+    expect(unnamed).toEqual([]);
+
+    const rowAction = screen.getByRole("button", {
+      name: "No action available: this decision was served without one",
+    });
+    expect(rowAction).toBeDisabled();
+    expect(rowAction.textContent).toBe("—");
+
+    const inspectorAction = screen.getByRole("button", {
+      name: "No action available: the inspector has no selection to act on",
+    });
+    expect(inspectorAction).toBeDisabled();
+    expect(inspectorAction.textContent).toBe("—");
+  });
+
+  it("names the creative lane's inert action button too", () => {
+    render(
+      <MetaDecisionCenterExact
+        defaultScope="creatives"
+        viewModel={{ creativeDecisions: [{ id: "unserved" }] }}
+      />,
+    );
+
+    const unnamed = Array.from(document.querySelectorAll("button")).filter(
+      (button) =>
+        button.textContent?.trim() === "—" &&
+        !button.getAttribute("aria-label") &&
+        !button.getAttribute("title"),
+    );
+    expect(unnamed).toEqual([]);
+    expect(
+      screen.getByRole("button", {
+        name: "No action available: this creative was served without one",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("leaves a served action label as its own accessible name", () => {
+    renderExact();
+    const named = Array.from(document.querySelectorAll("button")).filter((button) =>
+      button.getAttribute("aria-label")?.startsWith("No action available"),
+    );
+    expect(named).toEqual([]);
+  });
+
   it("shows Resume only from the explicit visual flag and keeps it disabled without authority", () => {
     const onResume = vi.fn();
     const viewModel = exactViewModel({

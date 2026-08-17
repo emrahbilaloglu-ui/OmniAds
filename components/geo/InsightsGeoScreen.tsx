@@ -19,6 +19,12 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { getPresetDates } from "@/components/date-range/DateRangePicker";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import {
+  formatGa4ErrorMessage,
+  resolveGa4SetupState,
+  type Ga4ActionableError,
+  type Ga4ErrorAction,
+} from "@/components/states/ga4-setup-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
@@ -44,10 +50,16 @@ function windowDaysBetween(start: string, end: string): number | null {
 async function readGeo<T>(url: string, fallbackMessage: string): Promise<T> {
   const response = await fetch(url);
   const payload = (await response.json().catch(() => null)) as
-    | { message?: string; error?: string }
+    | { message?: string; error?: string; action?: Ga4ErrorAction }
     | null;
   if (!response.ok) {
-    throw new Error(payload?.message ?? fallbackMessage);
+    // The code and the action were both dropped here, so a workspace with GA4
+    // connected and no property selected got "Something went wrong" and a Retry
+    // that could never resolve it. They ride along now; the screen decides.
+    const error = new Error(payload?.message ?? fallbackMessage) as Ga4ActionableError;
+    error.code = payload?.error;
+    error.action = payload?.action;
+    throw error;
   }
   return payload as T;
 }
@@ -212,15 +224,26 @@ export function InsightsGeoScreen({
     opportunities: opportunitiesQuery.data?.opportunities ?? null,
   });
 
+  const setupState = resolveGa4SetupState(activeError, {
+    surfaceLabel: "AI Visibility",
+    fallbackMessage: "Failed to load AI Visibility data.",
+  });
+
   return (
     <>
-      {activeError ? (
+      {setupState ? (
+        <IntegrationEmptyState
+          providerLabel="GA4"
+          status={setupState.status}
+          title={setupState.title}
+          description={setupState.description}
+        />
+      ) : activeError ? (
         <ErrorState
-          description={
-            activeError instanceof Error
-              ? activeError.message
-              : "Failed to load AI Visibility data."
-          }
+          description={formatGa4ErrorMessage(
+            activeError,
+            "Failed to load AI Visibility data.",
+          )}
           onRetry={() => {
             void overviewQuery.refetch();
             if (activeTab === "sources") void sourcesQuery.refetch();

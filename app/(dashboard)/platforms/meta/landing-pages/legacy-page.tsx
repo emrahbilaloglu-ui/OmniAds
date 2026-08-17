@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import { buildCreativeStudioLandingModel } from "@/components/creatives/creative-studio-exact-adapters";
 import type {
   CreativeStudioDataState,
@@ -194,7 +195,7 @@ export default function LandingPagesPage({
       <main data-testid="landing-pages-studio-page" data-landing-state={dataState}>
         <CreativeStudioExact
           activeTab="landing-pages"
-          counts={{ "landing-pages": model.rows.length }}
+          counts={buildCreativeStudioTabCounts({})}
           landingPages={model}
           onExport={model.rows.length > 0 ? () => downloadCsv(query.data?.rows ?? []) : undefined}
           tabHrefs={tabHrefs}

@@ -15,7 +15,8 @@
  * "Actions · 28d" is real. `/api/team/members` aggregates the five
  * actor-stamped write ledgers (see `getBusinessMemberActionCounts`) over 28
  * days and serves `action_count` per member; a member with none is a real `0
- * writes`, and only an unreadable ledger renders the em dash.
+ * writes`, and only an unreadable ledger renders the em dash. One write is `1
+ * write` — the count is a real English quantity, not a template slot.
  */
 
 export const TEAM_DASH = "—";
@@ -256,7 +257,7 @@ export function buildTeamExactModel(input: TeamAdapterInput): TeamExactModel {
       twoFactorForeground: "#98A4BA",
       actions:
         typeof member.action_count === "number" && Number.isFinite(member.action_count)
-          ? `${member.action_count} writes`
+          ? `${member.action_count} ${member.action_count === 1 ? "write" : "writes"}`
           : TEAM_DASH,
       lastActive: formatDay(member.last_login_at ?? null),
       removable: role !== "Owner",

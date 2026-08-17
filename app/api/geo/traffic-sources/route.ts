@@ -42,9 +42,12 @@ export async function GET(request: NextRequest) {
       await getGA4TokenAndProperty(businessId));
   } catch (err) {
     if (err instanceof GA4AuthError) {
+      // Same as `/api/geo/pages`: the action is what tells the screen this is a
+      // setup step rather than a failure, and the error's own status is the
+      // truthful one (422 for an unselected property, not 401).
       return NextResponse.json(
-        { error: err.code, message: err.message },
-        { status: err.code === "integration_not_found" ? 404 : 401 }
+        { error: err.code, message: err.message, action: err.action },
+        { status: err.status }
       );
     }
     throw err;

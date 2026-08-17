@@ -263,6 +263,19 @@ function toneClass(tone: MetaDecisionCenterExactTone | null | undefined): string
   return TONE_CLASS[tone ?? "neutral"];
 }
 
+/**
+ * A name for an action button whose whole label is the em dash.
+ *
+ * Keeping the design's geometry when nothing is served is right — the button
+ * stays, dimmed and inert — but its rendered label is then a single dash, so
+ * assistive tech announces an unnamed dimmed button and nothing explains why.
+ * This says why, without changing a pixel. `undefined` for a real label, so a
+ * served action keeps its own text as its accessible name.
+ */
+function unservedActionName(label: string, subject: string): string | undefined {
+  return label === EM_DASH ? `No action available: ${subject}` : undefined;
+}
+
 function slots<T>(values: readonly T[] | null | undefined, count: number): Array<T | undefined> {
   return Array.from({ length: count }, (_, index) => values?.[index]);
 }
@@ -390,6 +403,10 @@ function ActionLane({ rows }: { rows: readonly MetaDecisionCenterExactActionRowV
             {display(row.confidence)} confidence
           </span>
           <button
+            aria-label={unservedActionName(
+              display(row.actionLabel),
+              "this decision was served without one",
+            )}
             className={`${styles.primaryAction} ${toneClass(row.actionTone)}`}
             disabled={!row.onPrimary}
             onClick={row.onPrimary}
@@ -609,6 +626,10 @@ function CreativesScope({
               <p className={styles.moneySub}>{display(row.moneySub)}</p>
             </div>
             <button
+              aria-label={unservedActionName(
+                display(row.actionLabel),
+                "this creative was served without one",
+              )}
               className={`${styles.primaryAction} ${toneClass(row.actionTone)}`}
               disabled={!row.onPrimary}
               onClick={(event) => callWithPropagationStopped(event, row.onPrimary)}
@@ -711,6 +732,10 @@ function EvidenceInspector({ model }: { model?: MetaDecisionCenterExactInspector
           </div>
         ))}
         <button
+          aria-label={unservedActionName(
+            display(model?.actionLabel),
+            "the inspector has no selection to act on",
+          )}
           className={`${styles.inspectorPrimary} ${toneClass(model?.actionTone)}`}
           disabled={!model?.onPrimary}
           onClick={model?.onPrimary}

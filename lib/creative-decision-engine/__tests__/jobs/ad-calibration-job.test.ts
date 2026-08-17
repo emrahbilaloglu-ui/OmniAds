@@ -3006,8 +3006,26 @@ async function freePort() {
   });
 }
 
+/**
+ * A shell with no locale set is enough to make this seam unrunnable, and the
+ * failure does not name itself: `pg_ctl` reports only "could not start server",
+ * and the reason is in the cluster log the harness never printed --
+ * "postmaster became multithreaded during startup", hinting at LC_ALL. On
+ * macOS an empty LC_ALL sends the postmaster's locale lookup through a
+ * thread-spawning path, and PostgreSQL refuses to run multithreaded.
+ *
+ * `initdb --no-locale` is not enough: it fixes the cluster's own collation but
+ * not the environment the postmaster then starts in. So the locale is pinned
+ * for the child processes rather than inherited, which also keeps the seam
+ * reading identical bytes on every machine.
+ */
+const POSTGRES_ENV = { ...process.env, LC_ALL: "C", LANG: "C" };
+
 function run(command: string, args: string[]) {
-  const result = spawnSync(command, args, { encoding: "utf8" });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    env: POSTGRES_ENV,
+  });
   if (result.status !== 0) {
     throw new Error(
       `${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`,

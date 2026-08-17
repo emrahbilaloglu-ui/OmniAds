@@ -90,6 +90,25 @@ export interface AudienceRow {
   cpa?: number;
   roas: number;
   conversions: number;
+  /**
+   * The user list behind this audience criterion, when it targets one.
+   * `ad_group_criterion.user_list.user_list` names the list and `user_list`
+   * serves its name and the two membership sizes. A non-list audience type —
+   * affinity, in-market, life events — carries none of these and every field
+   * below stays null; so does a row synced before the list read existed.
+   */
+  userListId?: string | null;
+  listName?: string | null;
+  /** `user_list.size_for_display`, exactly as Google served it. */
+  listSizeForDisplay?: number | null;
+  /** `user_list.size_for_search`, exactly as Google served it. */
+  listSizeForSearch?: number | null;
+  /**
+   * The size the design's single `Size` column prints, resolved from the two
+   * above by `resolveGoogleAdsUserListSize` — Display first, Search when
+   * Display is not served. Never a sum and never an estimate.
+   */
+  listSize?: number | null;
 }
 
 export interface AudiencesResponse {

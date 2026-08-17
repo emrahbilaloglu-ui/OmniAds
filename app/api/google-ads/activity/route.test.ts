@@ -33,6 +33,7 @@ const entry = {
   accountId: "4931182201",
   receiptId: "gw_01K2F4",
   detail: null,
+  actor: { id: "usr_1", name: "Emrah Bilaloglu" },
 };
 
 describe("GET /api/google-ads/activity", () => {

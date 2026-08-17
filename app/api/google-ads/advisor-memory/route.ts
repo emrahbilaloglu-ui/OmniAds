@@ -141,6 +141,13 @@ function isWritebackExecutionRequested(body: RequestBody) {
 
 async function applyBatchMutateInternal(input: {
   businessId: string;
+  /**
+   * The authorizing session's user id, read from `requireBusinessAccess` at the
+   * boundary and never from the request body. Every execution-log row this
+   * helper writes carries it, so the Plan screen's `Who` names the seat that
+   * authored the write.
+   */
+  actorUserId: string | null;
   items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
   transactionId?: string | null;
   extraMetadata?: Record<string, unknown>;
@@ -191,6 +198,7 @@ async function applyBatchMutateInternal(input: {
     });
     await logAdvisorExecutionEvent({
       businessId: input.businessId,
+      actorUserId: input.actorUserId,
       accountId: item.accountId,
       recommendationFingerprint: item.recommendationFingerprint,
       mutateActionType: item.mutateActionType,
@@ -266,6 +274,7 @@ async function applyBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.mutateActionType,
@@ -303,6 +312,7 @@ async function applyBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.mutateActionType,
@@ -350,6 +360,8 @@ async function applyBatchMutateInternal(input: {
 
 async function rollbackBatchMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   transactionId: string;
   items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
   extraMetadata?: Record<string, unknown>;
@@ -382,6 +394,7 @@ async function rollbackBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.rollbackActionType,
@@ -419,6 +432,8 @@ async function rollbackBatchMutateInternal(input: {
 
 async function applySingleMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   accountId: string;
   recommendationFingerprint: string;
   mutateActionType: NonNullable<NonNullable<RequestBody>["mutateActionType"]>;
@@ -456,6 +471,7 @@ async function applySingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.mutateActionType,
@@ -555,6 +571,7 @@ async function applySingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.mutateActionType,
@@ -568,6 +585,8 @@ async function applySingleMutateInternal(input: {
 
 async function rollbackSingleMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   accountId: string;
   recommendationFingerprint: string;
   rollbackActionType: NonNullable<NonNullable<RequestBody>["rollbackActionType"]>;
@@ -597,6 +616,7 @@ async function rollbackSingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.rollbackActionType,
@@ -617,6 +637,10 @@ export async function POST(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  // The author of every guarded write below, taken from the authorized session
+  // and nowhere else — the request body never names the actor.
+  const actorUserId = access.session?.user?.id ?? null;
 
   if (await isDemoBusiness(businessId)) {
     if (body?.action) {
@@ -674,6 +698,7 @@ export async function POST(request: NextRequest) {
         const batchItems = step.batchItems ?? [];
         const result = await applyBatchMutateInternal({
           businessId,
+          actorUserId,
           items: batchItems.map((item) => ({ ...item, accountId: body.accountId! })),
           extraMetadata: {
             clusterId: body.cluster?.clusterId,
@@ -689,6 +714,7 @@ export async function POST(request: NextRequest) {
         }
         const result = await applySingleMutateInternal({
           businessId,
+          actorUserId,
           accountId: body.accountId!,
           recommendationFingerprint: step.mutateItem.recommendationFingerprint,
           mutateActionType: step.mutateItem.mutateActionType,
@@ -766,6 +792,7 @@ export async function POST(request: NextRequest) {
 
     await logAdvisorExecutionEvent({
       businessId,
+      actorUserId,
       accountId: body.accountId,
       recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
       mutateActionType: "cluster_execute",
@@ -809,6 +836,7 @@ export async function POST(request: NextRequest) {
         const transactionId = step.transactionIds?.[0] ?? randomUUID();
         const result = await rollbackBatchMutateInternal({
           businessId,
+          actorUserId,
           transactionId,
           items: batchItems,
           extraMetadata: {
@@ -830,6 +858,7 @@ export async function POST(request: NextRequest) {
         try {
           const result = await rollbackSingleMutateInternal({
             businessId,
+            actorUserId,
             accountId: body.accountId!,
             recommendationFingerprint: step.mutateItem.recommendationFingerprint,
             rollbackActionType: step.mutateItem.rollbackActionType,
@@ -881,6 +910,7 @@ export async function POST(request: NextRequest) {
 
     await logAdvisorExecutionEvent({
       businessId,
+      actorUserId,
       accountId: body.accountId,
       recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
       mutateActionType: "cluster_rollback",
@@ -899,6 +929,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await applyBatchMutateInternal({
         businessId,
+        actorUserId,
         items: Array.isArray(body.batchItems) ? body.batchItems : [],
         transactionId: body.transactionId,
       });
@@ -916,6 +947,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await rollbackBatchMutateInternal({
       businessId,
+      actorUserId,
       transactionId,
       items,
     });
@@ -929,6 +961,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await applySingleMutateInternal({
         businessId,
+        actorUserId,
         accountId: body.accountId,
         recommendationFingerprint: body.recommendationFingerprint ?? "",
         mutateActionType: body.mutateActionType,
@@ -962,6 +995,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await rollbackSingleMutateInternal({
         businessId,
+        actorUserId,
         accountId: body.accountId,
         recommendationFingerprint: body.recommendationFingerprint ?? "",
         rollbackActionType: body.rollbackActionType,

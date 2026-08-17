@@ -3609,6 +3609,11 @@ export async function runMigrations(options?: {
           payload_json               JSONB,
           response_json              JSONB,
           error_message              TEXT,
+          -- The seat that authored the guarded write, as the authorized
+          -- session's own user id. Nullable: a write this column predates, and
+          -- any write with no session behind it, stays NULL and is never
+          -- attributed to anyone.
+          actor_user_id              TEXT,
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
         sql`CREATE TABLE IF NOT EXISTS google_ads_advisor_snapshots (
@@ -4822,8 +4827,16 @@ export async function runMigrations(options?: {
           payload_json JSONB,
           response_json JSONB,
           error_message TEXT,
+          actor_user_id TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        // Additive for every database that already has the table: the Plan
+        // screen's `Who` column reads it. Nullable and never back-filled —
+        // rows written before this ran keep the em dash instead of being
+        // attributed to a seat that may not have authored them.
+        sql`ALTER TABLE google_ads_advisor_execution_logs ADD COLUMN IF NOT EXISTS actor_user_id TEXT`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_state (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,

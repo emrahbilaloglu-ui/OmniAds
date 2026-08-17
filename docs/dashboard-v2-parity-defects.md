@@ -2407,11 +2407,42 @@ made and that this document repeated.
 | GOOGLE-ASSETS-PLAN-37 (F4) | CLOSED | (verifier) The text/image asset read was gated on `activePanel === "assets"` alone while both panels render `GoogleAssetsExact`, so the `assetGroupAudience` deep link would open the "Text & image assets" tab on two empty cards. Both panels now enable the read. |
 | GOOGLE-ASSETS-PLAN-38 (F5) | CLOSED | (verifier) The group-queue sentence wrote the numeral "1" where design line 1564 writes "one", and its subject list counted asset-group restructures that were already applied or dismissed as "queued". `googleCountWord` spells counts up to ten and `googleAssetGroupRestructureSubjects` excludes `executionStatus: "applied"`, `userAction: "dismissed"` and `currentStatus: "suppressed"`. |
 | GOOGLE-ASSETS-PLAN-39 (F6) | CLOSED | (verifier) The step tick rendered its `<polyline>` only when applied; design line 1650 renders it unconditionally with stroke `#ffffff` and toggles only the parent background. It is now unconditional, asserted on both states. |
-| GOOGLE-ASSETS-PLAN-30 | BLOCKED | Audience list size. See the contract below. |
-| GOOGLE-ASSETS-PLAN-31 | BLOCKED | The Activity `Who` column. See the contract below. |
+| GOOGLE-ASSETS-PLAN-30 | ~~BLOCKED~~ → CLOSED | Audience list size and name. The BLOCKED contract below was correct and is now built. `buildAudienceUserListLinkQuery` reads `ad_group_criterion.user_list.user_list` and `buildUserListSizeQuery` reads `user_list.name`, `.size_for_display`, `.size_for_search`; `buildGoogleAdsAudienceUserListIndex` joins them onto the criterion; `listSize`/`listName` ride the `audience_daily` projection to `/api/google-ads/audiences`; the design's `Size` prints `48k`/`1.2M` and `Audience` prints the list's real name. A non-list audience type still keeps the em dash. `lib/google-ads/audience-list-size.test.ts` pins the whole path. |
+| GOOGLE-ASSETS-PLAN-31 | ~~BLOCKED~~ → CLOSED | The Activity `Who` column. The BLOCKED contract below was correct and is now built, as `actor_user_id TEXT` (both create sites plus an idempotent `ADD COLUMN IF NOT EXISTS`), an `actorUserId` argument on `logAdvisorExecutionEvent` filled from `access.session?.user?.id` at all nine execution-log writes in `app/api/google-ads/advisor-memory/route.ts`, and `actor: { id, name } \| null` off a `LEFT JOIN users`. Rows written before the migration carry no actor and keep the em dash; nothing back-fills them. `lib/google-ads/advisor-activity-actor.test.ts` pins DDL → write → read → cell. |
 | GOOGLE-ASSETS-PLAN-32 | ~~BLOCKED~~ → CLOSED by 34 (F1) | The BLOCKED entry below was wrong on its facts and is corrected there. |
 
-**BLOCKED — GOOGLE-ASSETS-PLAN-30, audience list size.** The design's `Size`
+**CLOSED — GOOGLE-ASSETS-PLAN-30, audience list size.** The BLOCKED analysis
+below was accurate; the contract it named is now built end to end. The two
+reads are `buildAudienceUserListLinkQuery` (`FROM ad_group_criterion`, selecting
+`ad_group_criterion.user_list.user_list` where the criterion type is
+`USER_LIST`) and `buildUserListSizeQuery` (`FROM user_list`, selecting
+`user_list.id`, `.resource_name`, `.name`, `.size_for_display`,
+`.size_for_search`). They are separate named queries from `audience_core`, so a
+failure in either leaves the audience metrics standing with the list-only
+columns dashed. `buildGoogleAdsAudienceUserListIndex` joins criterion id → list
+resource name → list on Google's own keys; `getGoogleAdsAudiencesReport` puts
+`listName`, `listSize`, `listSizeForDisplay`, `listSizeForSearch` and
+`userListId` on each row; the `audience_daily` projection whitelist carries them
+(with `criterionId`, `name` and `type`, which the whitelist had also been
+dropping) through the warehouse to `/api/google-ads/audiences`.
+
+Two decisions worth stating. Google serves size **per network** and the design
+has one `Size` cell, so `resolveGoogleAdsUserListSize`
+(`lib/google-ads/audience-list-size.ts`) fixes one stated precedence — Display
+first, Search only when Display is not served — and both the reporting layer and
+the view read it from that one module. Nothing is summed or averaged; the
+rendered number is always one of the two Google returned. And an audience with
+no user list behind it — affinity, in-market, life events — reaches the screen
+with `listSize: null` and keeps the em dash; the metrics on its own row are
+never reshaped into a size.
+
+Proof: `lib/google-ads/audience-list-size.test.ts` asserts both GAQL selects,
+the join on the snake_case and camelCase row shapes, the "link with no list is
+not indexed" rule, the precedence, the `48k` / `210k` / `1.2M` notation, the
+projection whitelist keys, and the two rendered cells for a list audience and
+for an affinity audience.
+
+**The original BLOCKED entry, for the record.** The design's `Size`
 column is the audience's membership size. The only audience read in this
 product is `buildAudienceCoreQuery` (`lib/google-ads/query-builders.ts`), which
 selects `ad_group_criterion.criterion_id`, `ad_group_criterion.type`, campaign,
@@ -2431,7 +2462,45 @@ user_list.size_for_search FROM user_list`) joined to the audience criterion via
 served value the moment `AudienceRow` carries it — the same read would also
 replace the criterion id in the `Audience` column with the list's real name.
 
-**BLOCKED — GOOGLE-ASSETS-PLAN-31, the Activity `Who` column.** The design's
+**CLOSED — GOOGLE-ASSETS-PLAN-31, the Activity `Who` column.** The BLOCKED
+analysis below was accurate; the contract it named is now built, with two
+deliberate departures from its wording.
+
+`google_ads_advisor_execution_logs` gains `actor_user_id TEXT` — nullable, no
+default — at both create sites plus an idempotent
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS actor_user_id TEXT` for databases that
+already have the table. `logAdvisorExecutionEvent` takes `actorUserId`, blanks
+normalise to null, and `listAdvisorExecutionEvents` returns
+`actor: { id, name } | null` from a `LEFT JOIN users actor ON actor.id::text =
+log.actor_user_id`. `googlePlanActivityActorLabel` prints the member's name in
+the design's `Who` cell.
+
+Departure one: the contract said "the four call sites". There are **nine**
+`logAdvisorExecutionEvent` writes reachable from
+`app/api/google-ads/advisor-memory/route.ts` — three in
+`applyBatchMutateInternal`, one in `rollbackBatchMutateInternal`, two in
+`applySingleMutateInternal`, one in `rollbackSingleMutateInternal` and two in
+the POST handler for cluster execute and cluster rollback. All nine now carry
+the actor; `actorUserId` is threaded through the four internal helpers rather
+than read inside them, so the identity can only come from the boundary. It is
+read from `access.session?.user?.id`, never from the request body, and the
+route test posts a forged `actorUserId` in the body to prove the body is
+ignored.
+
+Departure two: a null actor prints the em dash and is **not** labelled
+"System guard". Null is ambiguous — it is both a pre-migration row and a write
+with no session — and one string cannot honestly name both. An actor whose user
+row is gone (`{ id, name: null }`) also prints the em dash: the write is known
+to have had an author but none can be served, and the id is not a name. The
+account id is never printed here; it names the write's target, not its author.
+
+Proof: `lib/google-ads/advisor-activity-actor.test.ts` asserts the DDL at both
+create sites plus the additive ALTER and the absence of any back-fill UPDATE,
+the insert value, the blank-string normalisation, that every one of the nine
+route log calls passes the actor, the read's join, and all three rendered
+outcomes.
+
+**The original BLOCKED entry, for the record.** The design's
 `Who` is the actor of a guarded write ("Emrah B.", "System guard").
 `google_ads_advisor_execution_logs` has columns `id, business_id, account_id,
 recommendation_fingerprint, mutate_action_type, operation, status,

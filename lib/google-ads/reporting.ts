@@ -22,6 +22,8 @@ import {
   buildAssetPerformanceCoreQuery,
   buildAssetTextDetailQuery,
   buildAudienceCoreQuery,
+  buildAudienceUserListLinkQuery,
+  buildUserListSizeQuery,
   buildCampaignSearchTermCoreQuery,
   buildCampaignBudgetQuery,
   buildCampaignCoreBasicQuery,
@@ -38,6 +40,7 @@ import {
   type GoogleAdsNamedQuery,
 } from "@/lib/google-ads/query-builders";
 import { countGoogleAdsKeywordInsights } from "@/lib/google-ads/keyword-insights";
+import { resolveGoogleAdsUserListSize } from "@/lib/google-ads/audience-list-size";
 import {
   asInteger,
   asNumber,
@@ -1606,6 +1609,65 @@ function normalizeAudienceType(raw: string | null): string {
   return raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+export interface GoogleAdsAudienceUserList {
+  id: string | null;
+  resourceName: string;
+  name: string | null;
+  sizeForDisplay: number | null;
+  sizeForSearch: number | null;
+}
+
+/**
+ * Join the two list reads onto the audience criterion.
+ *
+ * `ad_group_criterion` gives criterion id → user list resource name;
+ * `user_list` gives resource name → name and the two served sizes. Both halves
+ * are Google's own keys, so nothing here guesses: a criterion whose list the
+ * account did not return, and a list that matches no criterion, simply do not
+ * appear in the index and their rows keep the em dash.
+ *
+ * Exported so the wiring can be asserted on the exact shapes the API returns
+ * (snake_case from the gRPC-style rows, camelCase from REST).
+ */
+export function buildGoogleAdsAudienceUserListIndex(input: {
+  linkRows: Array<Record<string, unknown>>;
+  listRows: Array<Record<string, unknown>>;
+}): {
+  listByCriterionId: Map<string, GoogleAdsAudienceUserList>;
+  listByResourceName: Map<string, GoogleAdsAudienceUserList>;
+} {
+  const listByResourceName = new Map<string, GoogleAdsAudienceUserList>();
+  for (const row of input.listRows) {
+    const userList = getCompatObject(row, "user_list");
+    const resourceName = asString(getCompatValue(userList, "resource_name"));
+    if (!resourceName) continue;
+    listByResourceName.set(resourceName, {
+      id: asString(getCompatValue(userList, "id")),
+      resourceName,
+      name: asString(getCompatValue(userList, "name")),
+      sizeForDisplay: asNumber(getCompatValue(userList, "size_for_display")),
+      sizeForSearch: asNumber(getCompatValue(userList, "size_for_search")),
+    });
+  }
+
+  const listByCriterionId = new Map<string, GoogleAdsAudienceUserList>();
+  for (const row of input.linkRows) {
+    const criterion = getCompatObject(row, "ad_group_criterion");
+    const criterionId = asString(getCompatValue(criterion, "criterion_id"));
+    const resourceName = asString(
+      getCompatValue(getCompatObject(criterion, "user_list"), "user_list"),
+    );
+    if (!criterionId || !resourceName) continue;
+    const list = listByResourceName.get(resourceName);
+    // Without the list's own row there is no size and no name to serve, so the
+    // link alone is not recorded — a resource name is not an audience name.
+    if (!list) continue;
+    listByCriterionId.set(criterionId, list);
+  }
+
+  return { listByCriterionId, listByResourceName };
+}
+
 export async function getGoogleAdsAudiencesReport(
   params: BaseReportParams
 ): Promise<ReportResult<AudiencePerformanceRow & Record<string, unknown>>> {
@@ -1622,8 +1684,19 @@ export async function getGoogleAdsAudiencesReport(
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const core = await runNamedQuery(context, buildAudienceCoreQuery(startDate, endDate));
+  const [core, userListLinks, userLists] = await Promise.all([
+    runNamedQuery(context, buildAudienceCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildAudienceUserListLinkQuery()),
+    runNamedQuery(context, buildUserListSizeQuery()),
+  ]);
   mergeFailures(meta, core);
+  mergeFailures(meta, userListLinks);
+  mergeFailures(meta, userLists);
+
+  const { listByCriterionId } = buildGoogleAdsAudienceUserListIndex({
+    linkRows: userListLinks.rows,
+    listRows: userLists.rows,
+  });
 
   const rows = core.rows.map((row) => {
     const criterion = getCompatObject(row, "ad_group_criterion");
@@ -1631,12 +1704,23 @@ export async function getGoogleAdsAudiencesReport(
     const adGroup = getCompatObject(row, "ad_group");
     const metrics = getCompatObject(row, "metrics");
     const data = toMetricSet(metrics);
+    const criterionId = asString(getCompatValue(criterion, "criterion_id")) ?? "";
+    // The user list this criterion targets, when it targets one at all. A
+    // non-list audience (affinity, in-market, life events) has no entry here
+    // and every list-only field below stays null rather than borrowing a
+    // number from a different question.
+    const userList = criterionId ? listByCriterionId.get(criterionId) ?? null : null;
     return {
-      criterionId: asString(getCompatValue(criterion, "criterion_id")) ?? "",
-      audienceKey: asString(getCompatValue(criterion, "criterion_id")) ?? "",
-      name: asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
-      audienceNameBestEffort:
-        asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
+      criterionId,
+      audienceKey: criterionId,
+      name: userList?.name ?? (criterionId || "Unknown audience"),
+      audienceNameBestEffort: userList?.name ?? (criterionId || "Unknown audience"),
+      userListId: userList?.id ?? null,
+      userListResourceName: userList?.resourceName ?? null,
+      listName: userList?.name ?? null,
+      listSizeForDisplay: userList?.sizeForDisplay ?? null,
+      listSizeForSearch: userList?.sizeForSearch ?? null,
+      listSize: resolveGoogleAdsUserListSize(userList),
       type: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
       audienceType: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
       campaignId: asString(getCompatValue(campaign, "id")),

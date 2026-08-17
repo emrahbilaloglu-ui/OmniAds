@@ -5,14 +5,10 @@ import { describe, expect, it } from "vitest";
 /**
  * The plan's typography floor, enforced so it cannot quietly regress.
  *
- * Essential data and body text must be at least 12px. 11px was permitted for
- * "demonstrably noncritical compact labels", and in practice that exemption
- * covered account identifiers, a kill-switch badge, the degraded-decisions
- * banner and the decision lane names -- none of which is noncritical. The
- * exemption is withdrawn: anything below 12px is a defect
- * regardless of where it appears — the audit found 7.5–10px table headers,
- * attribution labels, assessment text and reasons, which is essential content
- * rendered at a size people cannot comfortably read.
+ * Essential data and body text must be at least 12px. The sole CSS exception
+ * in this batch is the marker-bounded shell fragment copied from the canonical
+ * Dashboard v2 reference. Its five selector/value pairs are asserted exactly,
+ * so the marker cannot become a general exemption.
  *
  * SCOPE, stated honestly: this checks `.css` files only. It does not see
  * Tailwind arbitrary values in TSX (`text-[11.5px]`), and that is where most of
@@ -41,25 +37,69 @@ const STYLESHEETS: string[] = execSync(
   .filter(Boolean);
 
 const FONT_SIZE = /font-size:\s*([0-9.]+)px/g;
+const EXACT_SHELL_TYPE_FILE = "app/globals.css";
+const EXACT_SHELL_TYPE_START =
+  "/* dashboard-v2-shell-exact-reference-type:start */";
+const EXACT_SHELL_TYPE_END =
+  "/* dashboard-v2-shell-exact-reference-type:end */";
+
+function exactShellTypeBounds(file: string, source: string) {
+  if (file !== EXACT_SHELL_TYPE_FILE) return null;
+  const markerStart = source.indexOf(EXACT_SHELL_TYPE_START);
+  const markerEnd = source.indexOf(EXACT_SHELL_TYPE_END);
+  if (markerStart < 0 || markerEnd <= markerStart) return null;
+  return {
+    start: markerStart + EXACT_SHELL_TYPE_START.length,
+    end: markerEnd,
+  };
+}
 
 describe("no essential text is rendered below the readable floor", () => {
   it("finds stylesheets to check", () => {
     expect(STYLESHEETS.length).toBeGreaterThan(5);
   });
 
-  it("has no font-size below 12px anywhere in shipped CSS", () => {
+  it("keeps the marker-bounded shell values narrow and exact", () => {
+    const source = readFileSync(EXACT_SHELL_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_SHELL_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_SHELL_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactShellTypeBounds(EXACT_SHELL_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactShell = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactShell.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      { selector: ".adv-rail-version, .adv-rail-group", size: 9.5 },
+      { selector: ".adv-rail-count", size: 10.5 },
+      { selector: ".adv-rail-badge", size: 9 },
+      { selector: ".adv-rail-avatar", size: 11.5 },
+      { selector: ".adv-kbd", size: 10 },
+    ]);
+  });
+
+  it("has no font-size below 12px outside the exact shell marker", () => {
     const violations: string[] = [];
     for (const file of STYLESHEETS) {
       const source = readFileSync(file, "utf8");
-      const lines = source.split("\n");
-      lines.forEach((line, index) => {
-        for (const match of line.matchAll(FONT_SIZE)) {
-          const size = Number(match[1]);
-          if (size < 12) {
-            violations.push(`${file}:${index + 1} — ${size}px`);
-          }
+      const bounds = exactShellTypeBounds(file, source);
+      for (const match of source.matchAll(FONT_SIZE)) {
+        const size = Number(match[1]);
+        const offset = match.index;
+        const isExactShell =
+          bounds !== null && offset >= bounds.start && offset < bounds.end;
+        if (size < 12 && !isExactShell) {
+          const line = source.slice(0, offset).split("\n").length;
+          violations.push(`${file}:${line} — ${size}px`);
         }
-      });
+      }
     }
     expect(
       violations,

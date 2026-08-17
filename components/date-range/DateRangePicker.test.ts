@@ -1,6 +1,7 @@
 import {
   DATE_RANGE_PICKER_INTERNALS,
   DEFAULT_DATE_RANGE,
+  DateRangePicker,
   DatePicker,
   dateWindowToRangeValue,
   getDerivedComparisonRange,
@@ -11,6 +12,7 @@ import {
   rangeValueToDateWindow,
   resolveRangeCalendarDateClick,
   resolveRangePresetSelection,
+  togglePreviousPeriodComparison,
   COMPARISON_PRESET_VALUES,
 } from "@/components/date-range/DateRangePicker";
 import { createElement } from "react";
@@ -185,6 +187,53 @@ describe("DateRangePicker quick-apply behavior", () => {
         includeCurrentDay: true,
       })
     ).toEqual({ window: "last_month", start: "2026-06-01", end: "2026-06-30" });
+  });
+});
+
+describe("Dashboard v2 comparison toggle", () => {
+  it("switches only between none and previous period", () => {
+    expect(
+      togglePreviousPeriodComparison({
+        ...DEFAULT_DATE_RANGE,
+        comparisonPreset: "none",
+      }).comparisonPreset,
+    ).toBe("previousPeriod");
+    expect(
+      togglePreviousPeriodComparison({
+        ...DEFAULT_DATE_RANGE,
+        comparisonPreset: "previousPeriod",
+      }).comparisonPreset,
+    ).toBe("none");
+    expect(
+      togglePreviousPeriodComparison({
+        ...DEFAULT_DATE_RANGE,
+        comparisonPreset: "previousYear",
+      }).comparisonPreset,
+    ).toBe("none");
+  });
+
+  it("keeps the canonical span keyboard-operable without changing its tag", () => {
+    const markup = renderToStaticMarkup(
+      createElement(DateRangePicker, {
+        variant: "v2",
+        value: {
+          ...DEFAULT_DATE_RANGE,
+          rangePreset: "28d",
+          comparisonPreset: "previousPeriod",
+        },
+        onChange: () => undefined,
+        testId: "shell-range",
+        label: "Date range",
+        referenceDate: "2026-08-17",
+      }),
+    );
+
+    expect(markup).toContain(
+      'title="Toggle comparison with the previous period"',
+    );
+    expect(markup).toContain('role="button"');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('tabindex="0"');
   });
 });
 

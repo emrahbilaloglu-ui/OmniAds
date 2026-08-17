@@ -10,7 +10,7 @@ import "./workspace.css";
 import { listUserBusinesses } from "@/lib/access";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { getSessionFromCookies } from "@/lib/auth";
-import { ClientShell } from "@/components/zero-base/shell/client-shell";
+import { UnifiedDashboardClientShell } from "@/components/dashboard-v2/unified-client-shell";
 import { readProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
 import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
@@ -93,14 +93,11 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   };
 
   return (
-    <ClientShell
+    <UnifiedDashboardClientShell
       envelope={envelope}
-      businessId={businessId}
-      providerScopeMode="none"
       providerCatalogs={[metaAccounts, googleAccounts]}
-      businesses={businesses.map((item) => ({ id: item.id, name: item.name }))}
     >
       {children}
-    </ClientShell>
+    </UnifiedDashboardClientShell>
   );
 }

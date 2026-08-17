@@ -128,21 +128,27 @@ describe("every Tier-0 surface reports its data age", () => {
     });
   }
 
-  it("mounts the shared bar in every frame a Tier-0 route can render through", () => {
-    // There were two frames. Overview went through the legacy one, and the bar
-    // was mounted only in the console one -- so Overview reported its data age
-    // to a bar that was not on screen. Dashboard v2 collapsed both into a single
-    // frame, which removes that failure mode by construction; the rule that
-    // survives is "every frame mounts the bar", so this counts mounts against
-    // frames rather than against the two that happened to exist.
+  it("mounts the shared freshness contract in the reference topbar", () => {
+    // Dashboard v2 has one static status pill in the canonical topbar. The
+    // active surface registry feeds that exact slot; a second refresh bar or a
+    // click handler would invent control chrome the reference does not define.
     const frame = readFileSync("components/layout/dashboard-frame.tsx", "utf8");
-    const frames = frame.match(/^(?:export )?function \w*(?:Dashboard)?Frame\(/gm) ?? [];
-    const mounts = frame.match(/<TierZeroFreshnessBar \/>/g) ?? [];
-    expect(frames.length).toBeGreaterThan(0);
-    expect(
-      mounts.length,
-      `${frames.length} frame(s) but ${mounts.length} freshness bar mount(s); a route on an unmounted frame reports its age to nothing`,
-    ).toBeGreaterThanOrEqual(frames.length);
+    const signals = readFileSync(
+      "components/layout/v2/use-shell-signals.ts",
+      "utf8",
+    );
+    const topbar = readFileSync("components/layout/v2/app-topbar.tsx", "utf8");
+    expect(frame).toContain("<AppTopbar");
+    expect(frame).not.toContain("<TierZeroFreshnessBar />");
+    expect(topbar.match(/className="adv-pill"/g)).toHaveLength(1);
+    expect(topbar).toContain("data-freshness-state={sync.freshnessState}");
+    expect(topbar).not.toContain("onClick={sync.onRefresh}");
+    expect(signals).toContain("useTierZeroFreshnessStore");
+    expect(signals).toContain("activeSurfaceForBusiness.asOf");
+    expect(signals).not.toContain("retryHandlers");
+    expect(signals).not.toContain("runRetry");
+    expect(signals).not.toContain("refetchMetaStatus");
+    expect(signals).not.toContain("refetchGoogleStatus");
   });
 });
 

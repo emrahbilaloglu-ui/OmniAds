@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { usePreferencesStore } from "@/store/preferences-store";
 import {
   DEFAULT_DATE_RANGE,
@@ -11,6 +12,30 @@ import {
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentPreferenceValue } from "@/hooks/persistent-date-range-support";
 
+export const DASHBOARD_V2_DEFAULT_DATE_RANGE: DateRangeValue = {
+  ...DEFAULT_DATE_RANGE,
+  rangePreset: "28d",
+  comparisonPreset: "previousPeriod",
+};
+
+/**
+ * Dashboard v2 exposes one binary comparison state. Old persisted custom/year
+ * presets remain "on", but are narrowed to the only comparison the shell can
+ * truthfully name and request.
+ */
+export function normalizeDashboardV2DateRange(
+  value: DateRangeValue,
+): DateRangeValue {
+  const comparisonPreset =
+    value.comparisonPreset === "none" ? "none" : "previousPeriod";
+  return {
+    ...value,
+    comparisonPreset,
+    comparisonStart: "",
+    comparisonEnd: "",
+  };
+}
+
 /**
  * Persists the standard DateRangePicker value across page navigations.
  * Used by Overview, Analytics, Geo, Meta, and similar platform pages.
@@ -21,29 +46,35 @@ export function usePersistentDateRange(): [
 ] {
   const stored = usePreferencesStore((s) => s.dashboardDateRange);
   const set = usePreferencesStore((s) => s.setDashboardDateRange);
-  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
+  const [value, setValue] = usePersistentPreferenceValue(
+    stored,
+    set,
+    DASHBOARD_V2_DEFAULT_DATE_RANGE,
+  );
+  const setNormalizedValue = useCallback(
+    (next: DateRangeValue) => setValue(normalizeDashboardV2DateRange(next)),
+    [setValue],
+  );
+  return [normalizeDashboardV2DateRange(value), setNormalizedValue];
 }
 
 /**
- * Persists the Meta dashboard date range independently from the global dashboard
- * range so compare/custom selections from other surfaces cannot leak into Meta.
+ * Dashboard v2 has one shell-owned date/comparison state. Meta and the command
+ * center use that state rather than retaining private comparison presets that
+ * can disagree with the fixed "vs previous period" control.
  */
 export function usePersistentMetaDateRange(): [
   DateRangeValue,
   (value: DateRangeValue) => void,
 ] {
-  const stored = usePreferencesStore((s) => s.metaDateRange);
-  const set = usePreferencesStore((s) => s.setMetaDateRange);
-  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
+  return usePersistentDateRange();
 }
 
 export function usePersistentCommandCenterDateRange(): [
   DateRangeValue,
   (value: DateRangeValue) => void,
 ] {
-  const stored = usePreferencesStore((s) => s.commandCenterDateRange);
-  const set = usePreferencesStore((s) => s.setCommandCenterDateRange);
-  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
+  return usePersistentDateRange();
 }
 
 /**

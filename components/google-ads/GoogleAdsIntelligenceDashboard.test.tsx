@@ -6,6 +6,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 
 const mockUseQuery = vi.fn();
 const mockUseMutation = vi.fn();
+const mockSetQueryData = vi.fn();
 const mockGetPresetDatesForReferenceDate = vi.fn();
 const mockGetTodayIsoForTimeZone = vi.fn();
 const capturedPickerProps: Array<Record<string, unknown>> = [];
@@ -13,7 +14,8 @@ const mockCanOpenGoogleAdsAdvisor = vi.fn((_input?: unknown) => false);
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => mockUseQuery(input),
-  useMutation: () => mockUseMutation(),
+  useMutation: (input: unknown) => mockUseMutation(input),
+  useQueryClient: () => ({ setQueryData: mockSetQueryData }),
 }));
 
 vi.mock("@/components/date-range/DateRangePicker", () => ({
@@ -117,6 +119,7 @@ describe("GoogleAdsIntelligenceDashboard timezone date selection", () => {
     capturedPickerProps.length = 0;
     mockUseQuery.mockReset();
     mockUseMutation.mockReset();
+    mockSetQueryData.mockReset();
     mockGetPresetDatesForReferenceDate.mockReset();
     mockGetTodayIsoForTimeZone.mockReset();
     mockCanOpenGoogleAdsAdvisor.mockReset();
@@ -167,6 +170,25 @@ describe("GoogleAdsIntelligenceDashboard timezone date selection", () => {
       }
       return baseQueryState();
     });
+  });
+
+  it("publishes the last real Advisor response for the shell count", async () => {
+    const { GoogleAdsIntelligenceDashboard } = await import(
+      "@/components/google-ads/GoogleAdsIntelligenceDashboard"
+    );
+    renderToStaticMarkup(
+      <GoogleAdsIntelligenceDashboard businessId="biz" panel="insights" />,
+    );
+
+    const mutationOptions = mockUseMutation.mock.calls[0]?.[0] as
+      { onSuccess?: (payload: unknown) => void } | undefined;
+    const payload = { recommendations: [{ id: "rec_1" }] };
+    mutationOptions?.onSuccess?.(payload);
+
+    expect(mockSetQueryData).toHaveBeenCalledWith(
+      ["google-advisor", "biz"],
+      payload,
+    );
   });
 
   it("loads the persisted advisor snapshot when an Advisor-backed route opens", async () => {

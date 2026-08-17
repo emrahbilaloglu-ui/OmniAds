@@ -6,8 +6,8 @@ import {
   isZeroBaseUiEnabledForBusiness,
   readZeroBaseRolloutConfig,
 } from "@/lib/zero-base/rollout";
-import { ClientShell } from "@/components/zero-base/shell/client-shell";
-import { resolveProviderScopeMode } from "@/lib/workspace/workspace-context";
+import { UnifiedDashboardClientShell } from "@/components/dashboard-v2/unified-client-shell";
+import { readProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
 
 /**
@@ -40,7 +40,11 @@ export default async function ClientLayout({
   // tenant that this business exists is itself a leak.
   if (result.kind !== "ok") notFound();
 
-  const businesses = await listUserBusinesses(result.context.session.user.id);
+  const [businesses, metaAccounts, googleAccounts] = await Promise.all([
+    listUserBusinesses(result.context.session.user.id),
+    readProviderScopeCatalog(businessId, "meta"),
+    readProviderScopeCatalog(businessId, "google"),
+  ]);
   const business = businesses.find((item) => item.id === businessId) ?? null;
 
   const envelope: WorkspaceContextEnvelope = {
@@ -82,12 +86,11 @@ export default async function ClientLayout({
   };
 
   return (
-    <ClientShell
+    <UnifiedDashboardClientShell
       envelope={envelope}
-      businessId={businessId}
-      providerScopeMode={resolveProviderScopeMode([])}
+      providerCatalogs={[metaAccounts, googleAccounts]}
     >
       {children}
-    </ClientShell>
+    </UnifiedDashboardClientShell>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Popover } from "radix-ui";
 
 import { useAppStore } from "@/store/app-store";
 
@@ -84,136 +84,147 @@ export function NotificationBell() {
     void query.refetch();
   }
 
-  const badge =
-    query.isLoading || !selectedBusinessId
-      ? null
-      : query.error
-        ? "?"
-        : unacknowledged && unacknowledged > 0
-          ? String(Math.min(unacknowledged, 99))
-          : null;
+  const hasUnread =
+    !query.isLoading &&
+    !query.error &&
+    Boolean(selectedBusinessId) &&
+    Boolean(unacknowledged && unacknowledged > 0);
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        data-testid="notification-bell"
-        data-notification-state={
-          !selectedBusinessId
-            ? "no_business"
-            : query.isLoading
-              ? "loading"
-              : query.error
-                ? "unreadable"
-                : "ready"
-        }
-        // No client emit here. Opening the panel is not a section-9 event, and
-        // inventing one would be dead vocabulary the database CHECK would
-        // refuse. The lifecycle events that matter -- delivered, opened,
-        // acknowledged -- are emitted server-side by the routes this component
-        // calls, because only the server knows whether the transition landed.
-        onClick={() => setOpen((current) => !current)}
-        aria-label={
-          query.error
-            ? "Notifications — count unavailable"
-            : query.isLoading
-              ? "Notifications — loading"
-              : unacknowledged
-                ? `Notifications — ${unacknowledged} unacknowledged`
-                : "Notifications"
-        }
-        className="relative grid h-7 w-7 place-items-center rounded-[6px] border border-[var(--adc-b1)] text-[var(--adc-ink3)]"
-      >
-        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-        {badge ? (
-          <span
-            data-testid="notification-badge"
-            className={`absolute -right-1 -top-1 min-w-[14px] rounded-full px-1 text-[10px] font-semibold leading-[14px] text-white ${
-              query.error ? "bg-neutral-500" : "bg-rose-600"
-            }`}
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          data-testid="notification-bell"
+          data-notification-state={
+            !selectedBusinessId
+              ? "no_business"
+              : query.isLoading
+                ? "loading"
+                : query.error
+                  ? "unreadable"
+                  : "ready"
+          }
+          // No client emit here. Opening the panel is not a section-9 event, and
+          // inventing one would be dead vocabulary the database CHECK would
+          // refuse. The lifecycle events that matter -- delivered, opened,
+          // acknowledged -- are emitted server-side by the routes this component
+          // calls, because only the server knows whether the transition landed.
+          aria-label={
+            query.error
+              ? "Notifications — count unavailable"
+              : query.isLoading
+                ? "Notifications — loading"
+                : unacknowledged
+                  ? `Notifications — ${unacknowledged} unacknowledged`
+                  : "Notifications"
+          }
+          className="adv-notification-bell"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5"
+            aria-hidden="true"
           >
-            {badge}
-          </span>
-        ) : null}
-      </button>
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+          {hasUnread ? (
+            <span
+              data-testid="notification-badge"
+              className="adv-notification-dot"
+            />
+          ) : null}
+        </button>
+      </Popover.Trigger>
 
       {open ? (
-        <div
-          data-testid="notification-panel"
-          role="dialog"
-          aria-label="Notifications"
-          className="absolute right-0 z-50 mt-1 w-[320px] rounded-lg border border-[var(--adc-b1)] bg-white p-2 shadow-lg"
-        >
-          {query.isLoading ? (
-            // No count, no list, no zero.
-            <p className="p-2 text-[12px] text-[var(--adc-ink3)]">
-              Loading — nothing to show yet
-            </p>
-          ) : query.error ? (
-            <div className="p-2 text-[12px] text-rose-700">
-              <p>Could not read notifications</p>
-              <button
-                type="button"
-                onClick={() => void query.refetch()}
-                className="mt-1 rounded border border-rose-300 px-1.5 py-0.5 text-[12px] font-medium"
-              >
-                Try again
-              </button>
-            </div>
-          ) : rows.length === 0 ? (
-            <p className="p-2 text-[12px] text-[var(--adc-ink3)]">
-              Nothing needs you right now
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {rows.map((row) => (
-                <li
-                  key={row.deliveryId}
-                  data-notification-severity={row.severity}
-                  className="rounded border border-[var(--adc-b1)] p-2"
+        <Popover.Portal>
+          <Popover.Content
+            data-testid="notification-panel"
+            role="dialog"
+            aria-label="Notifications"
+            align="end"
+            sideOffset={4}
+            className="z-50 w-[320px] rounded-lg border border-[var(--adc-b1)] bg-white p-2 shadow-lg"
+          >
+            {query.isLoading ? (
+              // No count, no list, no zero.
+              <p className="p-2 text-[12px] text-[var(--adc-ink3)]">
+                Loading — nothing to show yet
+              </p>
+            ) : query.error ? (
+              <div className="p-2 text-[12px] text-rose-700">
+                <p>Could not read notifications</p>
+                <button
+                  type="button"
+                  onClick={() => void query.refetch()}
+                  className="mt-1 rounded border border-rose-300 px-1.5 py-0.5 text-[12px] font-medium"
                 >
-                  <p className="text-[12px] font-medium text-[var(--adc-ink,#1a1c1f)]">
-                    {row.eventType}
-                  </p>
-                  <p className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
-                    {row.occurredOn}
-                  </p>
-                  <div className="mt-1 flex items-center gap-2">
-                    {row.deepLink ? (
-                      <a
-                        href={row.deepLink}
-                        onClick={() => void act(row.deliveryId, "open")}
-                        className="text-[12px] underline"
-                      >
-                        Open
-                      </a>
-                    ) : null}
-                    {/*
+                  Try again
+                </button>
+              </div>
+            ) : rows.length === 0 ? (
+              <p className="p-2 text-[12px] text-[var(--adc-ink3)]">
+                Nothing needs you right now
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {rows.map((row) => (
+                  <li
+                    key={row.deliveryId}
+                    data-notification-severity={row.severity}
+                    className="rounded border border-[var(--adc-b1)] p-2"
+                  >
+                    <p className="text-[12px] font-medium text-[var(--adc-ink,#1a1c1f)]">
+                      {row.eventType}
+                    </p>
+                    <p className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
+                      {row.occurredOn}
+                    </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      {row.deepLink ? (
+                        <a
+                          href={row.deepLink}
+                          onClick={() => void act(row.deliveryId, "open")}
+                          className="text-[12px] underline"
+                        >
+                          Open
+                        </a>
+                      ) : null}
+                      {/*
                       Acknowledging is separate from opening on purpose:
                       opening means someone looked, acknowledging means someone
                       took responsibility. Collapsing them would make every
                       glance count as ownership.
                     */}
-                    {row.state !== "acknowledged" ? (
-                      <button
-                        type="button"
-                        onClick={() => void act(row.deliveryId, "acknowledge")}
-                        className="text-[12px] underline"
-                      >
-                        Acknowledge
-                      </button>
-                    ) : (
-                      <span className="text-[12px] text-[var(--adc-ink3)]">
-                        Acknowledged
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+                      {row.state !== "acknowledged" ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void act(row.deliveryId, "acknowledge")
+                          }
+                          className="text-[12px] underline"
+                        >
+                          Acknowledge
+                        </button>
+                      ) : (
+                        <span className="text-[12px] text-[var(--adc-ink3)]">
+                          Acknowledged
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Popover.Content>
+        </Popover.Portal>
       ) : null}
-    </div>
+    </Popover.Root>
   );
 }

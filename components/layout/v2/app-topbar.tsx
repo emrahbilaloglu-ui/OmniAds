@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Building2, ChevronsUpDown, Menu, Search } from "lucide-react";
+import { ChevronsUpDown, Menu } from "lucide-react";
 import {
   DateRangePicker,
   getTodayIsoForTimeZone,
 } from "@/components/date-range/DateRangePicker";
+import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,14 +17,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
-import { OVERVIEW_COMPARISON_PRESETS } from "@/lib/comparison-preset-contract";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
-import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { getTranslations } from "@/lib/i18n";
 import { useAppStore } from "@/store/app-store";
 import { usePreferencesStore } from "@/store/preferences-store";
-import { cn } from "@/lib/utils";
-import { CommandPalette } from "./command-palette";
 import { useWorkspaceSyncState } from "./use-shell-signals";
 
 const SYNC_TONE: Record<string, "pos" | "info" | "warn" | "neutral"> = {
@@ -33,8 +30,50 @@ const SYNC_TONE: Record<string, "pos" | "info" | "warn" | "neutral"> = {
   unknown: "neutral",
 };
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
+}
+
+function BuildingIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[15px] w-[15px] shrink-0 text-[var(--adv-accent)]"
+      aria-hidden="true"
+    >
+      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18 M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2 M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2 M10 6h4 M10 10h4 M10 14h4" />
+    </svg>
+  );
+}
+
+export function scopedBusinessSwitchDestination(
+  pathname: string,
+  businessId: string,
+): string | null {
+  const scopedMatch = pathname.match(/^\/c\/[^/]+(\/.*)?$/);
+  if (!scopedMatch) return null;
+  return `/c/${encodeURIComponent(businessId)}${scopedMatch[1] ?? "/home"}`;
+}
+
+function useScopedEnvelopeBusiness(pathname: string) {
+  const workspace = useOptionalWorkspaceContext();
+  return pathname.match(/^\/c\/[^/]+(?:\/|$)/)
+    ? (workspace?.business ?? null)
+    : null;
+}
+
 function BusinessControl() {
   const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const scopedBusiness = useScopedEnvelopeBusiness(pathname);
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -44,21 +83,29 @@ function BusinessControl() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const t = getTranslations(language).layout;
 
-  const selected = businesses.find((item) => item.id === selectedBusinessId) ?? null;
-  const selectedIsDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const effectiveSelectedBusinessId =
+    scopedBusiness?.id ?? selectedBusinessId;
+  const selected =
+    scopedBusiness ??
+    businesses.find((item) => item.id === effectiveSelectedBusinessId) ??
+    null;
 
   async function handleSelect(businessId: string) {
-    if (businessId === selectedBusinessId || pendingId) return;
+    if (businessId === effectiveSelectedBusinessId || pendingId) return;
     setPendingId(businessId);
     const previous = selectedBusinessId;
-    selectBusiness(businessId);
+    const scopedDestination = scopedBusinessSwitchDestination(
+      pathname,
+      businessId,
+    );
+    if (!scopedDestination) selectBusiness(businessId);
     const response = await fetch("/api/auth/switch-business", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessId }),
     }).catch(() => null);
     if (!response?.ok) {
-      selectBusiness(previous ?? null);
+      if (!scopedDestination) selectBusiness(previous ?? null);
       logClientAuthEvent("business_switch_failed", {
         attemptedBusinessId: businessId,
         previousBusinessId: previous,
@@ -68,21 +115,28 @@ function BusinessControl() {
     }
     logClientAuthEvent("business_switch_succeeded", { activeBusinessId: businessId });
     setPendingId(null);
-    router.refresh();
+    if (scopedDestination) {
+      router.replace(scopedDestination);
+    } else {
+      router.refresh();
+    }
   }
 
-  if (!hasHydrated || authBootstrapStatus !== "ready") {
+  if (
+    !scopedBusiness &&
+    (!hasHydrated || authBootstrapStatus !== "ready")
+  ) {
     return <span className="h-9 w-[190px] shrink-0 rounded-[9px] bg-[var(--adv-fill)]" />;
   }
 
-  if (businesses.length === 0) {
+  if (businesses.length === 0 && !scopedBusiness) {
     return (
       <button
         type="button"
         className="adv-btn"
         onClick={() => router.push("/businesses/new")}
       >
-        <Building2 className="h-[15px] w-[15px] text-[var(--adv-accent)]" aria-hidden="true" />
+        <BuildingIcon />
         {t.createBusiness}
       </button>
     );
@@ -93,12 +147,9 @@ function BusinessControl() {
       <DropdownMenuTrigger asChild>
         {/* The design's business switcher runs a half-point larger than the
             other topbar controls. */}
-        <button type="button" className="adv-btn max-w-[240px] text-[13.5px]">
-          <Building2 className="h-[15px] w-[15px] shrink-0 text-[var(--adv-accent)]" aria-hidden="true" />
-          <span className="min-w-0 truncate text-[13.5px]">
-            {selected?.name ?? t.selectBusiness}
-          </span>
-          {selectedIsDemo ? <span className="adv-tag" data-tone="pos">Demo</span> : null}
+        <button type="button" className="adv-btn text-[13.5px]">
+          <BuildingIcon />
+          <span className="text-[13.5px]">{selected?.name ?? t.selectBusiness}</span>
           <ChevronsUpDown className="h-[13px] w-[13px] shrink-0 text-[var(--adv-ink-3)]" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
@@ -120,7 +171,7 @@ function BusinessControl() {
                 {business.timezone ?? "Timezone pending"} · {business.currency}
               </span>
             </span>
-            {business.id === selectedBusinessId ? (
+            {business.id === effectiveSelectedBusinessId ? (
               <span className="adv-pill-dot bg-[var(--adv-accent)]" />
             ) : null}
           </DropdownMenuItem>
@@ -155,29 +206,20 @@ export function AppTopbar({
   search?: React.ReactNode;
   notifications?: React.ReactNode;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
+  const scopedBusiness = useScopedEnvelopeBusiness(pathname);
   const [dateRange, setDateRange] = usePersistentDateRange();
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const sync = useWorkspaceSyncState();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   // Rolling presets must resolve against the workspace's own clock, not the
   // viewer's browser timezone, so "today" means the same day the data does.
   const workspaceTimeZone =
-    businesses.find((business) => business.id === selectedBusinessId)?.timezone ?? "UTC";
+    scopedBusiness?.businessTimezone ??
+    businesses.find((business) => business.id === selectedBusinessId)
+      ?.timezone ??
+    "UTC";
   const workspaceReferenceDate = getTodayIsoForTimeZone(workspaceTimeZone);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen((open) => !open);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   return (
     <>
@@ -195,11 +237,6 @@ export function AppTopbar({
 
         <span className="adv-topbar-divider hidden sm:block" />
 
-        {/* The design moved the range control out of the page and into the
-            shell, so the "offer only what this route reads" rule has to be
-            enforced here. Overview's route types CompareMode as
-            "none" | "previous_period"; offering previousYear on it would put a
-            year-over-year label on a previous-period delta. */}
         <DateRangePicker
           variant="v2"
           value={dateRange}
@@ -208,65 +245,27 @@ export function AppTopbar({
           label="Date range"
           referenceDate={workspaceReferenceDate}
           timeZoneLabel={workspaceTimeZone}
-          comparisonPresets={
-            pathname === "/overview" ? OVERVIEW_COMPARISON_PRESETS : undefined
-          }
         />
 
         <span className="flex-1" />
 
-        {/* The design's own control is the palette trigger; when the frame
-            hands down the working entity search it takes the same slot rather
-            than sitting beside a second search affordance. */}
-        {search ? (
-          <div className="adv-search-slot">{search}</div>
-        ) : (
-          <button
-            type="button"
-            className="adv-search"
-            onClick={() => setPaletteOpen(true)}
-          >
-            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-left">Jump or act…</span>
-            <span className="adv-kbd">⌘K</span>
-          </button>
-        )}
+        {search}
 
-        <span className="adv-pill" data-tone={SYNC_TONE[sync.tone]} title={sync.label}>
+        <span
+          className="adv-pill"
+          data-tone={SYNC_TONE[sync.tone]}
+          data-freshness-state={sync.freshnessState}
+        >
           <span className="adv-pill-dot" />
           <span data-topbar-secondary>{sync.label}</span>
         </span>
 
         {notifications}
 
-        <button
-          type="button"
-          className="adv-icon-btn"
-          aria-label="Sync health"
-          onClick={() => router.push("/integrations")}
-        >
-          <Bell className="h-[15px] w-[15px]" aria-hidden="true" />
-          {sync.tone === "attention" ? (
-            <span
-              className="absolute right-[7px] top-[6px] h-[7px] w-[7px] rounded-full border-[1.5px] border-white bg-[var(--adv-alert)]"
-              aria-hidden="true"
-            />
-          ) : null}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => router.push("/settings")}
-          aria-label="Account"
-          className={cn(
-            "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full",
-            "bg-[var(--adv-accent)] text-[12px] font-semibold text-white",
-          )}
-        >
-          {userName.trim().slice(0, 1).toUpperCase() || "?"}
-        </button>
+        <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9999px] bg-[var(--adv-accent)] text-[12px] font-semibold text-white">
+          {initials(userName)}
+        </span>
       </header>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </>
   );
 }

@@ -1,25 +1,20 @@
 "use client";
 
+import type { KeyboardEvent } from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ChevronsUpDown } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { logClientAuthEvent } from "@/lib/auth-diagnostics";
-import { clearAuthScopedClientState } from "@/lib/client-auth-state";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import {
+  dashboardHrefForRouteFamily,
+  normalizeDashboardPath,
+} from "@/lib/dashboard-v2/screen-registry";
 import { PLAN_LABELS, type PlanId } from "@/lib/pricing/plans";
 import { usePlan } from "@/lib/pricing/usePlan";
 import { planRank } from "@/lib/pricing/usePlanLimits";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { useAppStore } from "@/store/app-store";
+import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { cn } from "@/lib/utils";
 import {
@@ -29,7 +24,40 @@ import {
   type RailLink,
   type RailPlatform,
 } from "./nav-model";
-import { useMetaActionNowCount } from "./use-shell-signals";
+import {
+  useGoogleAdvisorCount,
+  useMetaActionNowCount,
+} from "./use-shell-signals";
+
+const REFERENCE_RAIL_ICON_PATHS: Record<string, string> = {
+  overview: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
+  pulse: "M22 12h-4l-3 9L9 3l-3 9H2",
+  "creative-studio":
+    "M12 2 2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5",
+  launchpad:
+    "M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0 M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5",
+  automation:
+    "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12l2 2 4-4",
+  "google-overview": "M3 3v18h18 M7 16v-5 M12 16V8 M17 16v-3",
+  "google-advisor": "M13 2 3 14h9l-1 8 10-12h-9l1-8z",
+  "google-search": "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3",
+  "google-products":
+    "M20.59 13.41 12 22l-8.59-8.59A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.41.59L22 12z M7 7h.01",
+  "google-assets":
+    "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21",
+  "google-plan":
+    "M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+  insights:
+    "M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z",
+  reports: "M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10z",
+  "commercial-truth":
+    "M12 8c4.97 0 9-1.34 9-3s-4.03-3-9-3-9 1.34-9 3 4.03 3 9 3z M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3 M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5",
+  integrations:
+    "M12 22v-5 M9 8V2 M15 8V2 M6 8h12v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z",
+  team: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  settings:
+    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+};
 
 function useLocked() {
   const currentPlan = usePlan();
@@ -42,19 +70,88 @@ function useLocked() {
     planRank(currentPlan) < planRank(requiredPlan);
 }
 
-function RailIcon({ icon: Icon, size }: { icon: RailLink["icon"]; size: number }) {
-  return <Icon style={{ width: size, height: size }} className="shrink-0" strokeWidth={2} />;
+export function buildRailScopedHref({
+  href,
+  pathname,
+  businessId,
+  providerAccountId,
+}: {
+  href: string;
+  pathname: string;
+  businessId: string | null;
+  providerAccountId: string | null;
+}) {
+  const familyHref = dashboardHrefForRouteFamily(href, pathname);
+  const currentPath = normalizeDashboardPath(pathname);
+  const currentProvider =
+    currentPath.startsWith("/platforms/meta") ||
+    currentPath.startsWith("/app/meta") ||
+    currentPath.startsWith("/app/creative")
+      ? "meta"
+      : currentPath.startsWith("/platforms/google") ||
+          currentPath.startsWith("/app/google")
+        ? "google"
+        : null;
+  if (href.startsWith("/platforms/meta")) {
+    return buildMetaScopedHref(
+      familyHref,
+      {
+        businessId,
+        providerAccountId:
+          currentProvider === "meta" ? providerAccountId : null,
+      },
+      currentProvider === "meta" ? {} : { providerAccountId: null },
+    );
+  }
+  if (href.startsWith("/platforms/google")) {
+    return buildMetaScopedHref(
+      familyHref,
+      {
+        providerAccountId:
+          currentProvider === "google" ? providerAccountId : null,
+      },
+      currentProvider === "google" ? {} : { providerAccountId: null },
+    );
+  }
+  return familyHref;
 }
 
-/**
- * The design's rail carries no plan chips — growth and workspace rows are icon
- * plus label, full stop. A gated row keeps its lock signal the way the design
- * dims an unavailable platform: reduced opacity plus the upgrade tooltip.
- */
-const LOCKED_ROW_STYLE = { opacity: 0.55 } as const;
+function activateRailNavigation(
+  event: KeyboardEvent<HTMLDivElement>,
+  navigate: () => void,
+) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  navigate();
+}
+
+function RailIcon({ link, size }: { link: RailLink; size: number }) {
+  const referencePath = REFERENCE_RAIL_ICON_PATHS[link.id];
+  if (!referencePath) {
+    const Icon = link.icon;
+    return <Icon style={{ width: size, height: size }} className="shrink-0" strokeWidth={2} />;
+  }
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      <path d={referencePath} />
+    </svg>
+  );
+}
 
 function RailRow({
   link,
+  href,
+  lockedDestination,
   active,
   locked,
   onNavigate,
@@ -62,6 +159,8 @@ function RailRow({
   iconSize = 16,
 }: {
   link: RailLink;
+  href: string;
+  lockedDestination: string;
   active: boolean;
   locked: boolean;
   onNavigate?: () => void;
@@ -69,34 +168,34 @@ function RailRow({
   iconSize?: number;
 }) {
   const router = useRouter();
-
-  if (locked && link.requiredPlan) {
-    return (
-      <button
-        type="button"
-        className={cn("adv-rail-item", className)}
-        title={`Upgrade to ${PLAN_LABELS[link.requiredPlan]} to unlock`}
-        onClick={() => router.push("/settings")}
-        data-nav={link.id}
-        style={LOCKED_ROW_STYLE}
-      >
-        <RailIcon icon={link.icon} size={iconSize} />
-        <span>{link.label}</span>
-      </button>
-    );
-  }
+  const navigate = () => {
+    onNavigate?.();
+    router.push(locked && link.requiredPlan ? lockedDestination : href);
+  };
 
   return (
-    <Link
-      href={link.href}
+    <div
+      role="link"
+      tabIndex={0}
       className={cn("adv-rail-item", className)}
       data-active={active}
       data-nav={link.id}
-      onClick={onNavigate}
+      title={
+        locked && link.requiredPlan
+          ? `Upgrade to ${PLAN_LABELS[link.requiredPlan]} to unlock`
+          : undefined
+      }
+      data-plan-entitlement-hint={
+        locked && link.requiredPlan
+          ? `Upgrade to ${PLAN_LABELS[link.requiredPlan]} to unlock`
+          : undefined
+      }
+      onClick={navigate}
+      onKeyDown={(event) => activateRailNavigation(event, navigate)}
     >
-      <RailIcon icon={link.icon} size={iconSize} />
+      <RailIcon link={link} size={iconSize} />
       <span>{link.label}</span>
-    </Link>
+    </div>
   );
 }
 
@@ -104,18 +203,21 @@ function PlatformBlock({
   platform,
   pathname,
   onNavigate,
-  actionNowCount,
+  counts,
   scopedHref,
 }: {
   platform: RailPlatform;
   pathname: string;
   onNavigate?: () => void;
-  actionNowCount: number | null;
+  counts: Readonly<Record<string, number | null>>;
   scopedHref: (href: string) => string;
 }) {
-  const isLocked = useLocked();
+  const router = useRouter();
+  const navigateTo = (href: string) => {
+    onNavigate?.();
+    router.push(scopedHref(href));
+  };
   const familyActive = isPlatformFamilyActive(platform, pathname);
-  const soon = platform.status === "soon";
   const hasChildren = platform.children.length > 0;
   // A platform with children uses the parent row purely as the family header —
   // the highlighted row is always the child the route resolves to.
@@ -126,11 +228,11 @@ function PlatformBlock({
       <span className="adv-rail-logo">
         <Image
           src={platform.logoSrc}
-          alt=""
+          alt={platform.label}
           width={13}
           height={13}
+          unoptimized
           className="h-[13px] w-[13px] object-contain"
-          aria-hidden="true"
         />
       </span>
       <span>{platform.label}</span>
@@ -138,8 +240,6 @@ function PlatformBlock({
         <span className="adv-rail-badge" data-tone="beta">
           Beta
         </span>
-      ) : soon ? (
-        <span className="adv-rail-badge">Soon</span>
       ) : (
         <span className="adv-rail-dot" aria-label="Live" />
       )}
@@ -148,8 +248,9 @@ function PlatformBlock({
 
   return (
     <>
-      <Link
-        href={soon ? `/platforms/${platform.id}` : scopedHref(platform.href)}
+      <div
+        role="link"
+        tabIndex={0}
         className={cn(
           "adv-rail-item adv-rail-item--platform",
           hasChildren && "adv-rail-item--parent",
@@ -157,45 +258,38 @@ function PlatformBlock({
         data-active={parentActive}
         data-family={hasChildren ? familyActive : undefined}
         data-platform={platform.id}
-        onClick={onNavigate}
-        style={soon ? { opacity: 0.55 } : undefined}
+        onClick={() => navigateTo(platform.href)}
+        onKeyDown={(event) =>
+          activateRailNavigation(event, () => navigateTo(platform.href))
+        }
       >
         {row}
-      </Link>
+      </div>
       {hasChildren ? (
         <div className="adv-rail-children">
           {platform.children.map((child) => {
-            const locked = isLocked(child.requiredPlan);
             const active = isRailLinkActive(child, pathname);
-            const showCount =
-              child.id === "pulse" && actionNowCount !== null && actionNowCount > 0;
+            const count = counts[child.id] ?? null;
+            const showCount = count !== null && count > 0;
             return (
-              <Link
+              <div
                 key={child.id}
-                href={scopedHref(child.href)}
+                role="link"
+                tabIndex={0}
                 className="adv-rail-child"
                 data-active={active}
                 data-nav={`${platform.id}-${child.id}`}
-                onClick={onNavigate}
-                aria-disabled={locked || undefined}
-                title={
-                  locked && child.requiredPlan
-                    ? `Upgrade to ${PLAN_LABELS[child.requiredPlan]} to unlock`
-                    : undefined
+                onClick={() => navigateTo(child.href)}
+                onKeyDown={(event) =>
+                  activateRailNavigation(event, () => navigateTo(child.href))
                 }
-                style={locked ? LOCKED_ROW_STYLE : undefined}
               >
-                <RailIcon icon={child.icon} size={15} />
+                <RailIcon link={child} size={15} />
                 <span>{child.label}</span>
                 {showCount ? (
-                  <span
-                    className="adv-rail-count"
-                    title={`${actionNowCount} decisions in Action Now`}
-                  >
-                    {actionNowCount}
-                  </span>
+                  <span className="adv-rail-count">{count}</span>
                 ) : null}
-              </Link>
+              </div>
             );
           })}
         </div>
@@ -214,20 +308,40 @@ export function AppRail({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
   const language = usePreferencesStore((state) => state.language);
-  const model = getRailModel(language);
   const isLocked = useLocked();
   const plan = usePlan();
   const actionNowCount = useMetaActionNowCount();
+  const googleAdvisorCount = useGoogleAdvisorCount();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const currentProviderAccountId =
+    searchParams.get("providerAccountId")?.trim() || null;
+  useBusinessIntegrationsBootstrap(selectedBusinessId, {
+    providers: ["klaviyo"],
+  });
+  const klaviyoDomain = useIntegrationsStore((state) =>
+    selectedBusinessId
+      ? state.domainsByBusinessId[selectedBusinessId]?.klaviyo
+      : undefined,
+  );
+  const klaviyoSnapshotReady = Boolean(
+    klaviyoDomain?.connection.status === "connected" &&
+    klaviyoDomain.connection.lastSyncAt,
+  );
+  const model = getRailModel(language, {
+    showKlaviyo:
+      klaviyoSnapshotReady || pathname.startsWith("/platforms/klaviyo"),
+  });
 
   const scopedHref = (href: string) =>
-    href.startsWith("/platforms/meta")
-      ? buildMetaScopedHref(href, {
-          businessId: selectedBusinessId,
-          providerAccountId: null,
-        })
-      : href;
+    buildRailScopedHref({
+      href,
+      pathname,
+      businessId: selectedBusinessId,
+      providerAccountId: currentProviderAccountId,
+    });
+  const lockedDestination = scopedHref("/settings");
 
   return (
     <aside className="adv-rail" data-open={open} data-shell-sidebar="v2">
@@ -235,11 +349,10 @@ export function AppRail({
         <span className="adv-rail-mark">
           <Image
             src="/adsecute-mark.svg"
-            alt=""
+            alt="Adsecute"
             width={18}
             height={18}
             className="h-[18px] w-[18px] brightness-0 invert"
-            aria-hidden="true"
           />
         </span>
         <span className="adv-rail-wordmark">Adsecute</span>
@@ -251,6 +364,8 @@ export function AppRail({
           <RailRow
             key={link.id}
             link={link}
+            href={scopedHref(link.href)}
+            lockedDestination={lockedDestination}
             active={isRailLinkActive(link, pathname)}
             locked={isLocked(link.requiredPlan)}
             onNavigate={onNavigate}
@@ -264,7 +379,13 @@ export function AppRail({
             platform={platform}
             pathname={pathname}
             onNavigate={onNavigate}
-            actionNowCount={platform.id === "meta" ? actionNowCount : null}
+            counts={
+              platform.id === "meta"
+                ? { pulse: actionNowCount }
+                : platform.id === "google"
+                  ? { "google-advisor": googleAdvisorCount }
+                  : {}
+            }
             scopedHref={scopedHref}
           />
         ))}
@@ -274,6 +395,8 @@ export function AppRail({
           <RailRow
             key={link.id}
             link={link}
+            href={scopedHref(link.href)}
+            lockedDestination={lockedDestination}
             active={isRailLinkActive(link, pathname)}
             locked={isLocked(link.requiredPlan)}
             onNavigate={onNavigate}
@@ -285,6 +408,8 @@ export function AppRail({
           <RailRow
             key={link.id}
             link={link}
+            href={scopedHref(link.href)}
+            lockedDestination={lockedDestination}
             active={isRailLinkActive(link, pathname)}
             locked={isLocked(link.requiredPlan)}
             onNavigate={onNavigate}
@@ -311,61 +436,29 @@ function shortName(name: string) {
 }
 
 function RailAccount({ userName, plan }: { userName: string; plan: PlanId }) {
-  const router = useRouter();
-
-  async function handleSignOut() {
-    const response = await fetch("/api/auth/logout", {
-      method: "POST",
-      headers: { "Cache-Control": "no-store" },
-    }).catch(() => null);
-    if (!response?.ok) {
-      logClientAuthEvent("logout_failed", { userName });
-      return;
-    }
-    clearAuthScopedClientState();
-    logClientAuthEvent("logout_completed", { userName });
-    window.location.assign("/");
-  }
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className="adv-rail-foot" aria-label="Account menu">
-          <span className="adv-rail-avatar">{initials(userName)}</span>
-          <span className="min-w-0">
-            <span className="block truncate text-[12.5px] font-semibold text-[var(--adv-rail-ink)]">
-              {shortName(userName)}
-            </span>
-            <span className="block text-[11px] text-[var(--adv-rail-ink-3)]">
-              {PLAN_LABELS[plan]} plan
-            </span>
-          </span>
-          <ChevronsUpDown
-            className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--adv-rail-ink-3)]"
-            aria-hidden="true"
-          />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" className="w-56">
-        <DropdownMenuLabel className="text-sm font-medium">{userName}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/settings")}>
-          Settings &amp; billing
-        </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/integrations")}>
-          Integrations
-        </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/select-business")}>
-          Manage businesses
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="cursor-pointer text-destructive focus:text-destructive"
-          onClick={handleSignOut}
-        >
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="adv-rail-foot">
+      <span className="adv-rail-avatar">{initials(userName)}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] font-semibold text-[var(--adv-rail-ink)]">
+          {shortName(userName)}
+        </span>
+        <span className="block text-[11px] text-[var(--adv-rail-ink-3)]">
+          {PLAN_LABELS[plan]} plan
+        </span>
+      </span>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#5B6577"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="ml-auto h-3.5 w-3.5 shrink-0"
+        aria-hidden="true"
+      >
+        <path d="M7 15l5 5 5-5 M7 9l5-5 5 5" />
+      </svg>
+    </div>
   );
 }

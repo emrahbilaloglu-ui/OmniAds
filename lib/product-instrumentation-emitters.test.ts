@@ -21,7 +21,7 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   // Global search
   search_submitted: "app/api/search/route.ts",
   search_zero_result: "app/api/search/route.ts",
-  search_result_opened: "components/layout/GlobalSearch.tsx",
+  search_result_opened: "components/layout/v2/command-palette.tsx",
   // Saved views
   saved_view_created: "components/views/SavedViewsMenu.tsx",
   saved_view_applied: "components/views/SavedViewsMenu.tsx",

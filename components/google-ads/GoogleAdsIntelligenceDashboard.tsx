@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -440,6 +440,7 @@ export function GoogleAdsIntelligenceDashboard({
   /** Page title for the routed screen; the design names each surface. */
   screenTitle?: string;
 }) {
+  const queryClient = useQueryClient();
   const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -620,6 +621,7 @@ export function GoogleAdsIntelligenceDashboard({
       return res.json();
     },
     onSuccess: (payload) => {
+      queryClient.setQueryData(["google-advisor", businessId], payload);
       setAdvisorData(payload);
       setAdvisorAnalysisKey(currentAdvisorKey);
       setLastAnalyzedLabel(payload.metadata?.asOfDate ?? new Date().toISOString().slice(0, 10));

@@ -1,64 +1,76 @@
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 
-const source = readFileSync("components/layout/GlobalSearch.tsx", "utf8");
-const frame = readFileSync("components/layout/dashboard-frame.tsx", "utf8");
+const launcherSource = readFileSync(
+  "components/layout/GlobalSearch.tsx",
+  "utf8",
+);
+const paletteSource = readFileSync(
+  "components/layout/v2/command-palette.tsx",
+  "utf8",
+);
+const frameSource = readFileSync(
+  "components/layout/dashboard-frame.tsx",
+  "utf8",
+);
 
-describe("global search is mounted and labelled", () => {
-  it("renders a real search input in the shell", () => {
-    const html = renderToStaticMarkup(<GlobalSearch />);
-    expect(html).toContain('type="search"');
-    expect(html).toContain("Search campaigns, ads, clients");
-  });
+describe("canonical command launcher", () => {
+  it("renders the design's Jump or act button instead of an inline combobox", () => {
+    const html = renderToStaticMarkup(
+      <GlobalSearch open={false} onOpen={vi.fn()} />,
+    );
 
-  it("is actually mounted in the console frame", () => {
-    expect(frame).toContain("<GlobalSearch />");
-  });
-
-  it("has an accessible name rather than a placeholder alone", () => {
-    const html = renderToStaticMarkup(<GlobalSearch />);
-    expect(html).toContain('for="global-search"');
-    expect(html).toContain("Search campaigns, ad sets, ads and clients");
-  });
-
-  it("shows no result panel before anything is typed", () => {
-    const html = renderToStaticMarkup(<GlobalSearch />);
+    expect(html).toContain('<button type="button"');
+    expect(html).toContain('aria-label="Jump or act"');
+    expect(html).toContain("Jump or act…");
+    expect(html).toContain("⌘K");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain('role="combobox"');
     expect(html).not.toContain('role="listbox"');
+  });
+
+  it("mounts one CommandPalette from DashboardFrame", () => {
+    expect(frameSource).toContain(
+      'import { CommandPalette } from "@/components/layout/v2/command-palette"',
+    );
+    expect(frameSource.match(/<CommandPalette/g)).toHaveLength(1);
+    expect(frameSource).toContain("open={commandPaletteOpen}");
+    expect(frameSource).toContain("onOpenChange={setCommandPaletteOpen}");
+  });
+
+  it("keeps the launcher free of the retired result dropdown", () => {
+    expect(launcherSource).not.toContain("/api/search");
+    expect(launcherSource).not.toContain('role="combobox"');
+    expect(launcherSource).not.toContain("global-search-results");
   });
 });
 
-describe("global search tells the truth about its states", () => {
-  it("distinguishes a failed search from no matches", () => {
-    expect(source).toContain('setState("error")');
-    expect(source).toContain("Nothing matched");
-    expect(source).toContain("Search is unavailable.");
+describe("the single palette preserves entity search truth", () => {
+  it("keeps entity search, navigation and workspace switching in the palette", () => {
+    expect(paletteSource).toContain("getRailJumpTargets");
+    expect(paletteSource).toContain("/api/auth/switch-business");
+    expect(paletteSource).toContain("/api/search?q=");
   });
 
-  it("does not treat a failed request as an empty result", () => {
-    const errorBranch = source.slice(source.indexOf("if (!response.ok)"));
-    expect(errorBranch.slice(0, 400)).not.toContain("setResults([])");
+  it("distinguishes failed search from no matches", () => {
+    expect(paletteSource).toContain('setEntityState("error")');
+    expect(paletteSource).toContain("Nothing matches");
+    expect(paletteSource).toContain("Search is unavailable.");
   });
 
-  it("declares the minimum query length instead of silently doing nothing", () => {
-    expect(source).toContain("MIN_SEARCH_QUERY_LENGTH");
-    expect(source).toContain("Type at least");
+  it("documents the minimum query and ignores superseded responses", () => {
+    expect(paletteSource).toContain("MIN_SEARCH_QUERY_LENGTH");
+    expect(paletteSource).toContain("Type at least");
+    expect(paletteSource).toContain("requestRef.current !== requestId");
   });
 
-  it("says why each result matched", () => {
-    expect(source).toContain("MATCH_LABEL[result.matchKind]");
-  });
-
-  it("navigates using the server-supplied scoped link, not a hand-built one", () => {
-    expect(source).toContain("router.push(result.href)");
-  });
-
-  it("drops responses from superseded keystrokes", () => {
-    expect(source).toContain("requestRef.current !== requestId");
+  it("uses the server-scoped entity link through the route-family guard and explains the match", () => {
+    expect(paletteSource).toContain("commandEntityHrefForRouteFamily");
+    expect(paletteSource).toContain("href: result.href");
+    expect(paletteSource).toContain("MATCH_LABEL[result.matchKind]");
   });
 });

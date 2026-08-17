@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 const FILES = {
   agencyToday: "components/overview/AgencyToday.tsx",
   globalSearch: "components/layout/GlobalSearch.tsx",
+  commandPalette: "components/layout/v2/command-palette.tsx",
   savedViews: "components/views/SavedViewsMenu.tsx",
   workflow: "components/meta/os/DecisionWorkflowControls.tsx",
   guarded: "components/meta/os/GuardedActionPanel.tsx",
@@ -49,9 +50,10 @@ describe("every control can be reached and named without sight", () => {
   });
 
   it("marks the search listbox and its options", () => {
-    const search = read("globalSearch");
-    expect(search).toContain('role="option"');
-    expect(search).toContain("aria-expanded");
+    expect(read("globalSearch")).toContain("aria-expanded");
+    const palette = read("commandPalette");
+    expect(palette).toContain('role="listbox"');
+    expect(palette).toContain('role="option"');
   });
 
   it("exposes the saved-views menu state", () => {

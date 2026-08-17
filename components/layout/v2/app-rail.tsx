@@ -325,14 +325,17 @@ export function AppRail({
       ? state.domainsByBusinessId[selectedBusinessId]?.klaviyo
       : undefined,
   );
+  /**
+   * design 3284 / 2864 / 4321: Klaviyo joins the rail only once it is live —
+   * "these stay out of the sidebar until the integration is live". The only
+   * evidence for that is a stored connection that has actually synced. Being on
+   * the Klaviyo route is not evidence, so it does not put the entry back.
+   */
   const klaviyoSnapshotReady = Boolean(
     klaviyoDomain?.connection.status === "connected" &&
     klaviyoDomain.connection.lastSyncAt,
   );
-  const model = getRailModel(language, {
-    showKlaviyo:
-      klaviyoSnapshotReady || pathname.startsWith("/platforms/klaviyo"),
-  });
+  const model = getRailModel(language, { showKlaviyo: klaviyoSnapshotReady });
 
   const scopedHref = (href: string) =>
     buildRailScopedHref({

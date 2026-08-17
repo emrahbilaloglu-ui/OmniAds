@@ -1,11 +1,12 @@
 import { IntegrationProvider } from "@/store/integrations-store";
 
+/** The design's provider captions (model 4315-4321, 4349-4353). */
 const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
   shopify: "Shopify",
-  meta: "Meta",
-  google: "Google",
-  search_console: "Google Search Console",
-  tiktok: "TikTok",
+  meta: "Meta Ads",
+  google: "Google Ads",
+  search_console: "Search Console",
+  tiktok: "TikTok Ads",
   pinterest: "Pinterest",
   snapchat: "Snapchat",
   ga4: "GA4",
@@ -37,51 +38,3 @@ export function getOAuthStartUrl(
 export function getProviderLabel(provider: IntegrationProvider) {
   return PROVIDER_LABELS[provider];
 }
-
-export const OAUTH_PERMISSIONS: Record<IntegrationProvider, string[]> = {
-  shopify: [
-    "Read store events",
-    "Read orders and products",
-    "Sync conversion signals",
-  ],
-  meta: [
-    "Read ads and campaigns",
-    "Read ad account insights",
-    "Manage attribution sync",
-  ],
-  google: [
-    "Read campaigns and ad groups",
-    "Read performance metrics",
-    "Sync conversion data",
-  ],
-  search_console: [
-    "Read Search Console properties",
-    "Read query and page performance metrics",
-    "Sync organic search visibility signals",
-  ],
-  tiktok: [
-    "Read campaigns and creatives",
-    "Read ad account insights",
-    "Sync performance data",
-  ],
-  pinterest: [
-    "Read campaign analytics",
-    "Read pin-level performance",
-    "Sync audience signals",
-  ],
-  snapchat: [
-    "Read campaigns and ads",
-    "Read spend and conversion metrics",
-    "Sync reporting",
-  ],
-  ga4: [
-    "Read GA4 properties",
-    "Read sessions and conversion events",
-    "Sync landing page performance signals",
-  ],
-  klaviyo: [
-    "Read flows and campaigns",
-    "Read lifecycle performance metrics",
-    "Sync email and SMS intelligence signals",
-  ],
-};

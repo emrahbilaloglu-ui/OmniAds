@@ -76,7 +76,7 @@ describe("Dashboard v2 screen registry", () => {
       ),
     ).toBe("/app/analytics/geo");
     expect(
-      dashboardHrefForRouteFamily("/platforms/klaviyo/flows", "/c/biz_1/home"),
+      dashboardHrefForRouteFamily("/platforms/klaviyo", "/c/biz_1/home"),
     ).toBe("/c/biz_1/klaviyo");
     expect(
       dashboardHrefForRouteFamily(

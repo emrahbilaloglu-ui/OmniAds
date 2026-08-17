@@ -132,12 +132,11 @@ const ROUTES: Readonly<Record<string, DashboardScreenRoute>> = {
   "/platforms/google/plan": route("google-plan"),
   "/app/google/plan": route("google-plan"),
 
+  // The design has exactly one Klaviyo screen; its four tab pills carry no
+  // handler and no route, so the flows/campaigns/templates/segments spellings
+  // are gone rather than aliased onto the same body.
   "/platforms/klaviyo": route("klaviyo"),
   "/app/klaviyo": route("klaviyo"),
-  "/platforms/klaviyo/flows": route("klaviyo"),
-  "/platforms/klaviyo/campaigns": route("klaviyo"),
-  "/platforms/klaviyo/templates": route("klaviyo"),
-  "/platforms/klaviyo/segments": route("klaviyo"),
 
   "/insights": route("insights", undefined, "analytics"),
   "/insights/analytics": route("insights", undefined, "analytics"),
@@ -184,10 +183,6 @@ const APP_PATH_BY_LEGACY_PATH: Readonly<Record<string, string>> = {
   "/platforms/google/plan": "/app/google/plan",
   "/platforms/google/launchpad": "/app/google/plan",
   "/platforms/klaviyo": "/app/klaviyo",
-  "/platforms/klaviyo/flows": "/app/klaviyo",
-  "/platforms/klaviyo/campaigns": "/app/klaviyo",
-  "/platforms/klaviyo/templates": "/app/klaviyo",
-  "/platforms/klaviyo/segments": "/app/klaviyo",
   "/insights": "/app/analytics/ga4-shopify",
   "/insights/analytics": "/app/analytics/ga4-shopify",
   "/insights/seo": "/app/analytics/seo",

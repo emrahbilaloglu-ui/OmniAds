@@ -35,6 +35,14 @@ interface ProviderAssignmentDrawerProps {
     accountIds: string[],
     accounts: ProviderAccountRow[],
   ) => void;
+  /**
+   * Disconnecting lives here rather than on the card face.
+   *
+   * The design gives each integration card exactly one button, so the card can
+   * no longer carry Reconnect/Disconnect/Retry. Manage is the destination those
+   * belong behind, and this drawer is it.
+   */
+  onDisconnect?: (provider: IntegrationProvider) => void;
 }
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
@@ -60,6 +68,7 @@ export function ProviderAssignmentDrawer({
   assignedAccountIds,
   onClose,
   onSave,
+  onDisconnect,
 }: ProviderAssignmentDrawerProps) {
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<ProviderAccountRow[]>([]);
@@ -529,7 +538,18 @@ export function ProviderAssignmentDrawer({
           {saveErrorMessage ? (
             <p className="mb-3 text-sm text-destructive">{saveErrorMessage}</p>
           ) : null}
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center gap-2">
+            {onDisconnect && provider ? (
+              <Button
+                variant="ghost"
+                className="px-2.5 text-muted-foreground hover:text-destructive"
+                disabled={isSaving}
+                onClick={() => onDisconnect(provider)}
+              >
+                Disconnect
+              </Button>
+            ) : null}
+            <span className="flex-1" />
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>

@@ -37,344 +37,161 @@ const STYLESHEETS: string[] = execSync(
   .filter(Boolean);
 
 const FONT_SIZE = /font-size:\s*([0-9.]+)px/g;
-const EXACT_SHELL_TYPE_FILE = "app/globals.css";
-const EXACT_SHELL_TYPE_START =
-  "/* dashboard-v2-shell-exact-reference-type:start */";
-const EXACT_SHELL_TYPE_END =
-  "/* dashboard-v2-shell-exact-reference-type:end */";
-const EXACT_META_TYPE_FILE =
-  "components/meta/decision-center/MetaDecisionCenterExact.module.css";
-const EXACT_META_TYPE_START =
-  "/* dashboard-v2-meta-exact-reference-type:start */";
-const EXACT_META_TYPE_END =
-  "/* dashboard-v2-meta-exact-reference-type:end */";
-const EXACT_CREATIVE_TYPE_FILE =
-  "components/creatives/CreativeStudioExact.module.css";
-const EXACT_CREATIVE_TYPE_START =
-  "/* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */";
-const EXACT_LAUNCHPAD_TYPE_FILE =
-  "app/(dashboard)/platforms/meta/launchpad/page.module.css";
-const EXACT_LAUNCHPAD_TYPE_START =
-  "/* dashboard-v2-exact-typography:start launchpad */";
-const EXACT_LAUNCHPAD_TYPE_END =
-  "/* dashboard-v2-exact-typography:end launchpad */";
-const EXACT_AUTOMATION_TYPE_FILE =
-  "app/(dashboard)/platforms/meta/automation/automation.module.css";
-const EXACT_AUTOMATION_TYPE_START =
-  "/* dashboard-v2-automation-exact-reference-type:start */";
-const EXACT_AUTOMATION_TYPE_END =
-  "/* dashboard-v2-automation-exact-reference-type:end */";
-const EXACT_GOOGLE_OVERVIEW_TYPE_FILE =
-  "components/google-ads/GoogleOverviewExact.module.css";
-const EXACT_GOOGLE_OVERVIEW_TYPE_START =
-  "/* dashboard-v2-google-overview-exact-reference-type:start */";
-const EXACT_GOOGLE_OVERVIEW_TYPE_END =
-  "/* dashboard-v2-google-overview-exact-reference-type:end */";
-const EXACT_GOOGLE_ADVISOR_TYPE_FILE =
-  "components/google-ads/GoogleAdvisorExact.module.css";
-const EXACT_GOOGLE_ADVISOR_TYPE_START =
-  "/* dashboard-v2-google-advisor-exact-reference-type:start */";
-const EXACT_GOOGLE_ADVISOR_TYPE_END =
-  "/* dashboard-v2-google-advisor-exact-reference-type:end */";
-const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE =
-  "components/google-ads/GoogleSearchProductsExact.module.css";
-const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START =
-  "/* dashboard-v2-google-search-products-exact-reference-type:start */";
-const EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END =
-  "/* dashboard-v2-google-search-products-exact-reference-type:end */";
 
-function exactReferenceTypeBounds(file: string, source: string) {
-  const markers: readonly [string, string | null] | null =
-    file === EXACT_SHELL_TYPE_FILE
-      ? [EXACT_SHELL_TYPE_START, EXACT_SHELL_TYPE_END]
-      : file === EXACT_META_TYPE_FILE
-        ? [EXACT_META_TYPE_START, EXACT_META_TYPE_END]
-        : file === EXACT_CREATIVE_TYPE_FILE
-          ? [EXACT_CREATIVE_TYPE_START, null]
-          : file === EXACT_LAUNCHPAD_TYPE_FILE
-            ? [EXACT_LAUNCHPAD_TYPE_START, EXACT_LAUNCHPAD_TYPE_END]
-            : file === EXACT_AUTOMATION_TYPE_FILE
-              ? [EXACT_AUTOMATION_TYPE_START, EXACT_AUTOMATION_TYPE_END]
-              : file === EXACT_GOOGLE_OVERVIEW_TYPE_FILE
-                ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
-                : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
-                  ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
-                  : file === EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE
-                    ? [
-                        EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START,
-                        EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END,
-                      ]
-              : null;
-  if (!markers) return null;
-  const [startMarker, endMarker] = markers;
-  const markerStart = source.indexOf(startMarker);
-  const markerEnd = endMarker === null ? source.length : source.indexOf(endMarker);
-  if (markerStart < 0 || markerEnd <= markerStart) return null;
-  return {
-    start: markerStart + startMarker.length,
-    end: markerEnd,
-  };
+/**
+ * Every marker-bounded fragment copied from the canonical Dashboard v2
+ * reference, in one table.
+ *
+ * This used to be three parallel structures -- a triple of consts per surface,
+ * an arm in a nested ternary, and a near-identical pin test -- which meant that
+ * every parity batch touched the same three places and every batch merge
+ * conflicted here. One row per surface is the same assertions with one place to
+ * edit.
+ *
+ * `pins: null` registers a marker without pinning its values. Only the Creative
+ * Studio fragment is in that state, because its marker has no end delimiter and
+ * runs to end-of-file; it should gain an end marker and a pinned list.
+ *
+ * `pinsBelowFloorOnly` says whether that surface's pinned list was authored as
+ * only the sub-floor declarations (true) or as every font-size inside the
+ * marker (false). Both are exact; the second is stricter.
+ */
+interface ExactReferenceSurface {
+  readonly name: string | null;
+  readonly file: string;
+  readonly start: string;
+  readonly end: string | null;
+  readonly pins: ReadonlyArray<{ selector: string; size: number }> | null;
+  readonly pinsBelowFloorOnly: boolean;
 }
 
-describe("no essential text is rendered below the readable floor", () => {
-  it("finds stylesheets to check", () => {
-    expect(STYLESHEETS.length).toBeGreaterThan(5);
-  });
-
-  it("keeps the marker-bounded shell values narrow and exact", () => {
-    const source = readFileSync(EXACT_SHELL_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_SHELL_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_SHELL_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_SHELL_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactShell = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactShell.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    ).map((match) => ({
-      selector: match[1]!.replace(/\s+/g, " ").trim(),
-      size: Number(match[2]),
-    }));
-
-    expect(declarations).toEqual([
+const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
+  {
+    name: "shell",
+    file: "app/globals.css",
+    start:
+      "/* dashboard-v2-shell-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-shell-exact-reference-type:end */",
+    pins: [
       { selector: ".adv-rail-version, .adv-rail-group", size: 9.5 },
       { selector: ".adv-rail-count", size: 10.5 },
       { selector: ".adv-rail-badge", size: 9 },
       { selector: ".adv-rail-avatar", size: 11.5 },
       { selector: ".adv-kbd", size: 10 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Meta values narrow and exact", () => {
-    const source = readFileSync(EXACT_META_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_META_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_META_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_META_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactMeta = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactMeta.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    ).map((match) => ({
-      selector: match[1]!.replace(/\s+/g, " ").trim(),
-      size: Number(match[2]),
-    }));
-
-    expect(declarations).toEqual([
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Meta",
+    file: "components/meta/decision-center/MetaDecisionCenterExact.module.css",
+    start:
+      "/* dashboard-v2-meta-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-meta-exact-reference-type:end */",
+    pins: [
       { selector: ".pageEyebrow, .asOfLine, .scopeRow > p", size: 11 },
       { selector: ".kpiLabel, .watchBadge, .inspectorEyebrow", size: 9.5 },
       {
-        selector:
-          ".snapshotDetail, .moneySub, .watchSegment, .healthyStats, .resumeButton, .postureDetail, .creativeDecisionLabel, .inspectorMoneyDetail",
-        size: 11.5,
+      selector:
+      ".snapshotDetail, .moneySub, .watchSegment, .healthyStats, .resumeButton, .postureDetail, .creativeDecisionLabel, .inspectorMoneyDetail",
+      size: 11.5,
       },
       {
-        selector: ".modeChip, .scopeOption > span, .healthyStrategy, .inspectorMeta",
-        size: 10.5,
+      selector: ".modeChip, .scopeOption > span, .healthyStrategy, .inspectorMeta",
+      size: 10.5,
       },
       {
-        selector:
-          ".laneOption > span, .rowChip, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
-        size: 11,
+      selector:
+      ".laneOption > span, .rowChip, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
+      size: 11,
       },
       {
-        selector:
-          ".entityLevel, .watchLevel, .nonSalesLevel, .nonSalesMetricLabel, .postureLabel, .inspectorSectionLabel, .reasonHeading, .blockersHeading, .inspectorMiniLabel",
-        size: 9,
+      selector:
+      ".entityLevel, .watchLevel, .nonSalesLevel, .nonSalesMetricLabel, .postureLabel, .inspectorSectionLabel, .reasonHeading, .blockersHeading, .inspectorMiniLabel",
+      size: 9,
       },
       { selector: ".archiveTable th, .provenance", size: 10 },
       { selector: ".creativeKind", size: 8 },
       { selector: ".creativeSparkLabel", size: 8.5 },
-    ]);
-  });
-
-  it("keeps the canonical Creative Studio type exception exact", () => {
-    const source = readFileSync(EXACT_CREATIVE_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_CREATIVE_TYPE_START)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_CREATIVE_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactCreative = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactCreative.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    )
-      .map((match) => ({
-        selector: match[1]!
-          .replace(/\/\*[\s\S]*?\*\//g, "")
-          .replace(/\s+/g, " ")
-          .trim(),
-        size: Number(match[2]),
-      }))
-      .filter(({ size }) => size < 12);
-
-    expect(declarations).toEqual([
-      { selector: ".pageEyebrow", size: 11 },
-      { selector: ".tabCount, .tabCountActive", size: 10 },
-      { selector: ".mutedMono", size: 10.5 },
-      { selector: ".unpinButton", size: 11 },
-      { selector: ".kindBadge", size: 10 },
-      { selector: ".statusBadge", size: 10.5 },
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: null,
+    file: "components/creatives/CreativeStudioExact.module.css",
+    start:
+      "/* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */",
+    end:
+      null,
+    pins: null,
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Launchpad",
+    file: "app/(dashboard)/platforms/meta/launchpad/page.module.css",
+    start:
+      "/* dashboard-v2-exact-typography:start launchpad */",
+    end:
+      "/* dashboard-v2-exact-typography:end launchpad */",
+    pins: [
       {
-        selector:
-          ".boardMetric > span:first-child, .summaryMetric > span:first-child",
-        size: 8.5,
-      },
-      { selector: ".columnsLabel", size: 9.5 },
-      { selector: ".metricPickerHeader > span", size: 10 },
-      { selector: ".metricCategory", size: 9 },
-      { selector: ".metricCheckbox, .metricCheckboxSelected", size: 9 },
-      { selector: ".metricDirection", size: 10 },
-      { selector: ".heatLegend", size: 10 },
-      { selector: ".assetTable th", size: 10 },
-      { selector: ".rowCheckbox, .rowCheckboxSelected", size: 10 },
-      { selector: ".creativeIdentityText > span:last-child", size: 10 },
-      { selector: ".tableStatus", size: 10.5 },
-      { selector: ".emptyTableCell", size: 11 },
-      { selector: ".closingNote", size: 11 },
-      { selector: ".angleCardHeader > span", size: 10 },
-      { selector: ".angleBestLine", size: 11.5 },
-      { selector: ".angleUsage", size: 10 },
-      { selector: ".angleCoverage > span:first-child", size: 9.5 },
-      { selector: ".angleGap", size: 11 },
-      {
-        selector: ".articleHeader > span:not(.insightPill, .heatRamp)",
-        size: 10.5,
-      },
-      { selector: ".insightPill", size: 11 },
-      { selector: ".copyTable th, .landingTable th, .matrixTable th", size: 10 },
-      { selector: ".copyCell > span:last-child", size: 10 },
-      { selector: ".anglePill", size: 10.5 },
-      { selector: ".roasPill", size: 11.5 },
-      { selector: ".emptyPanel", size: 11 },
-      { selector: ".signalPill", size: 11 },
-      { selector: ".readKind", size: 9 },
-      { selector: ".testEstimate", size: 9 },
-      {
-        selector: ".readEmpty, .historyEmpty, .breakdownEmpty, .inboxEmpty",
-        size: 11,
-      },
-      { selector: ".historyHeader span, .audienceSectionHeading span", size: 10.5 },
-      { selector: ".historyRow > span:first-child", size: 10.5 },
-      { selector: ".historyRow > span:last-child", size: 11 },
-      { selector: ".inboxColumnHeader", size: 10 },
-      { selector: ".inboxSource", size: 9 },
-      { selector: ".inboxCardNote", size: 11.5 },
-      { selector: ".avatar", size: 9 },
-      { selector: ".inboxDue", size: 10 },
-      { selector: ".inboxAction", size: 11 },
-      { selector: ".audienceNote", size: 11.5 },
-      { selector: ".breakdownHeader span", size: 8.5 },
-      { selector: ".breakdownRow > span:first-child", size: 10.5 },
-      { selector: ".breakdownRow > span:nth-child(3)", size: 10.5 },
-      { selector: ".breakdownNote", size: 11 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Launchpad values narrow and exact", () => {
-    const source = readFileSync(EXACT_LAUNCHPAD_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_LAUNCHPAD_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_LAUNCHPAD_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_LAUNCHPAD_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactLaunchpad = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactLaunchpad.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    )
-      .map((match) => ({
-        selector: match[1]!.replace(/\s+/g, " ").trim(),
-        size: Number(match[2]),
-      }))
-      .filter(({ size }) => size < 12);
-
-    expect(declarations).toEqual([
-      {
-        selector:
-          ".exactHeader p, .exactReceiptId, .exactModeChip, .exactValidationChip",
-        size: 11,
+      selector:
+      ".exactHeader p, .exactReceiptId, .exactModeChip, .exactValidationChip",
+      size: 11,
       },
       {
-        selector:
-          ".exactStartChip, .exactSectionHeader span, .exactReceiptStatus",
-        size: 10.5,
+      selector:
+      ".exactStartChip, .exactSectionHeader span, .exactReceiptStatus",
+      size: 10.5,
       },
       { selector: ".exactDraftTable th", size: 10 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Automation values narrow and exact", () => {
-    const source = readFileSync(EXACT_AUTOMATION_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_AUTOMATION_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_AUTOMATION_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_AUTOMATION_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactAutomation = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactAutomation.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    ).map((match) => ({
-      selector: match[1]!.replace(/\s+/g, " ").trim(),
-      size: Number(match[2]),
-    }));
-
-    expect(declarations).toEqual([
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Automation",
+    file: "app/(dashboard)/platforms/meta/automation/automation.module.css",
+    start:
+      "/* dashboard-v2-automation-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-automation-exact-reference-type:end */",
+    pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
       { selector: ".statusPill, .killNote", size: 11.5 },
       { selector: ".promotionCount", size: 11 },
       {
-        selector:
-          ".confirmationCount, .confirmationHint, .sectionHint, .autonomyTier",
-        size: 10.5,
+      selector:
+      ".confirmationCount, .confirmationHint, .sectionHint, .autonomyTier",
+      size: 10.5,
       },
       {
-        selector:
-          ".sectionFootnote, .rulesTable th, .ledgerTable th, .progressValue",
-        size: 10,
+      selector:
+      ".sectionFootnote, .rulesTable th, .ledgerTable th, .progressValue",
+      size: 10,
       },
       { selector: ".autonomyNext, .ledgerUnknown", size: 11 },
       { selector: ".ledgerTime", size: 11.5 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Google Overview values narrow and exact", () => {
-    const source = readFileSync(EXACT_GOOGLE_OVERVIEW_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_GOOGLE_OVERVIEW_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_GOOGLE_OVERVIEW_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_GOOGLE_OVERVIEW_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactOverview = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactOverview.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    )
-      .map((match) => ({
-        selector: match[1]!.replace(/\s+/g, " ").trim(),
-        size: Number(match[2]),
-      }))
-      .filter(({ size }) => size < 12);
-
-    expect(declarations).toEqual([
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Google Overview",
+    file: "components/google-ads/GoogleOverviewExact.module.css",
+    start:
+      "/* dashboard-v2-google-overview-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-google-overview-exact-reference-type:end */",
+    pins: [
       { selector: ".pageEyebrow", size: 11 },
       { selector: ".guardCopy, .sectionNote", size: 10.5 },
       { selector: ".metricLabel", size: 9.5 },
       { selector: ".metricDelta", size: 11.5 },
       {
-        selector:
-          ".metricDetail, .chartTooltip, .lookEvidence, .campaignTable th, .campaignType",
-        size: 10,
+      selector:
+      ".metricDetail, .chartTooltip, .lookEvidence, .campaignTable th, .campaignType",
+      size: 10,
       },
       { selector: ".chartAverageLabel", size: 8.5 },
       { selector: ".secondaryLabel, .severity, .budgetKpiLabel", size: 9 },
@@ -382,29 +199,17 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".roasPill", size: 11.5 },
       { selector: ".budgetKpiDetail", size: 11 },
       { selector: ".budgetAmount, .budgetReason", size: 11.5 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Google Advisor values narrow and exact", () => {
-    const source = readFileSync(EXACT_GOOGLE_ADVISOR_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_GOOGLE_ADVISOR_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_GOOGLE_ADVISOR_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(EXACT_GOOGLE_ADVISOR_TYPE_FILE, source);
-    expect(bounds).not.toBeNull();
-    const exactAdvisor = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactAdvisor.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    )
-      .map((match) => ({
-        selector: match[1]!.replace(/\s+/g, " ").trim(),
-        size: Number(match[2]),
-      }))
-      .filter(({ size }) => size < 12);
-
-    expect(declarations).toEqual([
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Google Advisor",
+    file: "components/google-ads/GoogleAdvisorExact.module.css",
+    start:
+      "/* dashboard-v2-google-advisor-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-google-advisor-exact-reference-type:end */",
+    pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".guardCopy", size: 10.5 },
       { selector: ".tileLabel", size: 9.5 },
@@ -417,32 +222,17 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
-    ]);
-  });
-
-  it("keeps the marker-bounded Google Search/Products values narrow and exact", () => {
-    const source = readFileSync(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE, "utf8");
-    expect(source.split(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_START)).toHaveLength(2);
-    expect(source.split(EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_END)).toHaveLength(2);
-
-    const bounds = exactReferenceTypeBounds(
-      EXACT_GOOGLE_SEARCH_PRODUCTS_TYPE_FILE,
-      source,
-    );
-    expect(bounds).not.toBeNull();
-    const exactSearchProducts = source.slice(bounds!.start, bounds!.end);
-    const declarations = Array.from(
-      exactSearchProducts.matchAll(
-        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
-      ),
-    )
-      .map((match) => ({
-        selector: match[1]!.replace(/\s+/g, " ").trim(),
-        size: Number(match[2]),
-      }))
-      .filter(({ size }) => size < 12);
-
-    expect(declarations).toEqual([
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Google Search/Products",
+    file: "components/google-ads/GoogleSearchProductsExact.module.css",
+    start:
+      "/* dashboard-v2-google-search-products-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-google-search-products-exact-reference-type:end */",
+    pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".guardCopy, .cardSubtitle", size: 10.5 },
       { selector: ".statLabel, .allocationNote", size: 11.5 },
@@ -455,8 +245,223 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".statusChip", size: 11 },
       { selector: ".tileLabel", size: 9.5 },
       { selector: ".tileSub, .footnote", size: 11 },
-    ]);
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Integrations",
+    file: "components/integrations/IntegrationsExact.module.css",
+    start:
+      "/* dashboard-v2-integrations-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-integrations-exact-reference-type:end */",
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".statusPill", size: 11 },
+      { selector: ".firstSyncLabel", size: 10 },
+      { selector: ".firstSyncPercent, .cardMeta, .soonNote", size: 10.5 },
+      { selector: ".stepLabel, .soonEta, .soonButton", size: 11.5 },
+      { selector: ".stepNote", size: 9.5 },
+      { selector: ".soonBadge", size: 8.5 },
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Klaviyo",
+    file: "components/klaviyo/KlaviyoExact.module.css",
+    start:
+      "/* dashboard-v2-klaviyo-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-klaviyo-exact-reference-type:end */",
+    pins: [
+      { selector: ".eyebrow, .statusChip, .footNote", size: 11 },
+      { selector: ".th", size: 10 },
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "Insights chrome",
+    file: "components/insights/InsightsShellExact.module.css",
+    start:
+      "/* dashboard-v2-insights-shell-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-insights-shell-exact-reference-type:end */",
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".dateChip :global(.adv-date-range-trigger)", size: 11.5 },
+      { selector: ".sourceState", size: 10.5 },
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Insights Analytics",
+    file: "components/analytics/InsightsAnalyticsExact.module.css",
+    start:
+      "/* dashboard-v2-insights-analytics-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-insights-analytics-exact-reference-type:end */",
+    pins: [
+      { selector: ".kpiLabel", size: 9.5 },
+      { selector: ".kpiDelta", size: 11.5 },
+      { selector: ".segmentLabel", size: 10 },
+      { selector: ".segmentBadge", size: 11 },
+      { selector: ".segmentMetricLabel", size: 11 },
+      { selector: ".kindChip", size: 9 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".signalChip", size: 11 },
+      { selector: ".tableNote", size: 11.5 },
+      { selector: ".tdCohortMono", size: 11.5 },
+      { selector: ".retentionChip", size: 11 },
+      { selector: ".trailingNote", size: 11.5 },
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "Reports",
+    file: "components/reports/ReportsExact.module.css",
+    start:
+      "/* dashboard-v2-reports-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-reports-exact-reference-type:end */",
+    pins: [
+      {
+      selector:
+      ".kpiMiniKey, .briefLabel, .briefRowLabel, .briefNeedLabel, .briefWhyLabel",
+      size: 8,
+      },
+      {
+      selector:
+      ".paletteSource, .aiTag, .blockSourceNote, .funnelLabel, .briefTag, .briefSpec, .briefFoot",
+      size: 8.5,
+      },
+      { selector: ".templateCategory, .blockSize, .briefGate", size: 9 },
+      {
+      selector:
+      ".templateContentIndex, .paletteEyebrow, .blockTitle, .inspectorEyebrow, .inspectorKind, .inspectorFootnote, .toggleNote, .briefStatus",
+      size: 9.5,
+      },
+      {
+      selector:
+      ".tabCount, .templateCadence, .templateFooterMeta, .builderCounter, .canvasMeta, .briefFromMeta, .briefMakeSub",
+      size: 10,
+      },
+      {
+      selector:
+      ".exportNote, .savedStatus, .savedMeta, .donutLegendItem, .briefWhy, .briefChip, .briefRule",
+      size: 10.5,
+      },
+      {
+      selector:
+      ".eyebrow, .footnote, .blockHandle, .blockRemove, .kpiDelta, .recipient, .recipientAdd",
+      size: 11,
+      },
+      {
+      selector:
+      ".paletteGroupName, .fieldLabel, .segment, .inspectorHintText, .briefFromName",
+      size: 11.5,
+      },
+    ],
+    pinsBelowFloorOnly: false,
+  },
+  {
+    name: "creative evidence window",
+    file: "components/creatives/CreativeEvidenceWindowExact.module.css",
+    start:
+      "/* dashboard-v2-evidence-window-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-evidence-window-exact-reference-type:end */",
+    pins: [
+      {
+      selector:
+      ".cardEyebrow, .cardEyebrowSpaced, .cardEyebrowReasons, .cardEyebrowTight",
+      size: 9,
+      },
+      { selector: ".headerEyebrow, .funnelSub, .placementStats", size: 9.5 },
+      { selector: ".previewPlaceholder, .provenance", size: 10 },
+      {
+      selector: ".previewKind, .adSetSpend, .adSetRoas, .adSetNote",
+      size: 10.5,
+      },
+      { selector: ".bandPill, .seriesNote, .factValue", size: 11 },
+      {
+      selector: ".moneySub, .funnelLabel, .placementHead, .factLabel",
+      size: 11.5,
+      },
+    ],
+    pinsBelowFloorOnly: true,
+  },
+  {
+    name: "copy detail drawer",
+    file: "components/creatives/CopyDetailDrawerExact.module.css",
+    start:
+      "/* dashboard-v2-copy-drawer-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-copy-drawer-exact-reference-type:end */",
+    pins: [
+      { selector: ".statLabel", size: 8.5 },
+      { selector: ".statSub, .cardEyebrow, .alternateAngle", size: 9 },
+      { selector: ".headerEyebrow, .alternatesHead span", size: 9.5 },
+      { selector: ".footnote", size: 10 },
+      { selector: ".anglePill, .draftButton", size: 10.5 },
+      { selector: ".alternateWhy", size: 11 },
+    ],
+    pinsBelowFloorOnly: true,
+  },
+];
+
+function exactReferenceTypeBounds(file: string, source: string) {
+  const surface = EXACT_REFERENCE_SURFACES.find((entry) => entry.file === file);
+  if (!surface) return null;
+  const markerStart = source.indexOf(surface.start);
+  const markerEnd =
+    surface.end === null ? source.length : source.indexOf(surface.end);
+  if (markerStart < 0 || markerEnd <= markerStart) return null;
+  return { start: markerStart + surface.start.length, end: markerEnd };
+}
+
+function markerBoundedDeclarations(surface: ExactReferenceSurface) {
+  const source = readFileSync(surface.file, "utf8");
+  const bounds = exactReferenceTypeBounds(surface.file, source);
+  const declarations =
+    bounds === null
+      ? []
+      : Array.from(
+          source
+            .slice(bounds.start, bounds.end)
+            .matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
+        ).map((match) => ({
+          selector: match[1]!.replace(/\s+/g, " ").trim(),
+          size: Number(match[2]),
+        }));
+  return { source, bounds, declarations };
+}
+
+describe("no essential text is rendered below the readable floor", () => {
+  it("finds stylesheets to check", () => {
+    expect(STYLESHEETS.length).toBeGreaterThan(5);
   });
+
+  it("registers every exact-reference stylesheet exactly once", () => {
+    const files = EXACT_REFERENCE_SURFACES.map((surface) => surface.file);
+    expect(new Set(files).size).toBe(files.length);
+  });
+
+  for (const surface of EXACT_REFERENCE_SURFACES) {
+    if (surface.pins === null) continue;
+    it(`keeps the marker-bounded ${surface.name} values narrow and exact`, () => {
+      const { source, bounds, declarations } = markerBoundedDeclarations(surface);
+      expect(source.split(surface.start)).toHaveLength(2);
+      if (surface.end !== null) {
+        expect(source.split(surface.end)).toHaveLength(2);
+      }
+      expect(bounds).not.toBeNull();
+      const pinned = surface.pinsBelowFloorOnly
+        ? declarations.filter(({ size }) => size < 12)
+        : declarations;
+      expect(pinned).toEqual(surface.pins);
+    });
+  }
 
   it("has no font-size below 12px outside the exact shell marker", () => {
     const violations: string[] = [];

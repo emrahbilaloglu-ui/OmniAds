@@ -4980,11 +4980,12 @@ on that same leaf carrying only the session's authorized business id).
     (`components/commercial-truth/CommercialTruthScreen.tsx:304-395`), which
     writes the target pack through `/api/business-commercial-settings` and the
     monthly fixed base through the same `/api/business-cost-model` `PUT` the
-    removed form used. One narrowing remains and is stated rather than hidden:
-    Commercial Truth writes `business_cost_model` only when the fixed-costs
-    field is part of the edit (`:367`), so changing only COGS in that table now
-    requires touching fixed costs in the same save. The removed form could write
-    the four columns independently.
+    removed form used. One narrowing was left behind and stated rather than
+    hidden: Commercial Truth wrote `business_cost_model` only when the
+    fixed-costs field was part of the edit (`:367`), so changing only COGS in
+    that table required touching fixed costs in the same save, while the removed
+    form could write the four columns independently. **Closed** — see
+    `CAPABILITY-02`.
   - *Delete business*: still reachable at `/select-business`
     (`app/(dashboard)/select-business/page.tsx:111-145`), behind a
     type-the-workspace-name confirmation, hitting the identical
@@ -4994,11 +4995,12 @@ on that same leaf carrying only the session's authorized business id).
   - *Economics source grid* and *recommended mode*: read-only displays. The same
     facts are on Commercial Truth's own "Consumed by" block, and the recommended
     mode was explicitly non-editable (`RECOMMENDED_MODE_READ_ONLY`).
-  - *Workspace name / currency*: this is the one capability with no surviving
-    UI. It was not part of any Dashboard v2 screen, and
-    `PATCH /api/businesses/{id}` is untouched, but no rendered surface calls it
-    any more. Recorded here as an open product decision, not as something the
-    port silently deleted.
+  - *Workspace name / currency*: this was the one capability left with no
+    surviving UI. It was not part of any Dashboard v2 screen, and
+    `PATCH /api/businesses/{id}` is untouched, but no rendered surface called it
+    any more. Recorded rather than presented as something the port did not
+    delete. **Closed** — see `CAPABILITY-01`; it lives beside the delete
+    ceremony on `/select-business`.
 
 ### What became orphaned
 
@@ -5041,5 +5043,110 @@ business half from `/c/[businessId]/manage/business` to
 `/c/[businessId]/manage/plan` — after which `/settings` still asks the only
 question that is genuinely ambiguous (the person, or the workspace), and both
 answers land on a screen the design actually draws.
+
+---
+
+## Capability regressions closed
+
+`ROUTE-03` removed five blocks from `/…/manage/business` and audited each one
+for lost capability. Two of the five losses were real and were recorded rather
+than hidden. Both are closed here, with the evidence that they were real and
+the evidence that they are now not.
+
+### CAPABILITY-01 · HIGH · MISSING — No rendered surface could rename a workspace or change its currency
+
+- **Was it real:** yes. `PATCH /api/businesses/{id}`
+  (`app/api/businesses/[businessId]/route.ts:29-77`) was untouched and worked,
+  but after the rewire nothing called it. `grep -rn "method: \"PATCH\""` over
+  `app/` and `components/` returned no request to `/api/businesses/`; the only
+  form that had ever issued one was `BusinessView`'s workspace-settings block
+  (`components/zero-base/manage/manage-views.tsx:991-1033`), which no route
+  mounts any more. A workspace could be created with a currency and deleted,
+  but never corrected.
+- **Where it went, and why there:** `/select-business`
+  (`app/(dashboard)/select-business/page.tsx`). Dashboard v2 defines no
+  workspace name or currency field on any screen — its Settings screen is Full
+  name, Email, Interface language and Workspace timezone — so putting this on a
+  design screen would have been inventing UI the design does not define. The
+  same page already owns the *other* workspace-level operation, the delete
+  ceremony at `:111-145`, and `/select-business` is not a design screen, so its
+  body is ours to shape. The control is written in that page's own `ad-auth-*`
+  language; no design component is imported into it.
+- **Authorization:** the route is reused exactly, including
+  `requireBusinessAccess({ minRole: "admin" })` and its demo-business refusal.
+  The control is rendered only for a workspace that is not the demo one — the
+  delete ceremony's own gate — *and* whose membership role reads `admin`.
+  `admin` is the top weight in `ROLE_WEIGHT`
+  (`lib/access-membership.ts:22-26`), so that is exactly `hasRole("admin", …)`.
+  The role is read from `/api/businesses`, which serves it
+  (`lib/access-membership.ts:84-96`) but which the client bootstrap drops when
+  it maps the payload into the store (`components/layout/auth-bootstrap.tsx:143-153`).
+  A read that does not land leaves the control hidden.
+- **Currency:** the option list is `CURRENCY_OPTIONS`, reused from
+  `components/business/BusinessForm.tsx` — the control that already chooses a
+  workspace currency — rather than a second hand-written list. A stored code
+  outside that list is still offered when it is a valid ISO 4217 code, so
+  opening the form cannot silently redenominate a workspace; one that is not a
+  valid code is not offered at all and the form refuses to save until a real one
+  is chosen. Server-side, the route now refuses anything that is not
+  `/^[A-Z]{3}$/` with `invalid_currency`, the same shape every currency reader
+  in this repo enforces (`lib/google-analytics-accounts.ts:199-203`,
+  `lib/custom-report-renderer.ts:31-34`, `lib/google-ads/account-scope.ts:32`) —
+  it was previously accepted verbatim, so `"EURO"` would have been stored and
+  would have thrown a `RangeError` out of `Intl.NumberFormat` at read time.
+- **Proof:** `app/(dashboard)/select-business/page.test.tsx` (6 tests) — the
+  control renders for an admin with the stored name and currency; it is absent
+  for a `collaborator` while the delete button beside it still renders, and
+  absent on the demo workspace exactly as delete is; a save issues
+  `PATCH /api/businesses/biz_1` with the trimmed name and chosen currency and
+  then re-reads the list; a currency the product does not offer is refused
+  before any request; and a refusal from the route is surfaced rather than
+  reported as a save. `app/api/businesses/[businessId]/route.test.ts` adds 4
+  PATCH tests: `minRole: "admin"` is still what the route demands, the write
+  reaches `updateBusinessSettings` upper-cased, `US` / `EURO` / `12` / `€` are
+  each refused 400 `invalid_currency` before any write, and the demo business is
+  refused 403.
+
+### CAPABILITY-02 · HIGH · WRONG — Commercial Truth wrote `business_cost_models` only when the fixed base was part of the same edit
+
+- **Was it real:** yes, though not in the shape "the edit is lost". The exact
+  condition was `if (drafts.fixedCosts !== undefined)` at
+  `components/commercial-truth/CommercialTruthScreen.tsx:367`, wrapping the only
+  `PUT /api/business-cost-model` on the screen. An edit to gross margin,
+  shipping or payment fees *did* persist — into the target pack's
+  `costStructure`, through `PUT /api/business-commercial-settings` — and the
+  screen redisplayed it, because its adapter reads the pack override first and
+  the live cost model second (`commercial-truth-exact-adapter.ts:218-235`,
+  `pick`). What did not happen was the write to `business_cost_models`, which is
+  a different table with different readers: overview profit estimates
+  (`lib/overview-summary-support.ts:2,422`) and the Google advisor
+  (`lib/google-ads/serving.ts:3638`). So the operator saw their new margin on
+  Commercial Truth while the rest of the product kept costing at the stale
+  percentages — a divergence the screen's own reader hid. The removed
+  `BusinessView` cost form wrote those four columns directly
+  (`components/zero-base/manage/manage-views.tsx:1059-1113`).
+- **Was the condition a guard for a reason:** partly, and that part is kept.
+  `PUT /api/business-cost-model` takes all four columns and refuses a null in
+  any of them (`app/api/business-cost-model/route.ts:72-91`), so a write is only
+  possible when all four are known. The old code expressed that as "only write
+  when fixed costs are edited", which is stricter than the reason requires.
+- **Change:** the write now runs whenever any of the four cost fields is part of
+  the edit, carrying the three the operator did not touch at their stored values
+  — the pack override first, then the live cost model — so a single-field edit
+  cannot blank the rest. When a column is genuinely unknown the write is
+  skipped rather than invented: a workspace with no `business_cost_models` row
+  has no monthly fixed base, and writing `0` would be fabricating one. The one
+  case that still fails loudly is the one that must: an edit that *names* the
+  fixed base and cannot be written, because that column lives nowhere else.
+- **Proof:** `components/commercial-truth/CommercialTruthScreen.test.tsx`, 6 new
+  tests, one per field. Editing exactly one of gross margin (which is the COGS
+  control — the screen has no separate COGS field, it stores `1 − margin`),
+  shipping, payment fees or the monthly fixed base sends that column changed and
+  the other three at their stored values; a pack that carries no override falls
+  back to the live cost model for the untouched columns; and an edit that
+  touches no cost field still writes the pack and leaves the cost model alone.
+  Against the pre-change file, 4 of the 6 fail — the gross-margin, shipping,
+  payment-fee and fallback cases, each with `expected [] to have a length of 1`,
+  which is the missing write itself.
 
 ---

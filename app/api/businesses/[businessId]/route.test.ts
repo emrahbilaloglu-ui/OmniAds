@@ -39,7 +39,85 @@ const schemaReadiness = await import("@/lib/db-schema-readiness");
 const demoBusiness = await import("@/lib/demo-business");
 const requestLanguage = await import("@/lib/request-language");
 const migrations = await import("@/lib/migrations");
-const { DELETE } = await import("@/app/api/businesses/[businessId]/route");
+const accountStore = await import("@/lib/account-store");
+const { DELETE, PATCH } = await import("@/app/api/businesses/[businessId]/route");
+
+/**
+ * The workspace rename and currency change.
+ *
+ * Dashboard v2 draws no field for either, so `/select-business` is the only
+ * surface that calls this — which makes the route's own refusals the last line
+ * rather than a redundancy behind a form.
+ */
+describe("PATCH /api/businesses/[businessId]", () => {
+  function patchRequest(body: unknown) {
+    return new NextRequest("http://localhost/api/businesses/biz", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: {} as never,
+      membership: {} as never,
+    });
+    vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
+    vi.mocked(accountStore.updateBusinessSettings).mockResolvedValue({
+      id: "biz",
+      name: "Grandmix",
+      timezone: null,
+      timezoneSource: null,
+      currency: "EUR",
+    } as never);
+  });
+
+  it("still requires admin on the business being renamed", async () => {
+    await PATCH(patchRequest({ name: "Grandmix", currency: "EUR" }), {
+      params: Promise.resolve({ businessId: "biz" }),
+    });
+    expect(vi.mocked(access.requireBusinessAccess).mock.calls[0]![0]).toMatchObject({
+      businessId: "biz",
+      minRole: "admin",
+    });
+  });
+
+  it("writes the new name and currency through the account store", async () => {
+    const response = await PATCH(patchRequest({ name: "Grandmix", currency: "eur" }), {
+      params: Promise.resolve({ businessId: "biz" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(accountStore.updateBusinessSettings).toHaveBeenCalledWith({
+      businessId: "biz",
+      name: "Grandmix",
+      currency: "EUR",
+    });
+  });
+
+  it("refuses a currency that is not an ISO 4217 code, before any write", async () => {
+    for (const currency of ["US", "EURO", "12", "€"]) {
+      const response = await PATCH(patchRequest({ name: "Grandmix", currency }), {
+        params: Promise.resolve({ businessId: "biz" }),
+      });
+      expect(response.status, currency).toBe(400);
+      expect(((await response.json()) as { error?: string }).error).toBe("invalid_currency");
+    }
+    expect(accountStore.updateBusinessSettings).not.toHaveBeenCalled();
+  });
+
+  it("refuses the demo business outright", async () => {
+    vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(true);
+    const response = await PATCH(patchRequest({ name: "Grandmix", currency: "EUR" }), {
+      params: Promise.resolve({ businessId: "demo" }),
+    });
+    expect(response.status).toBe(403);
+    expect(accountStore.updateBusinessSettings).not.toHaveBeenCalled();
+  });
+});
 
 describe("DELETE /api/businesses/[businessId]", () => {
   beforeEach(() => {

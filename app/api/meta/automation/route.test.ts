@@ -439,7 +439,7 @@ describe("GET /api/meta/automation", () => {
       postRequest({
         action: "set_guardrail_policy",
         minRoasFloor: 2.5,
-        quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+        quietHours: { start: "00:00", end: "07:00", timezone: "America/New_York" },
       }),
     );
 
@@ -451,8 +451,40 @@ describe("GET /api/meta/automation", () => {
       businessId: BUSINESS_ID,
       userId: "user_1",
       minRoasFloor: 2.5,
-      quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+      quietHours: { start: "00:00", end: "07:00", timezone: "America/New_York" },
     });
+  });
+
+  it("refuses a display label the clock cannot resolve, rather than arming an outage", async () => {
+    // The write boundary fails CLOSED on a window it cannot locate, so "ET"
+    // saved successfully would refuse every provider write around the clock,
+    // with nothing on screen to say why. It has to be refused here, where the
+    // message still reaches the operator.
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: null,
+        quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_quiet_hours_timezone");
+    expect(controlPlane.setMetaAutomationGuardrailPolicy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a window that begins where it ends", async () => {
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: null,
+        quietHours: { start: "02:00", end: "02:00", timezone: "America/New_York" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(controlPlane.setMetaAutomationGuardrailPolicy).not.toHaveBeenCalled();
   });
 
   it("refuses a half-specified quiet-hours window", async () => {
@@ -460,7 +492,7 @@ describe("GET /api/meta/automation", () => {
       postRequest({
         action: "set_guardrail_policy",
         minRoasFloor: null,
-        quietHours: { start: "00:00", end: "", timezone: "ET" },
+        quietHours: { start: "00:00", end: "", timezone: "America/New_York" },
       }),
     );
     const payload = await response.json();

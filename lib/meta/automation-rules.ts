@@ -532,7 +532,16 @@ export function validateAutomationRuleDraft(input: {
   };
 }
 
-function isSupportedTimeZone(timeZone: string) {
+/**
+ * Does this string name a zone the runtime can actually locate on the clock?
+ *
+ * Exported because the save boundary must ask the same question the write
+ * boundary does. A quiet-hours window whose zone cannot be resolved fails
+ * CLOSED -- it refuses every provider write, around the clock -- so accepting
+ * an unresolvable label at save time turns a safety control into an outage the
+ * operator cannot see coming.
+ */
+export function isSupportedTimeZone(timeZone: string) {
   if (!timeZone) return false;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });

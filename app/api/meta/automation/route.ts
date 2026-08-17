@@ -14,7 +14,10 @@ import {
   type MetaAutomationDecisionMode,
   type MetaAutomationQuietHours,
 } from "@/lib/meta/automation-control-plane";
-import { AutomationRuleValidationError } from "@/lib/meta/automation-rules";
+import {
+  AutomationRuleValidationError,
+  isSupportedTimeZone,
+} from "@/lib/meta/automation-rules";
 import { evaluateBusinessAutomationRules } from "@/lib/meta/automation-rules-evaluation";
 import {
   AutomationRuleDuplicateNameError,
@@ -263,6 +266,26 @@ export async function POST(request: NextRequest) {
           400,
           "invalid_quiet_hours",
           "quietHours must be {start,end} as HH:MM with a non-empty timezone label, or null to clear it.",
+        );
+      }
+      // The write boundary fails CLOSED on a window it cannot locate on the
+      // clock: an unresolvable zone, or a start equal to its end, refuses every
+      // provider write around the clock. Accepting either here would let an
+      // operator arm that outage by typing a display label like "ET", and only
+      // find out when writes stopped. Refuse at entry, where the message can
+      // still reach the person who can fix it.
+      if (!isSupportedTimeZone(timezone)) {
+        return jsonError(
+          400,
+          "invalid_quiet_hours_timezone",
+          `quietHours.timezone must be an IANA zone this server can resolve, such as America/New_York — "${timezone}" is not one.`,
+        );
+      }
+      if (start === end) {
+        return jsonError(
+          400,
+          "invalid_quiet_hours",
+          "quietHours.start and quietHours.end must differ; a window that begins where it ends names neither a range nor a whole day.",
         );
       }
       quietHours = { start, end, timezone };

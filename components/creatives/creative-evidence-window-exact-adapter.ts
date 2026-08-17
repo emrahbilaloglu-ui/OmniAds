@@ -31,6 +31,19 @@ export interface CreativeEvidenceWindowExactAdRow {
   launchDate: string | null;
 }
 
+/** One day of the per-ad trail, as `/api/meta/ads/series` serves it. */
+export interface CreativeEvidenceWindowExactSeriesPoint {
+  date: string;
+  /** Percent, not a fraction. */
+  linkCtr: number | null;
+  frequency: number | null;
+}
+
+export interface CreativeEvidenceWindowExactSeriesPayload {
+  adCount: number;
+  points: readonly CreativeEvidenceWindowExactSeriesPoint[];
+}
+
 export interface CreativeEvidenceWindowExactAdapterInput {
   /** Presentation decision — carries CTR, frequency, ad set identity, action. */
   decision?: MetaOsAdDecision | null;
@@ -38,6 +51,8 @@ export interface CreativeEvidenceWindowExactAdapterInput {
   canonical?: MetaCanonicalDecision | null;
   /** Ad-grain rows for this creative. Undefined means the read has not resolved. */
   adRows?: readonly CreativeEvidenceWindowExactAdRow[];
+  /** Daily CTR / frequency trail. Undefined means the read has not resolved. */
+  adSeries?: CreativeEvidenceWindowExactSeriesPayload | null;
   fallbackCurrency?: string | null;
   hrefs?: {
     compareInStudio?: string | null;
@@ -188,13 +203,129 @@ function isoDate(value: string | null | undefined): string | null {
 }
 
 /**
- * The design's funnel bars are a visual scale, not a literal share: 1.42M
- * impressions and 318 purchases are drawn at 100% and 15%. The printed value
- * beside each bar stays literal; only the bar length is compressed.
+ * The design's funnel bars are a log scale, not a literal share, and the scale
+ * is recoverable from the design's own three funnels. Solving each authored
+ * width for the decade span `D` in `1 + log10(v / top) / D` gives 4.09–4.35 on
+ * seven of the nine sub-bars (design file 3610, 3624, 3638), so the design
+ * draws a fixed window of decades below the funnel top. This uses that window.
+ *
+ * The two residuals are the `Clicks` bars of the Refresh and Retire funnels,
+ * which the design draws shorter than its own scale (D 3.65 and 3.45); those
+ * are recorded as DRAWERS-43 rather than fitted, because no single monotone
+ * rule reproduces them alongside the other seven.
+ *
+ * A decade window is also the only form of this that is scale-free: it depends
+ * on `v / top` alone, so two funnels of the same shape draw the same whatever
+ * the account's volume. The previous `log10(v + 1) / log10(top + 1)` did not —
+ * it grew toward 100% as raw counts grew, and drew this funnel's sub-bars at
+ * 68 / 48 / 41 against the design's 46 / 27 / 15.
+ *
+ * The number printed beside each bar stays the literal served count.
  */
+const FUNNEL_BAR_DECADES = 4.25;
+
 function funnelShare(value: number | null, top: number | null): number | null {
   if (value === null || top === null || top <= 0 || value <= 0) return null;
-  return Math.log10(value + 1) / Math.log10(top + 1);
+  const share = 1 + Math.log10(value / top) / FUNNEL_BAR_DECADES;
+  return Math.min(1, Math.max(0, share));
+}
+
+/**
+ * The design's sparkline geometry: 28 points across a `0 0 100 22` viewBox with
+ * a 2px inset top and bottom, one decimal per coordinate (design file 3187).
+ */
+const SPARK_HEIGHT = 22;
+const SPARK_INSET = 2;
+
+function sparklinePath(values: readonly number[]): string | null {
+  if (values.length < 2) return null;
+  let min = values[0];
+  let max = values[0];
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  const span = max - min;
+  const usable = SPARK_HEIGHT - SPARK_INSET * 2;
+  const step = 100 / (values.length - 1);
+  return values
+    .map((value, index) => {
+      const fraction = span === 0 ? 0.5 : (value - min) / span;
+      const y = SPARK_HEIGHT - SPARK_INSET - fraction * usable;
+      return `${index === 0 ? "M" : "L"}${(index * step).toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function mean(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/**
+ * Percent change of the trailing half of the window against the leading half —
+ * the design's "vs 14d baseline" on a 28-day series, computed from the series
+ * itself rather than from a second, unserved baseline.
+ */
+function halfWindowDelta(values: readonly number[]): { delta: number; days: number } | null {
+  if (values.length < 4) return null;
+  const half = Math.floor(values.length / 2);
+  const prior = mean(values.slice(0, half));
+  const recent = mean(values.slice(values.length - half));
+  if (prior === null || recent === null || prior <= 0) return null;
+  return { delta: ((recent - prior) / prior) * 100, days: half };
+}
+
+function signedPercent(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+function adCountSuffix(adCount: number): string {
+  return adCount > 1 ? ` · ${adCount} ads` : "";
+}
+
+function buildSeriesPair(
+  payload: CreativeEvidenceWindowExactSeriesPayload | null | undefined,
+): {
+  ctr: { path: string | null; note: string };
+  frequency: { path: string | null; note: string };
+} {
+  const empty = { path: null, note: EM_DASH };
+  if (!payload || payload.points.length === 0) {
+    return { ctr: { ...empty }, frequency: { ...empty } };
+  }
+  const suffix = adCountSuffix(payload.adCount);
+
+  const ctrValues = payload.points
+    .map((point) => finite(point.linkCtr))
+    .filter((value): value is number => value !== null);
+  const ctrDelta = halfWindowDelta(ctrValues);
+  const ctrPath = sparklinePath(ctrValues);
+  const ctrNote =
+    ctrPath === null
+      ? EM_DASH
+      : ctrDelta
+        ? `link CTR ${signedPercent(ctrDelta.delta)} vs prior ${ctrDelta.days}d${suffix}`
+        : `link CTR · ${ctrValues.length} days served${suffix}`;
+
+  const frequencyValues = payload.points
+    .map((point) => finite(point.frequency))
+    .filter((value): value is number => value !== null);
+  const frequencyDelta = halfWindowDelta(frequencyValues);
+  const frequencyPath = sparklinePath(frequencyValues);
+  const latestFrequency = frequencyValues[frequencyValues.length - 1];
+  const frequencyNote =
+    frequencyPath === null
+      ? EM_DASH
+      : frequencyDelta
+        ? `${latestFrequency.toFixed(1)} · ${signedPercent(frequencyDelta.delta)} vs prior ${frequencyDelta.days}d${suffix}`
+        : `${latestFrequency.toFixed(1)} · ${frequencyValues.length} days served${suffix}`;
+
+  return {
+    ctr: { path: ctrPath, note: ctrNote },
+    frequency: { path: frequencyPath, note: frequencyNote },
+  };
 }
 
 function sumRows(
@@ -339,9 +470,13 @@ function buildFunnel(input: {
 }
 
 function buildPlacements(): CreativeEvidenceWindowExactPlacement[] {
-  // `meta_breakdown_daily` carries no campaign/ad set key and no purchase
-  // value, so no served source can produce per-creative placement share and
-  // ROAS. The card keeps its geometry and states the absence.
+  // `meta_breakdown_daily` does carry revenue and roas (lib/migrations.ts:7796
+  // and `MetaWarehouseMetricSet`); what it has no column for is the entity.
+  // Its unique key is (business_id, provider_account_id, date, breakdown_type,
+  // breakdown_key) — no campaign, ad set or ad — so every placement row is
+  // account-wide. A per-creative placement share cannot be computed from an
+  // account-grain row at all, and its ROAS would be the account's, not this
+  // creative's. The card keeps its geometry and states the absence.
   return [1, 2, 3].map((slot) => ({
     id: `placement-${slot}`,
     label: EM_DASH,
@@ -368,7 +503,12 @@ function buildFacts(input: {
       label: "Frequency",
       value: frequency === null ? EM_DASH : frequency.toFixed(1),
     },
-    // Meta's reach breakdown is not persisted per ad in this warehouse.
+    // Plain reach IS served per ad (`meta_ad_daily.reach`, surfaced as
+    // `CreativeWarehouseCommonFields.reach`). First-time reach is not: it is
+    // the share of that reach seeing the creative for the first time, and
+    // nothing in the warehouse decomposes a day's reach into new and repeat
+    // people. Printing plain reach — or 1/frequency — under this label would
+    // be the same substitution DRAWERS-40 refuses for Hold 15s.
     "first-time-reach": { label: "First-time reach", value: EM_DASH },
     thumbstop: { label: "Thumbstop", value: formatPercent(thumbstop, 1) },
     // ThruPlay is the nearest served fact and is not a 15s hold, so this stays
@@ -470,6 +610,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
   );
   const spend = finite(decision?.metrics.spend ?? canonical?.metrics.spend);
   const roas = finite(decision?.metrics.roas ?? canonical?.metrics.roas);
+  const series = buildSeriesPair(input.adSeries);
   const adSets = buildAdSets({
     rows: input.adRows,
     decision,
@@ -510,10 +651,8 @@ export function buildCreativeEvidenceWindowExactViewModel(
         : `${spendDisplay} · ROAS ${roasDisplay}`,
     moneySub: target === null ? EM_DASH : `vs ${target.toFixed(2)} target`,
     reasons: [reason ?? EM_DASH],
-    // No route serves a per-ad daily CTR series.
-    ctr: { path: null, note: EM_DASH },
-    // No route serves a per-ad daily frequency series.
-    frequency: { path: null, note: EM_DASH },
+    ctr: series.ctr,
+    frequency: series.frequency,
     funnel: buildFunnel({ rows: input.adRows, decision, canonical }),
     placements: buildPlacements(),
     adSets,

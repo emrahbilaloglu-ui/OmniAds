@@ -36,6 +36,14 @@ describe("Creative evidence window route wiring", () => {
     expect(PLATFORM_PAGE).toContain("meta-creative-evidence-ad-rows");
   });
 
+  it("reads the sparkline pair as a real per-ad daily series, scoped to one ad", () => {
+    expect(PLATFORM_PAGE).toContain("fetchCreativeEvidenceAdSeries");
+    expect(PLATFORM_PAGE).toContain("/api/meta/ads/series?");
+    expect(PLATFORM_PAGE).toContain("meta-creative-evidence-series");
+    expect(PLATFORM_PAGE).toContain("adIds: [creativeEvidenceAdId!]");
+    expect(PLATFORM_PAGE).toContain("adSeries: creativeEvidenceSeriesQuery.data,");
+  });
+
   it("gives the footer the decision's own action, Compare in Studio and Ads Manager", () => {
     expect(PLATFORM_PAGE).toContain("creativeEvidenceLaunchpadHref");
     expect(PLATFORM_PAGE).toContain("creativeEvidenceStudioHref");

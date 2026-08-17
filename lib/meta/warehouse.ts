@@ -12103,6 +12103,74 @@ export async function getMetaAdDailyRange(input: {
   }));
 }
 
+export interface MetaAdDailySeriesPoint {
+  adId: string;
+  date: string;
+  impressions: number;
+  clicks: number;
+  linkClicks: number | null;
+  reach: number;
+  frequency: number | null;
+  ctr: number | null;
+}
+
+/**
+ * The daily trail for a named set of ads.
+ *
+ * `getMetaAdDailyRange` reads every ad in the business for the window and then
+ * makes the caller filter; a per-ad sparkline needs three or four ads over 28
+ * days, so this narrows in SQL on `idx_meta_ad_daily_ad (ad_id, date DESC)` and
+ * selects only the series columns. Ad ids are always intersected with
+ * `business_id`, so a caller cannot widen its own scope by naming foreign ads.
+ */
+export async function getMetaAdDailySeries(input: {
+  businessId: string;
+  adIds: string[];
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaAdDailySeriesPoint[]> {
+  const adIds = Array.from(
+    new Set(input.adIds.map((value) => value.trim()).filter(Boolean)),
+  );
+  if (adIds.length === 0) return [];
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT ad_id, date, impressions, clicks, link_clicks, reach, frequency, ctr
+    FROM meta_ad_daily
+    WHERE business_id = ${input.businessId}
+      AND ad_id = ANY(${adIds}::text[])
+      AND date >= ${normalizeDate(input.startDate)}
+      AND date <= ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+    ORDER BY date ASC, ad_id ASC
+  ` as Array<{
+    ad_id: string;
+    date: string;
+    impressions: string | number | null;
+    clicks: string | number | null;
+    link_clicks: string | number | null;
+    reach: string | number | null;
+    frequency: string | number | null;
+    ctr: string | number | null;
+  }>;
+
+  return rows.map((row) => ({
+    adId: row.ad_id,
+    date: normalizeDate(row.date),
+    impressions: Number(row.impressions ?? 0),
+    clicks: Number(row.clicks ?? 0),
+    linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
+    reach: Number(row.reach ?? 0),
+    frequency: row.frequency == null ? null : Number(row.frequency),
+    ctr: row.ctr == null ? null : Number(row.ctr),
+  }));
+}
+
 export async function getMetaCreativeDailyRange(input: {
   businessId: string;
   startDate: string;

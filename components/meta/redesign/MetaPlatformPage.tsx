@@ -61,6 +61,7 @@ import {
   buildCreativeEvidenceWindowExactViewModel,
   buildMetaAdsManagerHref,
   type CreativeEvidenceWindowExactAdRow,
+  type CreativeEvidenceWindowExactSeriesPayload,
 } from "@/components/creatives/creative-evidence-window-exact-adapter";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import styles from "./MetaPlatformPage.module.css";
@@ -1533,6 +1534,39 @@ async function fetchCreativeEvidenceAdRows(input: {
     }));
 }
 
+/**
+ * The daily CTR / frequency trail behind the two sparkline cards.
+ *
+ * `meta_ad_daily` has stored date + ad_id + link_clicks + frequency all along —
+ * indexed on (ad_id, date DESC) — but nothing read it as a series, so both
+ * cards drew an empty path. `/api/meta/ads/series` is that read path and keeps
+ * its own `requireBusinessAccess` gate.
+ */
+async function fetchCreativeEvidenceAdSeries(input: {
+  businessId: string;
+  adIds: string[];
+  start: string;
+  end: string;
+}): Promise<CreativeEvidenceWindowExactSeriesPayload> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    adIds: input.adIds.join(","),
+    start: input.start,
+    end: input.end,
+  });
+  const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("The per-ad daily series is unavailable.");
+  }
+  const payload = (await response.json()) as Partial<CreativeEvidenceWindowExactSeriesPayload>;
+  return {
+    adCount: typeof payload.adCount === "number" ? payload.adCount : 0,
+    points: Array.isArray(payload.points) ? payload.points : [],
+  };
+}
+
 function numberOrNull(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -2401,6 +2435,35 @@ export function MetaPlatformPage({
         businessId,
         providerAccountId: providerAccountId!,
         creativeId: creativeEvidenceCreativeId!,
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  /**
+   * The sparkline pair is the decision's own ad, not the creative's whole ad
+   * set: the Frequency evidence key beside it is that ad's frequency, and a
+   * cross-ad frequency would need a deduplicated reach Meta does not report.
+   */
+  const creativeEvidenceAdId =
+    creativeDrill?.canonical.parentChain.ad?.id?.trim() ||
+    creativeDrill?.decision?.adId?.trim() ||
+    null;
+  const creativeEvidenceSeriesQuery = useQuery({
+    queryKey: [
+      "meta-creative-evidence-series",
+      businessId,
+      creativeEvidenceAdId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+    ],
+    enabled: Boolean(businessId && creativeEvidenceAdId),
+    queryFn: () =>
+      fetchCreativeEvidenceAdSeries({
+        businessId,
+        adIds: [creativeEvidenceAdId!],
         start: selectedDateRange.start,
         end: selectedDateRange.end,
       }),
@@ -3603,6 +3666,7 @@ export function MetaPlatformPage({
             decision: creativeDrill.decision,
             canonical: creativeDrill.canonical,
             adRows: creativeEvidenceQuery.data,
+            adSeries: creativeEvidenceSeriesQuery.data,
             fallbackCurrency: moneyCurrency,
             hrefs: {
               primary: creativeEvidenceLaunchpadHref({

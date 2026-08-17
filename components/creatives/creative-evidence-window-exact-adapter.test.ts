@@ -204,6 +204,38 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.funnel?.[3]?.sub).toBe("CVR 2.1%");
   });
 
+  it("draws the funnel bars on the design's own decade scale", () => {
+    // The design's three authored funnels (design file 3610, 3624, 3638).
+    const designFunnels = [
+      { top: 1_420_000, values: [15_200, 942, 318], widths: [0.46, 0.27, 0.15] },
+      { top: 1_180_000, values: [11_800, 684, 246], widths: [0.42, 0.24, 0.13] },
+      { top: 1_940_000, values: [31_600, 2_970, 1_034], widths: [0.58, 0.34, 0.2] },
+    ];
+    const residuals: number[] = [];
+    for (const funnel of designFunnels) {
+      const model = buildCreativeEvidenceWindowExactViewModel({
+        adRows: [
+          adRow({
+            impressions: funnel.top,
+            linkClicks: funnel.values[0],
+            addToCart: funnel.values[1],
+            purchases: funnel.values[2],
+          }),
+        ],
+      });
+      expect(model.funnel?.[0]?.share).toBe(1);
+      for (const [index, width] of funnel.widths.entries()) {
+        residuals.push(Math.abs((model.funnel?.[index + 1]?.share ?? 0) - width));
+      }
+    }
+    // Seven of the nine sub-bars land within 3 points of the design's own
+    // width. The two that do not are the Clicks bars of the Refresh and Retire
+    // funnels, which the design draws shorter than its own scale — recorded as
+    // DRAWERS-43 rather than fitted away.
+    expect(residuals.filter((residual) => residual <= 0.03)).toHaveLength(7);
+    expect(Math.max(...residuals)).toBeLessThan(0.11);
+  });
+
   it("keeps the funnel's four rows and em-dashes them when no ad-grain read resolved", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
@@ -302,7 +334,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe("15.0%");
   });
 
-  it("leaves both sparkline series unserved rather than interpolating", () => {
+  it("leaves both sparkline series unserved rather than interpolating point values", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
@@ -310,6 +342,55 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     });
     expect(model.ctr).toEqual({ path: null, note: "—" });
     expect(model.frequency).toEqual({ path: null, note: "—" });
+  });
+
+  it("draws both sparklines from the served per-ad daily series", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+      adSeries: {
+        adCount: 1,
+        points: [
+          { date: "2026-08-01", linkCtr: 2, frequency: 1 },
+          { date: "2026-08-02", linkCtr: 2, frequency: 1 },
+          { date: "2026-08-03", linkCtr: 1, frequency: 3 },
+          { date: "2026-08-04", linkCtr: 1, frequency: 3 },
+        ],
+      },
+    });
+    // Four points across the design's 0 0 100 22 viewBox, 2px inset each side.
+    expect(model.ctr?.path).toBe("M0.0 2.0 L33.3 2.0 L66.7 20.0 L100.0 20.0");
+    expect(model.ctr?.note).toBe("link CTR −50.0% vs prior 2d");
+    expect(model.frequency?.path).toBe("M0.0 20.0 L33.3 20.0 L66.7 2.0 L100.0 2.0");
+    expect(model.frequency?.note).toBe("3.0 · +200.0% vs prior 2d");
+  });
+
+  it("flattens a constant series to the middle of the sparkline band", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      adSeries: {
+        adCount: 1,
+        points: [
+          { date: "2026-08-01", linkCtr: 1.5, frequency: null },
+          { date: "2026-08-02", linkCtr: 1.5, frequency: null },
+        ],
+      },
+    });
+    expect(model.ctr?.path).toBe("M0.0 11.0 L100.0 11.0");
+    expect(model.ctr?.note).toBe("link CTR · 2 days served");
+    expect(model.frequency).toEqual({ path: null, note: "—" });
+  });
+
+  it("names the ad count when the series rolls up more than one ad", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      adSeries: {
+        adCount: 3,
+        points: [
+          { date: "2026-08-01", linkCtr: 1, frequency: null },
+          { date: "2026-08-02", linkCtr: 2, frequency: null },
+        ],
+      },
+    });
+    expect(model.ctr?.note).toBe("link CTR · 2 days served · 3 ads");
   });
 
   it("prints snapshot, decision and engine provenance", () => {

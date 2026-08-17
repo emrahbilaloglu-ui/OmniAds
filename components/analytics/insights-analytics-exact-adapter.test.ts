@@ -303,6 +303,7 @@ describe("products", () => {
             purchaseRate: 0.032,
           },
         ],
+        productsCurrency: "USD",
       }),
     );
     expect(model.products[0]).toMatchObject({
@@ -375,6 +376,7 @@ describe("cohorts", () => {
       input({
         activeTab: "cohorts",
         cohorts: {
+          currency: "USD",
           cohortWeeks: [
             {
               week: "202627",
@@ -465,5 +467,92 @@ describe("opportunities", () => {
 
   it("flags nothing when nothing crossed a threshold", () => {
     expect(buildOpportunities({})).toEqual([]);
+  });
+});
+
+describe("GA4 property currency", () => {
+  // GA4 reports `purchaseRevenue` / `itemRevenue` in the property's own
+  // currency. Every money cell on this screen used to print a hardcoded `$`,
+  // so a EUR or TRY property read as dollars — a wrong fact under the design's
+  // caption. Each endpoint now serves its property's ISO 4217 code and each
+  // cell is formatted from the code that came with its own payload.
+  const MONEY = {
+    overview: { kpis: { revenue: 326_400 } },
+    products: [
+      {
+        name: "Aurora Tote",
+        views: 48_210,
+        addToCarts: 4_630,
+        checkouts: 2_410,
+        purchases: 1_552,
+        revenue: 118_000,
+      },
+    ],
+    audience: {
+      channels: [{ sourceMedium: "google / cpc", sessions: 1_000, revenue: 42_500 }],
+    },
+    demographics: {
+      rows: [{ value: "Germany", sessions: 24_180, revenue: 54_100 }],
+    },
+    cohorts: {
+      monthlyData: [{ month: "202603", sessions: 198_400, revenue: 238_100 }],
+    },
+  };
+
+  function moneyModel(currency: string | null) {
+    return buildInsightsAnalyticsExactModel(
+      input({
+        overview: { ...MONEY.overview, currency },
+        products: [...MONEY.products],
+        productsCurrency: currency,
+        audience: { ...MONEY.audience, currency },
+        demographics: { ...MONEY.demographics, currency },
+        cohorts: { ...MONEY.cohorts, currency },
+      }),
+    );
+  }
+
+  it("labels every money cell with the property's own currency", () => {
+    const eur = moneyModel("EUR");
+    expect(eur.kpis[5]?.value).toBe("€326.4K");
+    expect(eur.products[0]?.revenue).toBe("€118.0K");
+    expect(eur.channels[0]?.revenue).toBe("€42.5K");
+    expect(eur.demoRows[0]?.revenue).toBe("€54.1K");
+    expect(eur.cohortMonths[0]?.revenue).toBe("€238.1K");
+  });
+
+  it("keeps the design's compact dollar geometry for a USD property", () => {
+    // The design's own literal is `Revenue $326.4K` (script line 3907).
+    expect(moneyModel("USD").kpis[5]?.value).toBe("$326.4K");
+  });
+
+  it("renders the missing value when the property's currency is unknown", () => {
+    // A property selected before the code was persisted serves `null`. The
+    // revenue number is real but its unit is not known, and a guessed `$` is
+    // worse than saying nothing.
+    const unknown = moneyModel(null);
+    expect(unknown.kpis[5]?.value).toBe("—");
+    expect(unknown.products[0]?.revenue).toBe("—");
+    expect(unknown.channels[0]?.revenue).toBe("—");
+    expect(unknown.demoRows[0]?.revenue).toBe("—");
+    expect(unknown.cohortMonths[0]?.revenue).toBe("—");
+    // Nothing else on the cards or in the rows is affected.
+    expect(unknown.kpis[5]?.label).toBe("Revenue");
+    expect(unknown.products[0]?.views).toBe("48,210");
+  });
+
+  it("does not let one payload's code label another payload's money", () => {
+    // The five endpoints read the same property, but a cached response that
+    // predates the code still carries none. That table renders the missing
+    // value on its own rather than borrowing a sibling endpoint's code.
+    const model = buildInsightsAnalyticsExactModel(
+      input({
+        overview: { ...MONEY.overview, currency: "EUR" },
+        products: [...MONEY.products],
+        productsCurrency: null,
+      }),
+    );
+    expect(model.kpis[5]?.value).toBe("€326.4K");
+    expect(model.products[0]?.revenue).toBe("—");
   });
 });

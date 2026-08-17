@@ -188,6 +188,9 @@ export function getDemoSparklines() {
 export function getDemoAnalyticsOverview() {
   return {
     propertyName: "UrbanTrail Store GA4",
+    // The demo workspace's declared denomination, like every other demo money
+    // figure in this file.
+    currency: "USD",
     kpis: {
       sessions: 48210,
       engagedSessions: 27110,
@@ -227,7 +230,12 @@ export function getDemoAnalyticsProducts() {
       purchaseRate: checkouts > 0 ? purchases / checkouts : 0,
     };
   });
-  return { rows, products: rows, meta: { empty: false, has_ecommerce_data: true, reason: null } };
+  return {
+    rows,
+    products: rows,
+    currency: "USD",
+    meta: { empty: false, has_ecommerce_data: true, reason: null },
+  };
 }
 
 export function getDemoAnalyticsLandingPages() {
@@ -247,6 +255,7 @@ export function getDemoAnalyticsLandingPages() {
 
 export function getDemoAnalyticsAudience() {
   return {
+    currency: "USD",
     segments: {
       new: { sessions: 29840, engagedSessions: 15610, engagementRate: 0.523, purchases: 592, revenue: 45280, purchaseCvr: 0.0198 },
       returning: { sessions: 18370, engagedSessions: 11500, engagementRate: 0.626, purchases: 592, revenue: 51140, purchaseCvr: 0.0322 },
@@ -267,6 +276,7 @@ export function getDemoAnalyticsDemographics(dimension: string) {
   return {
     dimension,
     rows,
+    currency: "USD",
     summary: {
       topValue: sorted[0].value,
       topValuePurchaseCvr: sorted[0].purchaseCvr,
@@ -277,6 +287,7 @@ export function getDemoAnalyticsDemographics(dimension: string) {
 
 export function getDemoAnalyticsCohorts() {
   return {
+    currency: "USD",
     cohortWeeks: [
       { week: "2026-W05", newSessions: 3820, returningSessions: 910, newPurchases: 79, returningPurchases: 34, retentionRate: 0.192 },
       { week: "2026-W06", newSessions: 4010, returningSessions: 1012, newPurchases: 82, returningPurchases: 36, retentionRate: 0.201 },
@@ -1809,6 +1820,7 @@ export function getDemoGeoOverview() {
 
 export function getDemoGeoTrafficSources() {
   return {
+    currency: "USD",
     sources: [
       { engine: "ChatGPT", sessions: 760, engagedSessions: 548, engagementRate: 0.721, purchases: 29, revenue: 2620, purchaseCvr: 0.038, aiTrafficValueScore: 84, aiTrafficValueLabel: "strong", momentum: { status: "rising", label: "Rising", score: 68, growthRate: 0.23 }, recommendation: "Scale FAQ-rich landing pages for ChatGPT query patterns." },
       { engine: "Perplexity", sessions: 350, engagedSessions: 232, engagementRate: 0.663, purchases: 10, revenue: 910, purchaseCvr: 0.029, aiTrafficValueScore: 72, aiTrafficValueLabel: "promising", momentum: { status: "stable", label: "Stable", score: 48, growthRate: 0.04 }, recommendation: "Improve citation-targeted headings and source clarity." },

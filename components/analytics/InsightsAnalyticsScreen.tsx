@@ -170,7 +170,7 @@ export function InsightsAnalyticsScreen({
       businessId.length > 0 &&
       (activeTab === "products" || activeTab === "opps"),
     queryFn: () =>
-      readAnalytics<{ products?: AnalyticsProductInput[] }>(
+      readAnalytics<{ products?: AnalyticsProductInput[]; currency?: string | null }>(
         `/api/analytics/products?${range}`,
         "Failed to load product funnel data.",
       ),
@@ -269,6 +269,7 @@ export function InsightsAnalyticsScreen({
     overview: overviewQuery.data ?? null,
     audience: audienceQuery.data ?? null,
     products: productsQuery.data?.products ?? null,
+    productsCurrency: productsQuery.data?.currency ?? null,
     landingPages: landingPagesQuery.data?.pages ?? null,
     demographics: demographicsQuery.data ?? null,
     cohorts: cohortsQuery.data ?? null,

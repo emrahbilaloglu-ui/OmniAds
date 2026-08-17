@@ -24,6 +24,13 @@ export interface AnalyticsOverviewKpis {
 
 export interface AnalyticsOverviewResponse {
   propertyName?: string;
+  /**
+   * ISO 4217 code every `purchaseRevenue` figure below is denominated in, read
+   * from the GA4 property record. Absent when the property was selected before
+   * the code was persisted; the surface then renders revenue as missing rather
+   * than labelling another currency's number with a dollar sign.
+   */
+  currency?: string | null;
   kpis?: AnalyticsOverviewKpis;
   /**
    * The same summary over the comparison window, present only when the caller
@@ -257,7 +264,8 @@ export async function getAnalyticsOverviewData(params: {
   let accessToken: string;
   let propertyId: string;
   let propertyName: string;
-  ({ accessToken, propertyId, propertyName } =
+  let currencyCode: string | null;
+  ({ accessToken, propertyId, propertyName, currencyCode } =
     await getGA4TokenAndProperty(businessId));
 
   const dateRanges = [{ startDate, endDate }];
@@ -354,6 +362,7 @@ export async function getAnalyticsOverviewData(params: {
 
   return {
     propertyName,
+    currency: currencyCode,
     kpis: {
       sessions,
       engagedSessions,

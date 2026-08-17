@@ -1,6 +1,9 @@
 import { getIntegration } from "@/lib/integrations";
 import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
-import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
+import {
+  normalizeCurrencyCode,
+  refreshGA4AccessToken,
+} from "@/lib/google-analytics-accounts";
 import {
   buildGoogleRequestSignature,
   getGoogleRequestAuditContext,
@@ -88,6 +91,13 @@ export interface GA4ResolvedAnalyticsContext {
   propertyId: string | null;
   propertyName: string | null;
   propertyResourceName: string | null;
+  /**
+   * ISO 4217 code of the property, stored at selection from the Admin API's
+   * `Property.currencyCode`. Every GA4 money metric is quoted in it. `null` for
+   * a property selected before it was persisted, or one whose Admin read failed
+   * — callers serve the null through and the surfaces render the missing value.
+   */
+  propertyCurrency: string | null;
 }
 
 interface ResolveGa4AnalyticsContextOptions {
@@ -299,6 +309,7 @@ export async function resolveGa4AnalyticsContext(
     typeof metadata.ga4PropertyName === "string"
       ? metadata.ga4PropertyName
       : "";
+  const propertyCurrency = normalizeCurrencyCode(metadata.ga4PropertyCurrency);
 
   if (requireProperty && !propertyId) {
     throw new GA4AuthError(
@@ -365,6 +376,7 @@ export async function resolveGa4AnalyticsContext(
     propertyId: normalizedPropertyId,
     propertyName: propertyName || null,
     propertyResourceName,
+    propertyCurrency,
   };
 }
 
@@ -373,7 +385,17 @@ export async function resolveGa4AnalyticsContext(
  */
 export async function getGA4TokenAndProperty(
   businessId: string
-): Promise<{ accessToken: string; propertyId: string; propertyName: string }> {
+): Promise<{
+  accessToken: string;
+  propertyId: string;
+  propertyName: string;
+  /**
+   * The property's ISO 4217 code, or `null` when it was never stored. Callers
+   * that serve money must pass it through untouched: `null` means the unit is
+   * unknown, which renders as the missing value, not as dollars.
+   */
+  currencyCode: string | null;
+}> {
   const context = await resolveGa4AnalyticsContext(businessId);
   if (!context.propertyId) {
     throw new GA4AuthError(
@@ -387,6 +409,7 @@ export async function getGA4TokenAndProperty(
     accessToken: context.accessToken,
     propertyId: context.propertyId,
     propertyName: context.propertyName ?? "",
+    currencyCode: context.propertyCurrency,
   };
 }
 

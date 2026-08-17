@@ -10,7 +10,7 @@
  * the fake engine table, the 220-query dataset) are never emitted.
  */
 import { AI_SOURCE_DOMAINS } from "@/lib/geo-intelligence";
-import { formatCurrencySmart, MISSING_VALUE } from "@/lib/metric-format";
+import { formatMoneyIso, MISSING_VALUE } from "@/lib/metric-format";
 import type {
   GeoCalloutModel,
   GeoHighlightModel,
@@ -272,6 +272,11 @@ export interface InsightsGeoAdapterInput {
   windowDays?: number | null;
   overview?: GeoOverviewInput | null;
   sources?: GeoSourceInput[] | null;
+  /**
+   * ISO 4217 code served beside the AI-source rows, one per payload rather than
+   * per row, because the whole report comes from one GA4 property.
+   */
+  sourcesCurrency?: string | null;
   pages?: GeoPageInput[] | null;
   queries?: GeoQueryInput[] | null;
   topics?: GeoTopicInput[] | null;
@@ -455,7 +460,16 @@ export function buildGeoCallouts(
 
 /* ── AI Sources (L2174-2196) ──────────────────────────────────────── */
 
-export function buildGeoSources(sources: GeoSourceInput[] | null | undefined): GeoSourceRowModel[] {
+/**
+ * The Revenue column is GA4 `purchaseRevenue`, denominated in the property's
+ * own currency. `/api/geo/traffic-sources` serves that code beside the rows;
+ * when it is absent — a property selected before the code was persisted — the
+ * cell renders the missing value rather than a dollar sign it cannot justify.
+ */
+export function buildGeoSources(
+  sources: GeoSourceInput[] | null | undefined,
+  currency: string | null | undefined,
+): GeoSourceRowModel[] {
   return (sources ?? []).map((source, index) => {
     const engine = text(source?.engine) ?? MISSING_VALUE;
     const valueLabel = text(source?.aiTrafficValueLabel);
@@ -477,10 +491,7 @@ export function buildGeoSources(sources: GeoSourceInput[] | null | undefined): G
       purchases: formatCount(source?.purchases),
       cvr: formatRate(source?.purchaseCvr, 2),
       cvrHeat: heat(source?.purchaseCvr, 0.035),
-      revenue:
-        num(source?.revenue) === null
-          ? MISSING_VALUE
-          : formatCurrencySmart(source!.revenue!, "$"),
+      revenue: formatMoneyIso(num(source?.revenue), { currency, compactLarge: true }),
       recommendation: text(source?.recommendation) ?? MISSING_VALUE,
     };
   });
@@ -787,7 +798,7 @@ export function buildInsightsGeoExactModel(
     priorities: buildGeoPriorities(input.overview),
     highlights: buildGeoHighlights(input.overview),
     callouts: buildGeoCallouts(input.overview),
-    sources: buildGeoSources(input.sources),
+    sources: buildGeoSources(input.sources, input.sourcesCurrency),
     pages: buildGeoPages(input.pages),
     filters: buildGeoFilters(input.queries, input.queryFilter, input.overview),
     queries: buildGeoQueries(input.queries, input.queryFilter),

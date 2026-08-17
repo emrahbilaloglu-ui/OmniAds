@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   isDemoBusiness: vi.fn(async () => false),
   runGA4Report: vi.fn(),
+  /** The GA4 property's ISO 4217 code, or null when it was never stored. */
+  currencyCode: null as string | null,
   newVsReturningHeaders: [
     "sessions",
     "ecommercePurchases",
@@ -26,6 +28,7 @@ vi.mock("@/lib/google-analytics-reporting", () => ({
     accessToken: "token",
     propertyId: "properties/1",
     propertyName: "Test GA4",
+    currencyCode: mocks.currencyCode,
   }),
   runGA4Report: mocks.runGA4Report,
 }));
@@ -73,6 +76,7 @@ function summaryReport(params: ReportParams, values: Record<string, number>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.isDemoBusiness.mockResolvedValue(false);
+  mocks.currencyCode = null;
   mocks.newVsReturningHeaders = [
     "sessions",
     "ecommercePurchases",
@@ -154,6 +158,32 @@ describe("getAnalyticsOverviewData", () => {
     });
     expect(payload.previousKpis).toBeUndefined();
     expect(mocks.runGA4Report).toHaveBeenCalledTimes(3);
+  });
+
+  it("serves the property's currency beside the revenue it labels", async () => {
+    // `kpis.revenue` is GA4 `purchaseRevenue`, reported in the property's own
+    // currency. Serving the number without the code is what made a EUR/TRY
+    // property render as dollars.
+    mocks.currencyCode = "EUR";
+    const payload = await getAnalyticsOverviewData({
+      businessId: "biz_1",
+      startDate: "2026-07-18",
+      endDate: "2026-08-14",
+    });
+    expect(payload.currency).toBe("EUR");
+    expect(payload.kpis?.revenue).toBe(326_400);
+  });
+
+  it("serves a null currency for a property selected before the code was stored", async () => {
+    mocks.currencyCode = null;
+    const payload = await getAnalyticsOverviewData({
+      businessId: "biz_1",
+      startDate: "2026-07-18",
+      endDate: "2026-08-14",
+    });
+    expect(payload.currency).toBeNull();
+    // The number is still served; only its label is withheld.
+    expect(payload.kpis?.revenue).toBe(326_400);
   });
 
   it("adds exactly one report when a comparison window is named", async () => {

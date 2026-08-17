@@ -159,21 +159,21 @@ describe("buildGeoPriorities / buildGeoHighlights / buildGeoCallouts", () => {
 });
 
 describe("buildGeoSources", () => {
+  const SOURCE = {
+    engine: "Perplexity",
+    sessions: 842,
+    engagementRate: 0.748,
+    purchases: 24,
+    revenue: 1_900,
+    purchaseCvr: 0.0285,
+    aiTrafficValueScore: 71,
+    aiTrafficValueLabel: "strong",
+    momentum: { status: "breakout", growthRate: 1.04 },
+    recommendation: "Add spec tables to PDPs.",
+  };
+
   it("renders the value chip as label · score and a compact momentum caption", () => {
-    const [row] = buildGeoSources([
-      {
-        engine: "Perplexity",
-        sessions: 842,
-        engagementRate: 0.748,
-        purchases: 24,
-        revenue: 1_900,
-        purchaseCvr: 0.0285,
-        aiTrafficValueScore: 71,
-        aiTrafficValueLabel: "strong",
-        momentum: { status: "breakout", growthRate: 1.04 },
-        recommendation: "Add spec tables to PDPs.",
-      },
-    ]);
+    const [row] = buildGeoSources([SOURCE], "USD");
     expect(row).toMatchObject({
       engine: "Perplexity",
       engineTone: "violet",
@@ -184,8 +184,27 @@ describe("buildGeoSources", () => {
       sessions: "842",
       engagement: "74.8%",
       cvr: "2.85%",
+      revenue: "$1.9K",
     });
-    expect(row.engagementHeat).toMatch(/^rgba\(14,159,110,/);
+    expect(row!.engagementHeat).toMatch(/^rgba\(14,159,110,/);
+  });
+
+  it("labels revenue in the GA4 property's own currency, not dollars", () => {
+    // GA4 reports `purchaseRevenue` in the property's currency. A EUR property
+    // read as "$1.9K" was a wrong fact under the design's Revenue caption.
+    expect(buildGeoSources([SOURCE], "EUR")[0]!.revenue).toBe("€1.9K");
+    // Intl separates a code-only currency from the number with U+00A0.
+    expect(buildGeoSources([SOURCE], "TRY")[0]!.revenue).toBe("TRY 1.9K");
+  });
+
+  it("renders the missing value when the property's currency is unknown", () => {
+    // A property selected before the code was persisted serves no currency.
+    // The number is real but its unit is not known, so the cell says nothing
+    // rather than claiming dollars.
+    expect(buildGeoSources([SOURCE], null)[0]!.revenue).toBe("—");
+    expect(buildGeoSources([SOURCE], undefined)[0]!.revenue).toBe("—");
+    // Every other cell in the row is untouched by the missing code.
+    expect(buildGeoSources([SOURCE], null)[0]!.sessions).toBe("842");
   });
 
   it("prints Stable without a percentage, matching the design", () => {

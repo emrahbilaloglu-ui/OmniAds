@@ -122,7 +122,7 @@ export function InsightsGeoScreen({
     queryKey: ["insights-geo-sources", businessId, startDate, endDate],
     enabled: ga4Connected && businessId.length > 0 && activeTab === "sources",
     queryFn: () =>
-      readGeo<{ sources?: GeoSourceInput[] }>(
+      readGeo<{ sources?: GeoSourceInput[]; currency?: string | null }>(
         `/api/geo/traffic-sources?${range}`,
         "Failed to load AI traffic sources.",
       ),
@@ -205,6 +205,7 @@ export function InsightsGeoScreen({
     windowDays,
     overview: overviewQuery.data ?? null,
     sources: sourcesQuery.data?.sources ?? null,
+    sourcesCurrency: sourcesQuery.data?.currency ?? null,
     pages: pagesQuery.data?.pages ?? null,
     queries: queriesQuery.data?.queries ?? null,
     topics: topicsQuery.data?.topics ?? null,

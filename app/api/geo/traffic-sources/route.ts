@@ -35,8 +35,11 @@ export async function GET(request: NextRequest) {
 
   let accessToken: string;
   let propertyId: string;
+  // The unit the `purchaseRevenue` metric requested below is denominated in.
+  let currencyCode: string | null;
   try {
-    ({ accessToken, propertyId } = await getGA4TokenAndProperty(businessId));
+    ({ accessToken, propertyId, currencyCode } =
+      await getGA4TokenAndProperty(businessId));
   } catch (err) {
     if (err instanceof GA4AuthError) {
       return NextResponse.json(
@@ -179,5 +182,5 @@ export async function GET(request: NextRequest) {
     })
     .sort((a, b) => b.sessions - a.sessions);
 
-  return NextResponse.json({ sources });
+  return NextResponse.json({ sources, currency: currencyCode });
 }

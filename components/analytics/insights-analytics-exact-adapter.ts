@@ -8,7 +8,7 @@
  * heat ramp `rgba(14,159,110, 0.05 + 0.3·min(1, v/max))` (script line 3904).
  * Any fact the provider does not supply renders as the em-dash.
  */
-import { formatCurrencySmart, MISSING_VALUE } from "@/lib/metric-format";
+import { formatMoneyIso, MISSING_VALUE } from "@/lib/metric-format";
 import type {
   AnalyticsCalloutModel,
   AnalyticsChannelRowModel,
@@ -139,15 +139,25 @@ export function formatRate(value: unknown, digits: 0 | 1 | 2): string {
   return `${(parsed * 100).toFixed(digits)}%`;
 }
 
-export function formatMoney(value: unknown): string {
+/**
+ * GA4 reports `purchaseRevenue` and `itemRevenue` in the property's own
+ * currency, so the code has to come from the endpoint that served the number.
+ * `formatMoneyIso` has no default currency: an unknown code renders the missing
+ * value rather than claiming dollars, which is what a property selected before
+ * the code was persisted gets. Compaction stays on to keep the design's
+ * `$326.4K` geometry.
+ */
+export function formatMoney(value: unknown, currency: string | null | undefined): string {
   const parsed = num(value);
   if (parsed === null) return MISSING_VALUE;
-  return formatCurrencySmart(parsed, "$");
+  return formatMoneyIso(parsed, { currency, compactLarge: true });
 }
 
 /* ── endpoint payload shapes (only what this screen reads) ─────────── */
 
 export interface AnalyticsOverviewInput {
+  /** ISO 4217 code of the GA4 property, served by `/api/analytics/overview`. */
+  currency?: string | null;
   kpis?: {
     sessions?: number;
     engagedSessions?: number;
@@ -178,6 +188,8 @@ export interface AnalyticsSegmentInput {
 }
 
 export interface AnalyticsAudienceInput {
+  /** ISO 4217 code of the GA4 property, served by `/api/analytics/audience`. */
+  currency?: string | null;
   segments?: Record<string, AnalyticsSegmentInput> | null;
   channels?: Array<{
     sourceMedium?: string;
@@ -210,6 +222,8 @@ export interface AnalyticsLandingInput {
 }
 
 export interface AnalyticsDemographicsInput {
+  /** ISO 4217 code of the GA4 property, served by `/api/analytics/demographics`. */
+  currency?: string | null;
   rows?: Array<{
     value?: string;
     sessions?: number;
@@ -226,6 +240,8 @@ export interface AnalyticsDemographicsInput {
 }
 
 export interface AnalyticsCohortsInput {
+  /** ISO 4217 code of the GA4 property, served by `/api/analytics/cohorts`. */
+  currency?: string | null;
   cohortWeeks?: Array<{
     week?: string;
     newSessions?: number;
@@ -253,6 +269,14 @@ export interface InsightsAnalyticsAdapterInput {
   overview?: AnalyticsOverviewInput | null;
   audience?: AnalyticsAudienceInput | null;
   products?: AnalyticsProductInput[] | null;
+  /**
+   * ISO 4217 code served alongside the product rows. It rides beside the array
+   * rather than inside it because `/api/analytics/products` reports one code
+   * for the whole payload — and because a row set from a cached response that
+   * predates the code must render its revenue as missing on its own, without
+   * borrowing a code another endpoint happened to return.
+   */
+  productsCurrency?: string | null;
   landingPages?: AnalyticsLandingInput[] | null;
   demographics?: AnalyticsDemographicsInput | null;
   cohorts?: AnalyticsCohortsInput | null;
@@ -368,7 +392,7 @@ function buildKpis(
     {
       key: "revenue",
       label: "Revenue",
-      value: formatMoney(now?.revenue),
+      value: formatMoney(now?.revenue, overview?.currency),
       current: num(now?.revenue),
       previous: num(prev?.revenue),
       kind: "ratio",
@@ -458,7 +482,10 @@ function buildCallouts(
 
 /* ── tables ───────────────────────────────────────────────────────── */
 
-function buildProducts(rows: AnalyticsProductInput[] | null | undefined): AnalyticsProductRowModel[] {
+function buildProducts(
+  rows: AnalyticsProductInput[] | null | undefined,
+  currency: string | null | undefined,
+): AnalyticsProductRowModel[] {
   return (rows ?? []).slice(0, ANALYTICS_MAX_ROWS).map((row, index) => ({
     id: `${row.name ?? "product"}-${index}`,
     name: row.name?.trim() || MISSING_VALUE,
@@ -472,7 +499,7 @@ function buildProducts(rows: AnalyticsProductInput[] | null | undefined): Analyt
     checkoutHeat: analyticsHeat(row.checkoutRate, HEAT_CEILING.checkoutRate),
     purchaseRate: formatRate(row.purchaseRate, 1),
     purchaseHeat: analyticsHeat(row.purchaseRate, HEAT_CEILING.purchaseRate),
-    revenue: formatMoney(row.revenue),
+    revenue: formatMoney(row.revenue, currency),
   }));
 }
 
@@ -531,7 +558,7 @@ function buildChannels(
     purchases: formatCount(row.purchases),
     cvr: formatRate(row.purchaseCvr, 2),
     cvrHeat: analyticsHeat(row.purchaseCvr, HEAT_CEILING.purchaseCvr),
-    revenue: formatMoney(row.revenue),
+    revenue: formatMoney(row.revenue, audience?.currency),
   }));
 }
 
@@ -569,7 +596,7 @@ function buildDemoRows(
     purchases: formatCount(row.purchases),
     cvr: formatRate(row.purchaseCvr, 2),
     cvrHeat: analyticsHeat(row.purchaseCvr, HEAT_CEILING.purchaseCvr),
-    revenue: formatMoney(row.revenue),
+    revenue: formatMoney(row.revenue, demographics?.currency),
   }));
 }
 
@@ -636,7 +663,7 @@ function buildCohortMonths(
     sessions: formatCompact(row.sessions),
     purchases: formatCount(row.purchases),
     cvr: formatRate(row.purchaseCvr, 2),
-    revenue: formatMoney(row.revenue),
+    revenue: formatMoney(row.revenue, cohorts?.currency),
   }));
 }
 
@@ -763,7 +790,7 @@ export function buildInsightsAnalyticsExactModel(
     active: tab.id === input.activeTab,
   }));
 
-  const products = buildProducts(input.products);
+  const products = buildProducts(input.products, input.productsCurrency);
   const landing = buildLanding(input.landingPages);
 
   return {

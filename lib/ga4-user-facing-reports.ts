@@ -142,7 +142,9 @@ export async function getGa4DetailedAudienceData(params: {
   startDate: string;
   endDate: string;
 }) {
-  const { accessToken, propertyId } = await resolveGa4Access(params.businessId);
+  const { accessToken, propertyId, currencyCode } = await resolveGa4Access(
+    params.businessId,
+  );
   const dateRanges = [{ startDate: params.startDate, endDate: params.endDate }];
 
   const [newVsReturning, channelReport] = await Promise.all([
@@ -241,7 +243,9 @@ export async function getGa4DetailedAudienceData(params: {
     };
   });
 
-  return { segments, channels };
+  // The unit `revenue` above is quoted in; `null` when the property record
+  // never carried one. Never substituted.
+  return { segments, channels, currency: currencyCode };
 }
 
 export async function getGa4DetailedCohortsData(params: {
@@ -249,7 +253,9 @@ export async function getGa4DetailedCohortsData(params: {
   startDate: string;
   endDate: string;
 }) {
-  const { accessToken, propertyId } = await resolveGa4Access(params.businessId);
+  const { accessToken, propertyId, currencyCode } = await resolveGa4Access(
+    params.businessId,
+  );
 
   const [weeklyReport, monthlyTrend] = await Promise.all([
     (async () => {
@@ -356,7 +362,7 @@ export async function getGa4DetailedCohortsData(params: {
     };
   });
 
-  return { cohortWeeks, monthlyData };
+  return { cohortWeeks, monthlyData, currency: currencyCode };
 }
 
 export async function getGa4DetailedDemographicsData(params: {
@@ -366,7 +372,9 @@ export async function getGa4DetailedDemographicsData(params: {
   dimension?: string | null;
 }) {
   const dimension = normalizeDemographicsDimension(params.dimension);
-  const { accessToken, propertyId } = await resolveGa4Access(params.businessId);
+  const { accessToken, propertyId, currencyCode } = await resolveGa4Access(
+    params.businessId,
+  );
   const report = await runGA4Report({
     propertyId,
     accessToken,
@@ -411,6 +419,7 @@ export async function getGa4DetailedDemographicsData(params: {
   return {
     dimension,
     rows,
+    currency: currencyCode,
     summary: topByPurchaseCvr
       ? {
           topValue: topByPurchaseCvr.value,
@@ -569,7 +578,9 @@ export async function getGa4DetailedProductsData(params: {
   startDate: string;
   endDate: string;
 }) {
-  const { accessToken, propertyId } = await resolveGa4Access(params.businessId);
+  const { accessToken, propertyId, currencyCode } = await resolveGa4Access(
+    params.businessId,
+  );
   const [viewsSeries, addToCartSeries, checkoutSeries, purchasesSeries, revenueSeries] =
     await Promise.all([
       fetchGa4ProductMetricSeries({
@@ -698,6 +709,7 @@ export async function getGa4DetailedProductsData(params: {
       purchaseRate: row.purchaseRate,
     })),
     products,
+    currency: currencyCode,
     meta,
   };
 }

@@ -17,8 +17,8 @@ const routeMocks = vi.hoisted(() => ({
     (_props: { businessId?: string | null; pathname?: string }) => null,
   ),
   screen: vi.fn((_props: { businessId?: string; initialTab?: string }) => null),
-  seo: vi.fn(() => null),
-  geo: vi.fn(() => null),
+  seo: vi.fn((_props: { businessId?: string; initialTab?: string }) => null),
+  geo: vi.fn((_props: { businessId?: string; initialTab?: string }) => null),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -46,9 +46,17 @@ vi.mock("@/components/analytics/InsightsAnalyticsScreen", () => ({
     return null;
   },
 }));
-vi.mock("@/components/zero-base/analytics/analytics-clients", () => ({
-  SeoClient: () => routeMocks.seo(),
-  GeoClient: () => routeMocks.geo(),
+vi.mock("@/components/seo/InsightsSeoScreen", () => ({
+  InsightsSeoScreen: (props: Parameters<typeof routeMocks.seo>[0]) => {
+    routeMocks.seo(props);
+    return null;
+  },
+}));
+vi.mock("@/components/geo/InsightsGeoScreen", () => ({
+  InsightsGeoScreen: (props: Parameters<typeof routeMocks.geo>[0]) => {
+    routeMocks.geo(props);
+    return null;
+  },
 }));
 
 const Ga4ShopifyPage = (
@@ -136,41 +144,59 @@ describe("canonical analytics routes", () => {
     );
   });
 
-  it("wraps the SEO and AI-visibility bodies in the same outer chrome", async () => {
+  it("mounts the exact SEO screen inside the same outer chrome", async () => {
     await renderRoute(SeoPage);
     expect(routeMocks.chrome).toHaveBeenCalledWith(
-      expect.objectContaining({ pathname: "/c/biz_route/analytics/seo" }),
+      expect.objectContaining({
+        businessId: "biz_route",
+        pathname: "/c/biz_route/analytics/seo",
+      }),
     );
-    vi.clearAllMocks();
-    vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session() as never);
-    vi.mocked(pageAccess.requireBusinessPageContext).mockResolvedValue(
-      authorizedContext() as never,
+    expect(routeMocks.seo).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "biz_route" }),
     );
+  });
+
+  it("mounts the exact AI-visibility screen inside the same outer chrome", async () => {
     await renderRoute(GeoPage);
     expect(routeMocks.chrome).toHaveBeenCalledWith(
-      expect.objectContaining({ pathname: "/c/biz_route/analytics/geo" }),
+      expect.objectContaining({
+        businessId: "biz_route",
+        pathname: "/c/biz_route/analytics/geo",
+      }),
+    );
+    expect(routeMocks.geo).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "biz_route" }),
     );
   });
 
   it.each([
     ["ga4-shopify", Ga4ShopifyPage],
     ["landing-pages", LandingPagesPage],
+    ["seo", SeoPage],
+    ["geo", GeoPage],
   ] as const)("sends an anonymous visitor to login on %s", async (leaf, route) => {
     vi.mocked(auth.getSessionFromCookies).mockResolvedValue(null as never);
     await expect(renderRoute(route)).rejects.toThrow(
       `NEXT_REDIRECT:/login?next=${encodeURIComponent(`/c/biz_route/analytics/${leaf}`)}`,
     );
     expect(routeMocks.screen).not.toHaveBeenCalled();
+    expect(routeMocks.seo).not.toHaveBeenCalled();
+    expect(routeMocks.geo).not.toHaveBeenCalled();
   });
 
   it.each([
     ["ga4-shopify", Ga4ShopifyPage],
     ["landing-pages", LandingPagesPage],
+    ["seo", SeoPage],
+    ["geo", GeoPage],
   ] as const)("refuses a foreign tenant on %s", async (_leaf, route) => {
     vi.mocked(pageAccess.requireBusinessPageContext).mockResolvedValue({
       kind: "not_found",
     } as never);
     await expect(renderRoute(route)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(routeMocks.screen).not.toHaveBeenCalled();
+    expect(routeMocks.seo).not.toHaveBeenCalled();
+    expect(routeMocks.geo).not.toHaveBeenCalled();
   });
 });

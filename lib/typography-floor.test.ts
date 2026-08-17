@@ -88,36 +88,58 @@ const EXACT_INSIGHTS_ANALYTICS_TYPE_START =
   "/* dashboard-v2-insights-analytics-exact-reference-type:start */";
 const EXACT_INSIGHTS_ANALYTICS_TYPE_END =
   "/* dashboard-v2-insights-analytics-exact-reference-type:end */";
+const EXACT_INSIGHTS_SEO_TYPE_FILE = "components/seo/InsightsSeoExact.module.css";
+const EXACT_INSIGHTS_SEO_TYPE_START =
+  "/* dashboard-v2-insights-seo-exact-reference-type:start */";
+const EXACT_INSIGHTS_SEO_TYPE_END =
+  "/* dashboard-v2-insights-seo-exact-reference-type:end */";
+const EXACT_INSIGHTS_GEO_TYPE_FILE = "components/geo/InsightsGeoExact.module.css";
+const EXACT_INSIGHTS_GEO_TYPE_START =
+  "/* dashboard-v2-insights-geo-exact-reference-type:start */";
+const EXACT_INSIGHTS_GEO_TYPE_END =
+  "/* dashboard-v2-insights-geo-exact-reference-type:end */";
+
+/**
+ * Marker-bounded fragments copied from the canonical Dashboard v2 reference.
+ * A file appears here only with its own start/end pair — never as a blanket
+ * exemption — and every value inside is pinned by a companion test below.
+ */
+const EXACT_REFERENCE_MARKERS: ReadonlyArray<
+  readonly [file: string, start: string, end: string | null]
+> = [
+  [EXACT_SHELL_TYPE_FILE, EXACT_SHELL_TYPE_START, EXACT_SHELL_TYPE_END],
+  [EXACT_META_TYPE_FILE, EXACT_META_TYPE_START, EXACT_META_TYPE_END],
+  [EXACT_CREATIVE_TYPE_FILE, EXACT_CREATIVE_TYPE_START, null],
+  [EXACT_LAUNCHPAD_TYPE_FILE, EXACT_LAUNCHPAD_TYPE_START, EXACT_LAUNCHPAD_TYPE_END],
+  [EXACT_AUTOMATION_TYPE_FILE, EXACT_AUTOMATION_TYPE_START, EXACT_AUTOMATION_TYPE_END],
+  [
+    EXACT_GOOGLE_OVERVIEW_TYPE_FILE,
+    EXACT_GOOGLE_OVERVIEW_TYPE_START,
+    EXACT_GOOGLE_OVERVIEW_TYPE_END,
+  ],
+  [
+    EXACT_GOOGLE_ADVISOR_TYPE_FILE,
+    EXACT_GOOGLE_ADVISOR_TYPE_START,
+    EXACT_GOOGLE_ADVISOR_TYPE_END,
+  ],
+  [
+    EXACT_INSIGHTS_SHELL_TYPE_FILE,
+    EXACT_INSIGHTS_SHELL_TYPE_START,
+    EXACT_INSIGHTS_SHELL_TYPE_END,
+  ],
+  [
+    EXACT_INSIGHTS_ANALYTICS_TYPE_FILE,
+    EXACT_INSIGHTS_ANALYTICS_TYPE_START,
+    EXACT_INSIGHTS_ANALYTICS_TYPE_END,
+  ],
+  [EXACT_INSIGHTS_SEO_TYPE_FILE, EXACT_INSIGHTS_SEO_TYPE_START, EXACT_INSIGHTS_SEO_TYPE_END],
+  [EXACT_INSIGHTS_GEO_TYPE_FILE, EXACT_INSIGHTS_GEO_TYPE_START, EXACT_INSIGHTS_GEO_TYPE_END],
+];
 
 function exactReferenceTypeBounds(file: string, source: string) {
-  const markers: readonly [string, string | null] | null =
-    file === EXACT_SHELL_TYPE_FILE
-      ? [EXACT_SHELL_TYPE_START, EXACT_SHELL_TYPE_END]
-      : file === EXACT_META_TYPE_FILE
-        ? [EXACT_META_TYPE_START, EXACT_META_TYPE_END]
-        : file === EXACT_CREATIVE_TYPE_FILE
-          ? [EXACT_CREATIVE_TYPE_START, null]
-          : file === EXACT_LAUNCHPAD_TYPE_FILE
-            ? [EXACT_LAUNCHPAD_TYPE_START, EXACT_LAUNCHPAD_TYPE_END]
-            : file === EXACT_AUTOMATION_TYPE_FILE
-              ? [EXACT_AUTOMATION_TYPE_START, EXACT_AUTOMATION_TYPE_END]
-              : file === EXACT_GOOGLE_OVERVIEW_TYPE_FILE
-                ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
-                : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
-                  ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
-                  : file === EXACT_INSIGHTS_SHELL_TYPE_FILE
-                    ? [
-                        EXACT_INSIGHTS_SHELL_TYPE_START,
-                        EXACT_INSIGHTS_SHELL_TYPE_END,
-                      ]
-                    : file === EXACT_INSIGHTS_ANALYTICS_TYPE_FILE
-                      ? [
-                          EXACT_INSIGHTS_ANALYTICS_TYPE_START,
-                          EXACT_INSIGHTS_ANALYTICS_TYPE_END,
-                        ]
-              : null;
-  if (!markers) return null;
-  const [startMarker, endMarker] = markers;
+  const entry = EXACT_REFERENCE_MARKERS.find(([marked]) => marked === file);
+  if (!entry) return null;
+  const [, startMarker, endMarker] = entry;
   const markerStart = source.indexOf(startMarker);
   const markerEnd = endMarker === null ? source.length : source.indexOf(endMarker);
   if (markerStart < 0 || markerEnd <= markerStart) return null;
@@ -125,6 +147,25 @@ function exactReferenceTypeBounds(file: string, source: string) {
     start: markerStart + startMarker.length,
     end: markerEnd,
   };
+}
+
+/** Every `font-size` declaration inside a marker block, below the floor. */
+function narrowDeclarations(file: string, startMarker: string, endMarker: string | null) {
+  const source = readFileSync(file, "utf8");
+  expect(source.split(startMarker)).toHaveLength(2);
+  if (endMarker !== null) expect(source.split(endMarker)).toHaveLength(2);
+  const bounds = exactReferenceTypeBounds(file, source);
+  expect(bounds).not.toBeNull();
+  return Array.from(
+    source
+      .slice(bounds!.start, bounds!.end)
+      .matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
+  )
+    .map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }))
+    .filter(({ size }) => size < 12);
 }
 
 describe("no essential text is rendered below the readable floor", () => {
@@ -486,6 +527,86 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".tdCohortMono", size: 11.5 },
       { selector: ".retentionChip", size: 11 },
       { selector: ".trailingNote", size: 11.5 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Insights SEO values narrow and exact", () => {
+    expect(
+      narrowDeclarations(
+        EXACT_INSIGHTS_SEO_TYPE_FILE,
+        EXACT_INSIGHTS_SEO_TYPE_START,
+        EXACT_INSIGHTS_SEO_TYPE_END,
+      ),
+    ).toEqual([
+      { selector: ".kpiLabel", size: 9.5 },
+      { selector: ".kpiDelta", size: 11 },
+      { selector: ".kpiPrev", size: 10.5 },
+      { selector: ".monthlyStatus", size: 10.5 },
+      { selector: ".monthlyMeta", size: 11 },
+      { selector: ".readsLabel", size: 10 },
+      { selector: ".readChip", size: 11 },
+      { selector: ".columnLabel", size: 10 },
+      { selector: ".planOrdinal", size: 10 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".moverDelta", size: 11 },
+      { selector: ".trailingNote", size: 11.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".deltaChip", size: 11 },
+      { selector: ".actionTone", size: 10.5 },
+      { selector: ".actionMeta", size: 11.5 },
+      { selector: ".excludedReason", size: 10.5 },
+      { selector: ".findingSeverity", size: 9 },
+      { selector: ".findingDetail", size: 11.5 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Insights AI-visibility values narrow and exact", () => {
+    expect(
+      narrowDeclarations(
+        EXACT_INSIGHTS_GEO_TYPE_FILE,
+        EXACT_INSIGHTS_GEO_TYPE_START,
+        EXACT_INSIGHTS_GEO_TYPE_END,
+      ),
+    ).toEqual([
+      { selector: ".statLabel", size: 9.5 },
+      { selector: ".kpiSub", size: 11 },
+      { selector: ".intentLabel", size: 10 },
+      { selector: ".priorityPill", size: 10 },
+      { selector: ".priorityMeta", size: 11.5 },
+      { selector: ".highlightLabel", size: 9.5 },
+      { selector: ".highlightPill", size: 10.5 },
+      { selector: ".highlightSub", size: 11.5 },
+      { selector: ".kindChip", size: 9 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".enginePill", size: 11.5 },
+      { selector: ".valueChip", size: 10.5 },
+      { selector: ".momentumChip", size: 10.5 },
+      { selector: ".tdRecommendation", size: 11.5 },
+      { selector: ".scorePill", size: 11 },
+      { selector: ".tdSourcedBy", size: 11.5 },
+      { selector: ".filterCount", size: 10 },
+      { selector: ".intentChip", size: 10.5 },
+      { selector: ".scoreToggle", size: 11 },
+      { selector: ".breakdownLabel", size: 8.5 },
+      { selector: ".breakdownValue", size: 9.5 },
+      { selector: ".tdPosition", size: 11.5 },
+      { selector: ".tdQueryRecommendation", size: 11.5 },
+      { selector: ".tableNote", size: 11.5 },
+      { selector: ".coveragePill", size: 10.5 },
+      { selector: ".topicPriority", size: 11 },
+      { selector: ".topicGap", size: 10 },
+      { selector: ".topicQueryCount", size: 11 },
+      { selector: ".topicChip", size: 11 },
+      { selector: ".topicRecMeta", size: 11.5 },
+      { selector: ".topicScore", size: 11 },
+      { selector: ".topicAsideCaption", size: 10.5 },
+      { selector: ".topicPosition", size: 11 },
+      { selector: ".topicAuthority", size: 10.5 },
+      { selector: ".trailingNote", size: 11.5 },
+      { selector: ".playOrdinal", size: 11 },
+      { selector: ".playChip", size: 10.5 },
+      { selector: ".methodArrow", size: 11 },
     ]);
   });
 

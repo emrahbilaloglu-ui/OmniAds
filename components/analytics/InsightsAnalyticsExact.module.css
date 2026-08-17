@@ -196,11 +196,6 @@
   background: #fbf3e1;
 }
 
-.callout[data-tone="info"] {
-  border-color: #cbd9ff;
-  background: #eaf0ff;
-}
-
 .calloutText {
   font-size: 12.5px;
   line-height: 1.55;

@@ -1736,11 +1736,15 @@ export function getDemoGeoOverview() {
   return {
     kpis: {
       aiSessions: 1720,
+      previousAiSessions: 1420,
+      aiSessionsDelta: (1720 - 1420) / 1420,
       aiEngagementRate: 0.684,
       aiPurchaseCvr: 0.032,
       geoScore: 74,
       aiPageCount: 23,
       topAiSource: "ChatGPT",
+      topAiSourceSessions: 760,
+      topAiSourceShare: 760 / 1720,
       siteAvgEngagementRate: 0.562,
       siteAvgPurchaseCvr: 0.0246,
       aiStyleQueryCount: 142,
@@ -1787,9 +1791,18 @@ export function getDemoGeoOverview() {
         score: 84,
       },
     },
+    // `GeoInsight` is `{ type, text }` (lib/geo-intelligence.ts:418) — the
+    // shape `/api/geo/overview` actually serves. The fixture previously used
+    // `{ severity, title, description }`, which no consumer could read.
     insights: [
-      { severity: "positive", title: "AI traffic quality is strong", description: "AI sessions convert above site average with deeper engagement." },
-      { severity: "opportunity", title: "Near-page-1 cluster opportunity", description: "Commercial query cluster is ranking 7-11 with substantial impressions." },
+      {
+        type: "positive",
+        text: "AI traffic quality is strong: AI sessions convert above site average with deeper engagement.",
+      },
+      {
+        type: "neutral",
+        text: "Near-page-1 cluster opportunity: a commercial query cluster is ranking 7-11 with substantial impressions.",
+      },
     ],
   };
 }
@@ -1809,9 +1822,9 @@ export function getDemoGeoTrafficSources() {
 export function getDemoGeoPages() {
   return {
     pages: [
-      { path: "/blog/best-travel-backpacks", aiSessions: 312, engagedSessions: 232, engagementRate: 0.744, purchases: 9, revenue: 780, purchaseCvr: 0.0288, totalSessions: 4510, geoScore: 82, momentum: { status: "breakout", label: "Breakout", score: 88, growthRate: 0.42 }, priority: "high", effort: "medium", confidence: "high", strongestSignal: "Breakout growth", recommendation: "Add commercial comparison table and top-pick CTA." },
-      { path: "/products/explorer-backpack", aiSessions: 278, engagedSessions: 174, engagementRate: 0.626, purchases: 14, revenue: 1246, purchaseCvr: 0.0504, totalSessions: 8200, geoScore: 79, momentum: { status: "rising", label: "Rising", score: 66, growthRate: 0.22 }, priority: "high", effort: "low", confidence: "high", strongestSignal: "Strong AI CVR", recommendation: "Scale with engine-specific FAQ and buying intent copy blocks." },
-      { path: "/blog/how-to-pack-for-hiking", aiSessions: 224, engagedSessions: 161, engagementRate: 0.719, purchases: 4, revenue: 260, purchaseCvr: 0.0179, totalSessions: 3920, geoScore: 71, momentum: { status: "stable", label: "Stable", score: 49, growthRate: 0.05 }, priority: "medium", effort: "medium", confidence: "medium", strongestSignal: "High engagement", recommendation: "Introduce product module midway to lift informational-to-commercial conversion." },
+      { path: "/blog/best-travel-backpacks", sourcedBy: ["ChatGPT", "Perplexity"], aiSessions: 312, engagedSessions: 232, engagementRate: 0.744, purchases: 9, revenue: 780, purchaseCvr: 0.0288, totalSessions: 4510, geoScore: 82, momentum: { status: "breakout", label: "Breakout", score: 88, growthRate: 0.42 }, priority: "high", effort: "medium", confidence: "high", strongestSignal: "Breakout growth", recommendation: "Add commercial comparison table and top-pick CTA." },
+      { path: "/products/explorer-backpack", sourcedBy: ["ChatGPT", "Gemini"], aiSessions: 278, engagedSessions: 174, engagementRate: 0.626, purchases: 14, revenue: 1246, purchaseCvr: 0.0504, totalSessions: 8200, geoScore: 79, momentum: { status: "rising", label: "Rising", score: 66, growthRate: 0.22 }, priority: "high", effort: "low", confidence: "high", strongestSignal: "Strong AI CVR", recommendation: "Scale with engine-specific FAQ and buying intent copy blocks." },
+      { path: "/blog/how-to-pack-for-hiking", sourcedBy: ["Gemini"], aiSessions: 224, engagedSessions: 161, engagementRate: 0.719, purchases: 4, revenue: 260, purchaseCvr: 0.0179, totalSessions: 3920, geoScore: 71, momentum: { status: "stable", label: "Stable", score: 49, growthRate: 0.05 }, priority: "medium", effort: "medium", confidence: "medium", strongestSignal: "High engagement", recommendation: "Introduce product module midway to lift informational-to-commercial conversion." },
     ],
   };
 }

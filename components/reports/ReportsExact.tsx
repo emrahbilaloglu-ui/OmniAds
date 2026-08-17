@@ -12,6 +12,14 @@
 import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
 
 import styles from "@/components/reports/ReportsExact.module.css";
+import {
+  AiGeometry,
+  BriefGeometry,
+  DonutGeometry,
+  FunnelGeometry,
+  HeatGeometry,
+  KpiRowGeometry,
+} from "@/components/reports/report-block-geometry";
 import type {
   BuilderBlockModel,
   BuilderInspectorModel,
@@ -44,16 +52,7 @@ function BlockBody({ block }: { block: BuilderBlockModel }) {
         </>
       );
     case "kpirow":
-      return (
-        <div className={styles.kpiRow}>
-          {body.minis.map((mini, index) => (
-            <span className={styles.kpiMini} key={`${mini.k}-${index}`}>
-              <span className={styles.kpiMiniKey}>{mini.k}</span>
-              <span className={styles.kpiMiniValue}>{mini.v}</span>
-            </span>
-          ))}
-        </div>
-      );
+      return <KpiRowGeometry minis={body.minis} />;
     case "line":
       return (
         <svg viewBox="0 0 100 26" preserveAspectRatio="none" className={styles.lineChart}>
@@ -80,19 +79,7 @@ function BlockBody({ block }: { block: BuilderBlockModel }) {
         </div>
       );
     case "donut":
-      return (
-        <div className={styles.donutWrap}>
-          <span className={styles.donut} style={{ background: body.gradient }} />
-          <div className={styles.donutLegend}>
-            {body.legend.map((entry) => (
-              <span className={styles.donutLegendItem} key={entry.text}>
-                <span className={styles.donutSwatch} style={{ background: entry.color }} />
-                {entry.text}
-              </span>
-            ))}
-          </div>
-        </div>
-      );
+      return <DonutGeometry gradient={body.gradient} legend={body.legend} />;
     case "table":
       return (
         <div className={styles.tableSchematic}>
@@ -119,12 +106,13 @@ function BlockBody({ block }: { block: BuilderBlockModel }) {
         </div>
       );
     case "ai":
-      return (
-        <div className={styles.aiPanel}>
-          <span className={styles.aiTag}>AI BRIEF</span>
-          <p className={styles.aiBody}>{DASH}</p>
-        </div>
-      );
+      return <AiGeometry />;
+    case "funnel":
+      return <FunnelGeometry steps={[]} />;
+    case "heat":
+      return <HeatGeometry cells={[]} />;
+    case "brief":
+      return <BriefGeometry />;
     default:
       return <p className={styles.blockUnavailable}>{DASH}</p>;
   }
@@ -341,11 +329,11 @@ export function ReportsExact({
 
         {model.activeTab === "mine" ? (
           <>
+            {/* The reference draws no empty state for this list: with no saved
+                reports the article is simply empty, and the tab's own counter
+                already reads 0. */}
             <article className={styles.savedList}>
-              {model.mine.emptyMessage ? (
-                <p className={styles.savedEmpty}>{model.mine.emptyMessage}</p>
-              ) : (
-                model.mine.reports.map((report) => (
+              {model.mine.reports.map((report) => (
                   <div className={styles.savedRow} key={report.id}>
                     <div className={styles.savedThumb}>
                       <span className={styles.savedThumbHead} style={{ background: report.thumbTone }} />
@@ -399,8 +387,7 @@ export function ReportsExact({
                       </button>
                     </div>
                   </div>
-                ))
-              )}
+              ))}
             </article>
             <p className={styles.footnote}>{model.mine.footnote}</p>
           </>
@@ -494,12 +481,10 @@ export function ReportsExact({
               <span className={styles.comparePill}>{model.builder.comparePillLabel}</span>
               <span className={styles.spacer} />
               <span className={styles.builderCounter}>{model.builder.counterLabel}</span>
-              <button
-                type="button"
-                className={styles.builderSecondary}
-                disabled={!model.builder.previewEnabled}
-                onClick={handlers.onPreview}
-              >
+              {/* The reference's Preview carries no disabled state. A report
+                  that has never been saved is saved on the way through, so the
+                  control does what it says instead of being greyed out. */}
+              <button type="button" className={styles.builderSecondary} onClick={handlers.onPreview}>
                 Preview
               </button>
               <button

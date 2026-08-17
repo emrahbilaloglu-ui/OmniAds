@@ -380,20 +380,35 @@ export function buildSparkPath(points: Array<{ value: number }>): { path: string
 
 const DONUT_COLORS = ["#2F6BFF", "#0E9F6E", "#B45309", "#C9D2E0"];
 
-function buildDonutBody(widget: RenderedReportWidget | null): BuilderBlockBodyModel {
-  const slices = widget?.slices ?? [];
-  if (slices.length === 0) return { kind: "unavailable" };
+/**
+ * A measured channel split expressed as the reference's conic ring plus its
+ * legend. Returns null when nothing was measured, so the caller draws the
+ * unmeasured ring rather than a full circle of one colour.
+ *
+ * Shared with the export, print and share surfaces so the ring a client
+ * receives is computed once, from the same shares.
+ */
+export function buildDonutGeometry(
+  slices: Array<{ label: string; sharePct: number }> | undefined | null,
+): { gradient: string; legend: Array<{ color: string; text: string }> } | null {
+  if (!slices || slices.length === 0) return null;
   let cursor = 0;
   const stops: string[] = [];
   const legend = slices.map((slice, index) => {
-    const color = DONUT_COLORS[index] ?? DONUT_COLORS[DONUT_COLORS.length - 1];
+    const color = DONUT_COLORS[index] ?? DONUT_COLORS[DONUT_COLORS.length - 1]!;
     const start = cursor;
     cursor += slice.sharePct;
     stops.push(`${color} ${start.toFixed(2)}% ${Math.min(cursor, 100).toFixed(2)}%`);
     return { color, text: `${slice.label} ${Math.round(slice.sharePct)}%` };
   });
   if (cursor < 100) stops.push(`#C9D2E0 ${cursor.toFixed(2)}% 100%`);
-  return { kind: "donut", gradient: `conic-gradient(${stops.join(", ")})`, legend };
+  return { gradient: `conic-gradient(${stops.join(", ")})`, legend };
+}
+
+function buildDonutBody(widget: RenderedReportWidget | null): BuilderBlockBodyModel {
+  const donut = buildDonutGeometry(widget?.slices);
+  if (!donut) return { kind: "unavailable" };
+  return { kind: "donut", gradient: donut.gradient, legend: donut.legend };
 }
 
 function buildBarBody(widget: RenderedReportWidget | null): BuilderBlockBodyModel {
@@ -463,10 +478,18 @@ export function buildBlockBody(
     }
     case "text":
       return { kind: "text" };
+    // No renderer measures these four yet (REPORTS-37). They keep their own
+    // kind so the design's inner geometry is drawn with an em dash inside it,
+    // rather than collapsing to a bare dash that drops the block's shape.
     case "ai":
       return { kind: "ai" };
+    case "funnel":
+      return { kind: "funnel" };
+    case "heat":
+      return { kind: "heat" };
+    case "brief":
+      return { kind: "brief" };
     default:
-      // funnel, heat and brief have no renderer contract yet.
       return { kind: "unavailable" };
   }
 }

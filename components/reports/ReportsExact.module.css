@@ -1,12 +1,12 @@
 /*
- * dashboard-v2-reports-exact-reference-type:start
+ * Geometry, colour and layout for the v2 Reports screen and for the block
+ * bodies its exported, printed and shared pages reuse.
  *
- * The Reports reference sets its mono provenance lines, block titles, palette
- * source tags and counters at 8.5px–11.5px. Those sizes are the specification,
- * not a shortcut: every one of them is a label attached to a figure that is
- * itself at the reading size, and re-scaling them would change the page the
- * client receives. The floor rule and this exception are both recorded in
- * lib/typography-floor.test.ts.
+ * Every declaration below the 12px reading floor is collected into the single
+ * marked block at the foot of this file, and pinned selector-by-selector in
+ * lib/typography-floor.test.ts. Nothing above that block may set a sub-floor
+ * size: the exemption is a short, enumerated list, not a property of this
+ * stylesheet.
  */
 .root,
 .root * {
@@ -48,7 +48,6 @@
 .eyebrow {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #7a869e;
@@ -111,7 +110,6 @@
 
 .tabCount {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   border-radius: 9999px;
   padding: 1px 7px;
   background: #f1f4f9;
@@ -129,14 +127,12 @@
 
 .exportNote {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
   color: #98a4ba;
 }
 
 .footnote {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
   color: #98a4ba;
 }
 
@@ -213,7 +209,6 @@
   display: inline-flex;
   border-radius: 6px;
   padding: 2px 8px;
-  font-size: 10.5px;
   font-weight: 700;
 }
 
@@ -227,7 +222,6 @@
 .savedMeta {
   margin: 5px 0 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
   color: #98a4ba;
 }
 
@@ -331,7 +325,6 @@
 
 .templateCategory {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   border-radius: 5px;
@@ -341,7 +334,6 @@
 .templateCadence {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   color: #98a4ba;
 }
 
@@ -374,7 +366,6 @@
 .templateContentIndex {
   flex-shrink: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   color: #98a4ba;
   width: 14px;
 }
@@ -395,7 +386,6 @@
 
 .templateFooterMeta {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   color: #98a4ba;
 }
 
@@ -468,7 +458,6 @@
 
 .builderCounter {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   color: #98a4ba;
 }
 
@@ -535,7 +524,6 @@
 .paletteEyebrow {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #7a869e;
@@ -543,7 +531,6 @@
 
 .paletteGroupName {
   margin: 0 0 6px;
-  font-size: 11.5px;
   font-weight: 600;
   color: #98a4ba;
 }
@@ -595,7 +582,6 @@
 .paletteSource {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8.5px;
   color: #98a4ba;
 }
 
@@ -641,7 +627,6 @@
 .canvasMeta {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   color: #98a4ba;
 }
 
@@ -675,7 +660,6 @@
 
 .blockHandle {
   color: #c2cbda;
-  font-size: 11px;
   letter-spacing: 1.5px;
   cursor: grab;
   line-height: 1;
@@ -683,7 +667,6 @@
 
 .blockTitle {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #7a869e;
@@ -696,7 +679,6 @@
   margin-left: auto;
   flex-shrink: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
   border: 1px solid #e4e8f0;
   border-radius: 5px;
   padding: 1px 6px;
@@ -717,7 +699,6 @@
   place-items: center;
   border-radius: 5px;
   color: #98a4ba;
-  font-size: 11px;
   cursor: pointer;
   line-height: 1;
   border: none;
@@ -741,7 +722,6 @@
 
 .kpiDelta {
   margin: 3px 0 0;
-  font-size: 11px;
   font-weight: 600;
 }
 
@@ -763,7 +743,6 @@
 .kpiMiniKey {
   display: block;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
   text-transform: uppercase;
   color: #98a4ba;
 }
@@ -825,7 +804,6 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
   color: #45526b;
 }
 
@@ -890,7 +868,6 @@
   color: #6c41be;
   padding: 1px 6px;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8.5px;
   letter-spacing: 0.06em;
 }
 
@@ -898,6 +875,276 @@
   margin: 6px 0 0;
   font-size: 12px;
   color: #98a4ba;
+}
+
+/* ── funnel (reference l.2470-2477) ─────────────────────────────────────── */
+
+.funnelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.funnelStep {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.funnelBar {
+  height: 10px;
+  border-radius: 3px;
+  background: #2f6bff;
+}
+
+/* An unmeasured step keeps the track's geometry in the neutral fill so no
+   proportion is asserted where none was measured. */
+.funnelBarUnmeasured {
+  background: #edf0f6;
+}
+
+.funnelLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
+}
+
+/* ── heat grid (reference l.2492-2498) ──────────────────────────────────── */
+
+.heatGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+}
+
+.heatCell {
+  height: 14px;
+  border-radius: 3px;
+  background: #f1f4f9;
+}
+
+/* ── creative brief (reference l.2500-2551) ─────────────────────────────── */
+
+.brief {
+  border-radius: 10px;
+  border: 1px solid #e6e0f2;
+  overflow: hidden;
+}
+
+.briefHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #fdfbff;
+  border-bottom: 1px solid #f0ebf9;
+}
+
+.briefTag {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 4px;
+  background: #f1ebfb;
+  color: #6c41be;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+.briefConcept {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefGate {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
+}
+
+.briefStatus {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.briefBody {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.briefGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 7px;
+}
+
+.briefFromCard {
+  border-radius: 8px;
+  border: 1px solid #edf0f6;
+  background: #f9fafc;
+  padding: 8px 10px;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.briefStripe {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  background: repeating-linear-gradient(
+    135deg,
+    #edf0f6,
+    #edf0f6 4px,
+    #f7f9fc 4px,
+    #f7f9fc 8px
+  );
+}
+
+.briefFromText {
+  min-width: 0;
+}
+
+.briefLabel {
+  display: block;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #98a4ba;
+}
+
+.briefFromName {
+  display: block;
+  margin-top: 2px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefFromMeta {
+  display: block;
+  margin-top: 1px;
+  color: #7a869e;
+}
+
+.briefNeedCard {
+  border-radius: 8px;
+  border: 1px solid #e6dbf6;
+  background: #fdfbff;
+  padding: 8px 10px;
+}
+
+.briefNeedLabel {
+  display: block;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #6c41be;
+}
+
+.briefMake {
+  display: block;
+  margin-top: 2px;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefMakeSub {
+  display: block;
+  margin-top: 1px;
+  color: #7a869e;
+}
+
+.briefWhy {
+  margin: 0;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+.briefWhyLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #0e9f6e;
+  margin-right: 6px;
+}
+
+.briefRowLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #7a869e;
+}
+
+.briefChipRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.briefChip {
+  display: inline-flex;
+  border-radius: 6px;
+  border: 1px solid #e6dbf6;
+  background: #ffffff;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.briefRuleRow {
+  display: flex;
+  align-items: center;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+}
+
+.briefRule {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #45526b;
+}
+
+.briefRuleSign {
+  font-weight: 700;
+  color: #98a4ba;
+}
+
+.briefSpecRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  border-top: 1px solid #f3f5f9;
+  padding-top: 7px;
+}
+
+.briefSpec {
+  display: inline-flex;
+  border-radius: 5px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #45526b;
+  white-space: nowrap;
+}
+
+.briefFoot {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
 }
 
 .blockUnavailable {
@@ -909,7 +1156,6 @@
 .blockSourceNote {
   margin: 8px 0 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8.5px;
   color: #c2cbda;
 }
 
@@ -952,7 +1198,6 @@
 .inspectorEyebrow {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #7a869e;
@@ -963,7 +1208,6 @@
   display: inline-flex;
   border-radius: 5px;
   padding: 2px 7px;
-  font-size: 9.5px;
   font-weight: 600;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   background: #f1f4f9;
@@ -977,7 +1221,6 @@
 }
 
 .fieldLabel {
-  font-size: 11.5px;
   font-weight: 600;
   color: #45526b;
 }
@@ -1018,7 +1261,6 @@
   flex: 1;
   text-align: center;
   padding: 6px 0;
-  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   background: #ffffff;
@@ -1086,7 +1328,6 @@
 .inspectorFootnote {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   line-height: 1.6;
   color: #c2cbda;
 }
@@ -1105,7 +1346,6 @@
   background: #f1f4f9;
   color: #45526b;
   padding: 3px 8px;
-  font-size: 11px;
 }
 
 .recipientRemove {
@@ -1119,7 +1359,6 @@
   border: 1px dashed #c9d2e0;
   color: #7a869e;
   padding: 3px 8px;
-  font-size: 11px;
   cursor: pointer;
   background: none;
 }
@@ -1167,7 +1406,6 @@
 .toggleNote {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
   color: #98a4ba;
 }
 
@@ -1180,9 +1418,90 @@
 
 .inspectorHintText {
   margin: 0;
-  font-size: 11.5px;
   line-height: 1.6;
   color: #7a869e;
 }
 
+/*
+ * The Reports reference sets its mono provenance lines, block titles, palette
+ * source tags, counters and brief labels at 8px–11.5px. Those sizes are the
+ * specification, not a shortcut: each one is a label attached to a figure that
+ * is itself at the reading size, and re-scaling them would change the page the
+ * client receives. Every sub-floor declaration in this stylesheet is listed
+ * below and nowhere else, and lib/typography-floor.test.ts pins this exact
+ * selector/size list so the exemption cannot widen unnoticed.
+ */
+/* dashboard-v2-reports-exact-reference-type:start */
+.kpiMiniKey,
+.briefLabel,
+.briefRowLabel,
+.briefNeedLabel,
+.briefWhyLabel {
+  font-size: 8px;
+}
+
+.paletteSource,
+.aiTag,
+.blockSourceNote,
+.funnelLabel,
+.briefTag,
+.briefSpec,
+.briefFoot {
+  font-size: 8.5px;
+}
+
+.templateCategory,
+.blockSize,
+.briefGate {
+  font-size: 9px;
+}
+
+.templateContentIndex,
+.paletteEyebrow,
+.blockTitle,
+.inspectorEyebrow,
+.inspectorKind,
+.inspectorFootnote,
+.toggleNote,
+.briefStatus {
+  font-size: 9.5px;
+}
+
+.tabCount,
+.templateCadence,
+.templateFooterMeta,
+.builderCounter,
+.canvasMeta,
+.briefFromMeta,
+.briefMakeSub {
+  font-size: 10px;
+}
+
+.exportNote,
+.savedStatus,
+.savedMeta,
+.donutLegendItem,
+.briefWhy,
+.briefChip,
+.briefRule {
+  font-size: 10.5px;
+}
+
+.eyebrow,
+.footnote,
+.blockHandle,
+.blockRemove,
+.kpiDelta,
+.recipient,
+.recipientAdd {
+  font-size: 11px;
+}
+
+.paletteGroupName,
+.fieldLabel,
+.segment,
+.inspectorHintText,
+.briefFromName {
+  font-size: 11.5px;
+}
 /* dashboard-v2-reports-exact-reference-type:end */

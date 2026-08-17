@@ -78,7 +78,7 @@ const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
 const EXACT_REPORTS_TYPE_FILE = "components/reports/ReportsExact.module.css";
 const EXACT_REPORTS_TYPE_START =
-  "dashboard-v2-reports-exact-reference-type:start";
+  "/* dashboard-v2-reports-exact-reference-type:start */";
 const EXACT_REPORTS_TYPE_END =
   "/* dashboard-v2-reports-exact-reference-type:end */";
 
@@ -100,7 +100,7 @@ function exactReferenceTypeBounds(file: string, source: string) {
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
                   : file === EXACT_REPORTS_TYPE_FILE
                     ? [EXACT_REPORTS_TYPE_START, EXACT_REPORTS_TYPE_END]
-              : null;
+                    : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
   const markerStart = source.indexOf(startMarker);
@@ -413,6 +413,69 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Reports values narrow and exact", () => {
+    const source = readFileSync(EXACT_REPORTS_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_REPORTS_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_REPORTS_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_REPORTS_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    // The marker must stay a short tail of the stylesheet, not the whole of it.
+    // A whole-file marker switches the floor off for every rule the file will
+    // ever gain, which is the regression this bound catches.
+    const markedShare = (bounds!.end - bounds!.start) / source.length;
+    expect(markedShare).toBeLessThan(0.15);
+
+    const exactReports = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactReports.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      {
+        selector:
+          ".kpiMiniKey, .briefLabel, .briefRowLabel, .briefNeedLabel, .briefWhyLabel",
+        size: 8,
+      },
+      {
+        selector:
+          ".paletteSource, .aiTag, .blockSourceNote, .funnelLabel, .briefTag, .briefSpec, .briefFoot",
+        size: 8.5,
+      },
+      { selector: ".templateCategory, .blockSize, .briefGate", size: 9 },
+      {
+        selector:
+          ".templateContentIndex, .paletteEyebrow, .blockTitle, .inspectorEyebrow, .inspectorKind, .inspectorFootnote, .toggleNote, .briefStatus",
+        size: 9.5,
+      },
+      {
+        selector:
+          ".tabCount, .templateCadence, .templateFooterMeta, .builderCounter, .canvasMeta, .briefFromMeta, .briefMakeSub",
+        size: 10,
+      },
+      {
+        selector:
+          ".exportNote, .savedStatus, .savedMeta, .donutLegendItem, .briefWhy, .briefChip, .briefRule",
+        size: 10.5,
+      },
+      {
+        selector:
+          ".eyebrow, .footnote, .blockHandle, .blockRemove, .kpiDelta, .recipient, .recipientAdd",
+        size: 11,
+      },
+      {
+        selector:
+          ".paletteGroupName, .fieldLabel, .segment, .inspectorHintText, .briefFromName",
+        size: 11.5,
+      },
     ]);
   });
 

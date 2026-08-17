@@ -2875,6 +2875,15 @@ divergence is removed and covered by focused tests. It does **not** claim a
 zero-pixel diff; no pinned-Chromium reference matrix has been run. The numbered
 01–35 blocks below preserve the original audit evidence.
 
+An adversarial review of this batch found five further defects — four of them
+introduced by the batch itself, one of them blocking. They are recorded as
+REPORTS-40 through REPORTS-44 with their own status table, after the 36–39
+entries below. All five are closed. The most serious, REPORTS-40, is why
+`components/reports/report-block-geometry.tsx` exists: the builder canvas and
+the export/print/share renderer now draw every block kind from one copy of the
+reference's geometry, so a kind added to the palette cannot again reach the
+client as a blank white box.
+
 | ID | Status | Current proof |
 | --- | ------ | ------------- |
 | REPORTS-01 | CLOSED | The inspector has exactly two states, block settings and report settings; `report-builder.tsx` and its `{true ? (` templates panel are deleted. Test: "shows no template list in the right rail". |
@@ -2925,7 +2934,9 @@ Found during this batch and not in the list above:
 
 - **Design:** the palette offers Funnel (`GA4`), Creative heat table (`Meta`), AI summary (`engine`) and Creative brief (`Meta`); the canvas draws a full brief layout at l.2482-2551.
 - **Code:** `renderCustomReport` has no data source for a GA4 funnel, a creative heat table, an engine summary scoped to the report window, or a creative brief. They fall through to `"Unsupported widget source."`.
-- **Current behaviour:** the blocks keep the design's exact chrome — handle, mono title, size chip, remove, provenance — and render `—` as the body. They are never fabricated.
+- **Current behaviour:** all four keep the design's block chrome — handle, mono title, size chip, remove, provenance — **and** the design's inner geometry, with `—` in every slot that would carry a figure. `components/reports/report-block-geometry.tsx` transcribes each layout from the reference (funnel l.2470-2477, heat l.2492-2498, ai l.2483-2489, brief l.2500-2551) and both the builder canvas and the export/print/share renderer draw from that one copy. Nothing is fabricated.
+  - The one place the em dash is spelled in the design's own vocabulary rather than as a character: a heat cell carries no text — its tint *is* its value — so an unmeasured grid is drawn at full 6×n geometry in the neutral fill. Tinting it would assert a reading nobody took. Proof: `report-canvas-block-kinds.test.tsx` "draws a heat block as the reference's six-column grid" asserts twelve cells and no `style` on any of them.
+  - Corrected 2026-08-17: this paragraph previously claimed all four kept the design's chrome and dashed the body. That was true only of `ai`. `funnel`, `heat` and `brief` had no CSS rules at all and fell through to `.blockUnavailable` — a bare dash with the block's shape dropped. See REPORTS-42.
 - **Contract needed:** a GA4 funnel step endpoint (`sessions → add-to-cart → checkout → purchase` for a window); a `meta_creatives` report data source returning per-creative spend/ROAS/fatigue cells; an engine summary endpoint that answers for an arbitrary report window; and a brief source that resolves `creative_briefs` rows into the reference's from/make/why/hooks/rules/specs shape.
 
 ### REPORTS-38 · MEDIUM · WRONG — The text block cannot carry text
@@ -2938,6 +2949,49 @@ Found during this batch and not in the list above:
 
 - **Design:** l.2367 "Scheduled reports send from reports@adsecute.com with a live share link — recipients see data as of send time, with provenance stamped per widget."
 - **Code:** the string is ported verbatim per REPORTS-32, but nothing in the repo sends a scheduled report and `reports@adsecute.com` is not a configured sender. It is the same missing contract as REPORTS-08, recorded here so the sentence is not mistaken for a description of current behaviour.
+
+### Batch 12 adversarial review — findings 40-44
+
+An adversarial re-read of the batch found five further defects, four of them
+introduced by the batch itself. All five are closed; the evidence is below.
+
+| ID | Severity | Status | Current proof |
+| --- | --- | ------ | ------------- |
+| REPORTS-40 | BLOCKING | CLOSED | The export renderer draws all six new kinds. Tests: `components/reports/report-canvas-block-kinds.test.tsx`, one per kind plus "never exports a saved block as an empty card". |
+| REPORTS-41 | HIGH | CLOSED | The typography exemption is 72 lines of a 1500-line stylesheet and every value in it is pinned. Test: "keeps the marker-bounded Reports values narrow and exact". |
+| REPORTS-42 | MEDIUM | CLOSED | `funnel`, `heat` and `brief` now have the reference's inner geometry; REPORTS-37's claim above is corrected and now describes what the code does. |
+| REPORTS-43 | LOW | CLOSED | Both additions removed: no empty state on the mine tab, no disabled Preview. |
+| REPORTS-44 | LOW | CLOSED | `lib/typography-floor.test.ts` ternary re-indented. |
+
+### REPORTS-40 · BLOCKING · WRONG — Six of the thirteen block kinds exported as a blank white box
+
+- **Introduced by:** this batch. `CustomReportWidgetType` and `BUILDER_PALETTE` gained `kpirow`, `donut`, `funnel`, `heat`, `ai` and `brief`, but `components/reports/report-canvas.tsx` — the **only** renderer behind `/reports/[id]` (`report-builder-page.tsx:245`), `/reports/[id]/print` (`report-print-page.tsx:82`) and `/share/report/[token]` (`app/share/report/[token]/page.tsx:140`) — still branched on `section` / `metric` / `trend|bar` / `table` / `text` alone.
+- **Effect:** a saved report containing any of the six exported as its title and nothing else. Worse for `kpirow` and `donut`: `renderCustomReport` populates real measured `metrics` / `slices` for them, `ReportWidgetCard` read neither, and because those fields were set the `emptyMessage` fallback did not fire either. A `kpirow` measuring Spend $118,220 and MER 4.09 exported as `<article><div><div><h3>Blended KPIs</h3></div></div></article>`.
+- **Fix (landed):** `report-block-geometry.tsx` holds one copy of the reference's inner geometry per kind; `ReportsExact` (builder) and `report-canvas` (export/print/share) both draw from it, so the page an operator arranges is the page the client receives. `kpirow` prints the renderer's measured figures, `donut` draws its ring from the same shares its legend prints, and the four unbacked kinds draw their structure with `—` in every figure slot.
+- **Also found while proving it:** two older kinds had the same failure mode on a payload the renderer can produce. A `trend`/`bar` widget with no `points` was gated out entirely, and a `table` with no rows rendered an empty `<table>`; both exported as title-only cards. Both now render their own body — the chart area says it has no data, the table carries one em-dash row.
+
+### REPORTS-41 · HIGH · WRONG — The 12px typography floor was switched off for the whole Reports stylesheet
+
+- **Introduced by:** this batch. `ReportsExact.module.css` carried the exemption marker at line 2 and its close at line 1188 of 1188 — the entire file — which disabled `lib/typography-floor.test.ts`'s floor check for 33 sub-floor declarations and for every rule the file would ever gain. No companion pin test existed, so the exempted values were unasserted; every other exact module scopes the marker narrowly **and** pins its values.
+- **Fix (landed):** all sub-floor declarations are collected into one marked block at the foot of the file (72 lines of 1500), and the companion test pins the exact selector/size list alongside the shell, Meta, Launchpad, Automation, Google Overview and Google Advisor entries. It also asserts the marked region is under 15% of the file, so a marker cannot creep back out to cover the stylesheet.
+- **Correction to the report that raised this:** the count was 29 sub-floor declarations; it is 33. All 33 are pinned.
+
+### REPORTS-42 · MEDIUM · WRONG — REPORTS-37's chrome claim was overstated
+
+- **Claimed:** the four unsupported kinds keep the design's exact chrome and render `—` as the body.
+- **Actual, before this fix:** true of `ai` only (`.aiPanel` + the AI BRIEF tag). `funnel`, `heat` and `brief` had no CSS rules at all and fell to `default: → .blockUnavailable`, a bare dash — the funnel's tracks, the six-column heat grid and the whole brief layout were dropped, not dashed inside chrome.
+- **Fix (landed):** the geometry is built (the same work REPORTS-40 needed) and the REPORTS-37 entry above is corrected rather than left standing.
+
+### REPORTS-43 · LOW · EXTRA — Two small additions the reference does not have
+
+- **Design:** the My reports list (l.2337-2365) draws no empty state, and the builder's Preview control (l.2394) carries no disabled state.
+- **Code (before):** `ReportsExact.tsx:346` rendered "No saved reports yet."; `ReportsExact.tsx:500` disabled Preview whenever `builder.reportId` was null.
+- **Fix (landed):** both removed. With no saved reports the list article is simply empty and the tab's own counter reads 0. Preview is always live: a report that has never been written is written on the way through — `persist` now returns the id it stored under, and nothing is navigated to until that id exists. The document already autosaves, so this adds no write path that did not exist.
+
+### REPORTS-44 · LOW · WRONG — Mis-indented ternary branch in the typography-floor test
+
+- **Code (before):** `lib/typography-floor.test.ts:98-103` — the `: null;` closing the Reports arm sat two levels out from the arm it closed, reading as if it belonged to an earlier branch.
+- **Fix (landed):** re-indented.
 
 
 ### REPORTS-01 · HIGH · EXTRA — Builder right rail permanently shows a Templates panel the design's inspector column has no room for

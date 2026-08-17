@@ -83,7 +83,6 @@ function model(activeTab: ReportsTabId): ReportsExactModel {
         },
       ],
       footnote: REPORTS_MINE_FOOTNOTE,
-      emptyMessage: null,
     },
     templates: { cards: buildTemplateCards(), footnote: REPORTS_TEMPLATES_FOOTNOTE },
     builder: {
@@ -143,7 +142,6 @@ function model(activeTab: ReportsTabId): ReportsExactModel {
         compareOn: true,
         footnote: "changes apply to the page live · provenance is stamped per block on send",
       },
-      previewEnabled: true,
       saveEnabled: true,
       saveLabel: "Save & schedule",
     },

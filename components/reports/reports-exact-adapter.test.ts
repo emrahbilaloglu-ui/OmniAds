@@ -311,9 +311,30 @@ describe("block bodies", () => {
     });
   });
 
-  it("reports funnel, heat and brief blocks as unavailable until a renderer builds them", () => {
-    for (const kind of ["funnel", "heat", "brief"] as const) {
-      expect(buildBlockBody(kind, null)).toEqual({ kind: "unavailable" });
+  it("keeps funnel, heat and brief as their own kinds so the design's geometry survives", () => {
+    // Until a renderer measures them these carry no payload, but they must not
+    // collapse to `unavailable`: that drops the block's shape from the page the
+    // client receives. The geometry is drawn and the em dash sits inside it.
+    for (const kind of ["funnel", "heat", "brief", "ai"] as const) {
+      expect(buildBlockBody(kind, null)).toEqual({ kind });
+    }
+  });
+
+  it("still reports a failed block of those kinds as unavailable", () => {
+    // A failure is not an unmeasured figure. It keeps the explicit unavailable
+    // body so the surface can say so rather than drawing an empty structure.
+    for (const kind of ["funnel", "heat", "brief", "ai"] as const) {
+      expect(
+        buildBlockBody(kind, {
+          id: "w1",
+          slot: 0,
+          colSpan: 4,
+          rowSpan: 1,
+          type: "funnel",
+          title: "Click to purchase",
+          errorMessage: "Upstream request failed.",
+        }),
+      ).toEqual({ kind: "unavailable" });
     }
   });
 });

@@ -110,6 +110,12 @@ export interface BuilderLegendEntryModel {
  * A block body is either drawn from measured data or explicitly unavailable.
  * There is no third state: a block whose figures could not be established
  * renders an em dash rather than a zero or a decorative placeholder.
+ *
+ * `ai`, `funnel`, `heat` and `brief` carry no payload because no renderer
+ * measures them yet (REPORTS-37). They are still their own kinds rather than
+ * `unavailable`, so the design's inner geometry is drawn and the em dash sits
+ * inside it — a block that reports nothing must still look like the block the
+ * client will receive, not like a blank box.
  */
 export type BuilderBlockBodyModel =
   | { kind: "kpi"; value: string; delta: string; deltaTone: string }
@@ -120,6 +126,9 @@ export type BuilderBlockBodyModel =
   | { kind: "table"; rows: string[] }
   | { kind: "text" }
   | { kind: "ai" }
+  | { kind: "funnel" }
+  | { kind: "heat" }
+  | { kind: "brief" }
   | { kind: "unavailable" };
 
 export interface BuilderBlockModel {
@@ -204,7 +213,6 @@ export interface BuilderModel {
   paletteEyebrow: string;
   dropHint: string;
   inspector: BuilderInspectorModel;
-  previewEnabled: boolean;
   saveEnabled: boolean;
   saveLabel: string;
 }
@@ -212,8 +220,6 @@ export interface BuilderModel {
 export interface ReportsMineModel {
   reports: SavedReportModel[];
   footnote: string;
-  /** Set only when there is nothing to list; never shown alongside rows. */
-  emptyMessage: string | null;
 }
 
 export interface ReportsTemplatesModel {

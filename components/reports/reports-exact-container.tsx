@@ -240,9 +240,11 @@ export function ReportsExactContainer({
       }),
   });
 
+  // Returns the id the document is stored under, so a caller that needs to
+  // navigate to the saved report can wait for the write instead of guessing.
   const persist = useCallback(
-    async (state: BuilderState) => {
-      if (!businessId) return;
+    async (state: BuilderState): Promise<string | null> => {
+      if (!businessId) return null;
       setSaveState("saving");
       try {
         const body = JSON.stringify({
@@ -265,7 +267,7 @@ export function ReportsExactContainer({
             });
         if (!response.ok) {
           setSaveState("error");
-          return;
+          return null;
         }
         const payload = (await response.json().catch(() => null)) as {
           report?: CustomReportRecord;
@@ -276,8 +278,10 @@ export function ReportsExactContainer({
         }
         setSaveState("saved");
         await queryClient.invalidateQueries({ queryKey: ["custom-reports", businessId] });
+        return state.reportId ?? payload?.report?.id ?? null;
       } catch {
         setSaveState("error");
+        return null;
       }
     },
     [businessId, queryClient],
@@ -474,9 +478,19 @@ export function ReportsExactContainer({
           },
         }));
       },
+      // The reference's Preview is always live, so a report that has never been
+      // written is written on the way through rather than the control being
+      // disabled. Nothing is navigated to until the id actually exists.
       onPreview: () => {
-        if (!builder.reportId) return;
-        router.push(`/reports/${builder.reportId}`);
+        if (builder.reportId) {
+          router.push(`/reports/${builder.reportId}`);
+          return;
+        }
+        dirtyRef.current = false;
+        void (async () => {
+          const reportId = await persist(builder);
+          if (reportId) router.push(`/reports/${reportId}`);
+        })();
       },
       onSave: () => {
         dirtyRef.current = false;
@@ -581,10 +595,6 @@ export function ReportsExactContainer({
       mine: {
         reports: buildSavedReports({ reports, busyReportId }),
         footnote: REPORTS_MINE_FOOTNOTE,
-        emptyMessage:
-          !reportsQuery.isLoading && !reportsQuery.error && reports.length === 0
-            ? "No saved reports yet."
-            : null,
       },
       templates: {
         cards: buildTemplateCards(),
@@ -619,7 +629,6 @@ export function ReportsExactContainer({
               clientName: business?.name ?? null,
               clientOptions: businesses.map((item) => ({ id: item.id, name: item.name })),
             }),
-        previewEnabled: Boolean(builder.reportId),
         saveEnabled: saveState !== "saving",
         saveLabel: "Save & schedule",
       },

@@ -200,6 +200,13 @@ export const REQUEST_PATH_WRITE_EXCEPTIONS: ReadonlyArray<RequestPathWriteExcept
     reason:
       "The only sanctioned read-path write. An expired Google access token must be re-minted mid-request or every Google read fails, and the new token has to be persisted or the next request mints another one. It is registered for integration_credentials ONLY: rewriting provider_connections from here is the defect that made a cutover's backup readback disagree with the live row, so that table is deliberately absent and re-adding it must be argued for.",
   },
+  {
+    writeSite: "lib/integrations.ts#refreshIntegrationCredentialTokens",
+    via: "lib/klaviyo/token.ts#resolveKlaviyoAccessToken",
+    tables: ["integration_credentials"],
+    reason:
+      "The Klaviyo twin of the Google credential refresh, and registered for integration_credentials ONLY for the same reason. Klaviyo access tokens expire in about an hour and Klaviyo ROTATES the refresh token on every grant, so a refresh that is not persisted strands the connection at the next call with an invalid_grant. It is reached from the ingest lane and from the OAuth callback's first import, never from a page read: the Klaviyo screen reads the warehouse, not the provider.",
+  },
 
   // ── OAuth callbacks: connect/reconnect, GET only because of the redirect ───
   {
@@ -236,6 +243,13 @@ export const REQUEST_PATH_WRITE_EXCEPTIONS: ReadonlyArray<RequestPathWriteExcept
     tables: ["provider_connections", "integration_credentials", "business_provider_accounts"],
     reason:
       "OAuth callback: this IS the connect writer for the Shopify install grant. GET only because Shopify redirects the browser back here after the merchant approves the scopes.",
+  },
+  {
+    writeSite: "lib/integrations.ts#upsertIntegration",
+    via: "app/api/oauth/klaviyo/callback/route.ts#GET",
+    tables: ["provider_connections", "integration_credentials", "business_provider_accounts"],
+    reason:
+      "OAuth callback: this IS the connect/reconnect writer for the Klaviyo grant. GET only because Klaviyo redirects the browser back here after the user grants the read-only scopes, and the route re-checks requireBusinessAccess before writing anything.",
   },
   {
     writeSite: "lib/provider-account-assignments.ts#replaceProviderAccountSelection",

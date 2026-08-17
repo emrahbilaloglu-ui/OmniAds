@@ -13975,6 +13975,47 @@ export async function runMigrations(options?: {
       `);
       await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
+      // ── Klaviyo lifecycle warehouse ───────────────────────────────────────
+      //
+      // The five columns the design's Klaviyo table shows (design 1710-1727),
+      // at rest, per flow, per window.
+      //
+      // Every metric column is NULLABLE and carries NO DEFAULT, deliberately.
+      // `NOT NULL DEFAULT 0` — which the neighbouring ads tables use, correctly,
+      // because a day with no spend really did cost nothing — would be a lie
+      // here: Klaviyo's value report omits a statistic it cannot compute, and a
+      // stored 0 would render as "$0" / "0%" on a screen whose contract is that
+      // an unsupplied fact renders an em-dash. NULL is that em-dash at rest.
+      //
+      // The natural key is (business, account, flow, window) so a re-sync
+      // overwrites the snapshot rather than accumulating duplicates, and a
+      // second Klaviyo account under the same business cannot collide with the
+      // first.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS klaviyo_flow_metrics (
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          flow_id             TEXT NOT NULL,
+          window_days         INTEGER NOT NULL CHECK (window_days > 0),
+          window_start        DATE NOT NULL,
+          window_end          DATE NOT NULL,
+          flow_name           TEXT,
+          flow_status         TEXT,
+          currency            TEXT,
+          revenue             NUMERIC(18, 4),
+          open_rate           NUMERIC(9, 6) CHECK (open_rate IS NULL OR open_rate >= 0),
+          recipients          BIGINT CHECK (recipients IS NULL OR recipients >= 0),
+          source_fetched_at   TIMESTAMPTZ NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, flow_id, window_days)
+        )
+      `);
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_klaviyo_flow_metrics_business_window
+         ON klaviyo_flow_metrics (business_id, window_days, source_fetched_at DESC)`,
+      );
+
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([
           sql`DROP TABLE IF EXISTS provider_account_snapshots`.catch(() => {}),

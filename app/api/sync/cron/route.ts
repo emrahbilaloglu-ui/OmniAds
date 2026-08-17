@@ -16,6 +16,7 @@ import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses
 import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
+import { syncKlaviyoFlowMetrics } from "@/lib/klaviyo/sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 import {
@@ -391,15 +392,20 @@ export async function POST(request: NextRequest) {
   const cronStartedAt = new Date();
   const results = await Promise.allSettled(
     businesses.map(async (business) => {
-      const [gads, ga4, sc, metaScheduled, shopify] = await Promise.allSettled([
-        enqueueGoogleAdsScheduledWork(business.id),
-        syncGA4Reports(business.id),
-        syncSearchConsoleReports(business.id),
-        enqueueMetaScheduledWork(business.id),
-        shopifySyncEnabled()
-          ? syncShopifyCommerceReports(business.id)
-          : Promise.resolve({ skipped: true, reason: "disabled" }),
-      ]);
+      const [gads, ga4, sc, metaScheduled, shopify, klaviyo] =
+        await Promise.allSettled([
+          enqueueGoogleAdsScheduledWork(business.id),
+          syncGA4Reports(business.id),
+          syncSearchConsoleReports(business.id),
+          enqueueMetaScheduledWork(business.id),
+          shopifySyncEnabled()
+            ? syncShopifyCommerceReports(business.id)
+            : Promise.resolve({ skipped: true, reason: "disabled" }),
+          // Klaviyo rides the same `source_ingest` lane as GA4 and Search
+          // Console, refuses itself when that lane is off, and skips silently
+          // for every business that has not connected Klaviyo.
+          syncKlaviyoFlowMetrics(business.id),
+        ]);
 
       // Read AFTER the enqueue so the receipt describes the state the tick
       // leaves behind. One bulk read per business per pass — never one per
@@ -419,6 +425,7 @@ export async function POST(request: NextRequest) {
         searchConsole: describeLaneOutcome(sc),
         meta: describeLaneOutcome(metaScheduled),
         shopify: describeLaneOutcome(shopify),
+        klaviyo: describeLaneOutcome(klaviyo),
       };
       return {
         businessId: business.id,
@@ -428,6 +435,7 @@ export async function POST(request: NextRequest) {
         searchConsole: lanes.searchConsole.value,
         meta: lanes.meta.value,
         shopify: lanes.shopify.value,
+        klaviyo: lanes.klaviyo.value,
         // The scheduler publishes the same verdict the UI shows, so a worker
         // can never stop for one reason while the admin page claims another.
         googleAdsFreshness,

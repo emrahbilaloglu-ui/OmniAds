@@ -5,8 +5,10 @@
  *
  * - the reconnect link carried no `returnTo`, while the client waited for a
  *   `reconnected` parameter no callback emitted. The operator never came back.
- * - Klaviyo was offered as reconnectable, but its start route answers 501 by
- *   design.
+ * - Klaviyo was offered as reconnectable, but its start route can still refuse:
+ *   the handshake is real now, and it answers 501 until the deployment holds a
+ *   Klaviyo OAuth client credential. This surface has no way to read that
+ *   deployment fact, so it still must not offer the provider.
  * - the team surface read `member.id`; the handler selects `membership_id`.
  * - business settings were absent entirely, though the PATCH route takes name
  *   and currency together.
@@ -77,9 +79,16 @@ describe("WP-23 the OAuth return path is real end to end", () => {
     expect(url.searchParams.get("reconnected")).toBe("meta");
   });
 
-  it("REGRESSION: Klaviyo is not offered, because its start route answers 501", () => {
+  it("REGRESSION: Klaviyo is not offered, because its start route can still answer 501", () => {
     expect(Object.keys(OAUTH_START_PROVIDERS)).not.toContain("klaviyo");
-    expect(source("app/api/oauth/klaviyo/start/route.ts")).toContain("not_implemented");
+    // The start route is a real handshake now, but it refuses with 501 until
+    // the owner supplies a Klaviyo OAuth app. Whether this deployment has one
+    // is a server fact (`/api/klaviyo/status` -> `connectable`) that this pure
+    // contract cannot read, so the provider stays off this surface.
+    const start = source("app/api/oauth/klaviyo/start/route.ts");
+    expect(start).toContain("not_configured");
+    expect(start).toContain("status: 501");
+    expect(start).toContain("isKlaviyoOAuthConfigured");
   });
 
   it("every offered start route reads returnTo, directly or by forwarding", () => {

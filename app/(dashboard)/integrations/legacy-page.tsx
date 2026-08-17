@@ -47,9 +47,13 @@ const REAL_PROVIDERS: IntegrationProvider[] = [
 
 /**
  * Providers a user can actually authorize right now — each has a real flow
- * (OAuth start route, or Shopify's app-store install). Klaviyo is deliberately
- * absent: `app/api/oauth/klaviyo/start` answers 501 rather than fabricating a
- * connection, so its card renders no button at all instead of one that fails.
+ * (OAuth start route, or Shopify's app-store install).
+ *
+ * Klaviyo is not in this constant because its answer is not constant: the
+ * start/callback pair now exists, but it needs a Klaviyo OAuth app id and
+ * secret this repo does not ship. `/api/klaviyo/status` reports whether THIS
+ * deployment holds them, and Klaviyo is appended below only when it does — so
+ * the card still shows no button rather than one that lands on a 501.
  */
 const CONNECTABLE_PROVIDERS: IntegrationProvider[] = [
   "meta",
@@ -58,6 +62,21 @@ const CONNECTABLE_PROVIDERS: IntegrationProvider[] = [
   "search_console",
   "shopify",
 ];
+
+interface KlaviyoStatusResponse {
+  connectable?: boolean;
+}
+
+async function fetchKlaviyoStatus(
+  businessId: string,
+): Promise<KlaviyoStatusResponse> {
+  const response = await fetch(
+    `/api/klaviyo/status?businessId=${encodeURIComponent(businessId)}`,
+    { credentials: "same-origin" },
+  );
+  if (!response.ok) return { connectable: false };
+  return (await response.json()) as KlaviyoStatusResponse;
+}
 
 interface SearchConsoleProperty {
   siteUrl: string;
@@ -348,6 +367,15 @@ export default function IntegrationsPage() {
       ),
     queryFn: () => fetchSearchConsoleStatus(businessId!),
   });
+  // Deployment configuration, not tenant data, so it needs no polling: the
+  // answer only changes when the owner sets KLAVIYO_CLIENT_ID/SECRET and the
+  // process restarts.
+  const klaviyoStatusQuery = useQuery({
+    queryKey: ["klaviyo-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchKlaviyoStatus(businessId!),
+  });
 
   useTierZeroFreshness({
     surface: "integrations",
@@ -581,12 +609,15 @@ export default function IntegrationsPage() {
         shopifyStatus: shopifyStatusQuery.data ?? null,
         ga4Status: ga4StatusQuery.data ?? null,
         searchConsoleStatus: searchConsoleStatusQuery.data ?? null,
-        connectableProviders: CONNECTABLE_PROVIDERS,
+        connectableProviders: klaviyoStatusQuery.data?.connectable
+          ? [...CONNECTABLE_PROVIDERS, "klaviyo"]
+          : CONNECTABLE_PROVIDERS,
         logoFor: getProviderLogo,
       }),
     [
       ga4StatusQuery.data,
       googleAdsStatusQuery.data,
+      klaviyoStatusQuery.data,
       metaStatusQuery.data,
       searchConsoleStatusQuery.data,
       shopifyStatusQuery.data,
@@ -640,6 +671,14 @@ export default function IntegrationsPage() {
       }
       if (provider === "search_console") {
         void openSearchConsoleSelector();
+        return;
+      }
+      if (provider === "klaviyo") {
+        // A Klaviyo grant covers exactly one account and there is nothing to
+        // assign, so the account-assignment drawer every other provider opens
+        // would be a dead end. The destination Klaviyo actually has is its own
+        // read-only lifecycle screen.
+        window.location.href = "/platforms/klaviyo";
         return;
       }
       setAssignmentProvider(provider);

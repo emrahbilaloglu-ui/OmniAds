@@ -8417,6 +8417,46 @@ export async function runMigrations(options?: {
           ON google_ads_product_dimensions (product_key, updated_at DESC)`.catch(
           () => {},
         ),
+        // ── Merchant Center per-item state ────────────────────────────────
+        //
+        // CURRENT state, not a daily fact, so it is keyed like a dimension and
+        // NOT partitioned by date: an item is approved or it is not, and there
+        // is no such thing as yesterday's approval. `observed_at` is when the
+        // read happened, which is the only date this row has and the one the
+        // `Feed synced` tile prints.
+        //
+        // `merchant_center_id` is stored per row rather than per account because
+        // it is what the provider returned for THIS item; a Google Ads account
+        // can be linked to more than one Merchant Center account, and collapsing
+        // them to one id per business would be an invention.
+        sql`CREATE TABLE IF NOT EXISTS google_merchant_center_item_state (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          merchant_center_id      TEXT,
+          item_id                 TEXT NOT NULL,
+          product_title           TEXT,
+          feed_label              TEXT,
+          language_code           TEXT,
+          channel                 TEXT,
+          availability            TEXT,
+          raw_status              TEXT,
+          feed_state              TEXT NOT NULL,
+          issues_json             JSONB NOT NULL DEFAULT '[]'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          observed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, item_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_merchant_center_item_state_business_account
+          ON google_merchant_center_item_state (business_id, provider_account_id, observed_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_merchant_center_item_state_item
+          ON google_merchant_center_item_state (item_id, observed_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,

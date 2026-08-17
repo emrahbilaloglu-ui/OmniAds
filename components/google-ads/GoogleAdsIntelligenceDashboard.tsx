@@ -1485,10 +1485,11 @@ export function GoogleAdsIntelligenceDashboard({
     products: productsData?.rows ? productRows : null,
     roasTarget: commercialTargetRoas,
     roasBreakEven: commercialBreakEvenRoas,
-    // Merchant Center item state has no reader in this product; the tiles keep
-    // their shells and print the em dash rather than answering with a
-    // performance verdict.
-    feed: null,
+    // Merchant Center item state, served by `/api/google-ads/products` from the
+    // `shopping_product` read. Null when no Merchant Center read has landed for
+    // this account — the tiles keep their shells and print the em dash rather
+    // than answering with a performance verdict.
+    feed: productsData?.feed ?? null,
   });
 
   // The reference closes the asset-group table on the restructures the advisor

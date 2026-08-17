@@ -22,6 +22,7 @@ const SUBSYSTEM_FILES = [
   "lib/meta/automation-rules-store.ts",
   "lib/meta/automation-rules-evaluation.ts",
   "lib/meta/automation-rules-client.ts",
+  "lib/meta/automation-guardrail-policy.ts",
   "lib/meta/automation-proposal-intake.ts",
   "lib/meta/automation-proposals.ts",
   "lib/meta/automation-proposal-execution.ts",

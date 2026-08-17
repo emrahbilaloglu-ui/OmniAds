@@ -3,6 +3,7 @@ import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
   evaluateAutomationGuardRules,
+  evaluatePersistedQuietHoursGuardrail,
   type AutomationRuleAnchorValues,
   type AutomationRuleDefinition,
 } from "@/lib/meta/automation-rules";
@@ -1698,6 +1699,8 @@ export async function getMetaWriteBlockState(input: {
     };
   }
 
+  const at = input.at ?? new Date();
+
   // Enforced guard rules, consulted at the SAME choke point every existing
   // write path already goes through. This can only add a block: reaching here
   // means every prior gate said "not blocked", and the only two outcomes below
@@ -1705,24 +1708,27 @@ export async function getMetaWriteBlockState(input: {
   // as "no guards" so an un-migrated database keeps today's behaviour; any
   // other read failure falls back to the existing fail-closed reason rather
   // than silently permitting a write we could not check.
-  let guardRules: AutomationRuleDefinition[];
+  //
+  // "No guards" is deliberately NOT an early return: the operator's own
+  // quiet-hours window below lives in a different table, and an un-migrated
+  // rules table must not be able to lift a guardrail that does not depend on it.
+  let guardRules: AutomationRuleDefinition[] = [];
   try {
     guardRules = await listAutomationRules(businessId);
   } catch (error) {
-    if (isUndefinedTableError(error)) {
-      return { blocked: false, reason: null, message: null };
+    if (!isUndefinedTableError(error)) {
+      return {
+        blocked: true,
+        reason: "control_state_unavailable",
+        message:
+          "Meta writes are temporarily blocked because automation guard rules could not be verified.",
+      };
     }
-    return {
-      blocked: true,
-      reason: "control_state_unavailable",
-      message:
-        "Meta writes are temporarily blocked because automation guard rules could not be verified.",
-    };
   }
 
   const guardBlock = evaluateAutomationGuardRules({
     rules: guardRules,
-    at: input.at ?? new Date(),
+    at,
   });
   if (guardBlock) {
     return {
@@ -1730,6 +1736,33 @@ export async function getMetaWriteBlockState(input: {
       reason: "automation_guard_rule",
       message: guardBlock.reason,
       guardRule: { id: guardBlock.ruleId, name: guardBlock.ruleName },
+    };
+  }
+
+  // The persisted quiet-hours guardrail, at the same boundary and with the same
+  // refusal. `setMetaAutomationGuardrailPolicy` promises writes are refused
+  // during the configured window; this is where that promise is kept.
+  //
+  // Same `automation_guard_rule` reason as an enforced rule's refusal on
+  // purpose — one concept, one path, indistinguishable to every caller. It
+  // carries no `guardRule` because there is no rule: a firing row is keyed to a
+  // real `meta_automation_rules` id, and minting one for a window an operator
+  // typed into the guardrail panel would be forged lineage.
+  //
+  // Fail-closed by construction: see `evaluatePersistedQuietHoursGuardrail`. An
+  // unresolvable timezone, an unreadable HH:MM boundary or a start equal to its
+  // end all REFUSE the write rather than permitting one this process could not
+  // check against the window the operator committed.
+  const quietHoursBlock = evaluatePersistedQuietHoursGuardrail({
+    quietHours: control.guardrails.quietHours,
+    at,
+  });
+  if (quietHoursBlock) {
+    return {
+      blocked: true,
+      reason: "automation_guard_rule",
+      message: quietHoursBlock.reason,
+      guardRule: null,
     };
   }
 

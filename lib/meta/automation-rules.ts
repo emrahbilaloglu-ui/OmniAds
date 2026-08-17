@@ -199,6 +199,16 @@ export type AutomationRuleUnevaluableReason =
   | "metric_missing"
   | "guard_not_entity_scoped";
 
+/**
+ * Why a rule that DID fire raised no proposal.
+ *
+ * Distinct from `unevaluable` on purpose: the trigger was met and the verdict
+ * was reached — it is the operator's own ROAS floor that withheld the queue row.
+ */
+export type AutomationRuleSuppressionReason =
+  | "roas_at_or_above_floor"
+  | "roas_floor_unprovable";
+
 export interface AutomationRuleFiringEvidence {
   anchor: AutomationRuleCommercialAnchor | null;
   anchorValue: number | null;
@@ -222,6 +232,12 @@ export type AutomationRuleVerdict =
     }
   | { status: "not_met"; ruleId: string; entityId: string }
   | {
+      status: "suppressed";
+      ruleId: string;
+      entityId: string;
+      reason: AutomationRuleSuppressionReason;
+    }
+  | {
       status: "fires";
       ruleId: string;
       entityId: string;
@@ -241,6 +257,12 @@ export interface AutomationRuleEvaluationInput {
   entities: AutomationRuleEntityWindow[];
   /** YYYY-MM-DD. Explicit, never read from the clock. */
   asOfDate: string;
+  /**
+   * The business's persisted ROAS proposal floor, or `null` when no operator has
+   * committed one. When set, no pause proposal is raised for an entity that is
+   * not PROVEN below it — see {@link clearsRoasProposalFloor}.
+   */
+  minRoasFloor?: number | null;
 }
 
 export interface AutomationRuleEvaluation {
@@ -578,6 +600,67 @@ function compareVerdicts(
   return leftEntity < rightEntity ? -1 : leftEntity > rightEntity ? 1 : 0;
 }
 
+export type AutomationRoasFloorVerdict =
+  | "below_floor"
+  | "at_or_above_floor"
+  | "unprovable";
+
+/**
+ * One served day against the operator's ROAS floor.
+ *
+ * The floor means "automation may propose a pause only BELOW this ROAS", so a
+ * proposal requires proof of being below it — strictly, because an entity
+ * sitting exactly at the floor is not below it.
+ *
+ * What it compares: the warehouse's own served `roas` for that entity-day
+ * (`meta_campaign_daily.roas` / `meta_adset_daily.roas`) — the same column the
+ * rule's trigger already compares against its anchor. Nothing is averaged,
+ * re-derived or reconstructed from two other fields; there is one ROAS here and
+ * it is the one the warehouse serves.
+ *
+ * `spend` is consulted only to tell a measurement from a default: that column is
+ * `NOT NULL DEFAULT 0`, so a day with no spend serves `roas = 0`, which would
+ * otherwise sail under every floor an operator could set. A day with no spend,
+ * or with no served row at all, is `unprovable` — never `below_floor`.
+ */
+export function clearsRoasProposalFloor(input: {
+  roas: number | null;
+  spend: number | null;
+  floor: number;
+}): AutomationRoasFloorVerdict {
+  const spend = finiteNumber(input.spend);
+  const roas = finiteNumber(input.roas);
+  if (spend === null || spend <= 0 || roas === null) return "unprovable";
+  return roas < input.floor ? "below_floor" : "at_or_above_floor";
+}
+
+/**
+ * The floor applied to the exact window the rule itself evaluated.
+ *
+ * Same shape as the rule's own comparison: EVERY day in the window has to hold.
+ * A proven day at or above the floor answers the question outright, so it wins
+ * over an unprovable one; otherwise a single unprovable day makes the whole
+ * window unprovable. Both outcomes withhold the proposal — the distinction is
+ * only so the verdict says which happened.
+ */
+export function clearsRoasProposalFloorOverWindow(
+  window: AutomationRuleDailyMetric[],
+  floor: number,
+): AutomationRoasFloorVerdict {
+  let unprovable = false;
+  for (const row of window) {
+    const verdict = clearsRoasProposalFloor({
+      roas: row.roas,
+      spend: row.spend,
+      floor,
+    });
+    if (verdict === "at_or_above_floor") return "at_or_above_floor";
+    if (verdict === "unprovable") unprovable = true;
+  }
+  if (window.length === 0) return "unprovable";
+  return unprovable ? "unprovable" : "below_floor";
+}
+
 /**
  * Evaluate every rule against every entity window.
  *
@@ -590,6 +673,10 @@ export function evaluateAutomationRules(
   input: AutomationRuleEvaluationInput,
 ): AutomationRuleEvaluation {
   const verdicts: AutomationRuleVerdict[] = [];
+  // A floor that is absent, zero or negative is not a floor. Normalised once,
+  // here, so every comparison below reads the same committed number.
+  const rawFloor = finiteNumber(input.minRoasFloor ?? null);
+  const floor = rawFloor !== null && rawFloor > 0 ? rawFloor : null;
   const rules = input.rules
     .slice()
     .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
@@ -685,6 +772,28 @@ export function evaluateAutomationRules(
           entityId: entity.entityId,
         });
         continue;
+      }
+
+      // The operator's own ROAS floor, applied to the proposal-raising half of
+      // the rule vocabulary. `propose_pause` is the only action that can put a
+      // row in the queue, and the queue row promises "approving executes" — so
+      // a floor the operator committed has to mean no such row exists for an
+      // entity that is not proven below it. `hard_block_writes` is untouched:
+      // guards refuse writes, they never propose.
+      if (floor !== null && rule.action.kind === "propose_pause") {
+        const cleared = clearsRoasProposalFloorOverWindow(window, floor);
+        if (cleared !== "below_floor") {
+          verdicts.push({
+            status: "suppressed",
+            ruleId: rule.id,
+            entityId: entity.entityId,
+            reason:
+              cleared === "at_or_above_floor"
+                ? "roas_at_or_above_floor"
+                : "roas_floor_unprovable",
+          });
+          continue;
+        }
       }
 
       const evaluatedForDate = window[0]!.date;
@@ -867,31 +976,150 @@ export function evaluateAutomationGuardRules(input: {
   return null;
 }
 
+/**
+ * The ONE wrap-around implementation for a quiet window, in minutes since local
+ * midnight. Start inclusive, end exclusive. A window whose start is at or after
+ * its end crosses midnight and wraps — `22:00 → 06:00` is inside at `23:30` and
+ * at `02:00`, outside at `12:00`.
+ *
+ * Both quiet-hours shapes in this product go through here: the `enforced` rule's
+ * hour-grain trigger, and the operator's own minute-grain guardrail window. Two
+ * implementations of "does this instant fall inside that window" would be two
+ * chances to get midnight wrong, and only one of them could be right.
+ */
+export function isWithinQuietWindow(
+  minuteOfDay: number,
+  startMinuteOfDay: number,
+  endMinuteOfDay: number,
+) {
+  if (startMinuteOfDay < endMinuteOfDay) {
+    return minuteOfDay >= startMinuteOfDay && minuteOfDay < endMinuteOfDay;
+  }
+  return minuteOfDay >= startMinuteOfDay || minuteOfDay < endMinuteOfDay;
+}
+
 export function isWithinQuietHours(
   hour: number,
   trigger: Pick<AutomationRuleQuietHoursTrigger, "startHour" | "endHour">,
 ) {
-  const start = trigger.startHour;
-  const end = trigger.endHour;
-  if (start < end) return hour >= start && hour < end;
-  // Wrapping window, e.g. 22:00 → 07:00.
-  return hour >= start || hour < end;
+  return isWithinQuietWindow(hour * 60, trigger.startHour * 60, trigger.endHour * 60);
 }
 
-export function hourInTimeZone(at: Date, timeZone: string): number | null {
+/**
+ * Minutes since local midnight in `timeZone`, or `null` when this instant
+ * cannot be located on that clock at all.
+ *
+ * `null` is the honest "I could not tell", and every caller must treat it as a
+ * refusal rather than a pass: an unresolvable zone means the window's position
+ * on the clock is unknown, not that the instant is outside it.
+ */
+export function minuteOfDayInTimeZone(
+  at: Date,
+  timeZone: string,
+): number | null {
   const time = at.getTime();
   if (!Number.isFinite(time)) return null;
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit",
+      minute: "2-digit",
       hour12: false,
       timeZone,
     }).formatToParts(at);
-    const raw = parts.find((part) => part.type === "hour")?.value;
-    if (!raw) return null;
-    const hour = Number(raw);
-    return Number.isInteger(hour) && hour >= 0 && hour <= 24 ? hour % 24 : null;
+    const rawHour = parts.find((part) => part.type === "hour")?.value;
+    const rawMinute = parts.find((part) => part.type === "minute")?.value;
+    if (!rawHour || !rawMinute) return null;
+    const hour = Number(rawHour);
+    const minute = Number(rawMinute);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 24) return null;
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+    return (hour % 24) * 60 + minute;
   } catch {
     return null;
   }
+}
+
+export function hourInTimeZone(at: Date, timeZone: string): number | null {
+  const minuteOfDay = minuteOfDayInTimeZone(at, timeZone);
+  return minuteOfDay === null ? null : Math.floor(minuteOfDay / 60);
+}
+
+/** `HH:MM` → minutes since midnight; anything else → `null`. */
+export function quietWindowMinuteOfDay(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/**
+ * The quiet-hours window an operator committed by hand, as persisted.
+ *
+ * Structural rather than imported from the control plane, so this module keeps
+ * its promise of depending on nothing.
+ */
+export interface AutomationQuietHoursPolicy {
+  /** `HH:MM` in `timezone`. Inclusive. */
+  start: string;
+  /** `HH:MM` in `timezone`. Exclusive. */
+  end: string;
+  /** Must resolve as an IANA zone; a display label cannot be located on a clock. */
+  timezone: string;
+}
+
+/**
+ * Evaluate the operator's own quiet-hours window at the provider-write boundary.
+ *
+ * **This fails CLOSED, deliberately.** A window that cannot be interpreted is
+ * refused, not ignored:
+ *
+ * - an unresolvable `timezone` (empty, or anything `Intl` rejects — `ET` is a
+ *   display label, not a zone) means the window's position on the clock is
+ *   unknown, so every instant might be inside it;
+ * - a `start` or `end` that is not `HH:MM` is not a boundary;
+ * - `start === end` names either a zero-length window or a whole day, and there
+ *   is no way to tell which the operator meant.
+ *
+ * In each case the operator has asked for a window and the product cannot say
+ * whether this write falls in it. Allowing the write would be the exact defect
+ * this guardrail exists to prevent — a control that is displayed and not
+ * honoured — so the write is refused and the message names what could not be
+ * resolved, which is also how the operator finds out to fix it.
+ *
+ * `null` quiet hours means no window was ever persisted, which is not a failure:
+ * nothing is refused and behaviour is unchanged.
+ *
+ * Pure and deterministic: `at` is an explicit instant, never the clock.
+ */
+export function evaluatePersistedQuietHoursGuardrail(input: {
+  quietHours: AutomationQuietHoursPolicy | null;
+  at: Date;
+}): { reason: string } | null {
+  const policy = input.quietHours;
+  if (!policy) return null;
+
+  const timezone = policy.timezone.trim();
+  const start = quietWindowMinuteOfDay(policy.start);
+  const end = quietWindowMinuteOfDay(policy.end);
+  if (start === null || end === null) {
+    return {
+      reason: `Quiet hours: provider writes are refused because the configured window (${policy.start}–${policy.end}) is not a readable clock range.`,
+    };
+  }
+  if (start === end) {
+    return {
+      reason: `Quiet hours: provider writes are refused because the configured window starts and ends at ${policy.start}, which names neither a range nor a whole day.`,
+    };
+  }
+  const minuteOfDay = timezone
+    ? minuteOfDayInTimeZone(input.at, timezone)
+    : null;
+  if (minuteOfDay === null) {
+    return {
+      reason: `Quiet hours: provider writes are refused because the configured timezone ${timezone || "(none)"} could not be resolved, so ${policy.start}–${policy.end} cannot be located on the clock.`,
+    };
+  }
+  if (!isWithinQuietWindow(minuteOfDay, start, end)) return null;
+  return {
+    reason: `Quiet hours: provider writes are hard-blocked between ${policy.start} and ${policy.end} ${timezone}.`,
+  };
 }

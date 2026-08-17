@@ -24,6 +24,7 @@ import {
   type RecordedFiring,
 } from "@/lib/meta/automation-rules-store";
 import type { AutomationProposalSink } from "@/lib/meta/automation-proposal-intake";
+import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 
 /** Hard ceiling on how much history one evaluation may pull per entity. */
 const MAX_LOOKBACK_DAYS = 30;
@@ -42,7 +43,11 @@ export interface AutomationRuleEvaluationReport {
     | "no_rules"
     | "no_warehouse_history"
     | "no_commercial_anchors"
+    /** The operator's ROAS floor could not be read, so nothing may be proposed. */
+    | "roas_floor_unreadable"
     | null;
+  /** The floor this evaluation actually applied. `null` when none is committed. */
+  minRoasFloor: number | null;
 }
 
 type DailyDbRow = {
@@ -168,7 +173,11 @@ export async function evaluateBusinessAutomationRules(input: {
 
   const base: Omit<
     AutomationRuleEvaluationReport,
-    "asOfDate" | "evaluation" | "recorded" | "skippedReason"
+    | "asOfDate"
+    | "evaluation"
+    | "recorded"
+    | "skippedReason"
+    | "minRoasFloor"
   > = {
     contractVersion: "automation-rule-evaluation-report.v1",
     businessId: input.businessId,
@@ -187,6 +196,7 @@ export async function evaluateBusinessAutomationRules(input: {
       evaluation: null,
       recorded: [],
       skippedReason: "no_rules",
+      minRoasFloor: null,
     };
   }
 
@@ -203,8 +213,28 @@ export async function evaluateBusinessAutomationRules(input: {
       evaluation: null,
       recorded: [],
       skippedReason: "no_commercial_anchors",
+      minRoasFloor: null,
     };
   }
+
+  // The operator's ROAS proposal floor, read BEFORE anything can be raised.
+  //
+  // Fail closed: a floor this process cannot read is not the same fact as no
+  // floor, and proposing under a guardrail we could not consult is precisely the
+  // defect this gate exists to close. So an unreadable floor skips the whole
+  // evaluation rather than running it ungated.
+  const floorRead = await readMetaAutomationProposalRoasFloor(input.businessId);
+  if (floorRead.status === "unreadable") {
+    return {
+      ...base,
+      asOfDate: input.asOfDate ?? null,
+      evaluation: null,
+      recorded: [],
+      skippedReason: "roas_floor_unreadable",
+      minRoasFloor: null,
+    };
+  }
+  const minRoasFloor = floorRead.floor;
 
   const levels = Array.from(
     new Set(evaluableRules.map((rule) => rule.entityLevel)),
@@ -248,6 +278,7 @@ export async function evaluateBusinessAutomationRules(input: {
       evaluation: null,
       recorded: [],
       skippedReason: "no_warehouse_history",
+      minRoasFloor,
     };
   }
 
@@ -256,6 +287,7 @@ export async function evaluateBusinessAutomationRules(input: {
     anchors,
     entities,
     asOfDate,
+    minRoasFloor,
   });
   const recorded = await recordRuleFirings({
     businessId: input.businessId,
@@ -270,5 +302,6 @@ export async function evaluateBusinessAutomationRules(input: {
     evaluation,
     recorded,
     skippedReason: null,
+    minRoasFloor,
   };
 }

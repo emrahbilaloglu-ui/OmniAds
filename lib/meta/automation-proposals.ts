@@ -48,6 +48,7 @@
  */
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
 
 /** Grains the queue can aim a guarded write at. */
@@ -453,6 +454,15 @@ export interface ProjectMetaAutomationProposalsResult {
  *   chances to do the same thing, and the header count would say `2` for one
  *   pause. The clause exempts the exact row this statement upserts onto (same
  *   rec type, same snapshot day), so refresh-in-place still works.
+ * - The operator's ROAS proposal floor. Same guardrail the rule evaluator
+ *   applies, at the other producer of a queue row, so a floor an operator
+ *   committed cannot be walked around by whichever half raised the proposal.
+ *   It compares the warehouse's own served `roas` for that entity on the
+ *   snapshot day the decision is about — the day the evidence describes — and
+ *   requires it to be strictly below the floor. `spend > 0` is what separates a
+ *   measurement from the `NOT NULL DEFAULT 0` column default, so an entity with
+ *   no served row, or no spend, is UNPROVABLE and is not projected: an unknown
+ *   ROAS must not be able to pass the tightest floor an operator can set.
  */
 export async function projectMetaAutomationProposals(input: {
   businessId: string;
@@ -462,6 +472,14 @@ export async function projectMetaAutomationProposals(input: {
   if (!(await proposalsReady())) {
     return { projected: 0, expired: 0, ran: false };
   }
+  // Read the floor before anything else happens. "I could not read the floor"
+  // is not "there is no floor", and projecting under a guardrail this process
+  // could not consult would re-open the very hole it closes.
+  const floorRead = await readMetaAutomationProposalRoasFloor(input.businessId);
+  if (floorRead.status === "unreadable") {
+    return { projected: 0, expired: 0, ran: false };
+  }
+  const minRoasFloor = floorRead.floor;
   const now = input.now ?? new Date();
   const expired = await expireStaleMetaAutomationProposals({
     businessId: input.businessId,
@@ -538,6 +556,31 @@ export async function projectMetaAutomationProposals(input: {
                 AND held.snapshot_date = d.snapshot_date
               )
           )
+          AND (
+            $5::numeric IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM meta_campaign_daily perf
+              WHERE d.scope_type = 'campaign'
+                AND perf.business_id = d.business_id
+                AND perf.provider_account_id = dim.provider_account_id
+                AND perf.campaign_id = d.scope_id
+                AND perf.date = d.snapshot_date
+                AND perf.spend > 0
+                AND perf.roas < $5::numeric
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM meta_adset_daily perf
+              WHERE d.scope_type = 'adset'
+                AND perf.business_id = d.business_id
+                AND perf.provider_account_id = dim.provider_account_id
+                AND perf.adset_id = d.scope_id
+                AND perf.date = d.snapshot_date
+                AND perf.spend > 0
+                AND perf.roas < $5::numeric
+            )
+          )
         ORDER BY d.scope_type, d.scope_id, d.rec_type
       )
       INSERT INTO meta_automation_proposals (
@@ -590,6 +633,7 @@ export async function projectMetaAutomationProposals(input: {
       input.snapshotDate,
       META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
       ttlInterval,
+      minRoasFloor,
     ],
   )) as Array<{ id: string }>;
 

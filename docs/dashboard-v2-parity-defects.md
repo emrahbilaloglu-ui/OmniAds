@@ -2290,6 +2290,177 @@ Executable evidence: `google-search-exact-adapter.test.ts`,
 
 ## Google Ads Assets & Audiences + Plan
 
+### Batch 8 implementation status
+
+Canonical source read in full for this batch: `Google Ads · Assets & Audiences`
+markup lines **1525–1624** and `Google Ads · Plan & activity` markup lines
+**1625–1693**, with their complete model bindings — `gAssetTab` (3178),
+`gPlanApplied` (3178), `gAssetTabs` (3852), `gGroupRows` (3853–3858),
+`gAssetRows` (3859–3865), `gImages` (3866–3869), `gAudienceRows` (3870–3874),
+`gPlanRaw`/`gPlanSteps` (3876–3888), `gActivityRows` (3889–3894),
+`gPlanCount`/`gPlanDone` (4443) and the `gaGroups` / `gaAssets` / `gaAudiences`
+switches (4441) — plus `mkTabs` (3670), `neu` (3671), `stripes` (3383) and the
+`C` palette (3237) of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+
+`GoogleAssetsExact` and `GooglePlanExact` are the shared presentation surfaces
+now reached by the legacy `/platforms/google/{assets,audiences,plan}`,
+`/c/[businessId]/google/{assets-audiences,plan}` and
+`/app/google/{assets-audiences,plan}` route families — all three converge
+through `GoogleWorkspaceScreen` and the shared dashboard controller.
+`google-assets-exact-adapter.ts` and `google-plan-exact-adapter.ts` are pure
+functions from served provider rows to the view model; the components render
+the view model and nothing else, and `GooglePlanExact` issues no fetch of its
+own so every provider write leaves through the controller's guarded call.
+
+Backend wiring done for this batch:
+
+- **`asset_group.ad_strength` is now read.** `buildAssetGroupCoreQuery`
+  (`lib/google-ads/query-builders.ts`) selects it and
+  `getGoogleAdsAssetGroupsReport` (`lib/google-ads/reporting.ts`) maps it
+  through the new `normalizeAssetGroupAdStrength`, replacing the hardcoded
+  `adStrength: null`. The `asset_group_daily` warehouse projection already
+  carried the field, and `analyzeAssetGroups` passes it through, so the Ad
+  strength column now shows Google's own verdict from the next sync onward and
+  `—` before it. `lib/google-ads/asset-group-ad-strength.test.ts` pins the
+  select, the enum wording and the passthrough.
+- **`/api/google-ads/activity` now exists.** The controller had been reading it
+  since the Activity card was built and it 404'd on every call. The new route
+  applies the same authority as every other Google read
+  (`requireBusinessAccess` at `guest`, demo short-circuit), serves
+  `listAdvisorExecutionEvents` and returns the log's own retention window so
+  the screen states the boundary the server owns rather than a client guess.
+- **The write receipt is now read.** `listAdvisorExecutionEvents` selects
+  `response_json` and `payload_json` and returns `receiptId`, the
+  `transactionId` the execution boundary stamps. The Activity `Detail` column
+  and the applied step's `applied · receipt …` label both print it.
+- **Apply / Roll back now send a payload the boundary accepts.** The old
+  "Apply all approved" posted `executionAction: "apply_mutate"` with only a
+  fingerprint, which `/api/google-ads/advisor-memory` rejects with 400. The
+  controller now sends the advisor's own `mutateActionType` /
+  `mutatePayloadPreview` (and `rollbackActionType` / `rollbackPayloadPreview`
+  for Roll back), and arms the control only when the server-owned scope says
+  the viewer may write and the step carries its payload.
+- **The three Assets & Audiences reads are account-scoped.**
+  `gads-asset-groups`, `gads-assets` and `gads-audiences` now carry the resolved
+  provider account exactly as the Products and Search reads do, so a blended
+  read can no longer stand in for the account the page was authorized for.
+- **`/c/[businessId]/google/{assets-audiences,plan}` are server-authorized.**
+  Both resolve membership and the assigned account server-side, refuse a
+  foreign `providerAccountId` with `notFound()`, and hand `GoogleWorkspaceScreen`
+  an immutable scope; `/app/google/**` inherits them through the same modules.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render/adapter
+tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned
+reference/current/diff matrix has been run, so strict pixel parity remains
+explicitly unclaimed. The numbered 01–21 blocks below preserve the original
+pre-resolution audit evidence; findings 22–29 and 33 are new and were found by
+this batch's own read of the two design ranges.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| GOOGLE-ASSETS-PLAN-01 | CLOSED | The whole `activePanel === "plan"` legacy branch is deleted; `GooglePlanExact` is the screen and holds only the queue, the dashed batch card, the Activity card and one mono footnote. `GooglePlanExact.test.tsx` asserts no budget workspace renders. |
+| GOOGLE-ASSETS-PLAN-02 | CLOSED | The `activePanel === "assets"` and `activePanel === "assetGroupAudience"` legacy branches are deleted along with `GoogleAssetSurfaces.tsx` and `GoogleAllocationRead.tsx`; `GoogleAssetsExact.test.tsx` asserts no radar block, no coverage chip row, no per-type card grid and no "Asset read" panel on any tab. |
+| GOOGLE-ASSETS-PLAN-03 | CLOSED | Every step carries the design's three-button group — `{applyLabel}` (accent fill queued, neutral fill applied), `Copy`, `Dismiss` — at h28/radius 8. |
+| GOOGLE-ASSETS-PLAN-04 | CLOSED | The four-column When/Who/What/Detail table renders unconditionally from `/api/google-ads/activity`; the hardcoded unavailable notice and `GoogleActivityTable.tsx` are gone. An empty log renders an empty tbody, not a notice. |
+| GOOGLE-ASSETS-PLAN-05 | CLOSED | No card-level result banner exists. The outcome is expressed through the per-step state the design defines (`applied · receipt …`, the amber blocker line) plus an `sr-only` live region for assistive tech. |
+| GOOGLE-ASSETS-PLAN-06 | CLOSED | `retentionLine` renders "Entries before {date} are past retention and cannot be shown." at 11.5px `#B45309`, computed from the execution log's own 30-day policy served by the route. |
+| GOOGLE-ASSETS-PLAN-07 | CLOSED | The queue head, its counter and both buttons are unconditional; `GooglePlanExact.test.tsx` renders them with `[]` and `null` recommendations. |
+| GOOGLE-ASSETS-PLAN-08 | CLOSED | The second tab reads "Text & image assets" in `GOOGLE_ASSETS_EXACT_TABS` and in `ASSET_VIEWS`. |
+| GOOGLE-ASSETS-PLAN-09 | CLOSED | The active pill is `#0B1020` / `#ffffff` / `#0B1020` in `.tabPillActive`; no `--adv-accent` token is referenced. |
+| GOOGLE-ASSETS-PLAN-10 | CLOSED | `googleAssetStrengthTone` maps excellent/best → green, good → blue, average/pending/learning → violet, poor/low/no-ads → amber, and the test asserts red is never returned for any Google enum value. |
+| GOOGLE-ASSETS-PLAN-11 | CLOSED | `googleAssetPerformanceView` returns Best/green, Good/blue, Low/amber, Learning/violet, and `—`/unserved for an unlabelled asset. |
+| GOOGLE-ASSETS-PLAN-12 | CLOSED | Both eyebrows read `Google Ads · {accountId} · {currency} · {window} window` with the bare id and an em dash per unreported segment. |
+| GOOGLE-ASSETS-PLAN-13 | CLOSED | The counter reads `{steps} queued · {applied} applied`, where applied counts steps whose served `executionStatus` is `applied`. |
+| GOOGLE-ASSETS-PLAN-14 | CLOSED | The tick label is "queued — awaiting apply" or "applied · receipt {receiptId}". |
+| GOOGLE-ASSETS-PLAN-15 | CLOSED | The intro paragraph is the design sentence verbatim, ending "…quiet hours, and every write returns a Google receipt." |
+| GOOGLE-ASSETS-PLAN-16 | CLOSED | The screen footer ends "Anything blocked stays queued with its blocker named rather than dropped." |
+| GOOGLE-ASSETS-PLAN-17 | CLOSED | The batch card ends "Batches run inside the same guardrails — the kill switch and quiet hours apply." |
+| GOOGLE-ASSETS-PLAN-18 | CLOSED | Both screens return before the legacy chrome, so no scope banner and no `<select>` can render; both render tests assert neither string appears. |
+| GOOGLE-ASSETS-PLAN-19 | CLOSED | The primary button's caption is the literal "Apply all approved" in every state; the restriction is expressed by `disabled`. |
+| GOOGLE-ASSETS-PLAN-20 | CLOSED | The mono sub-line is the design's fixed "served by the advisor from the last complete day"; the layer/entity breadcrumb is gone. |
+| GOOGLE-ASSETS-PLAN-21 | CLOSED | The intro is the design sentence including "on the next sync", and no read-only disclaimer replaces it. |
+| GOOGLE-ASSETS-PLAN-22 | CLOSED | (new) `asset_group.ad_strength` was never selected and `reporting.ts` hardcoded `adStrength: null`, so the design's Ad strength column could only ever have rendered `—`. The field is now read, normalised in Google's own wording, and pinned by `asset-group-ad-strength.test.ts`. |
+| GOOGLE-ASSETS-PLAN-23 | CLOSED | (new) `/api/google-ads/activity` did not exist; the controller's `gads-activity` query 404'd on every Plan load. The route now exists with the sibling reads' authority and is covered by `app/api/google-ads/activity/route.test.ts`. |
+| GOOGLE-ASSETS-PLAN-24 | CLOSED | (new) The old Apply posted only a fingerprint, which the guarded endpoint rejects with 400, so no step could ever apply. The controller now sends the advisor's own mutate/rollback payloads, and `google-assets-plan-wiring.test.tsx` asserts the exact body for both directions. |
+| GOOGLE-ASSETS-PLAN-25 | CLOSED | (new) The receipt the design prints was never read. `listAdvisorExecutionEvents` now returns `receiptId` from the logged `transactionId`; `advisor-memory.test.ts` pins response-then-payload precedence. |
+| GOOGLE-ASSETS-PLAN-26 | CLOSED | (new) The asset-group, asset and audience reads sent no `accountId`, so a multi-account business got a blended read on a page authorized for one account. All three now carry the resolved provider account. |
+| GOOGLE-ASSETS-PLAN-27 | CLOSED | (new) `/c/[businessId]/google/assets-audiences` mounted a generic zero-base collection view ("Google assets and audiences", three columns) and `/c/[businessId]/google/plan` a separate manual-plan view — neither was the design. Both now mount `GoogleWorkspaceScreen` with a server-resolved immutable scope. |
+| GOOGLE-ASSETS-PLAN-28 | CLOSED | (new) The audience Audience column printed `row.adGroup` first, naming the ad group rather than the audience. It now prints the audience's own served identity (its criterion id), never a substituted one. |
+| GOOGLE-ASSETS-PLAN-29 | CLOSED | (new) The asset-group table capped at 50 rows and appended a "Showing the top 50 of N rows by spend" line the design does not define; both the cap and the line are gone from all three surfaces. |
+| GOOGLE-ASSETS-PLAN-33 | CLOSED | (new) Neither screen was in `ROUTE_OWNED_GOOGLE_SURFACES` (`components/layout/dashboard-frame.tsx`), so the shell injected its generic mobile read-only surface above them. `/platforms/google/{assets,plan}` and `/app/google/{assets-audiences,plan}` are now listed, so the screens open on the head the design draws. |
+| GOOGLE-ASSETS-PLAN-30 | BLOCKED | Audience list size. See the contract below. |
+| GOOGLE-ASSETS-PLAN-31 | BLOCKED | The Activity `Who` column. See the contract below. |
+| GOOGLE-ASSETS-PLAN-32 | BLOCKED | Google-served text-asset `performance_label`. See the contract below. |
+
+**BLOCKED — GOOGLE-ASSETS-PLAN-30, audience list size.** The design's `Size`
+column is the audience's membership size. The only audience read in this
+product is `buildAudienceCoreQuery` (`lib/google-ads/query-builders.ts`), which
+selects `ad_group_criterion.criterion_id`, `ad_group_criterion.type`, campaign,
+ad group and six metrics from `ad_group_audience_view` — no size, and no user
+list resource. Searched: `lib/google-ads/**` for `user_list`, `userList`,
+`size_for_display`, `sizeForDisplay`, `membership`; `app/api/google-ads/**` for
+an audience size field; and the DDL in `lib/migrations.ts` for a
+`google_ads_audience_*` size column. The only hit is a string test inside
+`normalizeAudienceType`. The cell keeps its geometry and prints `—`.
+
+Contract required to close it: a `user_list` read
+(`SELECT user_list.id, user_list.name, user_list.size_for_display,
+user_list.size_for_search FROM user_list`) joined to the audience criterion via
+`ad_group_criterion.user_list.user_list`, persisted per list and exposed by
+`/api/google-ads/audiences` as a per-row `listSize: number | null` plus
+`displayName: string | null`. `buildGoogleAssetsExactViewModel` prints the
+served value the moment `AudienceRow` carries it — the same read would also
+replace the criterion id in the `Audience` column with the list's real name.
+
+**BLOCKED — GOOGLE-ASSETS-PLAN-31, the Activity `Who` column.** The design's
+`Who` is the actor of a guarded write ("Emrah B.", "System guard").
+`google_ads_advisor_execution_logs` has columns `id, business_id, account_id,
+recommendation_fingerprint, mutate_action_type, operation, status,
+payload_json, response_json, error_message, created_at` (`lib/migrations.ts`,
+both create sites) — no actor column — and `logAdvisorExecutionEvent`
+(`lib/google-ads/advisor-memory.ts`) accepts no actor argument. Searched:
+`lib/migrations.ts` for `actor`, `user_id`, `assignee` on any
+`google_ads_advisor_*` table; `lib/google-ads/advisor-memory.ts` for an actor
+field on the log writer; `app/api/google-ads/advisor-memory/route.ts` for a
+session identity reaching the log call. The previous code printed
+`row.accountId` here, which names the write's target rather than its author.
+The cell keeps its geometry and prints `—`.
+
+Contract required to close it: an `actor_user_id TEXT NULL` column on
+`google_ads_advisor_execution_logs` plus an `actorUserId` argument on
+`logAdvisorExecutionEvent`, filled at the four call sites in
+`app/api/google-ads/advisor-memory/route.ts` from `access.session.user.id`
+(system-initiated writes leaving it null so they can be labelled distinctly),
+and returned by `listAdvisorExecutionEvents` as `actor: { id, name } | null`.
+Rows written before that migration stay `—`; nothing may back-fill them.
+
+**BLOCKED — GOOGLE-ASSETS-PLAN-32, Google-served text-asset performance.** The
+Text assets card's caption states the rating is Google-served. The rating this
+product serves is not: `getGoogleAdsAssetsReport` (`lib/google-ads/reporting.ts`)
+derives `performanceLabel` from its own ROAS / CTR / interaction-rate
+comparison, and `buildAssetPerformanceCoreQuery` does not select
+`asset_group_asset.performance_label` even though
+`lib/google-ads/metrics-matrix.ts:220` already lists `performance_label` as a
+primary metric of the `assets` tab. Searched: `lib/google-ads/**` for
+`performance_label`, `asset_performance_label`, `ad_group_ad_asset_view`;
+`app/api/google-ads/assets/route.ts`; and the `asset_daily` warehouse
+projection in `lib/google-ads/warehouse.ts:5058-5087`, whose `performanceLabel`
+key is fed from the derived value. The chip renders the derived label today —
+it is a real measurement, not a placeholder — so the cell is not em-dashed, but
+the caption's provenance claim is only half true until the provider field is
+read.
+
+Contract required to close it: add `asset_group_asset.performance_label` to
+`buildAssetPerformanceCoreQuery`, map the enum
+(`PENDING|LEARNING|LOW|GOOD|BEST`) onto a new `googlePerformanceLabel` field on
+`AssetRow` distinct from the derived one, and let
+`googleAssetPerformanceView` prefer the provider value — it already returns the
+design's fourth `Learning`/violet chip for it. A re-sync is required before any
+historical row carries it; until then the derived label stands and the four-tone
+chip is unchanged.
+
 ### GOOGLE-ASSETS-PLAN-01 · HIGH · EXTRA — Plan appends a whole Budget & scaling workspace the fragment never defines
 
 - **Design:** 10-google-ads-plan.html is 69 lines end-to-end. Line 9 opens the two-column grid, line 64 closes it, line 65 is the single mono footnote, line 66 </section>. No budget card, KPI tile, spend bar or second table exists anywhere in the fragment.

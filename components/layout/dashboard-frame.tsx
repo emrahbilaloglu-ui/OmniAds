@@ -36,10 +36,14 @@ const ROUTE_OWNED_GOOGLE_SURFACES = new Set([
   "/platforms/google/advisor",
   "/platforms/google/search",
   "/platforms/google/products",
+  "/platforms/google/assets",
+  "/platforms/google/plan",
   "/app/google/overview",
   "/app/google/advisor",
   "/app/google/search",
   "/app/google/products",
+  "/app/google/assets-audiences",
+  "/app/google/plan",
 ]);
 
 function publicDashboardPath(pathname: string | null) {

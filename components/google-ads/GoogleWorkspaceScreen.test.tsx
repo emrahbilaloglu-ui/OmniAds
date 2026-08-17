@@ -133,6 +133,9 @@ describe("GoogleWorkspaceScreen server scope", () => {
     ["insights", "Advisor"],
     ["search", "Search intelligence"],
     ["products", "Products & feed"],
+    ["assets", "Assets & Audiences"],
+    ["assetGroupAudience", "Assets & Audiences"],
+    ["plan", "Plan & activity"],
   ] as const)(
     "keeps the legacy exact %s skeleton mounted while connection state is unavailable",
     (panel, title) => {
@@ -152,12 +155,24 @@ describe("GoogleWorkspaceScreen server scope", () => {
     },
   );
 
-  it("retains the legacy loading guard on a non-exact Google leaf", () => {
-    const html = renderToStaticMarkup(
-      <GoogleWorkspaceScreen panel="assets" title="Assets" />,
-    );
-
-    expect(html).toContain("bootstrap-loading");
-    expect(html).not.toContain("google-dashboard");
+  // Every routed Google leaf now has a canonical exact surface that owns its
+  // own loading, empty and account-unavailable states, so the legacy bootstrap
+  // skeleton must never replace a Google screen body again.
+  it("leaves no Google leaf on the legacy bootstrap guard", () => {
+    for (const panel of [
+      "summary",
+      "insights",
+      "search",
+      "products",
+      "assets",
+      "assetGroupAudience",
+      "plan",
+    ] as const) {
+      const html = renderToStaticMarkup(
+        <GoogleWorkspaceScreen panel={panel} title="Google" />,
+      );
+      expect(html).toContain("google-dashboard");
+      expect(html).not.toContain("bootstrap-loading");
+    }
   });
 });

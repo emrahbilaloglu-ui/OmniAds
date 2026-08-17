@@ -266,7 +266,7 @@ export type AssetViewKey = "groups" | "assets" | "audiences";
 
 export const ASSET_VIEWS: Array<{ key: AssetViewKey; label: string }> = [
   { key: "groups", label: "Asset groups" },
-  { key: "assets", label: "Assets" },
+  { key: "assets", label: "Text & image assets" },
   { key: "audiences", label: "Audiences" },
 ];
 

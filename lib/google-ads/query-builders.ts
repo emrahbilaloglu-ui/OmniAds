@@ -420,6 +420,10 @@ export function buildAssetGroupCoreQuery(
         "asset_group.id",
         "asset_group.name",
         "asset_group.status",
+        // Google's own Performance Max ad-strength verdict. The design's
+        // Ad strength column states it is Google-served, and it is: this is the
+        // provider's enum, never a locally recomputed score.
+        "asset_group.ad_strength",
         "campaign.id",
         "campaign.name",
         "metrics.impressions",

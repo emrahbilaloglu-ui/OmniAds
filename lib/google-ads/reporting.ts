@@ -1157,6 +1157,27 @@ function buildAdDescription(ad: Record<string, unknown>): string {
   return asString(getCompatValue(expanded, "description")) ?? "";
 }
 
+/**
+ * Google's own `asset_group.ad_strength` enum, in Google's own words.
+ *
+ * The ad-level normaliser below folds the enum into this product's asset
+ * vocabulary (Best/Good/Learning/Low); an asset group's ad strength is a
+ * provider verdict shown verbatim, so it keeps Google's wording. An enum value
+ * that carries no verdict — UNSPECIFIED, UNKNOWN — is an absence, not a rating.
+ */
+export function normalizeAssetGroupAdStrength(value: string | null): string | null {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (upper.includes("UNSPECIFIED") || upper.includes("UNKNOWN")) return null;
+  if (upper.includes("EXCELLENT")) return "Excellent";
+  if (upper.includes("GOOD")) return "Good";
+  if (upper.includes("AVERAGE")) return "Average";
+  if (upper.includes("POOR")) return "Poor";
+  if (upper.includes("PENDING")) return "Pending";
+  if (upper.includes("NO_ADS")) return "No ads";
+  return value;
+}
+
 function normalizeAdStrength(value: string | null): string | null {
   if (!value) return null;
   const upper = value.toUpperCase();
@@ -2211,7 +2232,9 @@ export async function getGoogleAdsAssetGroupsReport(
       assetCountByType: assetMix,
       classification,
       state,
-      adStrength: null,
+      adStrength: normalizeAssetGroupAdStrength(
+        asString(getCompatValue(assetGroup, "ad_strength"))
+      ),
       finalUrls: [],
       audienceSignalsSummary: null,
       audienceSignals: [],

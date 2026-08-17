@@ -106,6 +106,24 @@ function humanise(value: string | null | undefined): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
 }
 
+/**
+ * The design's Activity `Who`: the seat that authored the guarded write.
+ *
+ * The execution log stores the authorizing session's user id, and the read
+ * joins it to that member's name. Two absences look the same in one cell and
+ * both print the em dash rather than a guess: a row with no actor at all (every
+ * row written before the actor column existed, and any write with no session
+ * behind it), and an actor whose user row is gone so no name can be served. The
+ * account the write executed against is never printed here — it names the
+ * write's target, not its author.
+ */
+export function googlePlanActivityActorLabel(
+  actor: { id: string; name: string | null } | null | undefined,
+): string {
+  const name = actor?.name?.trim();
+  return name ? name : DASH;
+}
+
 function formatWhen(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return clean(value);
@@ -225,10 +243,7 @@ export function buildGooglePlanExactViewModel(
     activityRows: activity.map((row) => ({
       key: row.id,
       when: formatWhen(row.createdAt),
-      // The execution log records the account a write executed against, not the
-      // seat that requested it: `google_ads_advisor_execution_logs` has no
-      // actor column, so the column keeps its cell and prints the em dash.
-      who: DASH,
+      who: googlePlanActivityActorLabel(row.actor),
       what: humanise(row.status),
       detail:
         [

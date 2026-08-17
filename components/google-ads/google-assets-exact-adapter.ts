@@ -8,6 +8,10 @@ import {
   googleSearchRoasTone,
   type GoogleSearchExactChipTone,
 } from "@/components/google-ads/google-search-exact-adapter";
+import {
+  formatGoogleAdsAudienceSize,
+  resolveGoogleAdsUserListSize,
+} from "@/lib/google-ads/audience-list-size";
 
 /**
  * Pure view model for the canonical `Google Ads · Assets & Audiences` screen
@@ -214,15 +218,43 @@ function assetLabel(row: AssetRow): string {
 }
 
 /**
- * An audience's served identity. `ad_group_audience_view` returns the criterion
- * id and its type and no display name, so the id is the audience's own name
- * here rather than the ad group it sits in — which names a different thing.
+ * An audience's served identity.
+ *
+ * `ad_group_audience_view` returns a criterion id and a type and no display
+ * name; the list's real name arrives from `user_list.name`, joined onto the
+ * criterion through `ad_group_criterion.user_list.user_list`. When that name is
+ * served this prints it, which is what the design shows. When it is not — a
+ * non-list audience type, or a row synced before the list read existed — the
+ * criterion id is still the audience's own identity and is printed rather than
+ * the ad group it sits in, which names a different thing.
  */
 function audienceLabel(row: AudienceRow): string {
+  const listName = row.listName?.trim();
+  if (listName) return listName;
   const name = row.name?.trim();
   if (name && name !== "Unknown audience") return name;
   const criterionId = row.criterionId?.trim();
   return criterionId ? criterionId : DASH;
+}
+
+/**
+ * The design's `Size` cell: the user list's served membership size, in the
+ * reference's own notation.
+ *
+ * The precedence between Google's two per-network counts lives in
+ * `resolveGoogleAdsUserListSize` so the reporting layer and this view can never
+ * disagree about which number sits under the caption. An audience with no user
+ * list keeps its cell and prints the em dash — no other row's number, and no
+ * count derived from this product's own data, may stand in for it.
+ */
+export function googleAudienceSizeLabel(row: AudienceRow): string {
+  const served =
+    finite(row.listSize) ??
+    resolveGoogleAdsUserListSize({
+      sizeForDisplay: row.listSizeForDisplay ?? null,
+      sizeForSearch: row.listSizeForSearch ?? null,
+    });
+  return formatGoogleAdsAudienceSize(served);
 }
 
 function eyebrowText(identity: GoogleAssetsExactIdentity) {
@@ -392,9 +424,7 @@ export function buildGoogleAssetsExactViewModel(
         key: row.criterionId ?? `audience-${index}`,
         name: audienceLabel(row),
         type: clean(row.type),
-        // List size lives on the `user_list` resource, which no query family in
-        // this product reads; the column keeps its cell and prints the dash.
-        size: DASH,
+        size: googleAudienceSizeLabel(row),
         conversions: count(conversions),
         cpa: currency(cpa, currencyCode, 2),
         roas: roas === null || roas <= 0 ? DASH : roas.toFixed(2),

@@ -511,6 +511,77 @@ export function buildAudienceCoreQuery(
   };
 }
 
+/**
+ * The link between an audience criterion and the user list behind it.
+ *
+ * `ad_group_audience_view` carries no list identity and no membership size —
+ * only the criterion id, its type and metrics. `ad_group_criterion` is the
+ * resource that names the list a USER_LIST criterion points at, as the list's
+ * own resource name (`customers/{cid}/userLists/{id}`), which is the join key
+ * into `user_list`.
+ *
+ * It is deliberately a **separate** named query rather than an extra field on
+ * `audience_core`: a criterion-config read failing must leave the audience
+ * table's metrics standing, with the list-only columns printing the em dash.
+ * Non-list audience types (affinity, in-market, life events) have no user list
+ * and so appear in neither this query nor the size read.
+ */
+export function buildAudienceUserListLinkQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "audience_user_list_link",
+    family: "audience_user_list",
+    resource: "ad_group_criterion",
+    mergeKey: "ad_group_criterion.criterion_id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "ad_group_criterion.criterion_id",
+        "ad_group_criterion.type",
+        "ad_group_criterion.user_list.user_list",
+        "ad_group.id",
+        "campaign.id",
+      ],
+      from: "ad_group_criterion",
+      where: [
+        "ad_group_criterion.type = 'USER_LIST'",
+        "ad_group_criterion.status != 'REMOVED'",
+      ],
+      limit: 5000,
+    }),
+  };
+}
+
+/**
+ * Google's own membership sizes for every user list on the account.
+ *
+ * `user_list.size_for_display` and `user_list.size_for_search` are the two
+ * numbers Google serves — one per network — and `user_list.name` is the list's
+ * real display name, which is what the design's Audience column shows in place
+ * of a criterion id. A list Google has not sized yet returns null on both, and
+ * a null stays null all the way to the cell.
+ */
+export function buildUserListSizeQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "user_list_size",
+    family: "audience_user_list",
+    resource: "user_list",
+    mergeKey: "user_list.id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "user_list.id",
+        "user_list.resource_name",
+        "user_list.name",
+        "user_list.type",
+        "user_list.size_for_display",
+        "user_list.size_for_search",
+      ],
+      from: "user_list",
+      limit: 5000,
+    }),
+  };
+}
+
 export function buildGeoCoreQuery(
   startDate: string,
   endDate: string

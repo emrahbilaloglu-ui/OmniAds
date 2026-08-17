@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildGooglePlanExactViewModel,
+  googlePlanActivityActorLabel,
   googlePlanRetentionLine,
   GOOGLE_PLAN_STEP_SOURCE,
 } from "@/components/google-ads/google-plan-exact-adapter";
@@ -46,6 +47,7 @@ function activity(
     accountId: "4931182201",
     receiptId: "gw_01K2F4",
     detail: null,
+    actor: { id: "usr_1", name: "Emrah Bilaloglu" },
     ...overrides,
   };
 }
@@ -244,12 +246,39 @@ describe("buildGooglePlanExactViewModel", () => {
       expect(googlePlanRetentionLine(0, asOf)).toBe("—");
     });
 
-    it("renders the receipt in Detail and the em dash for the unrecorded actor", () => {
+    it("renders the receipt in Detail and the logged actor in Who", () => {
       const row = build().activityRows[0]!;
       expect(row.what).toBe("Applied");
       expect(row.detail).toBe("Adjust portfolio target · receipt gw_01K2F4");
-      // `google_ads_advisor_execution_logs` has no actor column.
+      // The seat the guarded write was authorized under, joined to its name.
+      expect(row.who).toBe("Emrah Bilaloglu");
+    });
+
+    it("prints the em dash for a write with no recorded actor and never the account", () => {
+      // Every row written before `actor_user_id` existed reads back null here,
+      // and nothing back-fills them. The account id is the write's target, not
+      // its author, so it must not appear in this cell.
+      const row = build({ activity: [activity({ actor: null })] }).activityRows[0]!;
       expect(row.who).toBe("—");
+      expect(row.who).not.toContain("4931182201");
+    });
+
+    it("prints the em dash when the actor id no longer names a member", () => {
+      const row = build({
+        activity: [activity({ actor: { id: "usr_gone", name: null } })],
+      }).activityRows[0]!;
+      expect(row.who).toBe("—");
+      // The id itself is not a name and is never rendered in its place.
+      expect(row.who).not.toContain("usr_gone");
+    });
+
+    it("resolves the Who label from the actor alone", () => {
+      expect(googlePlanActivityActorLabel({ id: "u", name: "Dana Whitfield" })).toBe(
+        "Dana Whitfield",
+      );
+      expect(googlePlanActivityActorLabel({ id: "u", name: "   " })).toBe("—");
+      expect(googlePlanActivityActorLabel(null)).toBe("—");
+      expect(googlePlanActivityActorLabel(undefined)).toBe("—");
     });
 
     it("carries a failure message into Detail rather than dropping it", () => {

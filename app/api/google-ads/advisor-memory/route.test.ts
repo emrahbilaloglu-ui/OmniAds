@@ -57,7 +57,9 @@ describe("POST /api/google-ads/advisor-memory", () => {
     vi.stubEnv("GOOGLE_ADS_DECISION_ENGINE_V2", "true");
     vi.stubEnv("GOOGLE_ADS_WRITEBACK_ENABLED", "false");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
-      session: {} as never,
+      // The seat the write is authorized under. The route reads the actor from
+      // here and never from the request body.
+      session: { user: { id: "usr_1" } } as never,
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
@@ -99,6 +101,36 @@ describe("POST /api/google-ads/advisor-memory", () => {
     });
     expect(vi.mocked(advisorMutate.preflightAdvisorMutation)).not.toHaveBeenCalled();
     expect(vi.mocked(advisorMutate.executeAdvisorMutation)).not.toHaveBeenCalled();
+  });
+
+  it("stamps the authorized seat on every execution-log row a guarded write emits", async () => {
+    vi.stubEnv("GOOGLE_ADS_WRITEBACK_ENABLED", "true");
+    vi.mocked(advisorMutate.executeAdvisorMutation).mockResolvedValue({
+      resourceNames: ["customers/1/adGroupCriteria/2~3"],
+    } as never);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/google-ads/advisor-memory", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: "biz",
+          accountId: "acc_1",
+          recommendationFingerprint: "fp_1",
+          executionAction: "apply_mutate",
+          mutateActionType: "add_negative_keyword",
+          mutatePayloadPreview: { adGroupId: "ag_1", text: "free" },
+          // The body cannot name the author; the session does.
+          actorUserId: "usr_forged",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const logCalls = vi.mocked(advisorMemory.logAdvisorExecutionEvent).mock.calls;
+    expect(logCalls.length).toBeGreaterThan(0);
+    for (const [event] of logCalls) {
+      expect(event).toMatchObject({ actorUserId: "usr_1" });
+    }
   });
 
   it("records a manual outcome without requiring write-back capability", async () => {

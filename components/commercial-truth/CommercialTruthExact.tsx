@@ -406,7 +406,7 @@ export function CommercialTruthExact({
                 {columns.map((column, index) => (
                   <td key={`spend-${index}`} className={styles.scenarioSpendCell}>
                     <span className={styles.scenarioSpendChip}>
-                      <span className={styles.scenarioSpendSymbol}>{model.currencyCode}</span>
+                      <span className={styles.scenarioSpendSymbol}>{model.currencySymbol}</span>
                       <input
                         className={styles.scenarioSpendInput}
                         value={column.spendValue}

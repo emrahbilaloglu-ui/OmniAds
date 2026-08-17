@@ -163,4 +163,12 @@ export interface CommercialTruthExactModel {
   /** Formatted unlabeled spend for the closing footnote. */
   unlabeledSpend: string;
   currencyCode: string;
+  /**
+   * The symbol the money formatter itself prints — "$" for USD, "₺" for TRY.
+   *
+   * The scenario spend chip is the one place a bare currency marker is drawn
+   * next to an input rather than a formatted amount; taking it from the same
+   * `Intl` formatter as every cell keeps one notation in one table.
+   */
+  currencySymbol: string;
 }

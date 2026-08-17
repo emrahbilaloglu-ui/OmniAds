@@ -643,6 +643,101 @@ export async function listBusinessMembers(businessId: string) {
   `;
 }
 
+/** The window the Team screen's "Actions · 28d" column is labelled with. */
+export const MEMBER_ACTION_WINDOW_DAYS = 28;
+
+/**
+ * Per-actor count of workspace writes in the trailing window.
+ *
+ * Three tables carry `(business_id, actor_user_id, created_at)` and together
+ * they are this backend's whole actor-stamped write ledger. They are disjoint —
+ * no single act is journalled twice:
+ *
+ *  - `decision_workflow_events` is the live decision overlay's append-only
+ *    journal; one row per operator transition on a Meta decision
+ *    (`lib/decision-workflow-store.ts` `persistWorkflowTransition`).
+ *  - `command_center_action_journal` is the Command Center's workflow journal —
+ *    status/assignee/note/handoff events. Still read by the engine
+ *    (`lib/creative-decision-engine/jobs/operator-response-job.ts`).
+ *  - `command_center_action_execution_audit` is the provider-execution ledger;
+ *    only `apply` and `rollback` rows are counted, because those are the two
+ *    operations that actually reached a provider. Its writer never appends to
+ *    the journal above, so counting both cannot double-count one act.
+ *
+ * `business_id` is TEXT on the first table and UUID on the other two, which is
+ * why the casts differ per branch.
+ *
+ * Returns `null` — not an empty map — when the ledger cannot be read, so the
+ * caller can render "unknown" rather than a false zero. A member with no rows
+ * in a readable ledger is a real `0`.
+ */
+export async function getBusinessMemberActionCounts(
+  businessId: string,
+  windowDays: number = MEMBER_ACTION_WINDOW_DAYS,
+): Promise<Record<string, number> | null> {
+  const readiness = await getDbSchemaReadiness({
+    tables: [
+      "decision_workflow_events",
+      "command_center_action_journal",
+      "command_center_action_execution_audit",
+    ],
+  }).catch(() => null);
+  // Partial readiness would produce a partial count presented as a total, so
+  // the gate is all-or-nothing.
+  if (!readiness?.ready) return null;
+
+  try {
+    const rows = (await getDb().query<{ actor_user_id: string; action_count: number }>(
+      `
+        WITH ledger AS (
+          SELECT actor_user_id::text AS actor_user_id
+          FROM decision_workflow_events
+          WHERE business_id = $1
+            AND actor_user_id IS NOT NULL
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT actor_user_id::text AS actor_user_id
+          FROM command_center_action_journal
+          WHERE business_id = $2::uuid
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+          UNION ALL
+          SELECT actor_user_id::text AS actor_user_id
+          FROM command_center_action_execution_audit
+          WHERE business_id = $2::uuid
+            AND actor_user_id IS NOT NULL
+            AND operation IN ('apply', 'rollback')
+            AND created_at >= now() - ($3::integer * INTERVAL '1 day')
+        )
+        SELECT actor_user_id, count(*)::int AS action_count
+        FROM ledger
+        GROUP BY actor_user_id
+      `,
+      // The same id twice on purpose: $1 is compared against a TEXT column and
+      // $2 against a UUID one. Reusing one placeholder for both makes
+      // PostgreSQL deduce two conflicting types for it and refuse the whole
+      // statement — the same trap `lib/decision-workflow-store.ts:250` records.
+      [businessId, businessId, windowDays],
+    )) as Array<{ actor_user_id: string; action_count: number }>;
+
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      if (!row.actor_user_id) continue;
+      counts[row.actor_user_id] = Number(row.action_count) || 0;
+    }
+    return counts;
+  } catch (error: unknown) {
+    // A malformed business id or a revoked grant must not blank the roster —
+    // but a silent `null` would also hide a broken statement behind an em
+    // dash, so the failure is logged rather than swallowed.
+    console.error("[account-store] member_action_counts_failed", {
+      businessId,
+      windowDays,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 export async function updateMemberRole(input: {
   membershipId: string;
   businessId: string;

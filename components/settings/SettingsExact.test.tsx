@@ -8,6 +8,7 @@ import {
   buildSettingsExactModel,
   type SettingsAdapterInput,
 } from "@/components/settings/settings-exact-adapter";
+import { PLAN_LABELS, PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
 
 function input(overrides: Partial<SettingsAdapterInput> = {}): SettingsAdapterInput {
   return {
@@ -15,9 +16,10 @@ function input(overrides: Partial<SettingsAdapterInput> = {}): SettingsAdapterIn
     language: "en",
     workspace: { timezone: "Europe/Istanbul", timezoneSource: "shopify" },
     billing: {
+      planId: "growth",
       planName: "Growth",
       monthlyPrice: 49,
-      upgradeAvailable: true,
+      managedPricingAvailable: true,
       unavailable: false,
     },
     ...overrides,
@@ -68,15 +70,68 @@ describe("buildSettingsExactModel", () => {
     const model = buildSettingsExactModel(
       input({
         billing: {
+          planId: null,
           planName: null,
           monthlyPrice: null,
-          upgradeAvailable: false,
+          managedPricingAvailable: false,
           unavailable: true,
         },
       }),
     );
     expect(model.plan.title).toBe("Plan —");
     expect(model.plan.action).toBeNull();
+  });
+
+  it("derives the entitlement sentence from the plan the workspace is on", () => {
+    const detail = (planId: PlanId) =>
+      buildSettingsExactModel(
+        input({
+          billing: {
+            planId,
+            planName: PLAN_LABELS[planId],
+            monthlyPrice: PRICING_PLANS[planId].monthlyPrice,
+            managedPricingAvailable: true,
+            unavailable: false,
+          },
+        }),
+      ).plan.detail;
+
+    // /reports and /insights are both `PlanGate requiredPlan="pro"`, team seats
+    // are gated on "scale", and Commercial Truth is gated on nothing.
+    expect(detail("starter")).toBe(
+      "Includes Commercial Truth. Reports & Insights need Pro; Team seats need Scale.",
+    );
+    expect(detail("pro")).toBe(
+      "Includes Commercial Truth and Reports & Insights. Team seats need Scale.",
+    );
+    // On the top plan nothing is still owed, so nothing is claimed to be.
+    expect(detail("scale")).toBe(
+      "Includes Commercial Truth, Reports & Insights and Team seats.",
+    );
+    expect(detail("scale")).not.toContain("need");
+  });
+
+  it("names the plan above this one on the button, never the one already held", () => {
+    const action = (planId: PlanId, managedPricingAvailable = true) =>
+      buildSettingsExactModel(
+        input({
+          billing: {
+            planId,
+            planName: PLAN_LABELS[planId],
+            monthlyPrice: PRICING_PLANS[planId].monthlyPrice,
+            managedPricingAvailable,
+            unavailable: false,
+          },
+        }),
+      ).plan.action;
+
+    expect(action("starter")).toBe("Upgrade to Growth");
+    expect(action("growth")).toBe("Upgrade to Pro");
+    expect(action("pro")).toBe("Upgrade to Scale");
+    // Scale is the top plan; telling its operator to upgrade to it would be a lie.
+    expect(action("scale")).toBe("Manage plan");
+    // No managed-pricing URL means the button would go nowhere, so it is absent.
+    expect(action("pro", false)).toBeNull();
   });
 
   it("shows the derived timezone and its source, never an operator choice", () => {
@@ -112,7 +167,7 @@ describe("SettingsExact", () => {
     const html = render();
     expect(html).toContain("Growth plan · $49/mo");
     expect(html).toContain(
-      "Unlocks Commercial Truth. Reports &amp; Insights need Pro; Team seats need Scale.",
+      "Includes Commercial Truth. Reports &amp; Insights need Pro; Team seats need Scale.",
     );
     expect(html.match(/Upgrade to Pro/g)).toHaveLength(1);
   });

@@ -182,6 +182,27 @@ function currencyFormatter(currencyCode: string): (value: number) => string {
   }
 }
 
+/**
+ * The symbol the same formatter prints, so the chip and the cells agree.
+ *
+ * Falls back to the code only when the runtime cannot format the currency at
+ * all — which is the same case in which `currencyFormatter` gives up on the
+ * currency style too.
+ */
+function currencySymbolOf(currencyCode: string): string {
+  try {
+    const parts = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).formatToParts(0);
+    return parts.find((part) => part.type === "currency")?.value ?? currencyCode;
+  } catch {
+    return currencyCode;
+  }
+}
+
 function percentLabel(ratio: number | null): string {
   if (ratio === null) return TRUTH_DASH;
   return `${(ratio * 100).toFixed(ratio * 100 % 1 === 0 ? 0 : 1)}%`;
@@ -509,6 +530,7 @@ export function buildCommercialTruthExactModel(
     totals,
     unlabeledSpend: allSpend > 0 ? money(allSpend - labeledSpend) : TRUTH_DASH,
     currencyCode,
+    currencySymbol: currencySymbolOf(currencyCode),
   };
 }
 

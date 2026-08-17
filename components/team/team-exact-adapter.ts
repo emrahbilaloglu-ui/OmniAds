@@ -8,9 +8,14 @@
  * Analyst is `collaborator`, Viewer is `guest`. Ownership is not grantable, so
  * the invite selector only offers the three storable roles.
  *
- * Two facts the design shows have no source in this backend: per-member 2FA
- * state and a 28-day action count. Both keep their column and render the em
- * dash — the design's "2FA on" and "46 writes" are prototype seed values.
+ * One fact the design shows has no source in this backend: per-member 2FA
+ * state. It keeps its column and renders the em dash — the design's "2FA on"
+ * is a prototype seed value.
+ *
+ * "Actions · 28d" is real. `/api/team/members` aggregates the three
+ * actor-stamped write ledgers (see `getBusinessMemberActionCounts`) over 28
+ * days and serves `action_count` per member; a member with none is a real `0
+ * writes`, and only an unreadable ledger renders the em dash.
  */
 
 export const TEAM_DASH = "—";
@@ -47,8 +52,24 @@ const AVATAR_TONES = ["#2F6BFF", "#6C41BE", "#0E9F6E", "#7A869E", "#B45309"];
  * that performs each capability, so the table means what its own subtitle says
  * it means. Where no route implements a capability at all, every cell is the em
  * dash rather than a tick the server would not honour.
+ *
+ * `"ungated"` is deliberately not the same as `"guest"`. A guest-gated
+ * capability is one the server checked and granted; an ungated one is a
+ * capability whose route enforces authentication and then never checks a
+ * workspace role, so every signed-in member reaches it whether or not the
+ * workspace meant to grant it. Painting that as a green tick would sell an
+ * authorization hole as an entitlement, so it draws its own marker.
  */
-export type CapabilityGate = "guest" | "collaborator" | "admin" | "owner" | "none";
+export type CapabilityGate =
+  | "guest"
+  | "collaborator"
+  | "admin"
+  | "owner"
+  | "none"
+  | "ungated";
+
+/** The marker an ungated capability paints in every role column. */
+export const UNGATED_MARK = "!";
 
 export const TEAM_CAPABILITIES: Array<{ label: string; gate: CapabilityGate }> = [
   { label: "View dashboards & evidence", gate: "guest" },
@@ -60,11 +81,22 @@ export const TEAM_CAPABILITIES: Array<{ label: string; gate: CapabilityGate }> =
   { label: "Edit Commercial Truth pack", gate: "collaborator" },
   { label: "Manage integrations", gate: "collaborator" },
   { label: "Invite & manage members", gate: "admin" },
-  // `/api/billing` POST authenticates but does not check a workspace role.
-  { label: "Billing & plan", gate: "guest" },
+  // `app/api/billing/route.ts` POST calls `requireAuthedRequest` and never
+  // `requireBusinessAccess` — see defect TRUTH-TEAM-SETTINGS-44 (HIGH, OPEN).
+  { label: "Billing & plan", gate: "ungated" },
 ];
 
-const GATE_RANK: Record<Exclude<CapabilityGate, "none">, number> = {
+const CELL_NOTE: Record<CapabilityGate, string | null> = {
+  guest: null,
+  collaborator: null,
+  admin: null,
+  owner: null,
+  none: "No route on this backend implements this capability.",
+  ungated:
+    "Reachable by every signed-in member: the route authenticates but enforces no workspace role (defect TRUTH-TEAM-SETTINGS-44).",
+};
+
+const GATE_RANK: Record<Exclude<CapabilityGate, "none" | "ungated">, number> = {
   guest: 0,
   collaborator: 1,
   admin: 2,
@@ -86,6 +118,8 @@ export interface TeamMemberSource {
   role: StoredTeamRole;
   joined_at: string | null;
   last_login_at?: string | null;
+  /** 28-day write count; `null`/absent means the ledger could not be read. */
+  action_count?: number | null;
 }
 
 export interface TeamInviteSource {
@@ -128,7 +162,7 @@ export interface TeamInviteModel {
 
 export interface TeamCapabilityRowModel {
   label: string;
-  cells: Array<{ value: string; foreground: string }>;
+  cells: Array<{ value: string; foreground: string; note: string | null }>;
 }
 
 export interface TeamAccessEventModel {
@@ -216,11 +250,14 @@ export function buildTeamExactModel(input: TeamAdapterInput): TeamExactModel {
       roleBackground: chip.background,
       roleForeground: chip.foreground,
       scope: role === "Viewer" ? "Share links only" : scopeLabel,
-      // Neither of the next three has a source on this backend.
+      // 2FA has no source on this backend; the action count does.
       twoFactor: TEAM_DASH,
       twoFactorBackground: "#F1F4F9",
       twoFactorForeground: "#98A4BA",
-      actions: TEAM_DASH,
+      actions:
+        typeof member.action_count === "number" && Number.isFinite(member.action_count)
+          ? `${member.action_count} writes`
+          : TEAM_DASH,
       lastActive: formatDay(member.last_login_at ?? null),
       removable: role !== "Owner",
     };
@@ -236,16 +273,25 @@ export function buildTeamExactModel(input: TeamAdapterInput): TeamExactModel {
     role: ROLE_TO_DESIGN[invite.role],
   }));
 
-  const capabilities: TeamCapabilityRowModel[] = TEAM_CAPABILITIES.map((capability) => ({
-    label: capability.label,
-    cells: (["Owner", "Operator", "Analyst", "Viewer"] as DesignTeamRole[]).map((role) => {
-      if (capability.gate === "none") return { value: TEAM_DASH, foreground: "#C9D2E0" };
-      const allowed = ROLE_RANK[role] >= GATE_RANK[capability.gate];
-      return allowed
-        ? { value: "✓", foreground: "#0E9F6E" }
-        : { value: TEAM_DASH, foreground: "#C9D2E0" };
-    }),
-  }));
+  const capabilities: TeamCapabilityRowModel[] = TEAM_CAPABILITIES.map((capability) => {
+    const note = CELL_NOTE[capability.gate];
+    return {
+      label: capability.label,
+      cells: (["Owner", "Operator", "Analyst", "Viewer"] as DesignTeamRole[]).map((role) => {
+        if (capability.gate === "none") {
+          return { value: TEAM_DASH, foreground: "#C9D2E0", note };
+        }
+        // Not a tick: the server never checked a role here.
+        if (capability.gate === "ungated") {
+          return { value: UNGATED_MARK, foreground: "#B45309", note };
+        }
+        const allowed = ROLE_RANK[role] >= GATE_RANK[capability.gate];
+        return allowed
+          ? { value: "✓", foreground: "#0E9F6E", note }
+          : { value: TEAM_DASH, foreground: "#C9D2E0", note };
+      }),
+    };
+  });
 
   /**
    * Access events this backend can actually evidence: a membership that began

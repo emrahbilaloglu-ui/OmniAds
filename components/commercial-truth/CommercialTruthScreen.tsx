@@ -15,6 +15,10 @@
  *    `/api/google-ads/campaigns`, so "all labeled spend" means all of it;
  *  - the change log from `/api/business-commercial-settings/history`.
  *
+ * Every windowed read is issued with the explicit 28-day range the screen's
+ * labels claim (see `commercial-truth-window.ts`); none of them is left to its
+ * route's 30-day default.
+ *
  * Nothing is defaulted. A pack without a target ROAS produces bands with no
  * range and rows with no verdict, because a verdict computed against a guessed
  * anchor would be a fabricated decision.
@@ -31,6 +35,7 @@ import {
   TRUTH_DASH,
   type CommercialTruthFieldId,
 } from "@/components/commercial-truth/commercial-truth-exact-model";
+import { buildCommercialTruthWindow } from "@/components/commercial-truth/commercial-truth-window";
 import {
   createEmptyTargetPack,
   type BusinessCommercialTruthSnapshot,
@@ -138,8 +143,10 @@ export function CommercialTruthScreen({
 
   const loadWindow = useCallback(async () => {
     try {
+      const truthWindow = buildCommercialTruthWindow(business?.timezone ?? null);
       const response = await fetch(
-        `/api/overview-summary?businessId=${encodeURIComponent(businessId)}`,
+        `/api/overview-summary?businessId=${encodeURIComponent(businessId)}` +
+          `&startDate=${truthWindow.startDate}&endDate=${truthWindow.endDate}`,
       );
       const payload = (await response.json().catch(() => null)) as {
         summary?: { pins?: OverviewPin[] } | null;
@@ -152,15 +159,24 @@ export function CommercialTruthScreen({
     } catch {
       setWindowTotals({ spend: null, revenue: null });
     }
-  }, [businessId]);
+  }, [business?.timezone, businessId]);
 
   const loadCampaigns = useCallback(async () => {
+    const truthWindow = buildCommercialTruthWindow(business?.timezone ?? null);
     const query = `businessId=${encodeURIComponent(businessId)}`;
     const [meta, google] = await Promise.all([
-      fetch(`/api/meta/campaigns?${query}`)
+      // Meta takes the window as explicit dates.
+      fetch(
+        `/api/meta/campaigns?${query}&startDate=${truthWindow.startDate}&endDate=${truthWindow.endDate}`,
+      )
         .then((response) => (response.ok ? response.json() : null))
         .catch(() => null),
-      fetch(`/api/google-ads/campaigns?${query}`)
+      // Google's preset ranges have no 28, so the same window goes as a custom
+      // one — `getDateRangeForQuery` returns customStart/customEnd verbatim.
+      fetch(
+        `/api/google-ads/campaigns?${query}&dateRange=custom` +
+          `&customStart=${truthWindow.startDate}&customEnd=${truthWindow.endDate}&compareMode=none`,
+      )
         .then((response) => (response.ok ? response.json() : null))
         .catch(() => null),
     ]);
@@ -172,12 +188,19 @@ export function CommercialTruthScreen({
       ? ((google as { rows: Array<Record<string, unknown>> }).rows ?? [])
       : [];
 
+    // The design's `level` is the entity the row IS, and both readers serve
+    // campaign rows exclusively — `/api/meta/campaigns` returns one row per
+    // campaign, and so does `/api/google-ads/campaigns`. It is emphatically not
+    // `budgetLevel`, which says where the BUDGET sits (lib/meta/live.ts:354
+    // sets it to "campaign" only when a campaign-level budget exists), so
+    // reading it as the entity level printed "Meta · Ad set" on every campaign
+    // in a demo workspace.
     setCampaigns([
       ...metaRows.map((row, index) => ({
         id: `meta:${String(row.id ?? index)}`,
         name: String(row.name ?? TRUTH_DASH),
         platform: "Meta" as const,
-        level: row.budgetLevel === "adset" ? "Ad set" : "Campaign",
+        level: "Campaign",
         spend: finite(row.spend),
         revenue: finite(row.revenue),
         roas: finite(row.roas),
@@ -192,7 +215,7 @@ export function CommercialTruthScreen({
         roas: finite(row.roas),
       })),
     ]);
-  }, [businessId]);
+  }, [business?.timezone, businessId]);
 
   useEffect(() => {
     void loadSnapshot();

@@ -249,4 +249,26 @@ describe("buildCommercialTruthExactModel", () => {
     );
     expect(model.stats.map((stat) => stat.value)).toEqual(["—", "—", "—"]);
   });
+
+  it("draws the scenario chip in the same notation the money cells use", () => {
+    const usd = buildCommercialTruthExactModel(input());
+    // The cells print "$21,900"; the chip must not print "USD" beside them.
+    expect(usd.currencySymbol).toBe("$");
+    expect(usd.spendRows[0].spend.startsWith(usd.currencySymbol)).toBe(true);
+
+    // A currency whose symbol is not its code proves the chip follows the
+    // formatter rather than printing the raw ISO code beside formatted cells.
+    const euro = buildCommercialTruthExactModel(
+      input({ business: { name: "Grandmix", currency: "EUR", timezone: "Europe/Berlin" } }),
+    );
+    expect(euro.currencyCode).toBe("EUR");
+    expect(euro.currencySymbol).toBe("€");
+    expect(euro.spendRows[0].spend).toContain(euro.currencySymbol);
+
+    // And where the formatter itself prints the code, the chip prints the same.
+    const lira = buildCommercialTruthExactModel(
+      input({ business: { name: "Grandmix", currency: "TRY", timezone: "Europe/Istanbul" } }),
+    );
+    expect(lira.spendRows[0].spend).toContain(lira.currencySymbol);
+  });
 });

@@ -274,6 +274,7 @@ export function TeamExact({
                       key={`${row.label}-${index}`}
                       className={styles.matrixCell}
                       style={{ color: cell.foreground }}
+                      title={cell.note ?? undefined}
                     >
                       {cell.value}
                     </td>

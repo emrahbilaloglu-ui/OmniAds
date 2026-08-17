@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MembershipRole } from "@/lib/auth";
-import { getMemberWorkspaces, listBusinessMembers, removeMember, updateMemberRole, updateMemberWorkspaces } from "@/lib/account-store";
+import {
+  getBusinessMemberActionCounts,
+  getMemberWorkspaces,
+  listBusinessMembers,
+  MEMBER_ACTION_WINDOW_DAYS,
+  removeMember,
+  updateMemberRole,
+  updateMemberWorkspaces,
+} from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 
 interface UpdateMemberBody {
@@ -29,7 +37,17 @@ export async function GET(request: NextRequest) {
   }
 
   const members = await listBusinessMembers(businessId!);
-  return NextResponse.json({ members });
+  // The Team screen's "Actions · 28d" column. `null` means the write ledger
+  // could not be read, and every member's count stays absent so the column can
+  // say "unknown" instead of a false zero.
+  const actionCounts = await getBusinessMemberActionCounts(businessId!);
+  return NextResponse.json({
+    members: (members as Array<{ user_id: string }>).map((member) => ({
+      ...member,
+      action_count: actionCounts ? (actionCounts[member.user_id] ?? 0) : null,
+    })),
+    actionWindowDays: MEMBER_ACTION_WINDOW_DAYS,
+  });
 }
 
 export async function PATCH(request: NextRequest) {

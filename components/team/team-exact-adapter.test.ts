@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTeamExactModel,
   TEAM_CAPABILITIES,
+  UNGATED_MARK,
   type TeamAdapterInput,
 } from "@/components/team/team-exact-adapter";
 
@@ -17,6 +18,7 @@ function input(overrides: Partial<TeamAdapterInput> = {}): TeamAdapterInput {
         role: "admin",
         joined_at: "2026-03-02T09:00:00.000Z",
         last_login_at: "2026-08-17T07:10:00.000Z",
+        action_count: 46,
       },
       {
         membership_id: "m2",
@@ -26,6 +28,7 @@ function input(overrides: Partial<TeamAdapterInput> = {}): TeamAdapterInput {
         role: "collaborator",
         joined_at: "2026-05-04T09:00:00.000Z",
         last_login_at: null,
+        action_count: 0,
       },
       {
         membership_id: "m3",
@@ -73,10 +76,23 @@ describe("buildTeamExactModel", () => {
     expect(model.members[1].removable).toBe(true);
   });
 
-  it("keeps the 2FA and 28-day action columns and dashes them honestly", () => {
+  it("keeps the 2FA column and dashes it honestly — nothing stores a second factor", () => {
     const model = buildTeamExactModel(input());
     expect(model.members.every((member) => member.twoFactor === "—")).toBe(true);
-    expect(model.members.every((member) => member.actions === "—")).toBe(true);
+  });
+
+  it("prints the real 28-day action count, including a real zero", () => {
+    const model = buildTeamExactModel(input());
+    expect(model.members[0].actions).toBe("46 writes");
+    // A member the ledger simply has no rows for is 0, not unknown.
+    expect(model.members[1].actions).toBe("0 writes");
+  });
+
+  it("dashes the action count only when the ledger itself could not be read", () => {
+    // The third seeded member carries no `action_count` at all, which is what
+    // `/api/team/members` serves when `getBusinessMemberActionCounts` is null.
+    const model = buildTeamExactModel(input());
+    expect(model.members[2].actions).toBe("—");
   });
 
   it("reports last active from the sign-in stamp, not the join date", () => {
@@ -126,6 +142,28 @@ describe("buildTeamExactModel", () => {
     expect(cells("Invite & manage members")).toEqual(["✓", "✓", "—", "—"]);
     // No route implements it, so no role is claimed to have it.
     expect(cells("Comment & annotate")).toEqual(["—", "—", "—", "—"]);
+  });
+
+  it("marks an ungated capability distinctly instead of ticking it as granted", () => {
+    const model = buildTeamExactModel(input());
+    const billing = model.capabilities.find((row) => row.label === "Billing & plan")!;
+    // `/api/billing` POST authenticates and then checks no workspace role, so
+    // every role reaches it — but that is a hole, not an entitlement.
+    expect(billing.cells.map((cell) => cell.value)).toEqual([
+      UNGATED_MARK,
+      UNGATED_MARK,
+      UNGATED_MARK,
+      UNGATED_MARK,
+    ]);
+    expect(UNGATED_MARK).not.toBe("✓");
+    expect(billing.cells.every((cell) => cell.foreground === "#B45309")).toBe(true);
+    expect(billing.cells[0].note).toContain("TRUTH-TEAM-SETTINGS-44");
+
+    // A genuinely granted capability keeps the green tick and carries no note.
+    const granted = model.capabilities.find((row) => row.label === "Invite & manage members")!;
+    expect(granted.cells[0].value).toBe("✓");
+    expect(granted.cells[0].foreground).toBe("#0E9F6E");
+    expect(granted.cells[0].note).toBeNull();
   });
 
   it("shows only pending invites, with the design's meta line", () => {

@@ -283,6 +283,20 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "meta_creative_lineage_edges", column: "relationship_observed_at", dataType: "timestamp with time zone", isNullable: true },
   { table: "meta_creative_lineage_edges", column: "relationship_captured_at", dataType: "timestamp with time zone", isNullable: true },
   { table: "provider_connections", column: "connection_generation", dataType: "bigint", isNullable: false, columnDefault: "1" },
+  // The Automation activity tuple and guardrail policy. Every one of these is
+  // read by a statement that is wrapped in a swallow-all guard, so a silently
+  // skipped ALTER would present as "this business has no ROAS floor and its
+  // ledger has no actors" — indistinguishable from the truthful answer.
+  { table: "meta_automation_activity_ledger", column: "actor_kind", dataType: "text", isNullable: true },
+  { table: "meta_automation_activity_ledger", column: "entity_type", dataType: "text", isNullable: true },
+  { table: "meta_automation_activity_ledger", column: "entity_id", dataType: "text", isNullable: true },
+  { table: "meta_automation_activity_ledger", column: "result_status", dataType: "text", isNullable: true },
+  { table: "meta_automation_activity_ledger", column: "result_receipt_id", dataType: "text", isNullable: true },
+  { table: "meta_automation_business_controls", column: "min_roas_floor", dataType: "numeric", isNullable: true },
+  { table: "meta_automation_business_controls", column: "quiet_hours_start", dataType: "time without time zone", isNullable: true },
+  { table: "meta_automation_business_controls", column: "quiet_hours_end", dataType: "time without time zone", isNullable: true },
+  { table: "meta_automation_business_controls", column: "quiet_hours_timezone", dataType: "text", isNullable: true },
+  { table: "meta_automation_decision_type_modes", column: "clean_approval_threshold", dataType: "integer", isNullable: true },
 ];
 
 /**

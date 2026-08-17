@@ -2,13 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
   engageMetaAutomationKillSwitch,
+  normalizeCleanApprovalThreshold,
+  normalizeQuietHourTime,
   releaseMetaAutomationKillSwitch,
   setMetaAutomationDecisionTypeMode,
+  setMetaAutomationGuardrailPolicy,
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
   META_AUTOMATION_DECISION_TYPES,
   type MetaAutomationDecisionType,
   type MetaAutomationDecisionMode,
+  type MetaAutomationQuietHours,
 } from "@/lib/meta/automation-control-plane";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
@@ -114,25 +118,40 @@ export async function POST(request: NextRequest) {
   if (!businessId) return jsonError(400, "missing_business_id", "businessId is required.");
 
   const body = (await request.json().catch(() => null)) as
-    | { action?: unknown; reason?: unknown; decisionType?: unknown; mode?: unknown }
+    | {
+        action?: unknown;
+        reason?: unknown;
+        decisionType?: unknown;
+        mode?: unknown;
+        cleanApprovalThreshold?: unknown;
+        minRoasFloor?: unknown;
+        quietHours?: unknown;
+      }
     | null;
   const action = body?.action;
   if (
     action !== "engage_kill_switch" &&
     action !== "release_kill_switch" &&
-    action !== "set_decision_type_mode"
+    action !== "set_decision_type_mode" &&
+    action !== "set_guardrail_policy"
   ) {
     return jsonError(
       400,
       "unsupported_automation_action",
-      "Only engage_kill_switch, release_kill_switch and set_decision_type_mode are supported from Automation.",
+      "Only engage_kill_switch, release_kill_switch, set_decision_type_mode and set_guardrail_policy are supported from Automation.",
     );
   }
 
   const access = await requireBusinessAccess({
     request,
     businessId,
-    minRole: action === "release_kill_switch" ? "admin" : "collaborator",
+    // Guardrail policy sets the ROAS floor and quiet-hours window that bound
+    // every automated action, so it takes the STOP-release role rather than the
+    // weaker preference role used by set_decision_type_mode.
+    minRole:
+      action === "release_kill_switch" || action === "set_guardrail_policy"
+        ? "admin"
+        : "collaborator",
   });
   if ("error" in access) return access.error;
 
@@ -148,11 +167,14 @@ export async function POST(request: NextRequest) {
       ? "automation_kill_switch_release"
       : action === "set_decision_type_mode"
         ? "automation_decision_type_mode"
-        : "automation_kill_switch_engage",
+        : action === "set_guardrail_policy"
+          ? "automation_guardrail_policy"
+          : "automation_kill_switch_engage",
   );
   if (reviewerBlocked) return reviewerBlocked;
 
   const VALID_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+  let cleanApprovalThreshold: number | null | undefined;
   if (action === "set_decision_type_mode") {
     const decisionType = body?.decisionType;
     const mode = body?.mode;
@@ -167,6 +189,61 @@ export async function POST(request: NextRequest) {
         "invalid_decision_type_mode",
         "decisionType must be pause|bid|budget|creative and mode must be manual|semi_auto|auto.",
       );
+    }
+    // Absent leaves the persisted target alone; explicit null clears it back to
+    // "no target stated". A value that is not a positive whole number is a typo,
+    // not a policy, and is refused rather than rounded into one.
+    if (body && "cleanApprovalThreshold" in body) {
+      const raw = body.cleanApprovalThreshold;
+      if (raw === null) {
+        cleanApprovalThreshold = null;
+      } else {
+        const normalized = normalizeCleanApprovalThreshold(raw);
+        if (normalized === null || normalized !== Number(raw)) {
+          return jsonError(
+            400,
+            "invalid_clean_approval_threshold",
+            "cleanApprovalThreshold must be a whole number of at least 1, or null to clear it.",
+          );
+        }
+        cleanApprovalThreshold = normalized;
+      }
+    }
+  }
+
+  let minRoasFloor: number | null = null;
+  let quietHours: MetaAutomationQuietHours | null = null;
+  if (action === "set_guardrail_policy") {
+    const rawFloor = body?.minRoasFloor;
+    if (rawFloor !== null && rawFloor !== undefined) {
+      if (typeof rawFloor !== "number" || !Number.isFinite(rawFloor) || rawFloor <= 0) {
+        return jsonError(
+          400,
+          "invalid_min_roas_floor",
+          "minRoasFloor must be a positive number, or null to clear it.",
+        );
+      }
+      minRoasFloor = rawFloor;
+    }
+    const rawWindow = body?.quietHours;
+    if (rawWindow !== null && rawWindow !== undefined) {
+      const window = rawWindow as {
+        start?: unknown;
+        end?: unknown;
+        timezone?: unknown;
+      };
+      const start = normalizeQuietHourTime(window.start);
+      const end = normalizeQuietHourTime(window.end);
+      const timezone =
+        typeof window.timezone === "string" ? window.timezone.trim() : "";
+      if (!start || !end || !timezone || timezone.length > 40) {
+        return jsonError(
+          400,
+          "invalid_quiet_hours",
+          "quietHours must be {start,end} as HH:MM with a non-empty timezone label, or null to clear it.",
+        );
+      }
+      quietHours = { start, end, timezone };
     }
   }
 
@@ -197,6 +274,16 @@ export async function POST(request: NextRequest) {
         decisionType: body?.decisionType as MetaAutomationDecisionType,
         mode: body?.mode as MetaAutomationDecisionMode,
         reason: body?.reason,
+        ...(cleanApprovalThreshold === undefined
+          ? {}
+          : { cleanApprovalThreshold }),
+      });
+    } else if (action === "set_guardrail_policy") {
+      await setMetaAutomationGuardrailPolicy({
+        businessId: access.membership.businessId,
+        userId: access.session.user.id,
+        minRoasFloor,
+        quietHours,
       });
     } else {
       await engageMetaAutomationKillSwitch({

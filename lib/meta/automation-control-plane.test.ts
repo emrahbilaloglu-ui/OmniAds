@@ -11,6 +11,8 @@ const {
   getMetaAutomationControlPlane,
   getMetaWriteBlockState,
   isGlobalMetaAdsWriteKillSwitchEngaged,
+  setMetaAutomationDecisionTypeMode,
+  setMetaAutomationGuardrailPolicy,
 } = await import("@/lib/meta/automation-control-plane");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -220,6 +222,359 @@ describe("meta automation control plane", () => {
     expect(actionQueries[1]).toContain("meta_ad_dimensions");
     expect(actionQueries[1]).toContain("meta_campaign_dimensions");
     expect(actionQueries[1]).toContain("meta_adset_dimensions");
+  });
+
+  it("carries the persisted guardrail policy and the typed activity tuple end to end", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        expect(query).toContain("control.min_roas_floor");
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+            min_roas_floor: "2.5000",
+            quiet_hours_start: "00:00:00",
+            quiet_hours_end: "07:00:00",
+            quiet_hours_timezone: "ET",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_activity_ledger ledger")) {
+        return [
+          {
+            id: "act_tuple",
+            activity_type: "decision_type_mode_change",
+            severity: "info",
+            message: "budget standing mode set to semi_auto.",
+            payload_json: {},
+            created_at: "2026-08-17T09:00:00.000Z",
+            actor_kind: "operator",
+            actor_user_id: "user_1",
+            actor_name: "Emrah B.",
+            entity_type: "automation_decision_type",
+            entity_id: "budget",
+            entity_name: null,
+            result_status: "recorded",
+            result_receipt_id: "promo_9",
+          },
+        ];
+      }
+      if (query.includes("clean_approvals")) {
+        return [{ clean_approvals: 18 }];
+      }
+      if (query.includes("FROM meta_ads_action_log log")) {
+        return [
+          {
+            id: "log_1",
+            action: "pause",
+            status: "success",
+            error_code: null,
+            error_message: null,
+            requested_at: "2026-08-17T08:30:00.000Z",
+            payload_request: {},
+            requested_by: "user_1",
+            resulting_ad_id: null,
+            actor_name: "Emrah B.",
+            entity_type: "adset",
+            entity_id: "23851",
+            entity_name: "Retargeting 7d — DPA",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_decision_type_modes")) {
+        return [
+          {
+            decision_type: "pause",
+            mode: "manual",
+            lock_reason: null,
+            updated_at: "2026-08-01T00:00:00.000Z",
+            updated_by: "user_1",
+            clean_approval_threshold: 30,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.businessControl.guardrails.minRoasFloor).toBe(2.5);
+    expect(payload.businessControl.guardrails.quietHours).toEqual({
+      start: "00:00",
+      end: "07:00",
+      timezone: "ET",
+    });
+    const ledgerRow = payload.activityLedger.find(
+      (item) => item.id === "act_tuple",
+    );
+    expect(ledgerRow?.actor).toEqual({
+      kind: "operator",
+      userId: "user_1",
+      name: "Emrah B.",
+    });
+    expect(ledgerRow?.entity).toEqual({
+      type: "automation_decision_type",
+      id: "budget",
+      name: null,
+    });
+    expect(ledgerRow?.result).toEqual({
+      status: "recorded",
+      receiptId: "promo_9",
+    });
+    const actionRow = payload.activityLedger.find(
+      (item) => item.id === "meta-action-log_1",
+    );
+    expect(actionRow?.actor?.name).toBe("Emrah B.");
+    expect(actionRow?.entity).toEqual({
+      type: "adset",
+      id: "23851",
+      name: "Retargeting 7d — DPA",
+    });
+    expect(actionRow?.result).toEqual({ status: "applied", receiptId: null });
+    const pause = payload.decisionTypeModes.find(
+      (item) => item.decisionType === "pause",
+    );
+    expect(pause?.cleanApprovalThreshold).toBe(30);
+    expect(pause?.cleanApprovalStreak).toBe(18);
+    expect(payload.readCompleteness?.cleanApprovalStreaks).toBe("complete");
+    // No provider-write channel exists for budget, so its streak stays absent
+    // instead of being reported as zero.
+    const budget = payload.decisionTypeModes.find(
+      (item) => item.decisionType === "budget",
+    );
+    expect(budget?.cleanApprovalStreak).toBeNull();
+  });
+
+  it("keeps the ledger and the control row readable on a pre-migration schema", async () => {
+    const missingColumn = Object.assign(
+      new Error('column "actor_kind" does not exist'),
+      { code: "42703" },
+    );
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (
+        query.includes("control.min_roas_floor") ||
+        query.includes("ledger.actor_kind") ||
+        query.includes("clean_approval_threshold")
+      ) {
+        throw missingColumn;
+      }
+      if (query.includes("LEFT JOIN meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: true,
+            kill_switch_reason: "Owner stop.",
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_automation_activity_ledger")) {
+        return [
+          {
+            id: "legacy_row",
+            activity_type: "business_kill_switch_engaged",
+            severity: "danger",
+            message: "Business kill switch engaged.",
+            payload_json: {},
+            created_at: "2026-08-17T09:00:00.000Z",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.businessControl.source).toBe("persisted");
+    expect(payload.businessControl.killSwitchEngaged).toBe(true);
+    expect(payload.businessControl.guardrails.minRoasFloor).toBeNull();
+    expect(payload.businessControl.guardrails.quietHours).toBeNull();
+    const legacy = payload.activityLedger.find(
+      (item) => item.id === "legacy_row",
+    );
+    expect(legacy?.message).toBe("Business kill switch engaged.");
+    expect(legacy?.actor).toBeNull();
+    expect(legacy?.entity).toBeNull();
+    expect(legacy?.result).toBeNull();
+  });
+
+  it("refuses to present a streak the read could not prove", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("clean_approvals")) {
+        throw Object.assign(new Error("statement timeout"), { code: "57014" });
+      }
+      if (query.includes("FROM meta_automation_decision_type_modes")) {
+        return [
+          {
+            decision_type: "pause",
+            mode: "manual",
+            lock_reason: null,
+            updated_at: "2026-08-01T00:00:00.000Z",
+            updated_by: "user_1",
+            clean_approval_threshold: 30,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.readCompleteness?.cleanApprovalStreaks).toBe("unavailable");
+    expect(
+      payload.decisionTypeModes.find((item) => item.decisionType === "pause")
+        ?.cleanApprovalStreak,
+    ).toBeNull();
+  });
+
+  it("counts a clean approval streak from the later of the tier start and the last failure", async () => {
+    const queries: string[] = [];
+    const params: unknown[][] = [];
+    const sql = vi.fn(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+      const query = Array.from(parts).join("?");
+      queries.push(query);
+      params.push(values);
+      if (query.includes("clean_approvals")) return [{ clean_approvals: 4 }];
+      if (query.includes("FROM meta_automation_decision_type_modes")) {
+        return [
+          {
+            decision_type: "pause",
+            mode: "manual",
+            lock_reason: null,
+            updated_at: "2026-08-01T00:00:00.000Z",
+            updated_by: "user_1",
+            clean_approval_threshold: 12,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    const streakQuery = queries.find((query) =>
+      query.includes("clean_approvals"),
+    );
+    expect(streakQuery).toContain("failed.status IN ('failure', 'silent_failure')");
+    expect(streakQuery).toContain("log.requested_by IS NOT NULL");
+    expect(streakQuery).toContain("log.status = 'success'");
+    expect(params.flat()).toContain("2026-08-01T00:00:00.000Z");
+    expect(
+      payload.decisionTypeModes.find((item) => item.decisionType === "pause")
+        ?.cleanApprovalStreak,
+    ).toBe(4);
+  });
+
+  it("persists the guardrail policy and stamps the ledger tuple for it", async () => {
+    const calls: Array<{ query: string; values: unknown[] }> = [];
+    const sql = vi.fn(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+      const query = Array.from(parts).join("?");
+      calls.push({ query, values });
+      if (query.includes("INSERT INTO meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T10:00:00.000Z",
+            updated_by: "user_1",
+            min_roas_floor: "2.5000",
+            quiet_hours_start: "00:00:00",
+            quiet_hours_end: "07:00:00",
+            quiet_hours_timezone: "ET",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const control = await setMetaAutomationGuardrailPolicy({
+      businessId: BUSINESS_ID,
+      userId: "user_1",
+      minRoasFloor: 2.5,
+      quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+    });
+
+    expect(control.guardrails.minRoasFloor).toBe(2.5);
+    expect(control.guardrails.quietHours).toEqual({
+      start: "00:00",
+      end: "07:00",
+      timezone: "ET",
+    });
+    const ledgerInsert = calls.find((call) =>
+      call.query.includes("INSERT INTO meta_automation_activity_ledger"),
+    );
+    expect(ledgerInsert?.query).toContain("actor_kind");
+    expect(ledgerInsert?.values).toContain("operator");
+    expect(ledgerInsert?.values).toContain("business");
+    expect(ledgerInsert?.values).toContain("applied");
+  });
+
+  it("stamps a decision-type mode change with its promotion record as the receipt", async () => {
+    const calls: Array<{ query: string; values: unknown[] }> = [];
+    const sql = vi.fn(async (parts: TemplateStringsArray, ...values: unknown[]) => {
+      const query = Array.from(parts).join("?");
+      calls.push({ query, values });
+      if (query.includes("INSERT INTO meta_automation_promotion_records")) {
+        return [{ id: "promo_created" }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await setMetaAutomationDecisionTypeMode({
+      businessId: BUSINESS_ID,
+      decisionType: "pause",
+      mode: "semi_auto",
+      userId: "user_1",
+      cleanApprovalThreshold: 30,
+    });
+
+    const modeUpsert = calls.find((call) =>
+      call.query.includes("INSERT INTO meta_automation_decision_type_modes"),
+    );
+    expect(modeUpsert?.query).toContain("clean_approval_threshold");
+    expect(modeUpsert?.values).toContain(30);
+    const ledgerInsert = calls.find((call) =>
+      call.query.includes("INSERT INTO meta_automation_activity_ledger"),
+    );
+    expect(ledgerInsert?.values).toContain("automation_decision_type");
+    expect(ledgerInsert?.values).toContain("pause");
+    expect(ledgerInsert?.values).toContain("recorded");
+    expect(ledgerInsert?.values).toContain("promo_created");
   });
 
   it("engages the business kill switch and records an activity row", async () => {

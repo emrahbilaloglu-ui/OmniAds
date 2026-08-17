@@ -29,6 +29,8 @@ const payload: MetaAutomationControlPlane = {
       requireLivePreflight: true,
       requireRollbackPlan: true,
       dryRunOnly: true,
+      minRoasFloor: null,
+      quietHours: null,
     },
     updatedAt: "2026-08-15T12:00:00.000Z",
     updatedBy: "user_1",
@@ -62,6 +64,9 @@ const payload: MetaAutomationControlPlane = {
       payload: { internal: "not-presented-as-a-result" },
       createdAt: "2026-08-15T14:31:00.000Z",
       source: "automation_ledger",
+      actor: null,
+      entity: null,
+      result: null,
     },
   ],
   decisionTypeModes: [
@@ -72,6 +77,8 @@ const payload: MetaAutomationControlPlane = {
       updatedAt: null,
       updatedBy: null,
       source: "default",
+      cleanApprovalThreshold: null,
+      cleanApprovalStreak: null,
     },
     {
       decisionType: "bid",
@@ -80,6 +87,8 @@ const payload: MetaAutomationControlPlane = {
       updatedAt: null,
       updatedBy: null,
       source: "default",
+      cleanApprovalThreshold: null,
+      cleanApprovalStreak: null,
     },
     {
       decisionType: "budget",
@@ -88,6 +97,8 @@ const payload: MetaAutomationControlPlane = {
       updatedAt: "2026-08-15T09:00:00.000Z",
       updatedBy: "user_1",
       source: "persisted",
+      cleanApprovalThreshold: null,
+      cleanApprovalStreak: null,
     },
     {
       decisionType: "creative",
@@ -96,6 +107,8 @@ const payload: MetaAutomationControlPlane = {
       updatedAt: "2026-08-15T08:00:00.000Z",
       updatedBy: "user_2",
       source: "persisted",
+      cleanApprovalThreshold: null,
+      cleanApprovalStreak: null,
     },
   ],
 };
@@ -257,7 +270,176 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("System guard");
     expect(html).not.toContain("Success record");
     expect(html).not.toContain("not-presented-as-a-result");
-    expect(html.match(/<td>—<\/td>/g)).toHaveLength(2);
+    expect(html).toMatch(/data-field="ledger-actor">—<\/td>/);
+    expect(html).toMatch(/data-field="ledger-entity">—<\/td>/);
+    expect(html).toMatch(
+      /data-field="ledger-result"[^>]*data-tone="unknown">—<\/span>/,
+    );
+  });
+
+  it("renders the persisted actor, entity and result tuple when the record carries one", () => {
+    const html = render({
+      ...payload,
+      activityLedger: [
+        {
+          id: "activity_tuple",
+          activityType: "decision_type_mode_change",
+          severity: "info",
+          message: "budget standing mode set to semi_auto (from manual).",
+          payload: null,
+          createdAt: "2026-08-15T14:31:00.000Z",
+          source: "automation_ledger",
+          actor: { kind: "operator", userId: "user_1", name: "Emrah B." },
+          entity: {
+            type: "automation_decision_type",
+            id: "budget",
+            name: null,
+          },
+          result: { status: "recorded", receiptId: "promo_1" },
+        },
+        {
+          id: "activity_applied",
+          activityType: "meta_pause",
+          severity: "success",
+          message: "Meta pause completed.",
+          payload: null,
+          createdAt: "2026-08-15T09:12:00.000Z",
+          source: "meta_action_log",
+          actor: { kind: "operator", userId: "user_1", name: "Emrah B." },
+          entity: {
+            type: "adset",
+            id: "23851",
+            name: "Retargeting 7d — DPA",
+          },
+          result: { status: "applied", receiptId: null },
+        },
+      ],
+    });
+
+    expect(html).toMatch(/data-field="ledger-actor">Emrah B\.<\/td>/);
+    expect(html).toMatch(/data-field="ledger-entity">Budget<\/td>/);
+    expect(html).toMatch(
+      /data-field="ledger-result"[^>]*data-tone="recorded">Receipt promo_1<\/span>/,
+    );
+    expect(html).toMatch(
+      /data-field="ledger-entity">Retargeting 7d — DPA<\/td>/,
+    );
+    expect(html).toMatch(
+      /data-field="ledger-result"[^>]*data-tone="applied">Applied<\/span>/,
+    );
+  });
+
+  it("tones a blocked provider write as a refusal rather than a success", () => {
+    const html = render({
+      ...payload,
+      activityLedger: [
+        {
+          id: "activity_blocked",
+          activityType: "meta_pause",
+          severity: "warning",
+          message: "Meta write blocked by kill switch.",
+          payload: null,
+          createdAt: "2026-08-15T18:05:00.000Z",
+          source: "meta_action_log",
+          actor: null,
+          entity: { type: "ad", id: "9912", name: "Lookalike 3% — UGC" },
+          result: { status: "blocked", receiptId: null },
+        },
+      ],
+    });
+
+    expect(html).toMatch(
+      /data-field="ledger-result"[^>]*data-tone="blocked">Blocked<\/span>/,
+    );
+    // No attributable operator on the row: the actor stays blank instead of
+    // borrowing the prototype's "System guard" label.
+    expect(html).toMatch(/data-field="ledger-actor">—<\/td>/);
+  });
+
+  it("renders the persisted ROAS floor and quiet-hours window verbatim", () => {
+    const html = render({
+      ...payload,
+      businessControl: {
+        ...payload.businessControl,
+        guardrails: {
+          ...payload.businessControl.guardrails,
+          minRoasFloor: 2.5,
+          quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+        },
+      },
+    });
+
+    expect(html).toMatch(/guardrail-roas-floor[\s\S]*?<strong>2\.50<\/strong>/);
+    expect(html).toMatch(
+      /guardrail-quiet-hours[\s\S]*?<strong>00:00–07:00 ET<\/strong>/,
+    );
+  });
+
+  it("presents ladder progress only when the streak read and the threshold are both proven", () => {
+    const persistedPause = {
+      decisionType: "pause" as const,
+      mode: "manual" as const,
+      lockReason: null,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      updatedBy: "user_1",
+      source: "persisted" as const,
+      cleanApprovalThreshold: 30,
+      cleanApprovalStreak: 18,
+    };
+    const proven = render({
+      ...payload,
+      readCompleteness: {
+        promotionRecords: "complete",
+        cleanApprovalStreaks: "complete",
+      },
+      decisionTypeModes: [
+        persistedPause,
+        ...payload.decisionTypeModes.filter(
+          (item) => item.decisionType !== "pause",
+        ),
+      ],
+    });
+    const unproven = render({
+      ...payload,
+      readCompleteness: {
+        promotionRecords: "complete",
+        cleanApprovalStreaks: "unavailable",
+      },
+      decisionTypeModes: [
+        persistedPause,
+        ...payload.decisionTypeModes.filter(
+          (item) => item.decisionType !== "pause",
+        ),
+      ],
+    });
+    const noThreshold = render({
+      ...payload,
+      readCompleteness: {
+        promotionRecords: "complete",
+        cleanApprovalStreaks: "complete",
+      },
+      decisionTypeModes: [
+        { ...persistedPause, cleanApprovalThreshold: null },
+        ...payload.decisionTypeModes.filter(
+          (item) => item.decisionType !== "pause",
+        ),
+      ],
+    });
+
+    expect(proven).toMatch(
+      /data-decision-type="pause"[\s\S]*?data-tone="measured" style="width:60%"/,
+    );
+    expect(proven).toMatch(/data-decision-type="pause"[\s\S]*?>18 \/ 30</);
+    expect(unproven).not.toContain("18 / 30");
+    expect(unproven).toMatch(
+      /data-decision-type="pause"[\s\S]*?data-tone="locked" style="width:0%"/,
+    );
+    expect(noThreshold).not.toContain("18 / 30");
+    // A kind with no provider-write channel keeps the em dash even beside a
+    // proven read.
+    expect(proven).toMatch(
+      /data-decision-type="budget"[\s\S]*?_progressValue_[^"]*">—<\/span>/,
+    );
   });
 
   it("keeps both exact kill-status pills static and exposes no write path", () => {

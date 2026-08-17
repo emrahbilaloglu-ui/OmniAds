@@ -239,7 +239,7 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       ".sectionFootnote, .rulesTable th, .ledgerTable th, .progressValue",
       size: 10,
       },
-      { selector: ".autonomyNext, .ledgerUnknown", size: 11 },
+      { selector: ".autonomyNext, .ledgerResult", size: 11 },
       { selector: ".ledgerTime", size: 11.5 },
     ],
   },

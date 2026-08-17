@@ -41,7 +41,7 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   google_csv_used: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   // Provider health recovery
   provider_health_recovery_started:
-    "components/integrations/integrations-card.tsx",
+    "app/(dashboard)/integrations/legacy-page.tsx",
   provider_health_recovery_completed:
     "app/(dashboard)/integrations/callback/[provider]/legacy-page.tsx",
   // Guarded action lifecycle (the stages this build can reach)

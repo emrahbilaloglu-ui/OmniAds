@@ -76,6 +76,18 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_INTEGRATIONS_TYPE_FILE =
+  "components/integrations/IntegrationsExact.module.css";
+const EXACT_INTEGRATIONS_TYPE_START =
+  "/* dashboard-v2-integrations-exact-reference-type:start */";
+const EXACT_INTEGRATIONS_TYPE_END =
+  "/* dashboard-v2-integrations-exact-reference-type:end */";
+const EXACT_KLAVIYO_TYPE_FILE =
+  "components/klaviyo/KlaviyoExact.module.css";
+const EXACT_KLAVIYO_TYPE_START =
+  "/* dashboard-v2-klaviyo-exact-reference-type:start */";
+const EXACT_KLAVIYO_TYPE_END =
+  "/* dashboard-v2-klaviyo-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +105,10 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_INTEGRATIONS_TYPE_FILE
+                    ? [EXACT_INTEGRATIONS_TYPE_START, EXACT_INTEGRATIONS_TYPE_END]
+                    : file === EXACT_KLAVIYO_TYPE_FILE
+                      ? [EXACT_KLAVIYO_TYPE_START, EXACT_KLAVIYO_TYPE_END]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
@@ -406,6 +422,57 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Integrations values narrow and exact", () => {
+    const source = readFileSync(EXACT_INTEGRATIONS_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_INTEGRATIONS_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_INTEGRATIONS_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_INTEGRATIONS_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactIntegrations = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactIntegrations.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".statusPill", size: 11 },
+      { selector: ".firstSyncLabel", size: 10 },
+      { selector: ".firstSyncPercent, .cardMeta, .soonNote", size: 10.5 },
+      { selector: ".stepLabel, .soonEta, .soonButton", size: 11.5 },
+      { selector: ".stepNote", size: 9.5 },
+      { selector: ".soonBadge", size: 8.5 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Klaviyo values narrow and exact", () => {
+    const source = readFileSync(EXACT_KLAVIYO_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_KLAVIYO_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_KLAVIYO_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_KLAVIYO_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactKlaviyo = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactKlaviyo.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    ).map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }));
+
+    expect(declarations).toEqual([
+      { selector: ".eyebrow, .statusChip, .footNote", size: 11 },
+      { selector: ".th", size: 10 },
     ]);
   });
 

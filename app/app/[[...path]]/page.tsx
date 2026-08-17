@@ -35,6 +35,7 @@ const pages = {
   "google/products": () => import("@/app/c/[businessId]/google/products/page"),
   "google/assets-audiences": () => import("@/app/c/[businessId]/google/assets-audiences/page"),
   "google/plan": () => import("@/app/c/[businessId]/google/plan/page"),
+  klaviyo: () => import("@/app/c/[businessId]/klaviyo/page"),
   "analytics/ga4-shopify": () => import("@/app/c/[businessId]/analytics/ga4-shopify/page"),
   "analytics/landing-pages": () => import("@/app/c/[businessId]/analytics/landing-pages/page"),
   "analytics/seo": () => import("@/app/c/[businessId]/analytics/seo/page"),

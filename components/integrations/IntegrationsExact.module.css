@@ -1,0 +1,476 @@
+/*
+ * Integrations — design lines 2815-2879, model 4315-4353.
+ *
+ * Every rule here is the design's own inline style, ported literally. Nothing
+ * is added to app/globals.css so this screen cannot drift with shared chrome.
+ */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+}
+
+.root button {
+  font-family: inherit;
+}
+
+/* ---- header ---------------------------------------------------------- */
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.headerNote {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #7a869e;
+  max-width: 640px;
+}
+
+/* ---- live grid ------------------------------------------------------- */
+
+.liveGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* design 4338: the only other border value, and only while the first import runs. */
+.cardSyncing {
+  border-color: #cbd9ff;
+}
+
+/* Loading placeholder: the card's own outline and height, nothing inside it. */
+.cardPlaceholder {
+  min-height: 148px;
+  background: #f7f9fc;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logoTile {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: #f1f4f9;
+  border: 1px solid #e4e8f0;
+}
+
+.logoMark {
+  display: inline-block;
+  width: 19px;
+  height: 19px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.cardName {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #0e1526;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusPill {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-weight: 700;
+}
+
+.statusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.statusConnected {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.statusConnecting {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.statusAttention {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.statusNeutral {
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.cardDesc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+/* ---- first sync block (design 2830-2848) ----------------------------- */
+
+.firstSync {
+  border-radius: 11px;
+  background: #f7f9fc;
+  border: 1px solid #e4e8f0;
+  padding: 11px 13px;
+}
+
+.firstSyncHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.firstSyncLabel {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #45526b;
+}
+
+.firstSyncPercent {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-weight: 500;
+  color: #2f6bff;
+}
+
+.firstSyncTrack {
+  height: 6px;
+  border-radius: 9999px;
+  background: #e4e8f0;
+  overflow: hidden;
+  margin-top: 7px;
+}
+
+.firstSyncFill {
+  height: 100%;
+  border-radius: 9999px;
+  background: #2f6bff;
+  transition: width 0.18s linear;
+}
+
+.firstSyncFillComplete {
+  background: #0e9f6e;
+}
+
+.firstSyncSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.firstSyncStep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepMark {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 1.5px solid #c9d2e0;
+}
+
+.stepMarkCurrent {
+  border-color: #2f6bff;
+}
+
+.stepMarkDone {
+  background: #0e9f6e;
+  border-color: #0e9f6e;
+}
+
+.stepTick {
+  width: 8px;
+  height: 8px;
+  stroke: transparent;
+}
+
+.stepMarkDone .stepTick {
+  stroke: #ffffff;
+}
+
+.stepLabel {
+  font-weight: 500;
+  color: #98a4ba;
+}
+
+.stepLabelDone {
+  color: #45526b;
+}
+
+.stepLabelCurrent {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.stepNote {
+  margin-left: auto;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+/* ---- card footer ----------------------------------------------------- */
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.cardMeta {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardSpacer {
+  flex: 1;
+}
+
+.cardButton {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cardButtonConnect {
+  background: #2f6bff;
+  color: #ffffff;
+  border: none;
+}
+
+.cardButtonManage {
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+}
+
+/* ---- coming soon ----------------------------------------------------- */
+
+.soonHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.soonTitle {
+  margin: 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.soonNote {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+.soonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.soonCard {
+  border-radius: 14px;
+  border: 1px dashed #c9d2e0;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.soonLogoTile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+}
+
+.soonLogoMark {
+  display: inline-block;
+  width: 17px;
+  height: 17px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
+.soonBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.soonNameRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.soonName {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #45526b;
+}
+
+.soonBadge {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  padding: 1.5px 6px;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.soonEta {
+  display: block;
+  color: #98a4ba;
+  margin-top: 2px;
+}
+
+.soonButton {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-weight: 600;
+  color: #45526b;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.soonButton:hover:not(:disabled) {
+  background: #f7f9fc;
+}
+
+/*
+ * No notify-me subscription endpoint exists, so the control cannot act. It keeps
+ * the design's geometry and colour and declines the click rather than pretending
+ * to record one.
+ */
+.soonButton:disabled {
+  cursor: default;
+}
+
+/*
+ * The design's own sub-12px type scale for this screen, kept together so the
+ * readable-floor check can see exactly which values were copied from the
+ * reference and nothing else drifts under it.
+ */
+/* dashboard-v2-integrations-exact-reference-type:start */
+.eyebrow {
+  font-size: 11px;
+}
+
+.statusPill {
+  font-size: 11px;
+}
+
+.firstSyncLabel {
+  font-size: 10px;
+}
+
+.firstSyncPercent,
+.cardMeta,
+.soonNote {
+  font-size: 10.5px;
+}
+
+.stepLabel,
+.soonEta,
+.soonButton {
+  font-size: 11.5px;
+}
+
+.stepNote {
+  font-size: 9.5px;
+}
+
+.soonBadge {
+  font-size: 8.5px;
+}
+/* dashboard-v2-integrations-exact-reference-type:end */

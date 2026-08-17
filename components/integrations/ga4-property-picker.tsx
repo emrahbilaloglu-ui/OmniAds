@@ -25,6 +25,11 @@ interface GA4PropertyPickerProps {
   currentPropertyId?: string | null;
   onClose: () => void;
   onSave: (property: GA4Property) => void;
+  /**
+   * Disconnecting lives here rather than on the card face: the design's card has
+   * exactly one button, and Manage is the destination the rest belongs behind.
+   */
+  onDisconnect?: () => void;
 }
 
 export function GA4PropertyPicker({
@@ -33,6 +38,7 @@ export function GA4PropertyPicker({
   currentPropertyId,
   onClose,
   onSave,
+  onDisconnect,
 }: GA4PropertyPickerProps) {
   const [properties, setProperties] = useState<GA4Property[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -213,7 +219,18 @@ export function GA4PropertyPicker({
               {saveError}
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex items-center gap-2">
+            {onDisconnect ? (
+              <Button
+                variant="ghost"
+                className="px-2.5 text-muted-foreground hover:text-destructive"
+                disabled={isSaving}
+                onClick={onDisconnect}
+              >
+                Disconnect
+              </Button>
+            ) : null}
+            <span className="flex-1" />
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>

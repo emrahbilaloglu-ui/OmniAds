@@ -10,7 +10,10 @@ import {
 import { resolveKlaviyoAccessToken } from "@/lib/klaviyo/token";
 import {
   KLAVIYO_FLOW_WINDOW_DAYS,
+  KLAVIYO_SYNC_PROVIDER,
+  KLAVIYO_SYNC_REPORT_TYPE,
   KLAVIYO_WAREHOUSE_TABLES,
+  klaviyoSyncDateRangeKey,
   replaceKlaviyoFlowMetrics,
   type KlaviyoFlowMetricRow,
 } from "@/lib/klaviyo/warehouse";
@@ -35,8 +38,6 @@ import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
  * warehouse write, because the provider round-trip sits between them and
  * admission at the top says nothing about whether the write is still allowed.
  */
-
-const KLAVIYO_SYNC_REPORT_TYPE = "flow_values";
 
 export type KlaviyoSyncSkipReason =
   | "not_connected"
@@ -71,6 +72,14 @@ export function buildKlaviyoWindow(now: Date = new Date()): {
   return { start: isoDate(start), end: isoDate(end) };
 }
 
+/**
+ * Stamp this import's `provider_sync_jobs` row.
+ *
+ * Not just bookkeeping. A `done` row is the ONLY evidence that an import which
+ * found no flows ever ran — `klaviyo_flow_metrics` holds one row per flow, so a
+ * flow-less account leaves nothing there — and `readKlaviyoFlowSnapshot` reads
+ * exactly this row to tell a completed-empty import from one that never landed.
+ */
 async function recordSyncJob(
   businessId: string,
   status: "running" | "done" | "failed",
@@ -84,14 +93,14 @@ async function recordSyncJob(
     const sql = getDb();
     const businessRefIds = await resolveBusinessReferenceIds([businessId]);
     const businessRefId = businessRefIds.get(businessId) ?? null;
-    const rangeKey = `last_${KLAVIYO_FLOW_WINDOW_DAYS}d`;
+    const rangeKey = klaviyoSyncDateRangeKey(KLAVIYO_FLOW_WINDOW_DAYS);
     if (status === "running") {
       await sql`
         INSERT INTO provider_sync_jobs (
           business_id, business_ref_id, provider, report_type, date_range_key,
           status, triggered_at, started_at
         )
-        VALUES (${businessId}, ${businessRefId}, 'klaviyo', ${KLAVIYO_SYNC_REPORT_TYPE}, ${rangeKey}, 'running', now(), now())
+        VALUES (${businessId}, ${businessRefId}, ${KLAVIYO_SYNC_PROVIDER}, ${KLAVIYO_SYNC_REPORT_TYPE}, ${rangeKey}, 'running', now(), now())
         ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
           business_ref_id = COALESCE(provider_sync_jobs.business_ref_id, EXCLUDED.business_ref_id),
           status        = 'running',
@@ -107,7 +116,7 @@ async function recordSyncJob(
           completed_at  = now(),
           error_message = ${errorMessage ?? null}
         WHERE business_id    = ${businessId}
-          AND provider       = 'klaviyo'
+          AND provider       = ${KLAVIYO_SYNC_PROVIDER}
           AND report_type    = ${KLAVIYO_SYNC_REPORT_TYPE}
           AND date_range_key = ${rangeKey}
       `;

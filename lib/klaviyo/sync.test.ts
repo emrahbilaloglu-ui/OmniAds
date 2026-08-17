@@ -66,6 +66,11 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
 const { syncKlaviyoFlowMetrics, buildKlaviyoWindow } = await import(
   "@/lib/klaviyo/sync"
 );
+/** The unmocked client, for the one test that must exercise real pagination. */
+const { fetchKlaviyoFlows: actualFetchKlaviyoFlows } =
+  await vi.importActual<typeof import("@/lib/klaviyo/api")>(
+    "@/lib/klaviyo/api",
+  );
 
 const BUSINESS_ID = "11111111-2222-3333-4444-555555555555";
 
@@ -138,6 +143,48 @@ describe("syncKlaviyoFlowMetrics", () => {
     );
     expect(fetchKlaviyoFlows).toHaveBeenCalled();
     expect(replaceKlaviyoFlowMetrics).not.toHaveBeenCalled();
+  });
+
+  it("never writes a flow collection it could not read to the end", async () => {
+    // The REAL `fetchKlaviyoFlows`, over a Klaviyo that keeps handing back
+    // another `links.next`. What must not happen is the sync taking the pages
+    // it managed to read and writing them: `replaceKlaviyoFlowMetrics` DELETES
+    // every stored flow the collection does not mention, so a partial import
+    // would silently destroy the flows nobody read.
+    const flowsUrl = "https://a.klaviyo.com/api/flows/";
+    let page = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        page += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              {
+                type: "flow",
+                id: `flow_page_${page}`,
+                attributes: { name: `Page ${page}`, status: "live" },
+              },
+            ],
+            links: { next: `${flowsUrl}?page%5Bcursor%5D=cursor_${page + 1}` },
+          }),
+        };
+      }),
+    );
+    fetchKlaviyoFlows.mockImplementation((accessToken: string) =>
+      actualFetchKlaviyoFlows(accessToken),
+    );
+
+    try {
+      await expect(syncKlaviyoFlowMetrics(BUSINESS_ID)).rejects.toMatchObject({
+        code: "klaviyo_flow_pagination_unbounded",
+      });
+      expect(replaceKlaviyoFlowMetrics).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("refuses to ingest for a connection that is not connected", async () => {

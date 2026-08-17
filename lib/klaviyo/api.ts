@@ -125,17 +125,19 @@ export function refreshKlaviyoAccessToken(
   );
 }
 
-async function klaviyoRequest(
-  path: string,
+async function klaviyoRequestUrl(
+  url: string,
   init: {
     accessToken: string;
     method?: "GET" | "POST";
     body?: unknown;
     signal?: AbortSignal;
+    /** What to name this call in an error; the absolute URL may carry a cursor. */
+    label: string;
   },
 ): Promise<unknown> {
   const method = init.method ?? "GET";
-  const response = await fetch(`${KLAVIYO_CONFIG.apiBase}${path}`, {
+  const response = await fetch(url, {
     method,
     headers: {
       Authorization: `Bearer ${init.accessToken}`,
@@ -156,11 +158,26 @@ async function klaviyoRequest(
       response.status === 401 || response.status === 403
         ? "klaviyo_reconnect_required"
         : "klaviyo_request_failed",
-      `Klaviyo ${method} ${path} returned ${response.status}.`,
+      `Klaviyo ${init.label} returned ${response.status}.`,
       response.status,
     );
   }
   return payload;
+}
+
+function klaviyoRequest(
+  path: string,
+  init: {
+    accessToken: string;
+    method?: "GET" | "POST";
+    body?: unknown;
+    signal?: AbortSignal;
+  },
+): Promise<unknown> {
+  return klaviyoRequestUrl(`${KLAVIYO_CONFIG.apiBase}${path}`, {
+    ...init,
+    label: `${init.method ?? "GET"} ${path}`,
+  });
 }
 
 function dataArray(payload: unknown): Record<string, unknown>[] {
@@ -228,23 +245,114 @@ export interface KlaviyoFlowSummary {
   archived: boolean;
 }
 
-/** `GET /api/flows/` — the lifecycle flows this grant can see. */
+/**
+ * How many `/flows/` pages one import may read before it stops trying.
+ *
+ * Klaviyo serves at most 50 flows per page, so this is ~2,500 flows — far past
+ * any real account, and far short of spinning forever on a cursor that keeps
+ * pointing at another page. Hitting it is a FAILURE, not a stopping point: see
+ * `fetchKlaviyoFlows`.
+ */
+export const KLAVIYO_FLOW_PAGE_LIMIT = 50;
+
+/** JSON:API pagination: Klaviyo puts the next page's absolute URL on `links.next`. */
+function readNextPageLink(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const links = (payload as Record<string, unknown>).links;
+  if (!links || typeof links !== "object") return null;
+  return optionalString((links as Record<string, unknown>).next);
+}
+
+/**
+ * A `links.next` is a URL the PROVIDER chose, and following it means sending
+ * this workspace's access token to it. Anything that is not Klaviyo's own API
+ * origin is refused rather than followed, so a malformed or hostile link can
+ * never turn pagination into a credential leak.
+ */
+function assertKlaviyoPageUrl(next: string): string {
+  const base = new URL(KLAVIYO_CONFIG.apiBase);
+  let parsed: URL;
+  try {
+    parsed = new URL(next);
+  } catch {
+    throw new KlaviyoApiError(
+      "klaviyo_flow_pagination_invalid_link",
+      "Klaviyo /flows/ returned a next link that is not a URL.",
+      502,
+    );
+  }
+  const basePath = base.pathname.replace(/\/+$/, "");
+  if (
+    parsed.origin !== base.origin ||
+    !(
+      parsed.pathname === basePath ||
+      parsed.pathname.startsWith(`${basePath}/`)
+    )
+  ) {
+    throw new KlaviyoApiError(
+      "klaviyo_flow_pagination_invalid_link",
+      `Klaviyo /flows/ returned a next link outside ${base.origin}${base.pathname}.`,
+      502,
+    );
+  }
+  return parsed.toString();
+}
+
+/**
+ * `GET /api/flows/` — the lifecycle flows this grant can see, ALL of them.
+ *
+ * Klaviyo paginates this collection with a JSON:API `links.next` cursor, and
+ * this follows it to the end. That is not a nicety: the importer hands what
+ * comes back to `replaceKlaviyoFlowMetrics`, which DELETES every stored flow
+ * the collection does not mention. Reading one page of several would therefore
+ * not import fewer flows — it would silently destroy the ones on the pages
+ * nobody read, and quietly drop them out of the lifecycle table's totals.
+ *
+ * Which is why a collection that cannot be read to its end THROWS. After
+ * `KLAVIYO_FLOW_PAGE_LIMIT` pages, or on a next link this client will not
+ * follow, the whole call fails with a `klaviyo_flow_pagination_*` error; the
+ * sync propagates it, records the job as failed, and never reaches the writer,
+ * so the last complete snapshot survives untouched. A partial collection is
+ * never returned as if it were whole.
+ */
 export async function fetchKlaviyoFlows(
   accessToken: string,
 ): Promise<KlaviyoFlowSummary[]> {
-  const payload = await klaviyoRequest("/flows/", { accessToken });
   const flows: KlaviyoFlowSummary[] = [];
-  for (const entry of dataArray(payload)) {
-    const id = optionalString(entry.id);
-    if (!id) continue;
-    const attrs = attributes(entry);
-    flows.push({
-      id,
-      name: optionalString(attrs.name),
-      status: optionalString(attrs.status),
-      archived: attrs.archived === true,
+  let url: string | null = `${KLAVIYO_CONFIG.apiBase}/flows/`;
+  let pagesRead = 0;
+
+  while (url) {
+    if (pagesRead >= KLAVIYO_FLOW_PAGE_LIMIT) {
+      throw new KlaviyoApiError(
+        "klaviyo_flow_pagination_unbounded",
+        `Klaviyo /flows/ still reported a next page after ${KLAVIYO_FLOW_PAGE_LIMIT} pages; refusing to treat a partial collection as complete.`,
+        502,
+      );
+    }
+
+    const payload: unknown = await klaviyoRequestUrl(url, {
+      accessToken,
+      label: `GET /flows/ (page ${pagesRead + 1})`,
     });
+    pagesRead += 1;
+
+    for (const entry of dataArray(payload)) {
+      const id = optionalString(entry.id);
+      if (!id) continue;
+      const attrs = attributes(entry);
+      flows.push({
+        id,
+        name: optionalString(attrs.name),
+        status: optionalString(attrs.status),
+        archived: attrs.archived === true,
+      });
+    }
+
+    const next = readNextPageLink(payload);
+    url = next === null ? null : assertKlaviyoPageUrl(next);
   }
+
   return flows;
 }
 

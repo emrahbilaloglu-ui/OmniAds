@@ -140,6 +140,28 @@ describe("GET /api/klaviyo/flows", () => {
     expect(payload.meta.fetchedAt).toBeNull();
   });
 
+  it("answers flows:[] — the empty table, not the em-dash row — for a completed import that found nothing", async () => {
+    // The other half of the distinction above. A connected account with zero
+    // flows produced a real, finished snapshot, so the screen must draw its five
+    // headers over an empty table rather than claim the source is unavailable.
+    readKlaviyoFlowSnapshot.mockResolvedValue({
+      windowDays: 28,
+      windowStart: null,
+      windowEnd: null,
+      fetchedAt: "2026-08-17T03:00:00.000Z",
+      providerAccountId: null,
+      rows: [],
+    });
+
+    const payload = await (await GET(get())).json();
+    expect(payload.state).toBe("ready");
+    expect(payload.flows).toEqual([]);
+    expect(payload.meta).toMatchObject({
+      rowCount: 0,
+      fetchedAt: "2026-08-17T03:00:00.000Z",
+    });
+  });
+
   it("withholds a stored snapshot once the connection is no longer connected", async () => {
     getIntegrationMetadata.mockResolvedValue({ status: "disconnected" });
 

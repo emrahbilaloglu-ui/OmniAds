@@ -5079,6 +5079,7 @@ function payloadProjectionSqlForScope(scope: GoogleAdsWarehouseScope) {
           'preview', payload_json -> 'preview',
           'videoId', payload_json -> 'videoId',
           'performanceLabel', payload_json -> 'performanceLabel',
+          'servedPerformanceLabel', payload_json -> 'servedPerformanceLabel',
           'hint', payload_json -> 'hint',
           'assetState', payload_json -> 'assetState',
           'wasteFlag', payload_json -> 'wasteFlag',

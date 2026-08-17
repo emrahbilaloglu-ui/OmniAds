@@ -104,7 +104,20 @@ export interface AssetRow {
   assetGroupName?: string | null;
   assetName?: string | null;
   type: string;
+  /**
+   * This product's own verdict, derived from a ROAS / CTR / interaction-rate
+   * comparison against the account average. It is a real measurement, and it is
+   * not Google's.
+   */
   performanceLabel?: "top" | "average" | "underperforming";
+  /**
+   * Google's own `asset_group_asset.performance_label`
+   * (Best | Good | Low | Learning | Pending), or null/absent when the provider
+   * served no verdict — including on warehouse rows synced before the field was
+   * read. This is the only label the design's "Google-served" caption may sit
+   * above.
+   */
+  servedPerformanceLabel?: string | null;
   impressions?: number;
   spend: number;
   conversions: number;

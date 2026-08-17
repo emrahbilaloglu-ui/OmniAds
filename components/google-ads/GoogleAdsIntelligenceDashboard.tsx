@@ -32,7 +32,10 @@ import type { GoogleAdsKeywordInsightCounts } from "@/lib/google-ads/keyword-ins
 import { GoogleAdvisorTiles } from "@/components/google-ads/GoogleAdvisorTiles";
 import type { GoogleAdsActivityEntry } from "@/lib/google-ads/advisor-memory";
 import { GoogleAssetsExact } from "@/components/google-ads/GoogleAssetsExact";
-import { buildGoogleAssetsExactViewModel } from "@/components/google-ads/google-assets-exact-adapter";
+import {
+  buildGoogleAssetsExactViewModel,
+  googleAssetGroupRestructureSubjects,
+} from "@/components/google-ads/google-assets-exact-adapter";
 import type { GoogleAssetsExactTab } from "@/components/google-ads/google-assets-exact-adapter";
 import { GooglePlanExact } from "@/components/google-ads/GooglePlanExact";
 import {
@@ -693,7 +696,11 @@ export function GoogleAdsIntelligenceDashboard({
   const needsAssetGroupAudienceData =
     activePanel === "assetGroupAudience" || activePanel === "assets";
   const needsProductsData = activePanel === "products";
-  const needsAssetsData = activePanel === "assets";
+  // Both panels mount the same screen, whose "Text & image assets" tab is one
+  // click away on either; gating this read on one of them left the other
+  // rendering two empty cards.
+  const needsAssetsData =
+    activePanel === "assets" || activePanel === "assetGroupAudience";
   const needsInsightsData = activePanel === "insights";
   const needsSearchData = activePanel === "search";
   const needsPlanData = activePanel === "plan";
@@ -1485,11 +1492,11 @@ export function GoogleAdsIntelligenceDashboard({
   });
 
   // The reference closes the asset-group table on the restructures the advisor
-  // already has queued, naming them. With none queued the line has no subject.
-  const exactQueuedRestructures = (advisorCurrent?.recommendations ?? [])
-    .filter((item) => item.type === "asset_group_structure")
-    .flatMap((item) => item.weakAssetGroups ?? [])
-    .filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  // already has queued, naming them. An applied or dismissed restructure is no
+  // longer queued; with none queued the line has no subject.
+  const exactQueuedRestructures = googleAssetGroupRestructureSubjects(
+    advisorCurrent?.recommendations,
+  );
 
   const exactAssetsModel = buildGoogleAssetsExactViewModel({
     identity: {

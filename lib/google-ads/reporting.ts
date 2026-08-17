@@ -113,7 +113,6 @@ import {
   COUNTRY_MAP,
   dedupeStrings,
   getComparisonWindow,
-  normalizeAssetPerformanceLabel,
   pctDelta,
   roundOrNull,
   slugifyQueryCluster,
@@ -1178,6 +1177,33 @@ export function normalizeAssetGroupAdStrength(value: string | null): string | nu
   return value;
 }
 
+/**
+ * Google's own `asset_group_asset.performance_label` enum, in Google's words.
+ *
+ * This is the provider's verdict on a single asset and the only thing the
+ * design's "ratings are Google-served" caption can honestly sit above. It is
+ * deliberately NOT the `performanceLabel` this file derives further down from a
+ * local ROAS/CTR/interaction comparison: that one is this product's own
+ * measurement and travels under its own name. An enum value that carries no
+ * verdict — UNSPECIFIED, UNKNOWN — is an absence, not a rating.
+ *
+ * `reporting-support.ts` carries an older `normalizeAssetPerformanceLabel` that
+ * folds this same enum *into* the derived vocabulary and answers an unlabelled
+ * asset with "average". It has no caller anywhere in the product; this
+ * normaliser deliberately does the opposite and keeps the absence visible.
+ */
+export function normalizeServedAssetPerformanceLabel(value: string | null): string | null {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (upper.includes("UNSPECIFIED") || upper.includes("UNKNOWN")) return null;
+  if (upper.includes("BEST")) return "Best";
+  if (upper.includes("GOOD")) return "Good";
+  if (upper.includes("LOW")) return "Low";
+  if (upper.includes("LEARNING")) return "Learning";
+  if (upper.includes("PENDING")) return "Pending";
+  return value;
+}
+
 function normalizeAdStrength(value: string | null): string | null {
   if (!value) return null;
   const upper = value.toUpperCase();
@@ -1392,6 +1418,11 @@ export async function getGoogleAdsAssetsReport(
         imageUrl,
         preview,
         videoId,
+        // Google's own verdict on this asset, kept under its own name so it can
+        // never be confused with the derived `performanceLabel` set below.
+        servedPerformanceLabel: normalizeServedAssetPerformanceLabel(
+          asString(getCompatValue(assetGroupAsset, "performance_label"))
+        ),
         impressions: data.impressions,
         clicks: data.clicks,
         interactions: data.interactions,

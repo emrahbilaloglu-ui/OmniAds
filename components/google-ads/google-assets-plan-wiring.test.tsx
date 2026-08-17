@@ -125,6 +125,9 @@ const ASSET_ROWS = [
     id: "as_1",
     type: "Headline",
     assetText: "Carry less. Go further.",
+    // The two labels disagree on purpose: the card's caption says the rating is
+    // Google-served, so the served one is the one that may reach the chip.
+    servedPerformanceLabel: "Low",
     performanceLabel: "top",
     impressions: 412_000,
     spend: 0,
@@ -220,7 +223,7 @@ function installQueries(overrides: Record<string, unknown> = {}) {
   });
 }
 
-async function renderPanel(panel: "assets" | "plan") {
+async function renderPanel(panel: "assets" | "assetGroupAudience" | "plan") {
   const { GoogleAdsIntelligenceDashboard } = await import(
     "@/components/google-ads/GoogleAdsIntelligenceDashboard"
   );
@@ -228,7 +231,7 @@ async function renderPanel(panel: "assets" | "plan") {
     React.createElement(GoogleAdsIntelligenceDashboard, {
       businessId: "biz",
       panel,
-      screenTitle: panel === "assets" ? "Assets & Audiences" : "Plan & activity",
+      screenTitle: panel === "plan" ? "Plan & activity" : "Assets & Audiences",
     }),
   );
 }
@@ -283,6 +286,41 @@ describe("the Assets & Audiences route body feeds the canonical screen", () => {
     expect(markup).toContain("4.10");
     expect(markup).toContain("Excellent");
     expect(markup).toContain("Poor");
+  });
+
+  it("reads the text and image assets on both panels that mount the screen", async () => {
+    for (const panel of ["assets", "assetGroupAudience"] as const) {
+      mockUseQuery.mockClear();
+      await renderPanel(panel);
+      const call = mockUseQuery.mock.calls.find(
+        (entry) => (entry[0] as { queryKey: unknown[] }).queryKey[0] === "gads-assets",
+      );
+      expect(call?.[0].enabled, panel).toBe(true);
+    }
+  });
+
+  it("chips Google's served asset verdict, never the derived one", async () => {
+    // ASSET_ROWS serves Google "Low" against a derived "top", so the Text
+    // assets card under the "ratings are Google-served" caption must read Low.
+    const { render, fireEvent } = await import("@testing-library/react");
+    const { GoogleAdsIntelligenceDashboard } = await import(
+      "@/components/google-ads/GoogleAdsIntelligenceDashboard"
+    );
+    const { container } = render(
+      React.createElement(GoogleAdsIntelligenceDashboard, {
+        businessId: "biz",
+        panel: "assets" as const,
+        screenTitle: "Assets & Audiences",
+      }),
+    );
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>('[data-google-asset-tab="assets"]')!,
+    );
+
+    const row = container.querySelector('[data-google-text-asset="as_1"]');
+    expect(row?.textContent).toContain("Carry less. Go further.");
+    expect(row?.textContent).toContain("Low");
+    expect(row?.textContent).not.toContain("Best");
   });
 
   it("scopes all three reads to the resolved account and window", async () => {

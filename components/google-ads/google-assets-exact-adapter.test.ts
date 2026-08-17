@@ -8,6 +8,7 @@ import type {
 import {
   buildGoogleAssetsExactViewModel,
   googleAssetGroupQueueNote,
+  googleAssetGroupRestructureSubjects,
   googleAssetPerformanceView,
   googleAssetStrengthTone,
   GOOGLE_ASSETS_EXACT_TABS,
@@ -43,7 +44,9 @@ function asset(overrides: Partial<AssetRow> = {}): AssetRow {
     id: "as_1",
     type: "Headline",
     assetText: "Carry less. Go further.",
-    performanceLabel: "top",
+    // Both labels, deliberately disagreeing: the chip must show Google's.
+    servedPerformanceLabel: "Best",
+    performanceLabel: "underperforming",
     impressions: 412_000,
     spend: 0,
     conversions: 0,
@@ -167,19 +170,23 @@ describe("buildGoogleAssetsExactViewModel", () => {
   });
 
   it("gives the four performance chips the reference's four tones", () => {
-    expect(googleAssetPerformanceView("top")).toEqual({
+    expect(googleAssetPerformanceView("Best")).toEqual({
       label: "Best",
       tone: "positive",
     });
-    expect(googleAssetPerformanceView("average")).toEqual({
+    expect(googleAssetPerformanceView("Good")).toEqual({
       label: "Good",
       tone: "info",
     });
-    expect(googleAssetPerformanceView("underperforming")).toEqual({
+    expect(googleAssetPerformanceView("Low")).toEqual({
       label: "Low",
       tone: "warning",
     });
-    expect(googleAssetPerformanceView("learning")).toEqual({
+    expect(googleAssetPerformanceView("Learning")).toEqual({
+      label: "Learning",
+      tone: "auto",
+    });
+    expect(googleAssetPerformanceView("Pending")).toEqual({
       label: "Learning",
       tone: "auto",
     });
@@ -187,6 +194,41 @@ describe("buildGoogleAssetsExactViewModel", () => {
       label: "—",
       tone: "unserved",
     });
+  });
+
+  it("refuses this product's derived vocabulary under the Google-served caption", () => {
+    for (const derived of ["top", "average", "underperforming"]) {
+      expect(googleAssetPerformanceView(derived)).toEqual({
+        label: "—",
+        tone: "unserved",
+      });
+    }
+  });
+
+  it("chips Google's served label and never the derived one", () => {
+    const model = build({
+      identity,
+      tab: "assets",
+      assetGroups: null,
+      assets: [
+        // Google says Low, the local comparison says top.
+        asset({ servedPerformanceLabel: "Low", performanceLabel: "top" }),
+        // Google has said nothing; the local comparison has.
+        asset({
+          id: "as_2",
+          servedPerformanceLabel: null,
+          performanceLabel: "top",
+        }),
+      ],
+      audiences: null,
+      roasTarget: 3.8,
+    });
+
+    expect(model.textRows.map((row) => row.performance)).toEqual(["Low", "—"]);
+    expect(model.textRows.map((row) => row.performanceTone)).toEqual([
+      "warning",
+      "unserved",
+    ]);
   });
 
   it("splits headlines and descriptions from images and shares impressions", () => {
@@ -200,7 +242,7 @@ describe("buildGoogleAssetsExactViewModel", () => {
           id: "as_2",
           type: "Description",
           assetText: "Free 60-day returns on every order",
-          performanceLabel: "average",
+          servedPerformanceLabel: "Good",
           impressions: 241_000,
         }),
         asset({ id: "im_1", type: "Image", impressions: 75, preview: "https://x/1.png" }),
@@ -286,12 +328,16 @@ describe("buildGoogleAssetsExactViewModel", () => {
   });
 
   it("names the advisor's queued restructures, and the em dash when it names none", () => {
+    // The reference writes the count as a word (markup line 1564).
     expect(googleAssetGroupQueueNote(["Clearance — slow movers"])).toBe(
-      "The advisor has 1 restructure queued for “Clearance — slow movers” — see Advisor · Do next.",
+      "The advisor has one restructure queued for “Clearance — slow movers” — see Advisor · Do next.",
     );
     expect(googleAssetGroupQueueNote(["A", "B"])).toBe(
-      "The advisor has 2 restructures queued for “A” and “B” — see Advisor · Do next.",
+      "The advisor has two restructures queued for “A” and “B” — see Advisor · Do next.",
     );
+    expect(
+      googleAssetGroupQueueNote(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]),
+    ).toContain("The advisor has 11 restructures queued");
     expect(googleAssetGroupQueueNote([])).toBe("—");
 
     const model = build({
@@ -304,5 +350,27 @@ describe("buildGoogleAssetsExactViewModel", () => {
       queuedRestructures: ["Clearance — slow movers"],
     });
     expect(model.groupNote).toContain("Clearance — slow movers");
+  });
+
+  it("only calls a restructure queued while it actually is", () => {
+    const subjects = googleAssetGroupRestructureSubjects([
+      { type: "asset_group_structure", weakAssetGroups: ["Still queued"] },
+      {
+        type: "asset_group_structure",
+        weakAssetGroups: ["Already applied"],
+        executionStatus: "applied",
+      },
+      {
+        type: "asset_group_structure",
+        weakAssetGroups: ["Dismissed"],
+        userAction: "dismissed",
+        currentStatus: "suppressed",
+      },
+      { type: "budget_shift", weakAssetGroups: ["Not a restructure"] },
+      { type: "asset_group_structure", weakAssetGroups: ["  "] },
+    ]);
+
+    expect(subjects).toEqual(["Still queued"]);
+    expect(googleAssetGroupRestructureSubjects(null)).toEqual([]);
   });
 });

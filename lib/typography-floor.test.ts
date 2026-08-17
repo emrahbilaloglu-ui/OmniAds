@@ -507,6 +507,7 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".queueCount", size: 10.5 },
       { selector: ".stepNumber", size: 11 },
       { selector: ".applyButton, .stepButton", size: 11.5 },
+      { selector: ".activityWhen", size: 10.5 },
       { selector: ".footnote", size: 11 },
     ]);
   });

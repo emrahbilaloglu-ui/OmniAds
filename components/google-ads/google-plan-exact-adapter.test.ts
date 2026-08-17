@@ -86,6 +86,27 @@ describe("buildGooglePlanExactViewModel", () => {
     expect(model.appliedLabel).toBe("1");
   });
 
+  it("renders every served recommendation and counts the true queue length", () => {
+    // The reference's `sc-for` is uncapped and its counter is the raw served
+    // length, so a queue longer than any convenient bound must arrive whole.
+    const recommendations = Array.from({ length: 20 }, (_, index) =>
+      recommendation({
+        id: `rec_${index + 1}`,
+        title: `Step ${index + 1}`,
+        rankScore: 100 - index,
+        ...(index < 4 ? { executionStatus: "applied" as const } : {}),
+      }),
+    );
+    const model = build({ recommendations });
+
+    expect(model.steps).toHaveLength(20);
+    expect(model.queuedLabel).toBe("20");
+    expect(model.appliedLabel).toBe("4");
+    expect(model.steps.at(-1)?.number).toBe("20");
+    expect(model.steps.at(-1)?.title).toBe("Step 20");
+    expect(model.steps.map((step) => step.title)).toContain("Step 13");
+  });
+
   it("ranks the queue and puts the fixed advisor provenance on every step", () => {
     const model = build({
       recommendations: [

@@ -88,6 +88,13 @@
   gap: 10px;
 }
 
+/*
+ * `flex-shrink: 0` here and on .statusPill / .cardButton / .soonLogoTile is not
+ * in the design's inline styles: it is what keeps the pixel geometry the design
+ * DOES declare (34px tile, 3px 10px pill, 30px button) from being squeezed once
+ * the name wraps in a 300px column. It preserves the reference rather than
+ * changing it; recorded as a deliberate extension in the parity defect doc.
+ */
 .logoTile {
   display: grid;
   place-items: center;
@@ -108,14 +115,16 @@
   background-position: center;
 }
 
+/*
+ * design 2816: the name span declares nothing but face, weight and colour, so a
+ * long provider name wraps and the card grows. Truncating it would hide part of
+ * a name the design always shows in full; only the footer's meta line ellipsizes,
+ * and that one the design asks for (2848).
+ */
 .cardName {
   font-size: 14.5px;
   font-weight: 600;
   color: #0e1526;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .statusPill {

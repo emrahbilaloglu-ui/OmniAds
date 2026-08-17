@@ -6,9 +6,9 @@ import {
   buildIntegrationsExactModel,
   googleFirstSyncSignals,
   INTEGRATIONS_LIVE_ORDER,
-  INTEGRATIONS_META_NO_AUTH_FLOW,
   INTEGRATIONS_META_NOT_CONNECTED,
   INTEGRATIONS_META_SYNCING,
+  isFirstImportConnection,
   metaFirstSyncSignals,
   resolveFirstSyncPercent,
   shopifyFirstSyncSignals,
@@ -48,6 +48,9 @@ function view(
   } as ProviderViewState;
 }
 
+const NOW = Date.parse("2026-08-17T12:00:00.000Z");
+
+/** A source connected months ago — long past any first import. */
 const CONNECTED = {
   status: "ready" as const,
   isConnected: true,
@@ -57,7 +60,18 @@ const CONNECTED = {
   lastSyncValue: "2026-08-17T11:56:00.000Z",
 };
 
-const NOW = Date.parse("2026-08-17T12:00:00.000Z");
+/** A source connected two hours ago — a first import can still be running. */
+const JUST_CONNECTED = {
+  ...CONNECTED,
+  connectedAt: "2026-08-17T10:00:00.000Z",
+};
+
+/** Signal defaults for a brand-new connection with work in flight. */
+const FRESH_IMPORT = {
+  connected: true,
+  importing: true,
+  connectedAt: "2026-08-17T10:00:00.000Z",
+};
 
 const logoFor = (provider: IntegrationProvider) => `/platform-logos/${provider}.svg`;
 
@@ -102,68 +116,144 @@ describe("buildFirstSyncSteps", () => {
 describe("resolveFirstSyncPercent", () => {
   it("shows nothing when the provider is not connected", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: false,
-        entitiesReady: false,
-        backfillFraction: 0.5,
-        snapshotReady: false,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          connected: false,
+          entitiesReady: false,
+          backfillFraction: 0.5,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBeNull();
   });
 
   it("shows nothing once the first import has landed — the block appears once", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: true,
-        entitiesReady: true,
-        backfillFraction: 1,
-        snapshotReady: true,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          entitiesReady: true,
+          backfillFraction: 1,
+          snapshotReady: true,
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("shows nothing when the provider's own state says no work is in flight", () => {
+    expect(
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          importing: false,
+          entitiesReady: true,
+          backfillFraction: 0.5,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("shows nothing for a connection older than the window a first import covers", () => {
+    expect(
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          connectedAt: "2026-03-02T00:00:00.000Z",
+          entitiesReady: true,
+          backfillFraction: 0.5,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("shows nothing when the connect date is unknown, because nothing proves it is the first", () => {
+    expect(
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          connectedAt: null,
+          entitiesReady: true,
+          backfillFraction: 0.5,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBeNull();
   });
 
   it("parks at the entity stage until entities are discovered", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: true,
-        entitiesReady: false,
-        backfillFraction: 0.9,
-        snapshotReady: false,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          entitiesReady: false,
+          backfillFraction: 0.9,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBe(8);
   });
 
   it("parks at the start of the backfill stage when no progress is reported", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: true,
-        entitiesReady: true,
-        backfillFraction: null,
-        snapshotReady: false,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          entitiesReady: true,
+          backfillFraction: null,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBe(35);
   });
 
   it("interpolates the backfill stage from the served fraction", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: true,
-        entitiesReady: true,
-        backfillFraction: 0.5,
-        snapshotReady: false,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          entitiesReady: true,
+          backfillFraction: 0.5,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBeCloseTo(58.5, 5);
   });
 
   it("moves to validation only when the backfill is complete", () => {
     expect(
-      resolveFirstSyncPercent({
-        connected: true,
-        entitiesReady: true,
-        backfillFraction: 1,
-        snapshotReady: false,
-      }),
+      resolveFirstSyncPercent(
+        {
+          ...FRESH_IMPORT,
+          entitiesReady: true,
+          backfillFraction: 1,
+          snapshotReady: false,
+        },
+        NOW,
+      ),
     ).toBe(82);
+  });
+});
+
+describe("isFirstImportConnection", () => {
+  it("accepts a connection made inside the 28-day backfill window", () => {
+    expect(isFirstImportConnection("2026-07-25T12:00:00.000Z", NOW)).toBe(true);
+  });
+
+  it("rejects an older connection, an unknown one and an unparseable one", () => {
+    expect(isFirstImportConnection("2026-07-19T11:00:00.000Z", NOW)).toBe(false);
+    expect(isFirstImportConnection(null, NOW)).toBe(false);
+    expect(isFirstImportConnection("not-a-date", NOW)).toBe(false);
   });
 });
 
@@ -183,11 +273,13 @@ describe("provider first-sync signals", () => {
       coreReadiness: { complete: false },
     } as unknown as MetaStatusResponse;
 
-    expect(metaFirstSyncSignals(status)).toEqual({
+    expect(metaFirstSyncSignals(status, "2026-08-17T10:00:00.000Z")).toEqual({
       connected: true,
+      importing: true,
       entitiesReady: true,
       backfillFraction: 0.5,
       snapshotReady: false,
+      connectedAt: "2026-08-17T10:00:00.000Z",
     });
   });
 
@@ -257,15 +349,120 @@ describe("provider first-sync signals", () => {
 
 describe("buildFirstSyncModel", () => {
   it("labels the percent and bar from the same number", () => {
-    const model = buildFirstSyncModel({
-      connected: true,
-      entitiesReady: true,
-      backfillFraction: 0.5,
-      snapshotReady: false,
-    });
+    const model = buildFirstSyncModel(
+      {
+        ...FRESH_IMPORT,
+        entitiesReady: true,
+        backfillFraction: 0.5,
+        snapshotReady: false,
+      },
+      NOW,
+    );
     expect(model?.percentLabel).toBe("59%");
     expect(model?.barWidth).toBe("58.5%");
     expect(model?.complete).toBe(false);
+  });
+});
+
+/**
+ * F1: the block used to exist for any connected provider that was not "ready",
+ * so a months-old Google connection whose token had been revoked rendered
+ * "First sync — 82%" under a "Connecting" pill. These walk the long-lived
+ * non-ready states of all three providers that serve a status.
+ */
+describe("long-lived non-ready provider states", () => {
+  const LONG_LIVED_STATES = ["stale", "paused", "action_required"] as const;
+
+  function cardFor(
+    provider: "meta" | "google" | "shopify",
+    state: string,
+    viewOverrides: Partial<ProviderViewState> = {},
+  ) {
+    const views = baseViews();
+    views[provider] = view(provider, { ...CONNECTED, ...viewOverrides });
+    const model = buildIntegrationsExactModel({
+      views,
+      metaStatus:
+        provider === "meta"
+          ? ({
+              state,
+              connected: true,
+              assignedAccountIds: ["act_1"],
+              priorityWindow: { completedDays: 28, totalDays: 28 },
+              coreReadiness: { complete: false },
+            } as unknown as MetaStatusResponse)
+          : null,
+      googleStatus:
+        provider === "google"
+          ? ({
+              state,
+              connected: true,
+              assignedAccountIds: ["493-118-2201"],
+              historicalProgress: { percent: 100, visible: true, summary: "" },
+            } as unknown as GoogleAdsStatusResponse)
+          : null,
+      shopifyStatus:
+        provider === "shopify"
+          ? ({
+              state,
+              connected: true,
+              shopId: "shop_1",
+              sync: {
+                ordersHistorical: {
+                  readyThroughDate: "2026-08-17",
+                  historicalTargetEnd: "2026-08-17",
+                },
+              },
+            } as unknown as ShopifyStatusResponse)
+          : null,
+      connectableProviders: CONNECTABLE,
+      logoFor,
+      now: NOW,
+    });
+    return model.cards.find((card) => card.provider === provider)!;
+  }
+
+  for (const provider of ["meta", "google", "shopify"] as const) {
+    for (const state of LONG_LIVED_STATES) {
+      it(`claims no first import for ${provider} in state "${state}"`, () => {
+        const card = cardFor(provider, state);
+        expect(card.firstSync).toBeNull();
+        expect(card.syncing).toBe(false);
+        expect(card.meta).not.toBe(INTEGRATIONS_META_SYNCING);
+        // The store still calls the connection healthy, so the design's own
+        // connected caption is what shows — never "Connecting".
+        expect(card.status).toBe("Connected");
+        expect(card.button).toEqual({ caption: "Manage", kind: "manage" });
+      });
+    }
+
+    it(`reads a broken ${provider} connection as Action required, not Connecting`, () => {
+      const card = cardFor(provider, "syncing", {
+        status: "action_required",
+        isConnected: false,
+        connectedAt: "2026-08-17T10:00:00.000Z",
+      });
+      expect(card.firstSync).toBeNull();
+      expect(card.status).toBe("Action required");
+      expect(card.statusTone).toBe("attention");
+    });
+
+    it(`reads a degraded ${provider} connection as Degraded, not Connecting`, () => {
+      const card = cardFor(provider, "syncing", {
+        status: "degraded",
+        connectedAt: "2026-08-17T10:00:00.000Z",
+      });
+      expect(card.status).toBe("Degraded");
+      expect(card.statusTone).toBe("attention");
+    });
+  }
+
+  it("still shows the block for a genuinely new connection that is importing", () => {
+    const card = cardFor("google", "syncing", {
+      connectedAt: "2026-08-17T10:00:00.000Z",
+    });
+    expect(card.status).toBe("Connecting");
+    expect(card.firstSync?.percentLabel).toBe("82%");
   });
 });
 
@@ -350,12 +547,13 @@ describe("buildIntegrationsExactModel", () => {
     });
     const klaviyo = model.cards.find((card) => card.provider === "klaviyo")!;
     expect(klaviyo.button).toBeNull();
-    expect(klaviyo.meta).toBe(INTEGRATIONS_META_NO_AUTH_FLOW);
+    // The design's non-connected line, the same one every other card gets.
+    expect(klaviyo.meta).toBe(INTEGRATIONS_META_NOT_CONNECTED);
   });
 
   it("hides the button and swaps the meta line while the first import runs", () => {
     const views = baseViews();
-    views.meta = view("meta", CONNECTED);
+    views.meta = view("meta", JUST_CONNECTED);
     const model = buildIntegrationsExactModel({
       views,
       metaStatus: {

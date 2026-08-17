@@ -10,6 +10,10 @@ const state = vi.hoisted(() => ({
   plan: "scale",
   selectedBusinessId: "biz_1",
   push: vi.fn(),
+  domainsByBusinessId: {} as Record<
+    string,
+    Record<string, { connection: { status: string; lastSyncAt?: string } }>
+  >,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -57,8 +61,10 @@ vi.mock("@/hooks/use-business-integrations-bootstrap", () => ({
 }));
 vi.mock("@/store/integrations-store", () => ({
   useIntegrationsStore: (
-    selector: (value: { domainsByBusinessId: Record<string, never> }) => unknown,
-  ) => selector({ domainsByBusinessId: {} }),
+    selector: (value: {
+      domainsByBusinessId: typeof state.domainsByBusinessId;
+    }) => unknown,
+  ) => selector({ domainsByBusinessId: state.domainsByBusinessId }),
 }));
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   useMetaActionNowCount: () => null,
@@ -76,6 +82,7 @@ describe("Dashboard v2 rail navigation", () => {
     state.search = "";
     state.plan = "scale";
     state.selectedBusinessId = "biz_1";
+    state.domainsByBusinessId = {};
     state.push.mockReset();
   });
 
@@ -124,6 +131,40 @@ describe("Dashboard v2 rail navigation", () => {
         providerAccountId: "google_99",
       }),
     ).toBe("/c/biz_1/creative/performance?businessId=biz_1");
+  });
+
+  it("keeps Klaviyo out of the rail until the source has actually synced", () => {
+    // Design 3284: `navPlatforms` carries Klaviyo only when `klaviyoOn`, and
+    // 2864 says roadmap sources "stay out of the sidebar until the integration
+    // is live". Standing on the Klaviyo screen is not evidence that it is live.
+    state.pathname = "/platforms/klaviyo";
+    const { container } = render(<AppRail userName="Emrah Bilaloglu" />);
+    expect(container.querySelector('[data-platform="klaviyo"]')).toBeNull();
+    expect(container.textContent).not.toContain("Klaviyo");
+  });
+
+  it("adds Klaviyo to the rail once its connection reports a landed sync", () => {
+    state.domainsByBusinessId = {
+      biz_1: {
+        klaviyo: {
+          connection: {
+            status: "connected",
+            lastSyncAt: "2026-08-17T11:56:00.000Z",
+          },
+        },
+      },
+    };
+    const { container } = render(<AppRail userName="Emrah Bilaloglu" />);
+    expect(container.querySelector('[data-platform="klaviyo"]')).not.toBeNull();
+    expect(container.textContent).toContain("Klaviyo");
+  });
+
+  it("keeps Klaviyo out while its connection has never synced", () => {
+    state.domainsByBusinessId = {
+      biz_1: { klaviyo: { connection: { status: "connected" } } },
+    };
+    const { container } = render(<AppRail userName="Emrah Bilaloglu" />);
+    expect(container.textContent).not.toContain("Klaviyo");
   });
 
   it("keeps every canonical div rail row keyboard reachable and activates Enter or Space", () => {

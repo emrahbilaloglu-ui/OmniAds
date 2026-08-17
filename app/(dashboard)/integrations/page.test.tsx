@@ -84,21 +84,29 @@ const IntegrationsPage = (await import("@/app/(dashboard)/integrations/legacy-pa
   .default;
 const useQueryMock = vi.mocked(useQuery);
 
-function connectDomains(providers: IntegrationProvider[]) {
+function connectDomains(
+  providers: IntegrationProvider[],
+  overrides: { status?: string; connectedAt?: string } = {},
+) {
   const domains = buildDefaultProviderDomains();
   for (const provider of providers) {
     domains[provider] = {
       ...domains[provider],
       connection: {
-        status: "connected",
-        connectedAt: "2026-03-02T00:00:00.000Z",
-        lastSyncAt: "2026-08-17T11:56:00.000Z",
+        status: (overrides.status ?? "connected") as "connected" | "expired",
+        connectedAt: overrides.connectedAt ?? "2026-03-02T00:00:00.000Z",
+        lastSyncAt: new Date().toISOString(),
         providerAccountId: "acct_1",
         providerAccountName: "aurora-supply.myshopify.com",
       },
     };
   }
   return domains;
+}
+
+/** A connection made minutes ago, so a first import can still be running. */
+function justConnectedAt() {
+  return new Date(Date.now() - 10 * 60 * 1000).toISOString();
 }
 
 beforeEach(() => {
@@ -179,11 +187,13 @@ describe("/integrations route", () => {
     const { container } = render(<IntegrationsPage />);
     const card = container.querySelector('article[data-provider="klaviyo"]')!;
     expect(card.querySelectorAll("button")).toHaveLength(0);
-    expect(card.textContent).toContain("no authorization flow available yet");
+    expect(card.textContent).toContain("no data pulled yet");
   });
 
   it("drives the first-sync block from the served Meta status, not a timer", () => {
-    integrationsState.domainsByBusinessId = { biz_1: connectDomains(["meta"]) };
+    integrationsState.domainsByBusinessId = {
+      biz_1: connectDomains(["meta"], { connectedAt: justConnectedAt() }),
+    };
     statusState.meta = {
       state: "syncing",
       connected: true,
@@ -213,6 +223,26 @@ describe("/integrations route", () => {
     const { container } = render(<IntegrationsPage />);
     const card = container.querySelector('article[data-provider="google"]')!;
     expect(within(card as HTMLElement).queryByTestId("integration-first-sync")).toBeNull();
+  });
+
+  it("never calls a months-old broken Google connection a first import", () => {
+    integrationsState.domainsByBusinessId = {
+      biz_1: connectDomains(["google"], { status: "expired" }),
+    };
+    // Backfill long finished; the token was revoked afterwards.
+    statusState.google = {
+      state: "action_required",
+      connected: true,
+      assignedAccountIds: ["493-118-2201"],
+      historicalProgress: { percent: 100, visible: true, summary: "" },
+    } as unknown as GoogleAdsStatusResponse;
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="google"]')!;
+    expect(within(card as HTMLElement).queryByTestId("integration-first-sync")).toBeNull();
+    expect(card.textContent).not.toContain("First sync");
+    expect(card.textContent).not.toContain("first import running");
+    expect(card.textContent).toContain("Action required");
   });
 
   it("never shows a first-sync block for a provider with no served status", () => {

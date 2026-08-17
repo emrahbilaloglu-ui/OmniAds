@@ -16,11 +16,23 @@ import type {
 
 const DASH = "—";
 
+/** The six providers the design draws in the live grid (4315-4321). */
+export type IntegrationsLiveProvider = Extract<
+  IntegrationProvider,
+  "shopify" | "meta" | "google" | "ga4" | "search_console" | "klaviyo"
+>;
+
+/** The three providers the design draws under "Coming soon" (4349-4353). */
+export type IntegrationsSoonProvider = Extract<
+  IntegrationProvider,
+  "tiktok" | "pinterest" | "snapchat"
+>;
+
 /**
  * design 4315-4321 `integBase` — order, name and description are fixed UI copy.
  * The grid opens with Shopify and closes with Klaviyo, in this order.
  */
-export const INTEGRATIONS_LIVE_ORDER: IntegrationProvider[] = [
+export const INTEGRATIONS_LIVE_ORDER: IntegrationsLiveProvider[] = [
   "shopify",
   "meta",
   "google",
@@ -30,7 +42,7 @@ export const INTEGRATIONS_LIVE_ORDER: IntegrationProvider[] = [
 ];
 
 /** design 4349-4353 `soonIntegrations` — order and names. */
-export const INTEGRATIONS_SOON_ORDER: IntegrationProvider[] = [
+export const INTEGRATIONS_SOON_ORDER: IntegrationsSoonProvider[] = [
   "tiktok",
   "pinterest",
   "snapchat",
@@ -49,9 +61,15 @@ export const INTEGRATIONS_PROVIDER_NAMES: Record<IntegrationProvider, string> = 
   snapchat: "Snapchat",
 };
 
-/** design 4315-4321 `desc` — verbatim, this is fixed copy and not provider data. */
+/**
+ * design 4315-4321 `desc` — verbatim, this is fixed copy and not provider data.
+ *
+ * Only the six live cards have one. The design's roadmap entries (4349-4353)
+ * carry a name and an ETA and nothing else, and `SoonCard` has no slot for a
+ * description, so there is none to write here.
+ */
 export const INTEGRATIONS_PROVIDER_DESCRIPTIONS: Record<
-  IntegrationProvider,
+  IntegrationsLiveProvider,
   string
 > = {
   shopify: "Orders and revenue ledger — the trusted commercial source.",
@@ -62,23 +80,18 @@ export const INTEGRATIONS_PROVIDER_DESCRIPTIONS: Record<
   search_console: "Query and indexing data behind SEO insights.",
   klaviyo:
     "Email & SMS lifecycle analysis, read-only during beta. Connect to run the first import — the source joins the sidebar once its snapshot is ready.",
-  tiktok: "Campaign performance from TikTok Ads.",
-  pinterest: "Campaign performance from Pinterest Ads.",
-  snapchat: "Campaign performance from Snapchat Ads.",
 };
 
-/** design 4342 — the two fixed meta strings for the non-connected states. */
+/**
+ * design 4342 — the two fixed meta strings.
+ *
+ * `INTEGRATIONS_META_NOT_CONNECTED` covers every non-connected card, including
+ * Klaviyo, whose authorization route answers 501: the design's own `showBtn`
+ * conditional takes the button away, and the meta line stays the design's.
+ */
 export const INTEGRATIONS_META_NOT_CONNECTED = "no data pulled yet";
 export const INTEGRATIONS_META_SYNCING =
   "first import running — nothing shows in the app until the snapshot lands";
-
-/**
- * Klaviyo has no authorization route: `app/api/oauth/klaviyo/start` answers 501
- * on purpose rather than fabricating a connection. The design's own `showBtn`
- * conditional carries that — no button, and the meta line says why.
- */
-export const INTEGRATIONS_META_NO_AUTH_FLOW =
-  "no authorization flow available yet";
 
 /** design 4323-4330 `syncSteps` — labels, boundaries and hint notes. */
 const FIRST_SYNC_STAGES: Array<{
@@ -131,29 +144,72 @@ export function buildFirstSyncSteps(
 /**
  * What a provider's own status endpoint says about its first import.
  *
- * Every field is read from a served status response — nothing here advances on
- * a clock. A provider that serves no status at all yields `null` signals and
- * therefore no progress block, because we cannot honestly claim an import is
- * running.
+ * Every field is read from a served status response or from the stored
+ * connection row — nothing here advances on a clock. A provider that serves no
+ * status at all yields `null` signals and therefore no progress block, because
+ * we cannot honestly claim an import is running.
  */
 export interface FirstSyncSignals {
   /** The OAuth handshake landed. */
   connected: boolean;
+  /**
+   * The provider's own state says work is moving right now, as opposed to
+   * halted, behind, broken, waiting on the operator or finished.
+   */
+  importing: boolean;
   /** Accounts/properties are discovered and assigned. */
   entitiesReady: boolean;
   /** 0..1 of the historical window that has landed, or null when unknown. */
   backfillFraction: number | null;
   /** The provider's readiness verdict says the snapshot is servable. */
   snapshotReady: boolean;
+  /** When this connection was made (`ProviderViewState.connectedAt`). */
+  connectedAt: string | null;
+}
+
+/**
+ * Provider states that mean an import is actually in flight.
+ *
+ * Every other state a connected provider can report is something else: `ready`
+ * has landed, `paused` was halted, `stale` fell behind after landing,
+ * `action_required` is broken, `advisor_not_ready` is a downstream verdict, and
+ * `connected_no_assignment` is waiting on the operator rather than on data.
+ * None of those may paint a progress bar.
+ */
+const IMPORTING_PROVIDER_STATES = new Set<string>(["syncing", "partial"]);
+
+/**
+ * How long after connecting a source may still be said to be running its FIRST
+ * import.
+ *
+ * The design's own third stage is "Backfill 28 days": landing that window is
+ * what the first import is for. A connection older than the window it had to
+ * backfill is not still running it — it is a long-lived source that dropped out
+ * of "ready" for some other reason, and the card must say that instead of
+ * showing a bar. A connection with no recorded date proves nothing, so it gets
+ * no bar either.
+ */
+export const FIRST_IMPORT_MAX_CONNECTION_AGE_MS = 28 * 24 * 60 * 60 * 1000;
+
+/** True only when `connectedAt` is known and new enough to be a first import. */
+export function isFirstImportConnection(
+  connectedAt: string | null | undefined,
+  now: number,
+): boolean {
+  if (!connectedAt) return false;
+  const started = Date.parse(connectedAt);
+  if (Number.isNaN(started)) return false;
+  return now - started <= FIRST_IMPORT_MAX_CONNECTION_AGE_MS;
 }
 
 /**
  * Map a provider's real signals onto the design's percent scale.
  *
- * Returns null when there is nothing to show: either the provider is not
- * connected, or its first import has already landed. The design states the rule
- * outright at line 2819 — "Sync progress appears once: while a new source runs
- * its first import."
+ * Returns null unless the provider plausibly is running its first import. The
+ * design states the rule outright at line 2819 — "Sync progress appears once:
+ * while a new source runs its first import" — so all four facts must hold:
+ * connected, no snapshot yet, an in-flight state, and a connection young enough
+ * that the import it is running can only be the first one.
  *
  * The percent never runs ahead of evidence. Each stage boundary is only crossed
  * when the fact behind it is true, so an unknown backfill parks the bar at the
@@ -161,10 +217,13 @@ export interface FirstSyncSignals {
  */
 export function resolveFirstSyncPercent(
   signals: FirstSyncSignals | null,
+  now: number = Date.now(),
 ): number | null {
   if (!signals) return null;
   if (!signals.connected) return null;
   if (signals.snapshotReady) return null;
+  if (!signals.importing) return null;
+  if (!isFirstImportConnection(signals.connectedAt, now)) return null;
 
   if (!signals.entitiesReady) return FIRST_SYNC_STAGES[1]!.from;
 
@@ -179,8 +238,9 @@ export function resolveFirstSyncPercent(
 
 export function buildFirstSyncModel(
   signals: FirstSyncSignals | null,
+  now: number = Date.now(),
 ): IntegrationsFirstSyncModel | null {
-  const percent = resolveFirstSyncPercent(signals);
+  const percent = resolveFirstSyncPercent(signals, now);
   if (percent === null) return null;
   const rounded = Math.round(percent);
   return {
@@ -209,10 +269,12 @@ function fractionFromPercent(value: number | null | undefined): number | null {
 
 export function metaFirstSyncSignals(
   status: MetaStatusResponse | null | undefined,
+  connectedAt: string | null = null,
 ): FirstSyncSignals | null {
   if (!status || !status.connected) return null;
   return {
     connected: true,
+    importing: IMPORTING_PROVIDER_STATES.has(status.state),
     entitiesReady: (status.assignedAccountIds?.length ?? 0) > 0,
     backfillFraction:
       fractionFromDays(
@@ -221,15 +283,18 @@ export function metaFirstSyncSignals(
       ) ?? fractionFromPercent(status.currentCoreProgressPercent),
     snapshotReady:
       status.state === "ready" || status.coreReadiness?.complete === true,
+    connectedAt,
   };
 }
 
 export function googleFirstSyncSignals(
   status: GoogleAdsStatusResponse | null | undefined,
+  connectedAt: string | null = null,
 ): FirstSyncSignals | null {
   if (!status || !status.connected) return null;
   return {
     connected: true,
+    importing: IMPORTING_PROVIDER_STATES.has(status.state),
     entitiesReady:
       (status.assignedAccountIds?.length ?? 0) > 0 &&
       status.state !== "connected_no_assignment",
@@ -237,11 +302,13 @@ export function googleFirstSyncSignals(
       fractionFromPercent(status.historicalProgress?.percent) ??
       fractionFromPercent(status.backgroundBackfill?.percent),
     snapshotReady: status.state === "ready",
+    connectedAt,
   };
 }
 
 export function shopifyFirstSyncSignals(
   status: ShopifyStatusResponse | null | undefined,
+  connectedAt: string | null = null,
 ): FirstSyncSignals | null {
   if (!status || !status.connected) return null;
   const ordersHistorical = status.sync?.ordersHistorical ?? null;
@@ -249,11 +316,13 @@ export function shopifyFirstSyncSignals(
   const target = ordersHistorical?.historicalTargetEnd ?? null;
   return {
     connected: true,
+    importing: IMPORTING_PROVIDER_STATES.has(status.state),
     entitiesReady: Boolean(status.shopId),
     // Shopify reports a ready-through date, not a day count: it can prove the
     // backfill finished but cannot say how far along an unfinished one is.
     backfillFraction: readyThrough && target ? (readyThrough >= target ? 1 : null) : null,
     snapshotReady: status.state === "ready",
+    connectedAt,
   };
 }
 
@@ -305,12 +374,29 @@ export function buildConnectedMetaLine(
   ].join(" · ");
 }
 
+/**
+ * The pill caption (design 4341).
+ *
+ * The design has three captions — Connecting / Connected / Not connected —
+ * because its fixture has three states. This product has more: a connection can
+ * be broken or degraded while still being a connection. "Action required" and
+ * "Degraded" are a deliberate extension, recorded in
+ * docs/dashboard-v2-parity-defects.md, and they are read FIRST: a broken
+ * provider must never be described as "Connecting", whatever any in-flight
+ * import claims.
+ */
 function resolveStatus(
   provider: IntegrationProvider,
   view: ProviderViewState,
   syncing: boolean,
 ): { status: string; tone: IntegrationsStatusTone } {
-  // design 4341: while the first import runs the pill always reads "Connecting".
+  if (view.status === "action_required") {
+    return { status: "Action required", tone: "attention" };
+  }
+  if (view.status === "degraded") {
+    return { status: "Degraded", tone: "attention" };
+  }
+  // design 4341: while the first import runs the pill reads "Connecting".
   if (syncing) return { status: "Connecting", tone: "connecting" };
   switch (view.status) {
     case "ready":
@@ -318,14 +404,10 @@ function resolveStatus(
         status: provider === "klaviyo" ? "Connected · Beta" : "Connected",
         tone: "connected",
       };
-    case "degraded":
-      return { status: "Degraded", tone: "attention" };
     case "loading_data":
       return { status: "Connecting", tone: "connecting" };
     case "needs_assignment":
       return { status: "Needs setup", tone: "connecting" };
-    case "action_required":
-      return { status: "Action required", tone: "attention" };
     default:
       return { status: "Not connected", tone: "neutral" };
   }
@@ -354,15 +436,19 @@ export function buildIntegrationsExactModel(
     const view = input.views[provider];
     if (!view) continue;
 
-    const signals =
-      provider === "meta"
-        ? metaFirstSyncSignals(input.metaStatus)
+    // A stored connection that has expired or errored is not a new source
+    // running its first import, whatever its status endpoint still reports.
+    const connectedAt = view.isConnected ? (view.connectedAt ?? null) : null;
+    const signals = !view.isConnected
+      ? null
+      : provider === "meta"
+        ? metaFirstSyncSignals(input.metaStatus, connectedAt)
         : provider === "google"
-          ? googleFirstSyncSignals(input.googleStatus)
+          ? googleFirstSyncSignals(input.googleStatus, connectedAt)
           : provider === "shopify"
-            ? shopifyFirstSyncSignals(input.shopifyStatus)
+            ? shopifyFirstSyncSignals(input.shopifyStatus, connectedAt)
             : null;
-    const firstSync = buildFirstSyncModel(signals);
+    const firstSync = buildFirstSyncModel(signals, now);
     const syncing = firstSync !== null;
     const { status, tone } = resolveStatus(provider, view, syncing);
     const connectable = input.connectableProviders.includes(provider);
@@ -371,9 +457,7 @@ export function buildIntegrationsExactModel(
       ? INTEGRATIONS_META_SYNCING
       : view.isConnected
         ? buildConnectedMetaLine(view, now)
-        : connectable
-          ? INTEGRATIONS_META_NOT_CONNECTED
-          : INTEGRATIONS_META_NO_AUTH_FLOW;
+        : INTEGRATIONS_META_NOT_CONNECTED;
 
     // design 4345-4346: no button while syncing; otherwise exactly one, whose
     // caption is Manage when connected and Connect when not. A provider with no

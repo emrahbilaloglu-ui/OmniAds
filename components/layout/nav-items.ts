@@ -65,6 +65,9 @@ export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
     accent: "blue",
     logoSrc: "/platform-logos/Meta.png",
   },
+  // Registry metadata only — the design's BETA badge and logo. Whether Klaviyo
+  // appears in the rail at all is decided by `getRailModel`'s `showKlaviyo`,
+  // which the shell drives from the stored connection (design 3284).
   klaviyo: {
     id: "klaviyo",
     name: "Klaviyo",

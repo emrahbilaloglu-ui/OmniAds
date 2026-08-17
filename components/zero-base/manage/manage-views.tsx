@@ -23,7 +23,7 @@ import {
   type ProviderHealth,
 } from "@/lib/zero-base/manage/manage-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
-import { CommercialTruthSettingsSection } from "@/components/settings/commercial-truth-settings";
+import { CommercialTruthScreen } from "@/components/commercial-truth/CommercialTruthScreen";
 import type { AdaptedCostModel } from "@/lib/zero-base/manage/manage-contract";
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
@@ -928,6 +928,8 @@ export function BusinessView({
   const divergence = economicsDivergence(economics);
   const [name, setName] = useState(settings?.name ?? "");
   const [currency, setCurrency] = useState(settings?.currency ?? "");
+  const [settingsTouched, setSettingsTouched] = useState(false);
+  const [costTouched, setCostTouched] = useState(false);
   const [costDraft, setCostDraft] = useState({
     cogsPercent: String((costModel?.cogsPercent ?? 0) * 100),
     shippingPercent: String((costModel?.shippingPercent ?? 0) * 100),
@@ -935,20 +937,39 @@ export function BusinessView({
     fixedCost: String(costModel?.fixedCost ?? 0),
   });
 
-  // The stored values arrive after the read; adopt them once they do.
+  /**
+   * Adopt the stored name and currency when the read lands — but never over
+   * typing, for the same reason the cost model below does not.
+   *
+   * This effect used to be unguarded, and the read is asynchronous: a refetch
+   * landing mid-edit silently replaced what the operator had typed with the
+   * stored value. It surfaced as a flaky test rather than a bug report --
+   * `manage-flows.test.tsx > saves both fields together` failed roughly one run
+   * in five, always as `expected 'Grandmix' to be 'Grandmix EU'`, because the
+   * seed raced the keystroke. The hazard was already understood three lines
+   * down; only this pair was left exposed.
+   */
   useEffect(() => {
+    if (settingsTouched) return;
     setName(settings?.name ?? "");
     setCurrency(settings?.currency ?? "");
-  }, [settings]);
+  }, [settings, settingsTouched]);
+  /**
+   * Adopt the stored cost model when the read lands — but never over typing.
+   *
+   * The read is asynchronous, so it can resolve after the operator has already
+   * started editing. Overwriting then discards their input silently, which is
+   * indistinguishable from the form ignoring them.
+   */
   useEffect(() => {
-    if (!costModel) return;
+    if (!costModel || costTouched) return;
     setCostDraft({
       cogsPercent: String(costModel.cogsPercent === null ? 0 : costModel.cogsPercent * 100),
       shippingPercent: String(costModel.shippingPercent === null ? 0 : costModel.shippingPercent * 100),
       feePercent: String(costModel.feePercent === null ? 0 : costModel.feePercent * 100),
       fixedCost: String(costModel.fixedCost ?? 0),
     });
-  }, [costModel]);
+  }, [costModel, costTouched]);
 
   const parsedCostDraft = {
     cogsPercent: Number(costDraft.cogsPercent) / 100,
@@ -986,7 +1007,10 @@ export function BusinessView({
               data-business-name=""
               data-ctl="live:ECON-01 edit"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setSettingsTouched(true);
+                setName(event.target.value);
+              }}
               hint={copy.workspaceNameHint}
             />
             <TextInput
@@ -994,7 +1018,10 @@ export function BusinessView({
               data-business-currency=""
               data-ctl="live:ECON-03 edit"
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
+              onChange={(event) => {
+                setSettingsTouched(true);
+                setCurrency(event.target.value);
+              }}
               hint={copy.currencyHint}
             />
             <p
@@ -1070,7 +1097,10 @@ export function BusinessView({
                       inputMode="decimal"
                       value={costDraft[key]}
                       disabled={costPermission?.ok === false}
-                      onChange={(event) => setCostDraft((current) => ({ ...current, [key]: event.target.value }))}
+                      onChange={(event) => {
+                        setCostTouched(true);
+                        setCostDraft((current) => ({ ...current, [key]: event.target.value }));
+                      }}
                     />
                   ))}
                 </div>
@@ -1100,8 +1130,13 @@ export function BusinessView({
                 </Button>
               ) : null}
             </section>
+            {/* No route mounts this view any more: `/c/[businessId]/manage/business`
+                and `/app/manage/business` mount the Commercial Truth body directly,
+                with its own header, exactly as `/commercial-truth` does. This
+                embed survives only for the zero-base frame harness and its tests;
+                the header stays suppressed because this shell supplies one. */}
             <div style={{ marginTop: 16 }} data-commercial-truth-editor="">
-              <CommercialTruthSettingsSection businessId={businessId} />
+              <CommercialTruthScreen businessId={businessId} showHeader={false} />
             </div>
           </>
         ) : (

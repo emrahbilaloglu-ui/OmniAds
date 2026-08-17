@@ -297,7 +297,7 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     tab: "audiences",
     primaryResource: "ad_group_audience_view",
     mergeKey: "ad_group_criterion.criterion_id",
-    queryFamilies: ["audience_core"],
+    queryFamilies: ["audience_core", "audience_user_list"],
     primaryDimensions: [
       "ad_group_criterion.criterion_id",
       "ad_group_criterion.type",
@@ -305,6 +305,12 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
       "campaign.name",
       "ad_group.id",
       "ad_group.name",
+      // Joined from `ad_group_criterion` → `user_list`: the list's own name and
+      // the two membership sizes Google serves, one per network.
+      "ad_group_criterion.user_list.user_list",
+      "user_list.name",
+      "user_list.size_for_display",
+      "user_list.size_for_search",
     ],
     primaryMetrics: [
       "impressions",
@@ -315,7 +321,14 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
       "interactions",
     ],
     fallbackMetrics: ["ctr", "average_cpc", "conversion_rate", "cost_per_conversion", "value_per_conversion", "roas"],
-    unavailableByDesign: ["stable_audience_display_name"],
+    // A user-list audience now carries `user_list.name` and a served size. The
+    // audience types that are not lists — affinity, in-market, life events —
+    // still have neither on any resource, so their name stays the criterion id
+    // and their size stays the em dash.
+    unavailableByDesign: [
+      "stable_audience_display_name_for_non_user_list_audiences",
+      "audience_size_for_non_user_list_audiences",
+    ],
   },
   geo: {
     tab: "geo",

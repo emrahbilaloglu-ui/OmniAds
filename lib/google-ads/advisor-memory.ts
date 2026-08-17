@@ -886,7 +886,7 @@ export async function updateAdvisorMemoryAction(input: {
         input.action === "applied"
           ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
           : row.outcome_check_at;
-      scope.set(input.recommendationFingerprint, {
+      const nextRow: RecommendationMemoryRow = {
         ...row,
         user_action: input.action === "unsuppress" ? null : input.action,
         dismiss_reason: input.action === "dismissed" ? (input.dismissReason ?? null) : null,
@@ -912,13 +912,25 @@ export async function updateAdvisorMemoryAction(input: {
         outcome_confidence: input.action === "applied" ? "low" : row.outcome_confidence,
         applied_snapshot:
           input.action === "applied" ? (row.recommendation_snapshot ?? null) : row.applied_snapshot,
-      });
+      };
+      scope.set(input.recommendationFingerprint, nextRow);
+      return {
+        matched: true as const,
+        recommendationFingerprint: nextRow.recommendation_fingerprint,
+        currentStatus: nextRow.current_status,
+        userAction: nextRow.user_action,
+        suppressUntil: nextRow.suppress_until,
+      };
     }
-    return;
+    return {
+      matched: false as const,
+      recommendationFingerprint: null,
+      currentStatus: null,
+      userAction: null,
+      suppressUntil: null,
+    };
   }
   await assertAdvisorMemoryTablesReady("google_advisor_memory_action");
-  const { businessRefId, providerAccountRefId } =
-    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   const nextStatus =
     input.action === "dismissed"
@@ -936,15 +948,26 @@ export async function updateAdvisorMemoryAction(input: {
       AND recommendation_fingerprint = ${input.recommendationFingerprint}
     LIMIT 1
   `) as Array<{ recommendation_type: string }>;
+  if (!existing[0]) {
+    return {
+      matched: false as const,
+      recommendationFingerprint: null,
+      currentStatus: null,
+      userAction: null,
+      suppressUntil: null,
+    };
+  }
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const windowDays = outcomeWindowDaysForRecommendationType(
-    (existing[0]?.recommendation_type as GoogleRecommendation["type"]) ?? "budget_reallocation"
+    existing[0].recommendation_type as GoogleRecommendation["type"]
   );
   const outcomeCheckAt =
     input.action === "applied"
       ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-  await sql`
+  const updated = (await sql`
     UPDATE google_ads_advisor_memory
     SET
       business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
@@ -995,7 +1018,33 @@ export async function updateAdvisorMemoryAction(input: {
     WHERE business_id = ${input.businessId}
       AND account_id = ${input.accountId}
       AND recommendation_fingerprint = ${input.recommendationFingerprint}
-  `;
+    RETURNING
+      recommendation_fingerprint,
+      current_status,
+      user_action,
+      suppress_until
+  `) as Array<{
+    recommendation_fingerprint: string;
+    current_status: GoogleRecommendationMemoryStatus | null;
+    user_action: "dismissed" | "ignored" | "applied" | null;
+    suppress_until: string | null;
+  }>;
+  const row = updated[0];
+  return row
+    ? {
+        matched: true as const,
+        recommendationFingerprint: row.recommendation_fingerprint,
+        currentStatus: row.current_status,
+        userAction: row.user_action,
+        suppressUntil: row.suppress_until,
+      }
+    : {
+        matched: false as const,
+        recommendationFingerprint: null,
+        currentStatus: null,
+        userAction: null,
+        suppressUntil: null,
+      };
 }
 
 export async function updateAdvisorExecutionState(input: {
@@ -1325,6 +1374,13 @@ export async function logAdvisorExecutionEvent(input: {
   payload?: Record<string, unknown> | null;
   response?: Record<string, unknown> | null;
   errorMessage?: string | null;
+  /**
+   * The seat that authored this write, taken from the authorized session at the
+   * route boundary — never from the request body, which the caller controls.
+   * Omitted or null when no session authored the write; the row then carries no
+   * actor at all rather than being attributed to the account it touched.
+   */
+  actorUserId?: string | null;
 }) {
   if (!isDbConfigured()) return;
   await assertAdvisorExecutionLogTableReady("google_advisor_execution_log");
@@ -1343,7 +1399,8 @@ export async function logAdvisorExecutionEvent(input: {
       status,
       payload_json,
       response_json,
-      error_message
+      error_message,
+      actor_user_id
     ) VALUES (
       ${input.businessId},
       ${businessRefId},
@@ -1355,9 +1412,18 @@ export async function logAdvisorExecutionEvent(input: {
       ${input.status},
       ${JSON.stringify(input.payload ?? null)}::jsonb,
       ${JSON.stringify(input.response ?? null)}::jsonb,
-      ${input.errorMessage ?? null}
+      ${input.errorMessage ?? null},
+      ${normalizeAdvisorActorUserId(input.actorUserId)}
     )
   `;
+}
+
+/** An actor is a non-empty id or nothing; blank strings are not identities. */
+function normalizeAdvisorActorUserId(
+  value: string | null | undefined,
+): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized === "" ? null : normalized;
 }
 
 export interface GoogleAdsActivityEntry {
@@ -1367,7 +1433,33 @@ export interface GoogleAdsActivityEntry {
   mutateActionType: string;
   status: string;
   accountId: string;
+  /**
+   * The write's own receipt. `applySingleMutateInternal` and its batch and
+   * cluster siblings stamp `transactionId` into the logged response (and, on
+   * the pending row, into the payload), so the receipt the Plan screen shows is
+   * the one the execution boundary issued rather than a rendered id.
+   */
+  receiptId: string | null;
   detail: string | null;
+  /**
+   * The seat that authored the write, joined to `users` on the stored
+   * `actor_user_id`.
+   *
+   * Null when the log row carries no actor — every row written before the
+   * column existed, and any write with no session behind it. `name` is null
+   * when the actor id no longer matches a user row; the write is still known to
+   * have had an author, it just can no longer be named. Nothing here is
+   * back-filled or inferred from the account the write touched.
+   */
+  actor: { id: string; name: string | null } | null;
+}
+
+function readTransactionId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as Record<string, unknown>).transactionId;
+  return typeof candidate === "string" && candidate.trim() !== ""
+    ? candidate.trim()
+    : null;
 }
 
 /**
@@ -1384,11 +1476,14 @@ export async function listAdvisorExecutionEvents(input: {
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);
   const sql = getDb();
   const rows = (await sql`
-    SELECT id, created_at, account_id, mutate_action_type, operation, status, error_message
-    FROM google_ads_advisor_execution_logs
-    WHERE business_id = ${input.businessId}
-      AND (${input.accountId ?? null}::text IS NULL OR account_id = ${input.accountId ?? null})
-    ORDER BY created_at DESC
+    SELECT log.id, log.created_at, log.account_id, log.mutate_action_type,
+           log.operation, log.status, log.error_message, log.payload_json,
+           log.response_json, log.actor_user_id, actor.name AS actor_name
+    FROM google_ads_advisor_execution_logs log
+    LEFT JOIN users actor ON actor.id::text = log.actor_user_id
+    WHERE log.business_id = ${input.businessId}
+      AND (${input.accountId ?? null}::text IS NULL OR log.account_id = ${input.accountId ?? null})
+    ORDER BY log.created_at DESC
     LIMIT ${limit}
   `.catch(() => [])) as Array<{
     id: string;
@@ -1398,15 +1493,32 @@ export async function listAdvisorExecutionEvents(input: {
     operation: string;
     status: string;
     error_message: string | null;
+    payload_json: unknown;
+    response_json: unknown;
+    actor_user_id: string | null;
+    actor_name: string | null;
   }>;
 
-  return rows.map((row) => ({
-    id: String(row.id),
-    createdAt: new Date(row.created_at).toISOString(),
-    operation: row.operation,
-    mutateActionType: row.mutate_action_type,
-    status: row.status,
-    accountId: row.account_id,
-    detail: row.error_message,
-  }));
+  return rows.map((row) => {
+    const actorUserId =
+      typeof row.actor_user_id === "string" && row.actor_user_id.trim() !== ""
+        ? row.actor_user_id.trim()
+        : null;
+    const actorName =
+      typeof row.actor_name === "string" && row.actor_name.trim() !== ""
+        ? row.actor_name.trim()
+        : null;
+    return {
+      id: String(row.id),
+      createdAt: new Date(row.created_at).toISOString(),
+      operation: row.operation,
+      mutateActionType: row.mutate_action_type,
+      status: row.status,
+      accountId: row.account_id,
+      receiptId:
+        readTransactionId(row.response_json) ?? readTransactionId(row.payload_json),
+      detail: row.error_message,
+      actor: actorUserId ? { id: actorUserId, name: actorName } : null,
+    };
+  });
 }

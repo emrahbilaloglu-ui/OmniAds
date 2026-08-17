@@ -77,7 +77,6 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   "oauth/sign-with-google/callback": "pre-authentication leg; validates OAuth state",
   "oauth/sign-with-facebook/start": "pre-authentication leg of the sign-in flow",
   "oauth/sign-with-facebook/callback": "pre-authentication leg; validates OAuth state",
-  "oauth/klaviyo/start": "pre-authentication leg of the connect flow",
   "media/meta-preview": "image proxy restricted to an allow-list of Meta CDN hosts",
   "media/cache/[...key]": "opaque storage-key capability URL, existence-checked, traversal-guarded",
   "oauth/shopify/start": "pre-authentication leg of the Shopify install flow",

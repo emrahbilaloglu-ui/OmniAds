@@ -107,14 +107,18 @@ describe("a cost increase never receives positive treatment", () => {
 });
 
 describe("surfaces defer to the shared direction instead of re-deriving it", () => {
-  it("Copies colours its deltas through the helper", () => {
+  it("Copies does not invent or colour deltas on the exact surface", () => {
     const copies = readFileSync(
       "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
       "utf8",
     );
-    expect(copies).toContain("function toneForDelta(");
-    expect(copies).toContain("deltaSentiment(getMetricDirection(metricKey)");
-    // The three inline rules are gone.
+    // The canonical Copies table has no delta column or comparison baseline.
+    // Removing the delta presentation is stronger than retaining a helper for
+    // values the surface no longer renders.
+    expect(copies).not.toContain("function toneForDelta(");
+    expect(copies).not.toContain("deltaSentiment(");
+    expect(copies).not.toContain("getMetricDirection(");
+    expect(copies).not.toMatch(/\bchangePct\b|\bpreviousValue\b/);
     expect(copies).not.toContain('tone: diff >= 0 ? ("pos" as const) : ("neg" as const)');
     expect(copies).not.toContain('tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const)');
   });

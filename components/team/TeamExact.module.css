@@ -1,0 +1,617 @@
+/*
+ * Team — Dashboard v2 reference, markup lines 2879-2987.
+ * Every rule is a literal port of the design's inline style="".
+ */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  width: 100%;
+  min-width: 0;
+  max-width: 1240px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+}
+
+.root button,
+.root input,
+.root select {
+  font-family: inherit;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.seats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.seatsText {
+  text-align: right;
+}
+
+.seatsEyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #98a4ba;
+}
+
+.seatsValue {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.seatsTrack {
+  width: 110px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #e4e8f0;
+  overflow: hidden;
+}
+
+.seatsFill {
+  height: 100%;
+  border-radius: 9999px;
+  background: #2f6bff;
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.card {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+}
+
+.cardPadded {
+  padding: 16px;
+}
+
+.cardScroll {
+  overflow-x: auto;
+}
+
+.cardClipped {
+  overflow: hidden;
+}
+
+.cardHead {
+  padding: 13px 16px;
+  border-bottom: 1px solid #edf0f6;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.cardSub {
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+/* ------------------------------------------------------------------ invite */
+
+.inviteTitle {
+  margin: 0 0 10px;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.inviteRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inviteInput {
+  flex: 1;
+  min-width: 220px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+  padding: 0 12px;
+  font-size: 13px;
+  outline: none;
+  color: #0e1526;
+}
+
+.inviteSelect {
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 0 11px;
+  font-size: 13px;
+  color: #0e1526;
+}
+
+.inviteButton {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 9px;
+  border: none;
+  background: #2f6bff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.inviteButton:hover:not(:disabled) {
+  background: #1e4fd6;
+}
+
+.inviteButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.inviteNote {
+  margin: 9px 0 0;
+  font-size: 12px;
+  color: #7a869e;
+}
+
+/* ------------------------------------------------------------------- table */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 820px;
+}
+
+.th {
+  padding: 9px 12px;
+  text-align: left;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+}
+
+.thLead {
+  padding: 9px 16px;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.thCenter {
+  text-align: center;
+  padding: 9px 10px;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.memberCell {
+  padding: 11px 16px;
+}
+
+.memberInner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.memberName {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.memberEmail {
+  display: block;
+  color: #7a869e;
+  margin-top: 1px;
+}
+
+.cell {
+  padding: 11px 12px;
+}
+
+.roleChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-weight: 700;
+}
+
+.scopeCell {
+  padding: 11px 12px;
+  color: #45526b;
+  font-size: 12.5px;
+}
+
+.faChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.actionsCell {
+  padding: 11px 12px;
+  text-align: right;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #45526b;
+}
+
+.activeCell {
+  padding: 11px 12px;
+  text-align: right;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+.menuCell {
+  padding: 11px 16px;
+  text-align: right;
+  position: relative;
+}
+
+.menuButton {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  color: #7a869e;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.menuButton:hover {
+  background: #f7f9fc;
+}
+
+.menu {
+  position: absolute;
+  right: 16px;
+  top: 42px;
+  z-index: 20;
+  width: 196px;
+  border-radius: 10px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 4px;
+  text-align: left;
+  box-shadow: 0 12px 30px rgba(11, 16, 32, 0.16);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 12.5px;
+  color: #45526b;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: #f7f9fc;
+}
+
+.menuItemDanger {
+  color: #e11d48;
+}
+
+.emptyCell {
+  padding: 18px 16px;
+  font-size: 12.5px;
+  color: #7a869e;
+}
+
+/* -------------------------------------------------------------- lower grid */
+
+.lowerGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.matrixTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 520px;
+}
+
+.matrixRow {
+  border-top: 1px solid #f3f5f9;
+}
+
+.matrixLabel {
+  padding: 9px 16px;
+  color: #0e1526;
+  font-weight: 500;
+}
+
+.matrixCell {
+  padding: 9px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ----------------------------------------------------------------- invites */
+
+.inviteListRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.inviteListBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.inviteListEmail {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0e1526;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inviteListMeta {
+  margin: 2px 0 0;
+  color: #98a4ba;
+}
+
+.inviteListRole {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.inviteAction {
+  flex-shrink: 0;
+  height: 27px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inviteResend {
+  color: #2f6bff;
+}
+
+.inviteResend:hover {
+  background: #f7f9fc;
+}
+
+.inviteRevoke {
+  color: #e11d48;
+}
+
+.inviteRevoke:hover {
+  background: #fdecf0;
+}
+
+.emptyLine {
+  margin: 0;
+  padding: 11px 16px;
+  border-top: 1px solid #f3f5f9;
+  font-size: 12px;
+  color: #7a869e;
+}
+
+/* ----------------------------------------------------------------- events */
+
+.eventRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.eventTime {
+  flex-shrink: 0;
+  width: 52px;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+  padding-top: 2px;
+}
+
+.eventText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+.eventWho {
+  color: #0e1526;
+}
+
+.cardFoot {
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #f3f5f9;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+.flash {
+  margin: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+}
+
+.flashSuccess {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.flashError {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+@media (max-width: 1100px) {
+  .lowerGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/*
+ * The reference's sub-12px type, kept together so the floor rule can assert
+ * every exemption by selector instead of granting the file a blanket pass.
+ */
+/* dashboard-v2-team-exact-reference-type:start */
+.eyebrow {
+  font-size: 11px;
+}
+
+.seatsEyebrow {
+  font-size: 10px;
+}
+
+.cardSub {
+  font-size: 10.5px;
+}
+
+.th {
+  font-size: 10px;
+}
+
+.avatar {
+  font-size: 11px;
+}
+
+.memberEmail {
+  font-size: 11.5px;
+}
+
+.roleChip {
+  font-size: 11px;
+}
+
+.faChip {
+  font-size: 10.5px;
+}
+
+.actionsCell {
+  font-size: 11.5px;
+}
+
+.activeCell {
+  font-size: 10.5px;
+}
+
+.inviteListMeta {
+  font-size: 11px;
+}
+
+.inviteListRole {
+  font-size: 10.5px;
+}
+
+.inviteAction {
+  font-size: 11.5px;
+}
+
+.eventTime {
+  font-size: 10px;
+}
+
+.cardFoot {
+  font-size: 10px;
+}
+/* dashboard-v2-team-exact-reference-type:end */

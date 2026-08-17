@@ -3,9 +3,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
+import type { TierZeroFreshnessState } from "@/components/states/TierZeroFreshness";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { GoogleAdvisorResponse } from "@/src/services/google";
 import { useAppStore } from "@/store/app-store";
+import { useTierZeroFreshnessStore } from "@/store/tier-zero-freshness-store";
 
 /**
  * Reads the Action Now lane size straight out of whatever the decisions
@@ -39,7 +42,8 @@ export function useMetaActionNowCount(): number | null {
       .findAll({ queryKey: ["meta-decisions-workspace", businessId] });
     let next: number | null = null;
     for (const entry of entries) {
-      const payload = entry.state.data as MetaDecisionsWorkspacePayload | undefined;
+      const payload = entry.state.data as
+        MetaDecisionsWorkspacePayload | undefined;
       const lanes = payload?.lanes;
       if (lanes && typeof lanes.counts?.actionNow === "number") {
         next = lanes.counts.actionNow;
@@ -51,6 +55,30 @@ export function useMetaActionNowCount(): number | null {
   // The server never has a cached workspace snapshot, so the badge is absent there.
   const getServerSnapshot = useCallback(() => null, []);
 
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+/** Mirrors the last real Google Advisor result already loaded for this business. */
+export function useGoogleAdvisorCount(): number | null {
+  const queryClient = useQueryClient();
+  const businessId = useAppStore((state) => state.selectedBusinessId);
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      queryClient.getQueryCache().subscribe(onStoreChange),
+    [queryClient],
+  );
+
+  const getSnapshot = useCallback(() => {
+    if (!businessId) return null;
+    const payload = queryClient.getQueryData<GoogleAdvisorResponse>([
+      "google-advisor",
+      businessId,
+    ]);
+    return payload ? payload.recommendations.length : null;
+  }, [businessId, queryClient]);
+
+  const getServerSnapshot = useCallback(() => null, []);
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
@@ -74,6 +102,7 @@ export type WorkspaceSyncTone = "fresh" | "syncing" | "attention" | "unknown";
 export interface WorkspaceSyncState {
   tone: WorkspaceSyncTone;
   label: string;
+  freshnessState: TierZeroFreshnessState | "unknown";
 }
 
 function minutesSince(iso: string | null | undefined, now: number) {
@@ -99,6 +128,7 @@ export function formatSyncAge(minutes: number | null): string {
  */
 export function useWorkspaceSyncState(): WorkspaceSyncState {
   const businessId = useAppStore((state) => state.selectedBusinessId);
+  const activeSurface = useTierZeroFreshnessStore((state) => state.active);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const enabled =
@@ -124,7 +154,44 @@ export function useWorkspaceSyncState(): WorkspaceSyncState {
       ),
   });
 
+  const activeSurfaceForBusiness =
+    activeSurface &&
+    (!activeSurface.businessId || activeSurface.businessId === businessId)
+      ? activeSurface
+      : null;
+
   const now = Date.now();
+  if (activeSurfaceForBusiness) {
+    if (
+      activeSurfaceForBusiness.state === "loading" ||
+      activeSurfaceForBusiness.state === "refreshing"
+    ) {
+      return {
+        tone: "syncing",
+        label: "Syncing now",
+        freshnessState: activeSurfaceForBusiness.state,
+      };
+    }
+    if (
+      activeSurfaceForBusiness.state === "error" ||
+      activeSurfaceForBusiness.state === "partial"
+    ) {
+      return {
+        tone: "attention",
+        label: "Sync needs attention",
+        freshnessState: activeSurfaceForBusiness.state,
+      };
+    }
+    const surfaceAge = minutesSince(activeSurfaceForBusiness.asOf, now);
+    if (surfaceAge !== null) {
+      return {
+        tone: "fresh",
+        label: formatSyncAge(surfaceAge),
+        freshnessState: "ready",
+      };
+    }
+  }
+
   const ages = [
     minutesSince(metaStatus.data?.latestSync?.finishedAt, now),
     minutesSince(googleStatus.data?.latestSync?.finishedAt, now),
@@ -139,16 +206,31 @@ export function useWorkspaceSyncState(): WorkspaceSyncState {
     googleStatus.data?.state === "action_required" ||
     googleStatus.data?.state === "connected_no_assignment";
 
-  if (syncing) return { tone: "syncing", label: "Syncing now" };
+  if (syncing) {
+    return {
+      tone: "syncing",
+      label: "Syncing now",
+      freshnessState: ages.length === 0 ? "loading" : "refreshing",
+    };
+  }
   if (ages.length === 0) {
     return attention
-      ? { tone: "attention", label: "Sync needs attention" }
-      : { tone: "unknown", label: "Synced —" };
+      ? {
+          tone: "attention",
+          label: "Sync needs attention",
+          freshnessState: "partial",
+        }
+      : {
+          tone: "unknown",
+          label: "Synced —",
+          freshnessState: "unknown",
+        };
   }
 
   const freshest = Math.min(...ages);
   return {
     tone: attention ? "attention" : "fresh",
     label: formatSyncAge(freshest),
+    freshnessState: attention ? "partial" : "ready",
   };
 }

@@ -36,28 +36,31 @@ describe("MetaLaunchpadPage", () => {
     appState.businesses = [{ id: "biz", name: "IwaStore", currency: "USD" }];
   });
 
-  it("withholds every Launchpad mode until an assigned account is explicit", () => {
+  it("keeps the canonical landing shape and withholds actions until account scope is explicit", () => {
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
-    expect(html).toContain('data-testid="launchpad-account-required"');
+    expect(html).toContain('data-testid="launchpad-exact"');
     expect(html).toContain("Launchpad · read-only");
     expect(html).toContain("Meta · Guarded write surface");
-    expect(html).toContain("Everything launches PAUSED");
-    expect(html).toContain("Select one assigned Meta ad account");
-    expect(html).not.toContain("From Decision");
-    expect(html).not.toContain("New Campaign");
-    expect(html).not.toContain("Create PAUSED · current");
-    expect(html).toContain('href="/platforms/meta?businessId=biz"');
+    expect(html).toContain("Launches create PAUSED campaigns.");
+    expect(html).toContain("Rebuild “—”");
+    expect(html).toContain("Duplicate “—”");
+    expect(html).toContain("Start from scratch");
+    expect(html).toContain("validation runs before any provider call");
+    expect(html).toContain("Launch receipts");
+    expect(html).not.toContain("Templates");
+    expect(html).not.toContain("Continue from evidence or start manually");
+    expect(html).not.toContain('data-testid="launchpad-wizard"');
+    expect(html).not.toContain("Delete draft");
     expect(html).toContain('data-testid="meta-mobile-launchpad"');
     expect(html).toContain("No write controls are rendered on mobile");
     expect(html).toContain(
       'href="/platforms/meta/launchpad?launchpadMode=new_campaign&amp;launchpadStep=source"',
     );
-    expect(html).not.toContain('data-testid="launchpad-mode-selector"');
-    expect(html).not.toContain('data-testid="launchpad-source-step"');
+    expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("preserves mode, step, account, and decision lineage in the mobile desktop link", () => {
+  it("fails closed and strips URL-only decision handoff authority from the desktop link", () => {
     navigationState.query = new URLSearchParams({
       sourceDecisionId: "decision_1",
       sourceDecisionSnapshotId: "snapshot_1",
@@ -75,26 +78,41 @@ describe("MetaLaunchpadPage", () => {
     expect(href).toBeTruthy();
     const deepLink = new URL(href!, "https://adsecute.local");
 
-    expect(deepLink.searchParams.get("launchpadMode")).toBe("add_to_existing");
-    expect(deepLink.searchParams.get("launchpadStep")).toBe("adsets");
+    expect(deepLink.searchParams.get("launchpadMode")).toBe("new_campaign");
+    expect(deepLink.searchParams.get("launchpadStep")).toBe("source");
     expect(deepLink.searchParams.get("providerAccountId")).toBe("act_1");
-    expect(deepLink.searchParams.get("sourceDecisionId")).toBe("decision_1");
-    expect(deepLink.searchParams.get("sourceDecisionSnapshotId")).toBe(
-      "snapshot_1",
-    );
-    expect(deepLink.searchParams.get("creativeIds")).toBe(
-      "creative_1,creative_2",
-    );
+    expect(deepLink.searchParams.get("sourceDecisionId")).toBeNull();
+    expect(deepLink.searchParams.get("sourceDecisionSnapshotId")).toBeNull();
+    expect(deepLink.searchParams.get("creativeIds")).toBeNull();
+    expect(deepLink.searchParams.get("mode")).toBeNull();
     expect(html).toContain("Current step");
-    expect(html).toContain("adsets");
-    expect(html).not.toContain("Launch action is in review");
+    expect(html).toContain("source");
+    expect(html).not.toContain('data-testid="launchpad-wizard"');
+    expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("treats an authorized null account as authoritative over the URL", () => {
+    navigationState.query = "providerAccountId=act_unassigned";
+
+    const html = renderToStaticMarkup(
+      <MetaLaunchpadPage
+        businessId="biz"
+        businessName="Authorized business"
+        providerAccountId={null}
+      />,
+    );
+
+    expect(html).toContain("Authorized business");
+    expect(html).not.toContain("act_unassigned");
+    expect(html).toContain('data-testid="launchpad-exact"');
+    expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("renders an unavailable currency state instead of defaulting to USD", () => {
     appState.businesses = [{ id: "biz", name: "IwaStore", currency: "" }];
     const html = renderToStaticMarkup(<MetaLaunchpadPage />);
 
-    expect(html).toContain("currency unavailable");
+    expect(html).toContain("Unavailable");
     expect(html).not.toContain("Meta · IwaStore · USD");
   });
 

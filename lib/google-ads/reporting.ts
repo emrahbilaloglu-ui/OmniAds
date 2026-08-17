@@ -22,6 +22,8 @@ import {
   buildAssetPerformanceCoreQuery,
   buildAssetTextDetailQuery,
   buildAudienceCoreQuery,
+  buildAudienceUserListLinkQuery,
+  buildUserListSizeQuery,
   buildCampaignSearchTermCoreQuery,
   buildCampaignBudgetQuery,
   buildCampaignCoreBasicQuery,
@@ -37,6 +39,8 @@ import {
   buildSearchTermCoreQuery,
   type GoogleAdsNamedQuery,
 } from "@/lib/google-ads/query-builders";
+import { countGoogleAdsKeywordInsights } from "@/lib/google-ads/keyword-insights";
+import { resolveGoogleAdsUserListSize } from "@/lib/google-ads/audience-list-size";
 import {
   asInteger,
   asNumber,
@@ -112,7 +116,6 @@ import {
   COUNTRY_MAP,
   dedupeStrings,
   getComparisonWindow,
-  normalizeAssetPerformanceLabel,
   pctDelta,
   roundOrNull,
   slugifyQueryCluster,
@@ -760,18 +763,9 @@ export async function getGoogleAdsKeywordsReport(
       weakKeywordCount: keywordAnalysis.summary.weakKeywordCount,
       negativeCandidateCount: keywordAnalysis.summary.negativeCandidateCount,
       accountAverageRoas: keywordAnalysis.summary.accountAverageRoas,
-      highCtrLowConvCount: rows.filter(
-        (keyword) => keyword.ctr > 5 && keyword.conversions === 0 && keyword.clicks >= 20
-      ).length,
-      highConvLowBudgetCount: rows.filter(
-        (keyword) =>
-          keyword.conversions >= 3 &&
-          typeof keyword.impressionShare === "number" &&
-          keyword.impressionShare < 0.4
-      ).length,
-      deserveOwnAdGroupCount: rows.filter(
-        (keyword) => keyword.conversions >= 5 && keyword.spend > 100
-      ).length,
+      // Shared with the warehouse serving path so the Search screen's keyword
+      // tallies cannot differ by which reader served the window.
+      ...countGoogleAdsKeywordInsights(rows),
     },
     insights: keywordAnalysis.insights,
     meta,
@@ -1165,6 +1159,54 @@ function buildAdDescription(ad: Record<string, unknown>): string {
   return asString(getCompatValue(expanded, "description")) ?? "";
 }
 
+/**
+ * Google's own `asset_group.ad_strength` enum, in Google's own words.
+ *
+ * The ad-level normaliser below folds the enum into this product's asset
+ * vocabulary (Best/Good/Learning/Low); an asset group's ad strength is a
+ * provider verdict shown verbatim, so it keeps Google's wording. An enum value
+ * that carries no verdict — UNSPECIFIED, UNKNOWN — is an absence, not a rating.
+ */
+export function normalizeAssetGroupAdStrength(value: string | null): string | null {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (upper.includes("UNSPECIFIED") || upper.includes("UNKNOWN")) return null;
+  if (upper.includes("EXCELLENT")) return "Excellent";
+  if (upper.includes("GOOD")) return "Good";
+  if (upper.includes("AVERAGE")) return "Average";
+  if (upper.includes("POOR")) return "Poor";
+  if (upper.includes("PENDING")) return "Pending";
+  if (upper.includes("NO_ADS")) return "No ads";
+  return value;
+}
+
+/**
+ * Google's own `asset_group_asset.performance_label` enum, in Google's words.
+ *
+ * This is the provider's verdict on a single asset and the only thing the
+ * design's "ratings are Google-served" caption can honestly sit above. It is
+ * deliberately NOT the `performanceLabel` this file derives further down from a
+ * local ROAS/CTR/interaction comparison: that one is this product's own
+ * measurement and travels under its own name. An enum value that carries no
+ * verdict — UNSPECIFIED, UNKNOWN — is an absence, not a rating.
+ *
+ * `reporting-support.ts` carries an older `normalizeAssetPerformanceLabel` that
+ * folds this same enum *into* the derived vocabulary and answers an unlabelled
+ * asset with "average". It has no caller anywhere in the product; this
+ * normaliser deliberately does the opposite and keeps the absence visible.
+ */
+export function normalizeServedAssetPerformanceLabel(value: string | null): string | null {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (upper.includes("UNSPECIFIED") || upper.includes("UNKNOWN")) return null;
+  if (upper.includes("BEST")) return "Best";
+  if (upper.includes("GOOD")) return "Good";
+  if (upper.includes("LOW")) return "Low";
+  if (upper.includes("LEARNING")) return "Learning";
+  if (upper.includes("PENDING")) return "Pending";
+  return value;
+}
+
 function normalizeAdStrength(value: string | null): string | null {
   if (!value) return null;
   const upper = value.toUpperCase();
@@ -1379,6 +1421,11 @@ export async function getGoogleAdsAssetsReport(
         imageUrl,
         preview,
         videoId,
+        // Google's own verdict on this asset, kept under its own name so it can
+        // never be confused with the derived `performanceLabel` set below.
+        servedPerformanceLabel: normalizeServedAssetPerformanceLabel(
+          asString(getCompatValue(assetGroupAsset, "performance_label"))
+        ),
         impressions: data.impressions,
         clicks: data.clicks,
         interactions: data.interactions,
@@ -1562,6 +1609,65 @@ function normalizeAudienceType(raw: string | null): string {
   return raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+export interface GoogleAdsAudienceUserList {
+  id: string | null;
+  resourceName: string;
+  name: string | null;
+  sizeForDisplay: number | null;
+  sizeForSearch: number | null;
+}
+
+/**
+ * Join the two list reads onto the audience criterion.
+ *
+ * `ad_group_criterion` gives criterion id → user list resource name;
+ * `user_list` gives resource name → name and the two served sizes. Both halves
+ * are Google's own keys, so nothing here guesses: a criterion whose list the
+ * account did not return, and a list that matches no criterion, simply do not
+ * appear in the index and their rows keep the em dash.
+ *
+ * Exported so the wiring can be asserted on the exact shapes the API returns
+ * (snake_case from the gRPC-style rows, camelCase from REST).
+ */
+export function buildGoogleAdsAudienceUserListIndex(input: {
+  linkRows: Array<Record<string, unknown>>;
+  listRows: Array<Record<string, unknown>>;
+}): {
+  listByCriterionId: Map<string, GoogleAdsAudienceUserList>;
+  listByResourceName: Map<string, GoogleAdsAudienceUserList>;
+} {
+  const listByResourceName = new Map<string, GoogleAdsAudienceUserList>();
+  for (const row of input.listRows) {
+    const userList = getCompatObject(row, "user_list");
+    const resourceName = asString(getCompatValue(userList, "resource_name"));
+    if (!resourceName) continue;
+    listByResourceName.set(resourceName, {
+      id: asString(getCompatValue(userList, "id")),
+      resourceName,
+      name: asString(getCompatValue(userList, "name")),
+      sizeForDisplay: asNumber(getCompatValue(userList, "size_for_display")),
+      sizeForSearch: asNumber(getCompatValue(userList, "size_for_search")),
+    });
+  }
+
+  const listByCriterionId = new Map<string, GoogleAdsAudienceUserList>();
+  for (const row of input.linkRows) {
+    const criterion = getCompatObject(row, "ad_group_criterion");
+    const criterionId = asString(getCompatValue(criterion, "criterion_id"));
+    const resourceName = asString(
+      getCompatValue(getCompatObject(criterion, "user_list"), "user_list"),
+    );
+    if (!criterionId || !resourceName) continue;
+    const list = listByResourceName.get(resourceName);
+    // Without the list's own row there is no size and no name to serve, so the
+    // link alone is not recorded — a resource name is not an audience name.
+    if (!list) continue;
+    listByCriterionId.set(criterionId, list);
+  }
+
+  return { listByCriterionId, listByResourceName };
+}
+
 export async function getGoogleAdsAudiencesReport(
   params: BaseReportParams
 ): Promise<ReportResult<AudiencePerformanceRow & Record<string, unknown>>> {
@@ -1578,8 +1684,19 @@ export async function getGoogleAdsAudiencesReport(
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const core = await runNamedQuery(context, buildAudienceCoreQuery(startDate, endDate));
+  const [core, userListLinks, userLists] = await Promise.all([
+    runNamedQuery(context, buildAudienceCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildAudienceUserListLinkQuery()),
+    runNamedQuery(context, buildUserListSizeQuery()),
+  ]);
   mergeFailures(meta, core);
+  mergeFailures(meta, userListLinks);
+  mergeFailures(meta, userLists);
+
+  const { listByCriterionId } = buildGoogleAdsAudienceUserListIndex({
+    linkRows: userListLinks.rows,
+    listRows: userLists.rows,
+  });
 
   const rows = core.rows.map((row) => {
     const criterion = getCompatObject(row, "ad_group_criterion");
@@ -1587,12 +1704,23 @@ export async function getGoogleAdsAudiencesReport(
     const adGroup = getCompatObject(row, "ad_group");
     const metrics = getCompatObject(row, "metrics");
     const data = toMetricSet(metrics);
+    const criterionId = asString(getCompatValue(criterion, "criterion_id")) ?? "";
+    // The user list this criterion targets, when it targets one at all. A
+    // non-list audience (affinity, in-market, life events) has no entry here
+    // and every list-only field below stays null rather than borrowing a
+    // number from a different question.
+    const userList = criterionId ? listByCriterionId.get(criterionId) ?? null : null;
     return {
-      criterionId: asString(getCompatValue(criterion, "criterion_id")) ?? "",
-      audienceKey: asString(getCompatValue(criterion, "criterion_id")) ?? "",
-      name: asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
-      audienceNameBestEffort:
-        asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
+      criterionId,
+      audienceKey: criterionId,
+      name: userList?.name ?? (criterionId || "Unknown audience"),
+      audienceNameBestEffort: userList?.name ?? (criterionId || "Unknown audience"),
+      userListId: userList?.id ?? null,
+      userListResourceName: userList?.resourceName ?? null,
+      listName: userList?.name ?? null,
+      listSizeForDisplay: userList?.sizeForDisplay ?? null,
+      listSizeForSearch: userList?.sizeForSearch ?? null,
+      listSize: resolveGoogleAdsUserListSize(userList),
       type: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
       audienceType: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
       campaignId: asString(getCompatValue(campaign, "id")),
@@ -2219,7 +2347,9 @@ export async function getGoogleAdsAssetGroupsReport(
       assetCountByType: assetMix,
       classification,
       state,
-      adStrength: null,
+      adStrength: normalizeAssetGroupAdStrength(
+        asString(getCompatValue(assetGroup, "ad_strength"))
+      ),
       finalUrls: [],
       audienceSignalsSummary: null,
       audienceSignals: [],

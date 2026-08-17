@@ -1,0 +1,752 @@
+/*
+ * Insights → SEO Intelligence tab — ported literally from
+ * `Adsecute Dashboard v2.dc.html` markup lines 1951-2119. Every number here is
+ * the design's own inline style.
+ */
+
+/* dashboard-v2-insights-seo-exact-reference-type:start */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--adv-font-body), var(--font-instrument-sans), "Instrument Sans",
+    -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ── KPI band (L1952-1963) ──────────────────────────────────────── */
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.kpiCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px 16px;
+}
+
+.kpiLabel {
+  margin: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.kpiValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 7px;
+  flex-wrap: wrap;
+}
+
+.kpiValue {
+  margin: 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.kpiDelta {
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.kpiDelta[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.kpiDelta[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.kpiDelta[data-tone="warning"] {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.kpiPrev {
+  margin: 4px 0 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+/* ── sub-tab strip (L1964-1968) ─────────────────────────────────── */
+
+.tabStrip {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.tab {
+  white-space: nowrap;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7a869e;
+  cursor: pointer;
+}
+
+.tab[data-active="true"] {
+  border-bottom-color: #0b1020;
+  color: #0e1526;
+  font-weight: 600;
+}
+
+/* ── Monthly AI card (L1969-2009) ───────────────────────────────── */
+
+.monthlyCard {
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 18px;
+}
+
+.monthlyHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.monthlyTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.monthlyTitle {
+  margin: 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.monthlyStatus {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.monthlyStatus[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.monthlyStatus[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.monthlyMeta {
+  margin: 5px 0 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #98a4ba;
+}
+
+.monthlyCadence {
+  border: 1px solid #e4e8f0;
+  border-radius: 9px;
+  background: #f7f9fc;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #98a4ba;
+  cursor: not-allowed;
+}
+
+.readsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.readsLabel {
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #98a4ba;
+}
+
+.readChip {
+  border-radius: 6px;
+  background: #f1f4f9;
+  padding: 3px 9px;
+  font-size: 11px;
+  color: #45526b;
+}
+
+.monthlySummary {
+  margin: 14px 0 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: #0e1526;
+  font-weight: 600;
+  max-width: 880px;
+  text-wrap: pretty;
+}
+
+.monthlyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.columnLabel {
+  margin: 0 0 8px;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.columnStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bullet {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #45526b;
+  border-left: 2px solid #e4e8f0;
+  padding-left: 10px;
+}
+
+.bulletCause {
+  border-left-color: #ebd6a4;
+}
+
+.planRow {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.planOrdinal {
+  flex-shrink: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: #2f6bff;
+  margin-top: 2px;
+}
+
+.planText {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #45526b;
+}
+
+/* ── Traffic changes (L2010-2026) ───────────────────────────────── */
+
+.moverGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+}
+
+.cardHead {
+  padding: 13px 16px;
+  border-bottom: 1px solid #edf0f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.cardHint {
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.moverRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.moverLabel {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #0e1526;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moverValue {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: #45526b;
+}
+
+.moverDelta {
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.moverDelta[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.moverDelta[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.trailingNote {
+  margin: 0;
+  font-size: 11.5px;
+  color: #98a4ba;
+}
+
+/* ── leader tables (L2027-2065) ─────────────────────────────────── */
+
+.tableCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.minQueries {
+  min-width: 680px;
+}
+
+.minPages {
+  min-width: 620px;
+}
+
+.th {
+  padding: 9px 12px;
+  text-align: right;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+}
+
+.thLead {
+  padding: 9px 16px;
+  text-align: left;
+}
+
+.thTail {
+  padding: 9px 16px;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.td {
+  padding: 11px 12px;
+  text-align: right;
+  color: #45526b;
+}
+
+.tdStrong {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.tdLead {
+  padding: 11px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.tdMono {
+  padding: 11px 16px;
+  text-align: left;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #0e1526;
+}
+
+.tdPosition {
+  padding: 11px 12px;
+  text-align: right;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #0e1526;
+}
+
+.tdPositionTail {
+  padding: 11px 16px;
+}
+
+.tdDelta {
+  padding: 11px 16px;
+  text-align: right;
+}
+
+.deltaChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.deltaChip[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.deltaChip[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+/* ── Actions (L2066-2084) ───────────────────────────────────────── */
+
+.actionStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actionCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+}
+
+.actionToneRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.actionTone {
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.actionTone[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.actionTone[data-tone="info"] {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.actionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+.actionItem {
+  border: 1px solid #edf0f6;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.actionTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.actionWhy {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7a869e;
+}
+
+.actionMeta {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+}
+
+.actionImpact {
+  font-weight: 700;
+  color: #0e9f6e;
+}
+
+.actionEffort {
+  color: #98a4ba;
+}
+
+/* ── Technical findings (L2085-2118) ────────────────────────────── */
+
+.techNotice {
+  border: 1px solid #e4e8f0;
+  border-radius: 10px;
+  background: #f7f9fc;
+  padding: 11px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7a869e;
+}
+
+.techCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.techCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 13px 16px;
+}
+
+.techValue {
+  margin: 6px 0 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.techValue[data-tone="negative"] {
+  color: #e11d48;
+}
+
+.techValue[data-tone="warning"] {
+  color: #b45309;
+}
+
+.techValue[data-tone="positive"] {
+  color: #0e9f6e;
+}
+
+.techSplit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.excludedRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.excludedUrl {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #0e1526;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.excludedReason {
+  flex-shrink: 0;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.excludedReason[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.excludedReason[data-tone="warning"] {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.findingRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 16px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.findingSeverity {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 5px;
+  padding: 3px 7px;
+  white-space: nowrap;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.findingSeverity[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.findingSeverity[data-tone="warning"] {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+/*
+ * The design paints C.pos green on exactly one chip in this list: Passed
+ * (script L4027). `Opportunity` is a severity the provider serves that the
+ * design has no chip for, so it takes C.info rather than a second green that
+ * would read as a pass.
+ */
+.findingSeverity[data-tone="info"] {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.findingSeverity[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.findingBody {
+  min-width: 0;
+}
+
+.findingTitle {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.findingDetail {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #7a869e;
+}
+
+/* dashboard-v2-insights-seo-exact-reference-type:end */
+
+/*
+ * NOT from the design.
+ *
+ * The reference draws only the state after a monthly analysis exists, so it
+ * models no generate control — its cadence chip (L1979) is `cursor:not-allowed`
+ * and is therefore not the trigger. This modifier is applied together with
+ * `.monthlyCadence`, so the control keeps that chip's exact slot, border,
+ * radius, padding and type, and it only ever renders in a state the reference
+ * never draws (no analysis for the window, and the server allows a run).
+ */
+.monthlyGenerate {
+  font-family: inherit;
+  font-size: 12px;
+  color: #0e1526;
+  cursor: pointer;
+}
+
+.monthlyGenerate:disabled {
+  color: #98a4ba;
+  cursor: progress;
+}

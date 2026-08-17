@@ -3,12 +3,15 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BusinessGuard } from "@/components/layout/business-guard";
-import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import {
+  GlobalSearch,
+  resolveGlobalSearchShortcut,
+} from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
-import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { AppTopbar } from "@/components/layout/v2/app-topbar";
+import { CommandPalette } from "@/components/layout/v2/command-palette";
 import { useAppStore } from "@/store/app-store";
 
 interface DashboardFrameProps {
@@ -28,34 +31,87 @@ const ROUTE_OWNED_META_SURFACES = new Set([
   "/platforms/meta/audiences",
 ]);
 
+const ROUTE_OWNED_GOOGLE_SURFACES = new Set([
+  "/platforms/google",
+  "/platforms/google/advisor",
+  "/platforms/google/search",
+  "/platforms/google/products",
+  "/platforms/google/assets",
+  "/platforms/google/plan",
+  "/app/google/overview",
+  "/app/google/advisor",
+  "/app/google/search",
+  "/app/google/products",
+  "/app/google/assets-audiences",
+  "/app/google/plan",
+]);
+
+function publicDashboardPath(pathname: string | null) {
+  if (!pathname) return null;
+  return pathname.replace(/^\/c\/[^/]+(?=\/|$)/, "/app");
+}
+
 function hasRouteOwnedMetaSurface(pathname: string | null) {
-  return Boolean(pathname && ROUTE_OWNED_META_SURFACES.has(pathname));
+  const route = publicDashboardPath(pathname);
+  return Boolean(
+    route &&
+    (ROUTE_OWNED_META_SURFACES.has(route) ||
+      route.startsWith("/app/meta/") ||
+      route.startsWith("/app/creative/")),
+  );
+}
+
+function hasRouteOwnedGoogleSurface(pathname: string | null) {
+  const route = publicDashboardPath(pathname);
+  return Boolean(route && ROUTE_OWNED_GOOGLE_SURFACES.has(route));
+}
+
+function hasRouteOwnedMobileSurface(pathname: string | null) {
+  return hasRouteOwnedMetaSurface(pathname) || hasRouteOwnedGoogleSurface(pathname);
 }
 
 function mobileSurfaceForPath(pathname: string | null) {
   // Pages with route-owned mobile read-only surfaces need their real payloads.
   // The shell keeps only the generic note for those routes.
-  if (hasRouteOwnedMetaSurface(pathname)) {
+  if (hasRouteOwnedMobileSurface(pathname)) {
     return null;
   }
-  if (pathname?.startsWith("/platforms/meta/")) return "meta-evidence";
+  const route = publicDashboardPath(pathname);
+  if (
+    route?.startsWith("/platforms/meta/") ||
+    route?.startsWith("/app/meta/") ||
+    route?.startsWith("/app/creative/")
+  ) {
+    return "meta-evidence";
+  }
   return null;
 }
 
 function mobileReadonlyMessageForPath(pathname: string | null) {
-  if (pathname === "/platforms/meta") {
+  const route = publicDashboardPath(pathname);
+  if (route === "/platforms/meta" || route === "/app/meta/decisions") {
     return "Rows open evidence here. Writes stay on desktop.";
   }
-  if (pathname === "/platforms/meta/automation") {
+  if (
+    route === "/platforms/meta/automation" ||
+    route === "/app/meta/automation"
+  ) {
     return "Guardrails are view-only here. Writes stay on desktop.";
   }
-  if (pathname === "/platforms/meta/launchpad") {
+  if (
+    route === "/platforms/meta/launchpad" ||
+    route === "/app/meta/launchpad"
+  ) {
     return "Launch state is view-only here. Writes stay on desktop.";
   }
-  if (pathname === "/platforms/meta/history") {
+  if (route === "/platforms/meta/history" || route === "/app/meta/history") {
     return "History is read-only. Persisted evidence stays account-scoped.";
   }
-  if (pathname?.startsWith("/platforms/meta/")) {
+  if (
+    route?.startsWith("/platforms/meta/") ||
+    route?.startsWith("/app/meta/") ||
+    route?.startsWith("/app/creative/")
+  ) {
     return "Creative analysis is available here. Provider writes stay on desktop.";
   }
   return "Evidence opens here. Writes stay on desktop.";
@@ -89,7 +145,11 @@ function MobileMetaReadOnlySurface({
   currency: string | null;
 }) {
   return (
-    <section className="ad-mobile-device" aria-label="Meta evidence mobile read-only" data-mobile-kind={kind}>
+    <section
+      className="ad-mobile-device"
+      aria-label="Meta evidence mobile read-only"
+      data-mobile-kind={kind}
+    >
       <div className="ad-mobile-screen">
         <MobileStatusLine context="evidence · read-only" />
         <div className="ad-mobile-title">
@@ -98,14 +158,20 @@ function MobileMetaReadOnlySurface({
         </div>
         <article className="ad-mobile-heat">
           <strong>Evidence opens here; writes stay on desktop.</strong>
-          <span>No pause, launch, bid, or automation write controls render on mobile.</span>
+          <span>
+            No pause, launch, bid, or automation write controls render on
+            mobile.
+          </span>
         </article>
         <p className="ad-mobile-copy">
-          Mobile is intentionally read-only. Server-owned labels, confidence, and action authority stay on
-          the desktop decision workflow <span className="ad-mobile-cite">[1]</span>. Missing metrics render
-          as <b>—</b>, never as zero <span className="ad-mobile-cite">[2]</span>.
+          Mobile is intentionally read-only. Server-owned labels, confidence,
+          and action authority stay on the desktop decision workflow{" "}
+          <span className="ad-mobile-cite">[1]</span>. Missing metrics render as{" "}
+          <b>—</b>, never as zero <span className="ad-mobile-cite">[2]</span>.
         </p>
-        <div className="ad-mobile-desktop-note">Act on desktop — this device is read-only by design.</div>
+        <div className="ad-mobile-desktop-note">
+          Act on desktop — this device is read-only by design.
+        </div>
       </div>
     </section>
   );
@@ -118,9 +184,10 @@ function MobileMetaReadOnlySurface({
 export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mobileSurface = mobileSurfaceForPath(pathname);
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
-  const routeOwnsMobileSurface = hasRouteOwnedMetaSurface(pathname);
+  const routeOwnsMobileSurface = hasRouteOwnedMobileSurface(pathname);
   // Which routes claim mobile read-only is a capability decision, not a shell
   // opinion — it comes from the same module the write paths consult. Settings
   // and Integrations render working write controls at phone width, so the
@@ -129,11 +196,44 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusiness =
-    businesses.find((business) => business.id === selectedBusinessId) ?? businesses[0] ?? null;
+    businesses.find((business) => business.id === selectedBusinessId) ??
+    businesses[0] ??
+    null;
 
   useEffect(() => {
     setNavOpen(false);
+    setCommandPaletteOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const node = event.target as HTMLElement | null;
+      const tag = node?.tagName?.toLowerCase();
+      const target: "body" | "input" | "textarea" | "contenteditable" =
+        node?.isContentEditable
+          ? "contenteditable"
+          : tag === "input"
+            ? "input"
+            : tag === "textarea"
+              ? "textarea"
+              : "body";
+      const action = resolveGlobalSearchShortcut({
+        key: event.key,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        target,
+        isOpen: commandPaletteOpen,
+        isComposing: event.isComposing,
+      });
+
+      if (action === "ignore") return;
+      event.preventDefault();
+      setCommandPaletteOpen(action === "open");
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [commandPaletteOpen]);
 
   return (
     <div className="ad-console-shell adv-shell">
@@ -144,20 +244,23 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           onClick={() => setNavOpen(false)}
         />
       ) : null}
-      <AppRail userName={userName} open={navOpen} onNavigate={() => setNavOpen(false)} />
+      <AppRail
+        userName={userName}
+        open={navOpen}
+        onNavigate={() => setNavOpen(false)}
+      />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar
           userName={userName}
           onOpenNav={() => setNavOpen(true)}
-          search={<GlobalSearch />}
+          search={
+            <GlobalSearch
+              open={commandPaletteOpen}
+              onOpen={() => setCommandPaletteOpen(true)}
+            />
+          }
           notifications={<NotificationBell />}
         />
-        {/* Every Tier-0 surface reports its data age through this one bar. A
-            frame without it lets the reports go nowhere, and silence on screen
-            reads as "current". */}
-        <div className="ad-legacy-freshness border-b border-[var(--adv-hairline)] bg-[var(--adv-surface)] px-4 py-1">
-          <TierZeroFreshnessBar />
-        </div>
         <main
           className="adv-main"
           data-mobile-surface={mobileSurface ?? "none"}
@@ -182,6 +285,10 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           </div>
         </main>
       </div>
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      />
     </div>
   );
 }

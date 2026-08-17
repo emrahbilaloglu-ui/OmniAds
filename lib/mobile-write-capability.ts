@@ -17,7 +17,13 @@
 export type MobileWriteCapability = "read_only" | "writes_allowed";
 
 /** Meta surfaces where provider mutation is genuinely desktop-gated. */
-const READ_ONLY_PREFIXES = ["/platforms/meta", "/platforms/google"];
+const READ_ONLY_PREFIXES = [
+  "/platforms/meta",
+  "/platforms/google",
+  "/app/meta",
+  "/app/creative",
+  "/app/google",
+];
 
 /**
  * Routes that accept writes on a phone. Listed explicitly rather than inferred,
@@ -34,16 +40,31 @@ const WRITE_CAPABLE_PREFIXES = [
   "/select-business",
   "/overview",
   "/insights",
+  "/app/home",
+  "/app/analytics",
+  "/app/reports",
+  "/app/manage",
 ];
+
+function publicWorkspacePath(pathname: string): string {
+  return pathname.replace(/^\/c\/[^/]+(?=\/|$)/, "/app");
+}
+
+function matchesRoutePrefix(route: string, prefix: string): boolean {
+  return route === prefix || route.startsWith(`${prefix}/`);
+}
 
 export function mobileWriteCapabilityForPath(
   pathname: string | null,
 ): MobileWriteCapability {
   if (!pathname) return "writes_allowed";
-  if (WRITE_CAPABLE_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+  const route = publicWorkspacePath(pathname);
+  if (
+    WRITE_CAPABLE_PREFIXES.some((prefix) => matchesRoutePrefix(route, prefix))
+  ) {
     return "writes_allowed";
   }
-  if (READ_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+  if (READ_ONLY_PREFIXES.some((prefix) => matchesRoutePrefix(route, prefix))) {
     return "read_only";
   }
   // Unknown routes make no claim. Saying nothing is recoverable; saying

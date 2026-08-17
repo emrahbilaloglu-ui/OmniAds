@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
@@ -12,35 +13,45 @@ import {
 } from "@/components/sync/sync-status-pill";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import {
-  BudgetScalingTab,
-  type BudgetCampaign,
-  type BudgetRec,
+import type {
+  BudgetCampaign,
+  BudgetRec,
 } from "@/components/google-ads/BudgetScalingTab";
 import { GoogleCampaignsTable } from "@/components/google-ads/GoogleCampaignsTable";
 import { GoogleWhereToLookFirst } from "@/components/google-ads/GoogleWhereToLookFirst";
-import { GoogleSearchTermsTable } from "@/components/google-ads/GoogleSearchTermsTable";
+import { GoogleSearchExact } from "@/components/google-ads/GoogleSearchExact";
+import { GoogleProductsExact } from "@/components/google-ads/GoogleProductsExact";
 import {
-  GoogleKeywordsTable,
-  type GoogleKeywordRow,
-} from "@/components/google-ads/GoogleKeywordsTable";
+  buildGoogleSearchExactViewModel,
+  type GoogleSearchExactKeywordSource,
+  type GoogleSearchExactTab,
+  type GoogleSearchTermFilterKey,
+} from "@/components/google-ads/google-search-exact-adapter";
+import { buildGoogleProductsExactViewModel } from "@/components/google-ads/google-products-exact-adapter";
+import type { GoogleAdsKeywordInsightCounts } from "@/lib/google-ads/keyword-insights";
 import { GoogleAdvisorTiles } from "@/components/google-ads/GoogleAdvisorTiles";
-import { GoogleFeedTiles } from "@/components/google-ads/GoogleFeedTiles";
-import { GoogleProductsTable } from "@/components/google-ads/GoogleProductsTable";
-import { GoogleActivityTable } from "@/components/google-ads/GoogleActivityTable";
 import type { GoogleAdsActivityEntry } from "@/lib/google-ads/advisor-memory";
+import { GoogleAssetsExact } from "@/components/google-ads/GoogleAssetsExact";
 import {
-  GoogleAssetGroupsTable,
-  GoogleAssetPair,
-  GoogleAudiencesTable,
-} from "@/components/google-ads/GoogleAssetSurfaces";
+  buildGoogleAssetsExactViewModel,
+  googleAssetGroupRestructureSubjects,
+} from "@/components/google-ads/google-assets-exact-adapter";
+import type { GoogleAssetsExactTab } from "@/components/google-ads/google-assets-exact-adapter";
+import { GooglePlanExact } from "@/components/google-ads/GooglePlanExact";
+import {
+  buildGooglePlanExactViewModel,
+  type GooglePlanExactStepViewModel,
+} from "@/components/google-ads/google-plan-exact-adapter";
 import { GoogleBudgetScalingCard } from "@/components/google-ads/GoogleBudgetScalingCard";
-import { GoogleAllocationRead } from "@/components/google-ads/GoogleAllocationRead";
-import { GoogleExecutionQueue } from "@/components/google-ads/GoogleExecutionQueue";
+import { GoogleOverviewExact } from "@/components/google-ads/GoogleOverviewExact";
+import { buildGoogleOverviewExactModel } from "@/components/google-ads/google-overview-exact-adapter";
+import type { GoogleOverviewRouteTarget } from "@/components/google-ads/google-overview-exact-model";
 import {
-  GoogleSearchStats,
-  type SearchTermFilter,
-} from "@/components/google-ads/GoogleSearchStats";
+  GoogleAdvisorExact,
+  type GoogleAdvisorDismissAuthority,
+  type GoogleAdvisorSyncTone,
+} from "@/components/google-ads/GoogleAdvisorExact";
+import type { GoogleAuthorizedScope } from "@/components/google-ads/google-authorized-scope";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
@@ -56,7 +67,6 @@ import {
   fmtPct,
   fmtRoas,
   isCampaignActive,
-  ASSET_VIEWS,
   normaliseBudgetRecommendations,
   PANEL_ITEMS,
   resolveTrendTimeline,
@@ -68,14 +78,10 @@ import {
   type AssetGroupsResponse,
   type AudienceRow,
   type AudiencesResponse,
-  type AssetRow,
   type AssetsResponse,
   type ProductRow,
   type ProductsResponse,
   type SearchIntelligenceResponse,
-  type GeoResponse,
-  type DeviceRow,
-  type DevicesResponse,
   type PanelKey,
   type TrendLabelMode,
   type GoogleAdsTrendsResponse,
@@ -97,18 +103,21 @@ import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 import { newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { MISSING_VALUE } from "@/lib/metric-format";
 import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
 import {
-  buildNegativeKeywordList,
-  buildSearchTermCsv,
-} from "@/lib/google-ads/search-term-export";
-import {
   compareModeForPreset,
   customComparisonIsComplete,
 } from "@/lib/comparison-preset-contract";
+import { getComparisonWindow } from "@/lib/google-ads/reporting-support";
+import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import type { GoogleAdsCanonicalOverviewSummaryResult } from "@/lib/google-ads/serving";
+import {
+  isGoogleAdsReadComplete,
+  type GoogleAdsReadCompletenessMeta,
+} from "@/lib/google-ads/read-completeness";
+import { normalizeGoogleCustomerId } from "@/lib/google-ads/account-id";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -199,96 +208,6 @@ function getGoogleAdsSyncEmptyState(
   };
 }
 
-function getSurfaceBadgeLabel(surface: GoogleAdsPanelSurfaceState) {
-  switch (surface.state) {
-    case "extended_backfilling":
-      return "Extended backfilling";
-    case "extended_limited":
-      return "Extended limited";
-    case "core_live":
-      return "Core live";
-    default:
-      return "Ready";
-  }
-}
-
-function getSurfaceBadgeClass(surface: GoogleAdsPanelSurfaceState) {
-  switch (surface.state) {
-    case "extended_backfilling":
-      return "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]";
-    case "extended_limited":
-      return "border-slate-200 bg-slate-50 text-slate-700";
-    case "core_live":
-      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
-    default:
-      return "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]";
-  }
-}
-
-function SurfaceRecoveryNotice({
-  surface,
-  rangeCompletion,
-}: {
-  surface: GoogleAdsPanelSurfaceState | null | undefined;
-  rangeCompletion?:
-    | {
-        selectedRange: {
-          completedDays: number;
-          totalDays: number;
-          readyThroughDate: string | null;
-          ready: boolean;
-        };
-        historical: {
-          completedDays: number;
-          totalDays: number;
-          readyThroughDate: string | null;
-          ready: boolean;
-        };
-      }
-    | null
-    | undefined;
-}) {
-  if (!surface || surface.state === "ready") return null;
-  return (
-    <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={cn(
-            "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-            getSurfaceBadgeClass(surface)
-          )}
-        >
-          {getSurfaceBadgeLabel(surface)}
-        </span>
-        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-          Coverage {surface.completedDays}/{surface.totalDays} days
-        </span>
-        {surface.readyThroughDate ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-            Ready through {surface.readyThroughDate}
-          </span>
-        ) : null}
-        {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-            Visible coverage {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
-          </span>
-        ) : null}
-        {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-            Historical {rangeCompletion.historical.completedDays}/{rangeCompletion.historical.totalDays} {rangeCompletion.historical.ready ? "ready" : "backfilling"}
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">{surface.message}</p>
-      {surface.latestBackgroundActivityAt ? (
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          Latest background activity {surface.latestBackgroundActivityAt}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function getDomainBadgeClass(
   state: NonNullable<GoogleAdsStatusResponse["domains"]>["core"]["state"]
 ) {
@@ -370,11 +289,25 @@ function buildAdvisorQueryParams(input: {
   return params;
 }
 
+function isGoogleAdvisorResponse(value: unknown): value is GoogleAdvisorResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<GoogleAdvisorResponse>;
+  return (
+    Boolean(candidate.summary && typeof candidate.summary === "object") &&
+    Array.isArray(candidate.recommendations) &&
+    Array.isArray(candidate.sections) &&
+    Array.isArray(candidate.clusters)
+  );
+}
+
 function buildGoogleAdsDataQueryParams(input: {
   businessId: string;
+  accountId?: string | null;
   startDate: string;
   endDate: string;
   compareMode?: string;
+  compareStart?: string | null;
+  compareEnd?: string | null;
 }) {
   const params = new URLSearchParams({
     businessId: input.businessId,
@@ -382,54 +315,138 @@ function buildGoogleAdsDataQueryParams(input: {
     customStart: input.startDate,
     customEnd: input.endDate,
   });
+  if (input.accountId) params.set("accountId", input.accountId);
   if (input.compareMode) params.set("compareMode", input.compareMode);
+  if (input.compareStart) params.set("compareStart", input.compareStart);
+  if (input.compareEnd) params.set("compareEnd", input.compareEnd);
   return params;
 }
 
+interface GoogleAccountScopePayload {
+  accounts: Array<{
+    id: string;
+    name: string | null;
+    currency: string | null;
+    timezone: string | null;
+  }>;
+  assignedCount: number;
+}
 
-/**
- * The escape hatch reports its own result.
- *
- * What the copy and CSV buttons are for is that an operator can take the work
- * out of the product when the product cannot help. Hardcoding `outcome: "ok"`
- * would make the metric answer "was the button clicked" instead, so the hatch
- * would look healthiest in exactly the browsers where it silently does nothing.
- */
-async function reportGoogleEscapeHatch(input: {
-  eventName: "google_copy_used" | "google_csv_used";
-  businessId: string;
-  itemCount: number;
-  run: () => Promise<unknown>;
-}) {
-  try {
-    await input.run();
-    emitProductInstrumentation({
-      eventName: input.eventName,
-      surface: "google_ads",
-      outcome: "ok",
-      scope: "business",
-      businessId: input.businessId,
-      provider: "google",
-      itemCount: input.itemCount,
-    });
-  } catch {
-    // Failed, not withheld: withheld means we chose not to, and we tried.
-    emitProductInstrumentation({
-      eventName: input.eventName,
-      surface: "google_ads",
-      outcome: "failed",
-      scope: "business",
-      businessId: input.businessId,
-      provider: "google",
-      itemCount: input.itemCount,
-    });
+type GoogleOverviewSummaryPayload = Pick<
+  GoogleAdsCanonicalOverviewSummaryResult,
+  "kpis" | "kpiDeltas"
+> & {
+  summary?: GoogleAdsCanonicalOverviewSummaryResult["summary"];
+  meta?: Partial<GoogleAdsCanonicalOverviewSummaryResult["meta"]>;
+};
+
+function inclusiveDayCount(startDate: string, endDate: string): number | null {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
+export function aggregateExactOverviewTrends(payload: GoogleAdsTrendsResponse | undefined) {
+  if (
+    !payload ||
+    payload.meta?.complete !== true ||
+    payload.rows.some((point) => point.complete !== true)
+  ) {
+    return null;
+  }
+  return {
+    points: payload.rows.map((point) => {
+      const spend = point.rows.reduce((sum, row) => sum + row.spend, 0);
+      const revenue = point.rows.reduce((sum, row) => sum + row.revenue, 0);
+      const conversions = point.rows.reduce((sum, row) => sum + row.conversions, 0);
+      const impressions = point.rows.reduce((sum, row) => sum + row.impressions, 0);
+      const clicks = point.rows.reduce((sum, row) => sum + row.clicks, 0);
+      return {
+        date: point.date,
+        spend,
+        revenue,
+        conversions,
+        roas: spend > 0 ? revenue / spend : 0,
+        cpa: conversions > 0 ? spend / conversions : null,
+        ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
+        cpc: clicks > 0 ? spend / clicks : null,
+        impressions,
+        clicks,
+      };
+    }),
+  };
+}
+
+function resolveExactGoogleFreshness(status: GoogleAdsStatusResponse | undefined): {
+  label: string;
+  overviewState: "fresh" | "stale" | "syncing" | "unavailable";
+  advisorTone: GoogleAdvisorSyncTone;
+} {
+  if (!status) {
+    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+  }
+  if (status.state === "syncing") {
+    return { label: "Syncing now", overviewState: "syncing", advisorTone: "warning" };
+  }
+  if (status.state === "action_required") {
+    return { label: "Reconnect required", overviewState: "stale", advisorTone: "negative" };
+  }
+  if (status.freshness?.evidenceAvailable === false) {
+    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+  }
+
+  const observedAt = newestObservation(
+    (status.freshness?.scopes ?? []).map((scope) => scope.latestObservationAt),
+  );
+  const timestamp = observedAt ? Date.parse(observedAt) : Number.NaN;
+  if (!Number.isFinite(timestamp)) {
+    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+  }
+
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  const label =
+    minutes < 1
+      ? "Synced just now"
+      : minutes < 60
+        ? `Synced ${minutes}m ago`
+        : minutes < 1_440
+          ? `Synced ${Math.round(minutes / 60)}h ago`
+          : `Synced ${Math.round(minutes / 1_440)}d ago`;
+  const stale = status.state === "stale" || status.state === "partial" || minutes >= 1_440;
+  return stale
+    ? { label, overviewState: "stale", advisorTone: "warning" }
+    : { label, overviewState: "fresh", advisorTone: "positive" };
+}
+
+function googleOverviewLegacyHref(target: GoogleOverviewRouteTarget): string {
+  switch (target) {
+    case "products":
+      return "/platforms/google/products";
+    case "search":
+      return "/platforms/google/search";
+    case "keywords":
+      // The compatibility keywords shim redirects without preserving the query
+      // string. Route directly to Search so the authorized account receipt is
+      // not dropped in transit.
+      return "/platforms/google/search";
+    default:
+      return "/platforms/google/advisor";
   }
 }
 
+function withGoogleAccount(href: string, providerAccountId: string | null): string {
+  if (!providerAccountId) return href;
+  const separator = href.includes("?") ? "&" : "?";
+  return `${href}${separator}providerAccountId=${encodeURIComponent(providerAccountId)}`;
+}
+
+
 export function GoogleAdsIntelligenceDashboard({
-  businessId,
+  businessId: requestedBusinessId,
   panel,
   screenTitle,
+  authorizedScope,
 }: {
   businessId: string;
   /**
@@ -439,7 +456,17 @@ export function GoogleAdsIntelligenceDashboard({
   panel?: PanelKey;
   /** Page title for the routed screen; the design names each surface. */
   screenTitle?: string;
+  /**
+   * Server-authorized route scope. Its presence prevents browser stores and the
+   * legacy account picker from replacing either the business or account.
+   */
+  authorizedScope?: GoogleAuthorizedScope;
 }) {
+  const businessId = authorizedScope?.businessId ?? requestedBusinessId;
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -448,19 +475,86 @@ export function GoogleAdsIntelligenceDashboard({
   const [selectedPanel, setSelectedPanel] = useState<PanelKey>(panel ?? "summary");
   const activePanel = panel ?? selectedPanel;
   const setActivePanel = setSelectedPanel;
-  const [focusedSearchTerms, setFocusedSearchTerms] = useState<string[]>([]);
-  const [searchTermFilter, setSearchTermFilter] = useState<SearchTermFilter>("all");
+  const [searchTab, setSearchTab] = useState<GoogleSearchExactTab>("terms");
+  const [searchTermFilter, setSearchTermFilter] =
+    useState<GoogleSearchTermFilterKey>("all");
   const [assetView, setAssetView] = useState<AssetViewKey>("groups");
-  const [focusedProducts, setFocusedProducts] = useState<string[]>([]);
   const [focusedAssets, setFocusedAssets] = useState<string[]>([]);
   const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
   const [resolvedGoogleReferenceDate, setResolvedGoogleReferenceDate] = useState<string | null>(null);
   const [resolvedGoogleTimeZoneLabel, setResolvedGoogleTimeZoneLabel] = useState<string | null>(null);
+  const [advisorDismissPendingId, setAdvisorDismissPendingId] = useState<string | null>(null);
+  const [advisorDismissStatus, setAdvisorDismissStatus] = useState<string | null>(null);
 
-  const baseStatusQuery = useQuery<GoogleAdsStatusResponse>({
-    queryKey: ["gads-status-base", businessId],
+  const legacyScopeQuery = useQuery<GoogleAccountScopePayload>({
+    queryKey: ["google-account-scope", businessId],
     queryFn: async () => {
       const params = new URLSearchParams({ businessId });
+      const response = await fetch(`/api/zero-base/google/scope?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Google account scope could not be read.");
+      return response.json();
+    },
+    enabled: !authorizedScope && Boolean(businessId),
+    staleTime: 60 * 1000,
+  });
+
+  const exactRouteSurface =
+    activePanel === "summary" ||
+    activePanel === "insights" ||
+    activePanel === "search" ||
+    activePanel === "products";
+  const legacyRequestedAccountId = authorizedScope
+    ? null
+    : searchParams.get("providerAccountId")?.trim() || null;
+  const assignedAccountIds =
+    legacyScopeQuery.data?.accounts.map((account) => account.id) ?? [];
+  const normalizedLegacyRequestedAccountId = normalizeGoogleCustomerId(
+    legacyRequestedAccountId,
+  );
+  const legacyUrlAccountId = legacyRequestedAccountId
+    ? assignedAccountIds.find(
+        (accountId) =>
+          normalizeGoogleCustomerId(accountId) === normalizedLegacyRequestedAccountId,
+      ) ?? null
+    : null;
+  const legacySelectedAccountId = legacyRequestedAccountId
+    ? legacyUrlAccountId
+    : assignedAccountIds.length === 1
+      ? assignedAccountIds[0]!
+      : !exactRouteSurface &&
+          selectedGoogleAccountId &&
+          assignedAccountIds.includes(selectedGoogleAccountId)
+        ? selectedGoogleAccountId
+        : null;
+  // `authorizedScope` presence is the authority bit. In particular, an
+  // explicit null remains null for multi-account routes and never falls through
+  // to URL or browser picker state. On the compatibility routes an explicit URL
+  // account is likewise authoritative: an unassigned id fails closed instead
+  // of silently falling back to the only assigned account.
+  const resolvedProviderAccountId = authorizedScope
+    ? authorizedScope.providerAccountId
+    : legacySelectedAccountId;
+  const hasResolvedReadScope = Boolean(resolvedProviderAccountId);
+  const resolvedAccountMetadata = authorizedScope
+    ? {
+        id: authorizedScope.providerAccountId,
+        name: authorizedScope.accountLabel,
+        currency: authorizedScope.currency,
+        timezone: authorizedScope.timezone,
+      }
+    : legacyScopeQuery.data?.accounts.find(
+        (account) => account.id === resolvedProviderAccountId,
+      ) ?? null;
+
+  const baseStatusQuery = useQuery<GoogleAdsStatusResponse>({
+    queryKey: ["gads-status-base", businessId, resolvedProviderAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId });
+      if (resolvedProviderAccountId) {
+        params.set("accountId", resolvedProviderAccountId);
+      }
       const res = await fetch(`/api/google-ads/status?${params}`);
       if (!res.ok) {
         const payload = (await res.json().catch(() => null)) as
@@ -473,10 +567,18 @@ export function GoogleAdsIntelligenceDashboard({
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(query.state.data),
-    enabled: Boolean(businessId),
+    enabled:
+      Boolean(businessId) &&
+      (exactRouteSurface ? hasResolvedReadScope : true),
   });
-  const googleReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
-  const googleTimeZoneLabel = baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
+  // Route-authorized metadata is immutable for `/c` and `/app`. The exact
+  // status request is scoped to the same account as every report read.
+  const googleReferenceDate = authorizedScope
+    ? undefined
+    : baseStatusQuery.data?.currentDateInTimezone ?? undefined;
+  const googleTimeZoneLabel = authorizedScope
+    ? authorizedScope.timezone?.trim() || undefined
+    : baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
 
   useEffect(() => {
     if (googleReferenceDate) setResolvedGoogleReferenceDate(googleReferenceDate);
@@ -492,19 +594,6 @@ export function GoogleAdsIntelligenceDashboard({
     googleReferenceDate ??
     resolvedGoogleReferenceDate ??
     getTodayIsoForTimeZone(effectiveGoogleTimeZoneLabel);
-
-  // Page-head identity and freshness, read off the status payload. Anything the
-  // server has not reported stays an em dash rather than a guessed value.
-  const workspaceEyebrow = useMemo(() => {
-    const status = baseStatusQuery.data;
-    const accountId =
-      status?.platformDateBoundary?.primaryAccountId ??
-      status?.assignedAccountIds?.[0] ??
-      null;
-    return `Google Ads · ${accountId ? `Account ${accountId}` : "Account —"} · ${
-      effectiveGoogleTimeZoneLabel
-    }`;
-  }, [baseStatusQuery.data, effectiveGoogleTimeZoneLabel]);
 
   const syncPill = useMemo<{ tone: "pos" | "warn" | "neg" | "neutral"; label: string }>(() => {
     const status = baseStatusQuery.data;
@@ -549,10 +638,50 @@ export function GoogleAdsIntelligenceDashboard({
       comparisonEnd: dateRange.comparisonEnd,
     });
   const effectiveCompareMode = comparisonWindowReady ? compareMode : "none";
+  const exactComparisonWindow = useMemo(
+    () =>
+      getComparisonWindow({
+        compareMode: effectiveCompareMode,
+        startDate,
+        endDate,
+        compareStart: dateRange.comparisonStart,
+        compareEnd: dateRange.comparisonEnd,
+      }),
+    [
+      dateRange.comparisonEnd,
+      dateRange.comparisonStart,
+      effectiveCompareMode,
+      endDate,
+      startDate,
+    ],
+  );
   const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
   );
+
+  // Page-head identity, read off the status payload. The canonical eyebrow is
+  // four segments — platform, bare account id, currency, window — and anything
+  // the server has not reported stays an em dash rather than a guessed value.
+  // The account timezone was never one of them.
+  const workspaceEyebrow = useMemo(() => {
+    const status = baseStatusQuery.data;
+    const accountId = authorizedScope
+      ? authorizedScope.providerAccountId
+      : status?.platformDateBoundary?.primaryAccountId ??
+        status?.assignedAccountIds?.[0] ??
+        null;
+    const days = inclusiveDayCount(startDate, endDate);
+    return `Google Ads · ${accountId ?? MISSING_VALUE} · ${
+      resolvedAccountMetadata?.currency?.trim() || MISSING_VALUE
+    } · ${days === null ? MISSING_VALUE : `${days}d`} window`;
+  }, [
+    authorizedScope,
+    baseStatusQuery.data,
+    endDate,
+    resolvedAccountMetadata?.currency,
+    startDate,
+  ]);
   const needsAdvisorData =
     activePanel === "summary" ||
     activePanel === "insights" ||
@@ -567,7 +696,11 @@ export function GoogleAdsIntelligenceDashboard({
   const needsAssetGroupAudienceData =
     activePanel === "assetGroupAudience" || activePanel === "assets";
   const needsProductsData = activePanel === "products";
-  const needsAssetsData = activePanel === "assets";
+  // Both panels mount the same screen, whose "Text & image assets" tab is one
+  // click away on either; gating this read on one of them left the other
+  // rendering two empty cards.
+  const needsAssetsData =
+    activePanel === "assets" || activePanel === "assetGroupAudience";
   const needsInsightsData = activePanel === "insights";
   const needsSearchData = activePanel === "search";
   const needsPlanData = activePanel === "plan";
@@ -576,10 +709,40 @@ export function GoogleAdsIntelligenceDashboard({
   const needsBudgetData = activePanel === "plan" || activePanel === "summary";
   const currentAdvisorKey = [
     businessId,
-    selectedGoogleAccountId ?? "all",
+    resolvedProviderAccountId ?? "unresolved",
     startDate,
     endDate,
   ].join(":");
+
+  const overviewSummaryQuery = useQuery<GoogleOverviewSummaryPayload>({
+    queryKey: [
+      "gads-overview-exact",
+      businessId,
+      resolvedProviderAccountId,
+      startDate,
+      endDate,
+      effectiveCompareMode,
+      dateRange.comparisonStart,
+      dateRange.comparisonEnd,
+    ],
+    queryFn: async () => {
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        startDate,
+        endDate,
+        compareMode: effectiveCompareMode,
+        compareStart: dateRange.comparisonStart,
+        compareEnd: dateRange.comparisonEnd,
+      });
+      const response = await fetch(`/api/google-ads/overview?${params.toString()}`);
+      if (!response.ok) throw new Error("Google overview could not be read.");
+      return response.json();
+    },
+    enabled: activePanel === "summary" && hasResolvedReadScope,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const {
     data,
@@ -587,15 +750,29 @@ export function GoogleAdsIntelligenceDashboard({
     isError,
     refetch: refetchCampaigns,
   } = useQuery<CampaignsResponse>({
-    queryKey: ["gads-campaigns", businessId, startDate, endDate, effectiveCompareMode],
+    queryKey: [
+      "gads-campaigns",
+      businessId,
+      resolvedProviderAccountId,
+      startDate,
+      endDate,
+      effectiveCompareMode,
+    ],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode: effectiveCompareMode });
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        startDate,
+        endDate,
+        compareMode: effectiveCompareMode,
+      });
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: Boolean(businessId),
+    enabled: Boolean(businessId) && hasResolvedReadScope,
   });
 
   const [advisorData, setAdvisorData] = useState<GoogleAdvisorResponse | undefined>(undefined);
@@ -604,35 +781,50 @@ export function GoogleAdsIntelligenceDashboard({
   const [lastAnalyzedLabel, setLastAnalyzedLabel] = useState<string | null>(null);
   const {
     mutate: runAdvisorAnalysis,
+    mutateAsync: readAdvisorAnalysis,
     isPending: isAdvisorLoading,
     isError: isAdvisorError,
   } = useMutation<GoogleAdvisorResponse, Error, { refresh: boolean }>({
     mutationFn: async ({ refresh }) => {
       const params = buildAdvisorQueryParams({
         businessId,
-        accountId: selectedGoogleAccountId,
+        accountId: resolvedProviderAccountId,
         startDate,
         endDate,
         refresh,
       });
       const res = await fetch(`/api/google-ads/advisor?${params}`);
       if (!res.ok) throw new Error("advisor fetch failed");
-      return res.json();
+      const payload = (await res.json().catch(() => null)) as unknown;
+      if (!isGoogleAdvisorResponse(payload)) {
+        throw new Error("advisor response invalid");
+      }
+      return payload;
     },
     onSuccess: (payload) => {
+      queryClient.setQueryData(["google-advisor", businessId], payload);
       setAdvisorData(payload);
       setAdvisorAnalysisKey(currentAdvisorKey);
       setLastAnalyzedLabel(payload.metadata?.asOfDate ?? new Date().toISOString().slice(0, 10));
     },
   });
   const refreshAdvisorView = () => {
+    if (!resolvedProviderAccountId) return;
     runAdvisorAnalysis({ refresh: false });
   };
 
-  const { data: assetGroupData, isLoading: isAssetGroupsLoading } = useQuery<AssetGroupsResponse>({
-    queryKey: ["gads-asset-groups", businessId, startDate, endDate],
+  // The three Assets & Audiences reads carry the resolved account exactly as
+  // the Products and Search reads do, so a blended read can never stand in for
+  // the account the page was authorized for.
+  const { data: assetGroupData } = useQuery<AssetGroupsResponse>({
+    queryKey: ["gads-asset-groups", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId ?? undefined,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/asset-groups?${params}`);
       if (!res.ok) throw new Error("asset groups fetch failed");
       return res.json();
@@ -641,10 +833,15 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsAssetGroupAudienceData,
   });
 
-  const { data: audiencesData, isLoading: isAudiencesLoading } = useQuery<AudiencesResponse>({
-    queryKey: ["gads-audiences", businessId, startDate, endDate],
+  const { data: audiencesData } = useQuery<AudiencesResponse>({
+    queryKey: ["gads-audiences", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId ?? undefined,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/audiences?${params}`);
       if (!res.ok) throw new Error("audiences fetch failed");
       return res.json();
@@ -653,10 +850,15 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsAssetGroupAudienceData,
   });
 
-  const { data: assetsData, isLoading: isAssetsLoading } = useQuery<AssetsResponse>({
-    queryKey: ["gads-assets", businessId, startDate, endDate],
+  const { data: assetsData } = useQuery<AssetsResponse>({
+    queryKey: ["gads-assets", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId ?? undefined,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/assets?${params}`);
       if (!res.ok) throw new Error("assets fetch failed");
       return res.json();
@@ -665,30 +867,39 @@ export function GoogleAdsIntelligenceDashboard({
     enabled: needsAssetsData,
   });
 
-  const { data: productsData, isLoading: isProductsLoading } = useQuery<ProductsResponse>({
-    queryKey: ["gads-products", businessId, startDate, endDate],
+  const { data: productsData } = useQuery<ProductsResponse>({
+    queryKey: ["gads-products", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/products?${params}`);
       if (!res.ok) throw new Error("products fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsProductsData,
+    enabled: needsProductsData && hasResolvedReadScope,
   });
 
   // The budget endpoint returns its findings as named campaign buckets, not as
   // a flat recommendation list, so they are normalised at the read boundary.
-  const { data: budgetData, isLoading: isBudgetLoading } = useQuery<{
+  const { data: budgetData } = useQuery<{
     rows?: BudgetCampaign[];
     recommendations?: GoogleBudgetInsights | BudgetRec[];
     totalSpend?: number;
     accountAvgRoas?: number;
+    meta?: GoogleAdsReadCompletenessMeta;
   }>({
-    queryKey: ["gads-budget", businessId, startDate, endDate],
+    queryKey: ["gads-budget", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
       const params = new URLSearchParams({
         businessId,
+        accountId: resolvedProviderAccountId,
         dateRange: "custom",
         customStart: startDate,
         customEnd: endDate,
@@ -697,7 +908,7 @@ export function GoogleAdsIntelligenceDashboard({
       if (!res.ok) throw new Error("budget fetch failed");
       return res.json();
     },
-    enabled: needsBudgetData && Boolean(businessId),
+    enabled: needsBudgetData && Boolean(businessId) && hasResolvedReadScope,
     staleTime: 60 * 1000,
   });
 
@@ -706,59 +917,69 @@ export function GoogleAdsIntelligenceDashboard({
     [budgetData?.recommendations],
   );
 
-  const { data: searchTermsData, isLoading: isSearchTermsLoading } = useQuery<SearchIntelligenceResponse>({
-    queryKey: ["gads-search-intelligence", businessId, startDate, endDate],
+  const { data: searchTermsData } = useQuery<SearchIntelligenceResponse>({
+    queryKey: ["gads-search-intelligence", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/search-intelligence?${params}`);
       if (!res.ok) throw new Error("search intelligence fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData,
+    enabled: needsSearchData && hasResolvedReadScope,
   });
 
-  const { data: keywordsData } = useQuery<{ rows?: GoogleKeywordRow[] }>({
-    queryKey: ["gads-keywords", businessId, startDate, endDate],
+  const { data: keywordsData } = useQuery<{
+    rows?: GoogleSearchExactKeywordSource[];
+    summary?: Partial<GoogleAdsKeywordInsightCounts>;
+  }>({
+    queryKey: ["gads-keywords", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
+      const params = buildGoogleAdsDataQueryParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/keywords?${params}`);
       if (!res.ok) throw new Error("keywords fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData,
+    enabled: needsSearchData && hasResolvedReadScope,
   });
 
-  const { data: geoData, isLoading: isGeoLoading } = useQuery<GeoResponse>({
-    queryKey: ["gads-geo", businessId, startDate, endDate],
+  // The operator's own commercial targets. A ROAS tint is a verdict against a
+  // target, so the Search and Products screens read the target pack rather than
+  // tinting every positive row the same colour with no bar to clear.
+  const { data: commercialSettings } = useQuery<{
+    snapshot?: { targetPack?: { targetRoas?: number | null; breakEvenRoas?: number | null } | null };
+  }>({
+    queryKey: ["business-commercial-targets", businessId],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
-      const res = await fetch(`/api/google-ads/geo?${params}`);
-      if (!res.ok) throw new Error("geo fetch failed");
+      const params = new URLSearchParams({ businessId });
+      const res = await fetch(`/api/business-commercial-settings?${params}`);
+      if (!res.ok) throw new Error("commercial settings fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData,
-  });
-
-  const { data: devicesData, isLoading: isDevicesLoading } = useQuery<DevicesResponse>({
-    queryKey: ["gads-devices", businessId, startDate, endDate],
-    queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate });
-      const res = await fetch(`/api/google-ads/devices?${params}`);
-      if (!res.ok) throw new Error("devices fetch failed");
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: needsSearchData,
+    enabled: (needsSearchData || needsProductsData || needsBudgetData) && Boolean(businessId),
   });
 
   const { data: trendsData } = useQuery<GoogleAdsTrendsResponse>({
-    queryKey: ["gads-trends", businessId, startDate, endDate],
+    queryKey: ["gads-trends", businessId, resolvedProviderAccountId, startDate, endDate],
     queryFn: async () => {
+      if (!resolvedProviderAccountId) throw new Error("Google account scope is unresolved.");
       const params = new URLSearchParams({
         businessId,
+        accountId: resolvedProviderAccountId,
         dateRange: "custom",
         customStart: startDate,
         customEnd: endDate,
@@ -769,7 +990,35 @@ export function GoogleAdsIntelligenceDashboard({
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
-    enabled: needsTrendData,
+    enabled: needsTrendData && hasResolvedReadScope,
+  });
+
+  const { data: previousTrendsData } = useQuery<GoogleAdsTrendsResponse>({
+    queryKey: [
+      "gads-trends-previous",
+      businessId,
+      resolvedProviderAccountId,
+      exactComparisonWindow?.startDate,
+      exactComparisonWindow?.endDate,
+    ],
+    queryFn: async () => {
+      if (!resolvedProviderAccountId || !exactComparisonWindow) {
+        throw new Error("Google comparison scope is unresolved.");
+      }
+      const params = new URLSearchParams({
+        businessId,
+        accountId: resolvedProviderAccountId,
+        dateRange: "custom",
+        customStart: exactComparisonWindow.startDate,
+        customEnd: exactComparisonWindow.endDate,
+        compareMode: "none",
+      });
+      const response = await fetch(`/api/google-ads/trends?${params.toString()}`);
+      if (!response.ok) throw new Error("Google comparison trends could not be read.");
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: needsTrendData && hasResolvedReadScope && Boolean(exactComparisonWindow),
   });
 
   const {
@@ -778,9 +1027,18 @@ export function GoogleAdsIntelligenceDashboard({
     isError: isSyncStatusError,
     refetch: refetchSyncStatus,
   } = useQuery<GoogleAdsStatusResponse>({
-    queryKey: ["gads-status", businessId, startDate, endDate],
+    queryKey: [
+      "gads-status",
+      businessId,
+      resolvedProviderAccountId,
+      startDate,
+      endDate,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams({ businessId, startDate, endDate });
+      if (resolvedProviderAccountId) {
+        params.set("accountId", resolvedProviderAccountId);
+      }
       const res = await fetch(`/api/google-ads/status?${params}`);
       if (!res.ok) {
         const payload = (await res.json().catch(() => null)) as
@@ -793,6 +1051,7 @@ export function GoogleAdsIntelligenceDashboard({
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(query.state.data),
+    enabled: exactRouteSurface ? hasResolvedReadScope : Boolean(businessId),
   });
 
   // One freshness contract across every Tier-0 surface. Derived from the query
@@ -835,16 +1094,18 @@ export function GoogleAdsIntelligenceDashboard({
     fullSyncPriorityRequired: syncStatus?.operations?.fullSyncPriorityRequired === true,
     advisorMissingSurfaces: syncStatus?.advisor?.missingSurfaces ?? [],
   });
-  // Blending several accounts is allowed, but it is now a stated mode with a
-  // chooser, rather than an unlabelled sum that also silently removed deep links.
+  // The server-authorized account wins on `/c` and `/app`. Legacy routes retain
+  // their local picker, but a multi-account portfolio without a selection is an
+  // unresolved read scope, not an implicit blend.
   const accountScope = resolveGoogleAccountScope({
     assignedAccountIds: syncStatus?.assignedAccountIds ?? [],
-    selectedAccountId: selectedGoogleAccountId,
+    selectedAccountId: resolvedProviderAccountId,
   });
-  const advisorExecutionAccountId = accountScope.accountId;
+  const advisorExecutionAccountId = resolvedProviderAccountId;
   useEffect(() => {
     if (
       !needsAdvisorData ||
+      !hasResolvedReadScope ||
       !advisorCanOpen ||
       isAdvisorLoading ||
       advisorAnalysisKey === currentAdvisorKey ||
@@ -863,13 +1124,16 @@ export function GoogleAdsIntelligenceDashboard({
     advisorCanOpen,
     autoRequestedAdvisorKey,
     currentAdvisorKey,
+    hasResolvedReadScope,
     isAdvisorLoading,
     needsAdvisorData,
     runAdvisorAnalysis,
   ]);
   // The design's Activity card on Plan reads the guarded-write execution log.
-  const { data: activityData, isLoading: isActivityLoading } = useQuery<{
+  const { data: activityData } = useQuery<{
     rows?: GoogleAdsActivityEntry[];
+    /** The execution log's own retention window, owned by the server. */
+    retentionDays?: number;
   }>({
     queryKey: ["gads-activity", businessId, advisorExecutionAccountId],
     queryFn: async () => {
@@ -880,7 +1144,7 @@ export function GoogleAdsIntelligenceDashboard({
       return res.json();
     },
     staleTime: 60 * 1000,
-    enabled: needsPlanData,
+    enabled: needsPlanData && hasResolvedReadScope,
   });
 
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
@@ -1129,107 +1393,10 @@ export function GoogleAdsIntelligenceDashboard({
       .slice(0, 8);
   }, [sortedRows, assetGroupsByCampaignKey, audiencesByCampaignKey]);
 
-  const scopedAssets = useMemo(() => {
-    const rows = assetsData?.rows ?? [];
-    if (sortedRows.length === 0) return rows;
-    const campaignIds = new Set(sortedRows.map((r) => r.id));
-    const campaignNames = new Set(sortedRows.map((r) => r.name));
-    return rows.filter((row) => {
-      const idMatch = row.campaignId ? campaignIds.has(row.campaignId) : false;
-      const nameMatch = row.campaign ? campaignNames.has(row.campaign) : false;
-      return idMatch || nameMatch;
-    });
-  }, [assetsData?.rows, sortedRows]);
-
-  const underperformingAssets = useMemo(
-    () => scopedAssets.filter((a) => a.performanceLabel === "underperforming"),
-    [scopedAssets]
-  );
-
-  const topAssets = useMemo(
-    () => scopedAssets.filter((a) => a.performanceLabel === "top").sort((a, b) => b.roas - a.roas).slice(0, 6),
-    [scopedAssets]
-  );
-
-  const weakAssetsByType = useMemo(() => {
-    const targets = ["Headline", "Description", "Image", "Video"] as const;
-    const grouped = new Map<string, AssetRow[]>();
-    for (const target of targets) {
-      grouped.set(
-        target,
-        underperformingAssets
-          .filter((asset) => asset.type === target)
-          .sort((a, b) => b.spend - a.spend)
-          .slice(0, 4)
-      );
-    }
-    return grouped;
-  }, [underperformingAssets]);
-
-  const getAssetDisplayLabel = (asset: AssetRow) =>
-    asset.assetName ??
-    asset.preview ??
-    asset.assetText ??
-    asset.assetGroupName ??
-    "Unnamed asset";
 
   const productRows = useMemo(
     () => [...(productsData?.rows ?? [])].sort((a, b) => b.spend - a.spend),
     [productsData?.rows]
-  );
-
-  const scopedSearchTerms = useMemo(() => {
-    const rows = searchTermsData?.rows ?? [];
-    if (sortedRows.length === 0) return rows;
-    const campaignIds = new Set(sortedRows.map((r) => r.id));
-    const campaignNames = new Set(sortedRows.map((r) => r.name));
-    return rows.filter((row) => {
-      const idMatch = row.campaignId ? campaignIds.has(row.campaignId) : false;
-      const nameMatch = row.campaign ? campaignNames.has(row.campaign) : false;
-      return idMatch || nameMatch;
-    });
-  }, [searchTermsData?.rows, sortedRows]);
-
-  const searchTermNegativeRows = useMemo(
-    () =>
-      scopedSearchTerms
-        .filter(
-          (row) =>
-            row.negativeKeywordFlag === true ||
-            row.wasteFlag === true ||
-            (row.spend > 20 && row.conversions === 0) ||
-            (row.spend > 20 && row.roas < 1.3)
-        )
-        .sort((a, b) => b.spend - a.spend)
-        .slice(0, 8),
-    [scopedSearchTerms]
-  );
-
-  const searchTermPositiveRows = useMemo(
-    () =>
-      scopedSearchTerms
-        .filter(
-          (row) =>
-            row.recommendation === "Add as exact keyword" ||
-            row.recommendation === "Promote in headlines" ||
-            row.keywordOpportunityFlag === true ||
-            (row.conversions > 0 && row.roas >= Math.max(blendedRoas, 2))
-        )
-        .sort((a, b) => b.conversions - a.conversions)
-        .slice(0, 8),
-    [scopedSearchTerms, blendedRoas]
-  );
-
-  const negativeSpendTotal = searchTermNegativeRows.reduce((sum, row) => sum + row.spend, 0);
-  const positiveSpendTotal = searchTermPositiveRows.reduce((sum, row) => sum + row.spend, 0);
-
-  const topGeoRows = useMemo(
-    () => [...(geoData?.rows ?? [])].sort((a, b) => b.spend - a.spend).slice(0, 4),
-    [geoData?.rows]
-  );
-  const topDeviceRows = useMemo(
-    () => [...(devicesData?.rows ?? [])].sort((a, b) => b.spend - a.spend).slice(0, 4),
-    [devicesData?.rows]
   );
 
   const campaignAdvisorMap = useMemo(() => {
@@ -1237,64 +1404,431 @@ export function GoogleAdsIntelligenceDashboard({
     return new Map(rows.map((row) => [row.campaignId, row]));
   }, [advisorCurrent?.summary.campaignRoles]);
 
-  const searchSourceCounts = useMemo(() => {
-    let pmax = 0;
-    let search = 0;
-    for (const row of scopedSearchTerms) {
-      const source = (row.matchSource ?? row.source ?? "").toString().toUpperCase();
-      if (source.includes("PERFORMANCE_MAX") || source.includes("CAMPAIGN_SEARCH_TERM_VIEW")) {
-        pmax += 1;
-      } else {
-        search += 1;
-      }
+  const exactWindowDays = inclusiveDayCount(startDate, endDate);
+  const exactWindowLabel = exactWindowDays === null ? null : `${exactWindowDays}d`;
+  const commercialTargetRoas =
+    typeof commercialSettings?.snapshot?.targetPack?.targetRoas === "number" &&
+    Number.isFinite(commercialSettings.snapshot.targetPack.targetRoas)
+      ? commercialSettings.snapshot.targetPack.targetRoas
+      : null;
+  const commercialBreakEvenRoas =
+    typeof commercialSettings?.snapshot?.targetPack?.breakEvenRoas === "number" &&
+    Number.isFinite(commercialSettings.snapshot.targetPack.breakEvenRoas)
+      ? commercialSettings.snapshot.targetPack.breakEvenRoas
+      : null;
+  // The three keyword tallies the design's pills carry. They are server-side
+  // counts; an unread summary keeps the pill shells and prints `—` rather than
+  // substituting a row count.
+  const keywordInsightCounts: GoogleAdsKeywordInsightCounts | null =
+    typeof keywordsData?.summary?.highCtrLowConvCount === "number" &&
+    typeof keywordsData.summary.highConvLowBudgetCount === "number" &&
+    typeof keywordsData.summary.deserveOwnAdGroupCount === "number"
+      ? {
+          highCtrLowConvCount: keywordsData.summary.highCtrLowConvCount,
+          highConvLowBudgetCount: keywordsData.summary.highConvLowBudgetCount,
+          deserveOwnAdGroupCount: keywordsData.summary.deserveOwnAdGroupCount,
+        }
+      : null;
+  const exactFreshness = resolveExactGoogleFreshness(
+    syncStatus ?? baseStatusQuery.data,
+  );
+  const campaignsReadComplete =
+    authorizedScope?.demo === true || isGoogleAdsReadComplete(data?.meta);
+  const budgetReadComplete =
+    authorizedScope?.demo === true || isGoogleAdsReadComplete(budgetData?.meta);
+  const exactOverviewModel = buildGoogleOverviewExactModel({
+    identity: {
+      businessId,
+      providerAccountId: resolvedProviderAccountId,
+    },
+    currencyCode: resolvedAccountMetadata?.currency ?? null,
+    window: {
+      label: exactWindowLabel,
+      days: exactWindowDays,
+    },
+    freshness: {
+      label: exactFreshness.label,
+      state: exactFreshness.overviewState,
+    },
+    summary: overviewSummaryQuery.data ?? null,
+    currentTrends: aggregateExactOverviewTrends(trendsData),
+    previousTrends: aggregateExactOverviewTrends(previousTrendsData),
+    campaigns: campaignsReadComplete ? data?.rows ?? [] : null,
+    advisorRecommendations: advisorCurrent?.recommendations ?? null,
+    budgetCampaigns: budgetReadComplete ? budgetData?.rows ?? [] : null,
+    targets: { roas: commercialTargetRoas, breakevenRoas: commercialBreakEvenRoas },
+  });
+
+  const exactSearchModel = buildGoogleSearchExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    tab: searchTab,
+    termFilter: searchTermFilter,
+    terms: searchTermsData?.rows ?? null,
+    keywords: keywordsData?.rows ?? null,
+    keywordInsights: keywordInsightCounts,
+    roasTarget: commercialTargetRoas,
+    roasBreakEven: commercialBreakEvenRoas,
+  });
+
+  const exactProductsModel = buildGoogleProductsExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    products: productsData?.rows ? productRows : null,
+    roasTarget: commercialTargetRoas,
+    roasBreakEven: commercialBreakEvenRoas,
+    // Merchant Center item state, served by `/api/google-ads/products` from the
+    // `shopping_product` read. Null when no Merchant Center read has landed for
+    // this account — the tiles keep their shells and print the em dash rather
+    // than answering with a performance verdict.
+    feed: productsData?.feed ?? null,
+  });
+
+  // The reference closes the asset-group table on the restructures the advisor
+  // already has queued, naming them. An applied or dismissed restructure is no
+  // longer queued; with none queued the line has no subject.
+  const exactQueuedRestructures = googleAssetGroupRestructureSubjects(
+    advisorCurrent?.recommendations,
+  );
+
+  const exactAssetsModel = buildGoogleAssetsExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    tab: assetView,
+    assetGroups: assetGroupData?.rows ?? null,
+    assets: assetsData?.rows ?? null,
+    audiences: audiencesData?.rows ?? null,
+    roasTarget: commercialTargetRoas,
+    roasBreakEven: commercialBreakEvenRoas,
+    queuedRestructures: exactQueuedRestructures,
+  });
+
+  const exactPlanHref = dashboardHrefForRouteFamily(
+    withGoogleAccount("/platforms/google/plan", resolvedProviderAccountId),
+    pathname,
+  );
+  const exactProductsHref = dashboardHrefForRouteFamily(
+    withGoogleAccount("/platforms/google/products", resolvedProviderAccountId),
+    pathname,
+  );
+  const exactDismissAuthority: GoogleAdvisorDismissAuthority =
+    !authorizedScope
+      ? "unknown"
+      : authorizedScope.viewerReadOnly ||
+          authorizedScope.demo ||
+          !resolvedProviderAccountId ||
+          isAdvisorLoading ||
+          advisorDismissPendingId !== null
+        ? "denied"
+        : "allowed";
+  const exactAdvisorState = advisorCurrent
+    ? "ready"
+    : isAdvisorError
+      ? "error"
+      : isAdvisorLoading
+        ? "loading"
+        : "unavailable";
+
+  const dismissExactAdvisorRecommendation = async (
+    recommendation: GoogleAdvisorRecommendation,
+  ) => {
+    if (
+      exactDismissAuthority !== "allowed" ||
+      !resolvedProviderAccountId ||
+      !recommendation.recommendationFingerprint
+    ) {
+      return;
     }
-    return { pmax, search };
-  }, [scopedSearchTerms]);
+    setAdvisorDismissPendingId(recommendation.id);
+    setAdvisorDismissStatus("Dismissing recommendation…");
+    try {
+      const response = await fetch("/api/google-ads/advisor-memory", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          businessId,
+          accountId: resolvedProviderAccountId,
+          recommendationFingerprint: recommendation.recommendationFingerprint,
+          action: "dismissed",
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            error?: string;
+            message?: string;
+            action?: string;
+            accountId?: string;
+            recommendationFingerprint?: string;
+            currentStatus?: string | null;
+          }
+        | null;
+      if (!response.ok) {
+        throw new Error(payload?.error ?? payload?.message ?? "Dismiss failed.");
+      }
+      if (
+        payload?.ok !== true ||
+        payload.action !== "dismissed" ||
+        payload.accountId !== resolvedProviderAccountId ||
+        payload.recommendationFingerprint !== recommendation.recommendationFingerprint ||
+        payload.currentStatus !== "suppressed"
+      ) {
+        throw new Error("Dismiss receipt could not be verified.");
+      }
+
+      const readback = await readAdvisorAnalysis({ refresh: false });
+      if (!readback || !Array.isArray(readback.recommendations)) {
+        throw new Error("Dismiss readback could not be verified.");
+      }
+      const matchingRecommendations = readback.recommendations.filter(
+        (candidate) =>
+          candidate.recommendationFingerprint === recommendation.recommendationFingerprint,
+      );
+      if (matchingRecommendations.length > 0) {
+        throw new Error("Dismiss readback could not be verified.");
+      }
+      setAdvisorDismissStatus("Recommendation dismissed.");
+    } catch (error) {
+      setAdvisorDismissStatus(
+        error instanceof Error ? error.message : "Dismiss failed.",
+      );
+    } finally {
+      setAdvisorDismissPendingId(null);
+    }
+  };
+
+  // The Plan screen drives the only provider-write control in this workspace.
+  // The surface may arm it only when the server-owned scope says this viewer
+  // can write at all; the guarded boundary re-checks role, demo state, the
+  // write-back capability gate and account authority on every call.
+  const exactPlanWriteAuthority: "allowed" | "denied" | "unknown" = !authorizedScope
+    ? "unknown"
+    : authorizedScope.viewerReadOnly ||
+        authorizedScope.demo ||
+        !resolvedProviderAccountId
+      ? "denied"
+      : "allowed";
+
+  const planRecommendations = advisorCurrent?.recommendations ?? null;
+  const planRecommendationById = new Map(
+    (planRecommendations ?? []).map((item) => [item.id, item]),
+  );
+
+  const exactPlanModel = buildGooglePlanExactViewModel({
+    identity: {
+      accountId: resolvedProviderAccountId,
+      currencyCode: resolvedAccountMetadata?.currency ?? null,
+      windowLabel: exactWindowLabel,
+      syncLabel: exactFreshness.label,
+    },
+    recommendations: planRecommendations,
+    activity: activityData?.rows ?? null,
+    activityRetentionDays: activityData?.retentionDays ?? null,
+    asOf: new Date(),
+    writeAuthority: exactPlanWriteAuthority,
+  });
+
+  const runPlanExecution = async (step: GooglePlanExactStepViewModel) => {
+    const recommendation = planRecommendationById.get(step.key);
+    if (
+      !recommendation ||
+      exactPlanWriteAuthority !== "allowed" ||
+      !resolvedProviderAccountId ||
+      !step.applyEnabled
+    ) {
+      return;
+    }
+    const rollingBack = step.applied;
+    const body = rollingBack
+      ? {
+          businessId,
+          accountId: resolvedProviderAccountId,
+          recommendationFingerprint: recommendation.recommendationFingerprint,
+          executionAction: "rollback_mutate" as const,
+          rollbackActionType: recommendation.rollbackActionType,
+          rollbackPayloadPreview: recommendation.rollbackPayloadPreview,
+          transactionId: recommendation.transactionId ?? null,
+        }
+      : {
+          businessId,
+          accountId: resolvedProviderAccountId,
+          recommendationFingerprint: recommendation.recommendationFingerprint,
+          executionAction: "apply_mutate" as const,
+          mutateActionType: recommendation.mutateActionType,
+          mutatePayloadPreview: recommendation.mutatePayloadPreview,
+          rollbackActionType: recommendation.rollbackActionType ?? null,
+          rollbackPayloadPreview: recommendation.rollbackPayloadPreview ?? null,
+          executionTrustBand: recommendation.executionTrustBand ?? null,
+          dependencyReadiness: recommendation.dependencyReadiness ?? null,
+          stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? null,
+        };
+    try {
+      const response = await fetch("/api/google-ads/advisor-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: string; message?: string }
+        | null;
+      setAdvisorDismissStatus(
+        response.ok && payload?.ok !== false
+          ? rollingBack
+            ? "Step rolled back."
+            : "Step applied."
+          : payload?.error ?? payload?.message ?? "The guarded write was refused.",
+      );
+    } catch (error) {
+      setAdvisorDismissStatus(
+        error instanceof Error ? error.message : "The guarded write failed.",
+      );
+    } finally {
+      refreshAdvisorView();
+      queryClient.invalidateQueries({ queryKey: ["gads-activity"] });
+    }
+  };
+
+  const dismissPlanStep = async (step: GooglePlanExactStepViewModel) => {
+    const recommendation = planRecommendationById.get(step.key);
+    if (!recommendation) return;
+    await dismissExactAdvisorRecommendation(recommendation);
+  };
+
+  const downloadPlanCsv = () => {
+    const header = ["#", "Recommendation", "Layer", "Priority", "Action", "Why now", "State"];
+    const rows = exactPlanModel.steps.map((step, index) => {
+      const recommendation = planRecommendationById.get(step.key);
+      return [
+        String(index + 1),
+        step.title,
+        recommendation?.strategyLayer ?? MISSING_VALUE,
+        recommendation?.priority ?? MISSING_VALUE,
+        recommendation?.recommendedAction ?? MISSING_VALUE,
+        recommendation?.whyNow ?? MISSING_VALUE,
+        step.applied ? "applied" : "queued",
+      ];
+    });
+    const escape = (cell: string) => `"${String(cell ?? "").replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map((row) => row.map(escape).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `google-plan-${resolvedProviderAccountId ?? "account"}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exactSurface =
+    activePanel === "summary" ? (
+      <GoogleOverviewExact
+        model={exactOverviewModel}
+        onNavigate={(target) => {
+          const href = dashboardHrefForRouteFamily(
+            withGoogleAccount(
+              googleOverviewLegacyHref(target),
+              resolvedProviderAccountId,
+            ),
+            pathname,
+          );
+          router.push(href);
+        }}
+      />
+    ) : activePanel === "insights" ? (
+      <>
+        <GoogleAdvisorExact
+          advisor={advisorCurrent ?? null}
+          advisorState={exactAdvisorState}
+          accountId={resolvedProviderAccountId}
+          currencyCode={resolvedAccountMetadata?.currency ?? null}
+          windowLabel={exactWindowLabel}
+          syncLabel={exactFreshness.label}
+          syncTone={exactFreshness.advisorTone}
+          planHref={exactPlanHref}
+          productsHref={exactProductsHref}
+          onNavigate={(href) => router.push(href)}
+          onDismiss={dismissExactAdvisorRecommendation}
+          dismissAuthority={exactDismissAuthority}
+          readOnly={
+            !authorizedScope ||
+            authorizedScope.viewerReadOnly ||
+            authorizedScope.demo ||
+            !resolvedProviderAccountId
+          }
+        />
+        <span className="sr-only" role="status" aria-live="polite">
+          {advisorDismissStatus}
+        </span>
+        <span className="sr-only" role="status" aria-live="polite">
+          {exactAdvisorState === "loading"
+            ? "Advisor recommendations are loading."
+            : exactAdvisorState === "error"
+              ? "Advisor recommendations could not be read."
+              : exactAdvisorState === "unavailable"
+                ? "Advisor recommendations are unavailable."
+                : null}
+        </span>
+      </>
+    ) : activePanel === "search" ? (
+      <GoogleSearchExact
+        model={exactSearchModel}
+        syncTone={exactFreshness.advisorTone}
+        onTabChange={setSearchTab}
+        onFilterChange={setSearchTermFilter}
+      />
+    ) : activePanel === "products" ? (
+      <GoogleProductsExact
+        model={exactProductsModel}
+        syncTone={exactFreshness.advisorTone}
+      />
+    ) : activePanel === "assets" || activePanel === "assetGroupAudience" ? (
+      <GoogleAssetsExact
+        model={exactAssetsModel}
+        syncTone={exactFreshness.advisorTone}
+        onTabChange={(tab: GoogleAssetsExactTab) => setAssetView(tab)}
+      />
+    ) : activePanel === "plan" ? (
+      <>
+        <GooglePlanExact
+          model={exactPlanModel}
+          syncTone={exactFreshness.advisorTone}
+          onApplyStep={runPlanExecution}
+          onApplyAll={async () => {
+            for (const step of exactPlanModel.steps) {
+              if (step.applied || !step.applyEnabled) continue;
+              await runPlanExecution(step);
+            }
+          }}
+          onDismissStep={dismissPlanStep}
+          onCopyStep={(step) => {
+            void navigator.clipboard?.writeText(step.copyText);
+          }}
+          onDownloadCsv={downloadPlanCsv}
+        />
+        <span className="sr-only" role="status" aria-live="polite">
+          {advisorDismissStatus}
+        </span>
+      </>
+    ) : null;
+
+  if (exactSurface) return exactSurface;
 
   if (isError) {
     return <div className="py-10 text-sm text-muted-foreground">Campaign data could not be loaded.</div>;
   }
 
-  const panelSurfaceLookup = new Map(
-    (syncStatus?.panel?.surfaceStates ?? []).map((surface) => [surface.scope, surface])
-  );
-  const searchSurfaceState = panelSurfaceLookup.get("search_term_daily") ?? null;
-  const productSurfaceState = panelSurfaceLookup.get("product_daily") ?? null;
-  const assetSurfaceState = panelSurfaceLookup.get("asset_daily") ?? null;
-  const assetGroupSurfaceState = panelSurfaceLookup.get("asset_group_daily") ?? null;
-  const audienceSurfaceState = panelSurfaceLookup.get("audience_daily") ?? null;
-  const geoSurfaceState = panelSurfaceLookup.get("geo_daily") ?? null;
-  const deviceSurfaceState = panelSurfaceLookup.get("device_daily") ?? null;
-  const searchRangeCompletion = syncStatus?.rangeCompletionBySurface?.search_term_daily ?? null;
-  const productRangeCompletion = syncStatus?.rangeCompletionBySurface?.product_daily ?? null;
-  const assetRangeCompletion = syncStatus?.rangeCompletionBySurface?.asset_daily ?? null;
-  const assetGroupRangeCompletion =
-    syncStatus?.rangeCompletionBySurface?.asset_group_daily ?? null;
-  const audienceRangeCompletion =
-    syncStatus?.rangeCompletionBySurface?.audience_daily ?? null;
-  const geoRangeCompletion = syncStatus?.rangeCompletionBySurface?.geo_daily ?? null;
-  const deviceRangeCompletion = syncStatus?.rangeCompletionBySurface?.device_daily ?? null;
-
   const summaryEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Campaign data");
-  const insightsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Search insights", searchSurfaceState);
-  const assetGroupEmptyState = getGoogleAdsSyncEmptyState(
-    syncStatus,
-    "Asset groups",
-    assetGroupSurfaceState
-  );
-  const audienceEmptyState = getGoogleAdsSyncEmptyState(
-    syncStatus,
-    "Audience performance",
-    audienceSurfaceState
-  );
-  const geoEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Geo performance", geoSurfaceState);
-  const deviceEmptyState = getGoogleAdsSyncEmptyState(
-    syncStatus,
-    "Device performance",
-    deviceSurfaceState
-  );
-  const productsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Product performance", productSurfaceState);
-  const assetsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset performance", assetSurfaceState);
   const campaignScopeLabel = isLoading
     ? "Loading campaign data..."
     : scopedRows.length > 0
@@ -1332,42 +1866,6 @@ export function GoogleAdsIntelligenceDashboard({
     "diagnostic_guardrail",
   ]);
 
-  const assetGroupAdvisor = filterAdvisorByTypes(advisorCurrent, [
-    "asset_group_structure",
-    "pmax_scaling_fit",
-    "geo_device_adjustment",
-  ]);
-
-  const productsAdvisor = filterAdvisorByTypes(advisorCurrent, [
-    "shopping_launch_or_split",
-    "product_allocation",
-    "budget_reallocation",
-  ]);
-
-  const assetsAdvisor = filterAdvisorByTypes(advisorCurrent, [
-    "creative_asset_deployment",
-  ]);
-
-  // The design closes the asset group table on the restructures the advisor
-  // already has queued, naming them; with none queued it says nothing.
-  const queuedRestructures = (advisorCurrent?.recommendations ?? []).filter(
-    (item) => item.type === "asset_group_structure",
-  );
-  const restructureTargets = queuedRestructures
-    .flatMap((item) => item.weakAssetGroups ?? [])
-    .filter(Boolean)
-    .slice(0, 2);
-  const assetGroupQueueNote =
-    queuedRestructures.length === 0
-      ? null
-      : `The advisor has ${queuedRestructures.length} restructure${
-          queuedRestructures.length === 1 ? "" : "s"
-        } queued${
-          restructureTargets.length > 0
-            ? ` for ${restructureTargets.map((name) => `“${name}”`).join(" and ")}`
-            : ""
-        } — see Advisor · Do next.`;
-
   const focusAdvisorEntity = (recommendation: GoogleAdvisorRecommendation) => {
     const searchFocus = [
       ...(recommendation.negativeQueries ?? []),
@@ -1391,8 +1889,6 @@ export function GoogleAdsIntelligenceDashboard({
       ...(recommendation.keepSeparateAssetGroups ?? []),
     ];
 
-    setFocusedSearchTerms(searchFocus);
-    setFocusedProducts(productFocus);
     setFocusedAssets(assetFocus);
     setFocusedAssetGroups(assetGroupFocus);
 
@@ -1430,7 +1926,7 @@ export function GoogleAdsIntelligenceDashboard({
       {/* v2 page head — identity in a mono eyebrow, workspace name in display type. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[12px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
+          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
             {workspaceEyebrow}
           </p>
           <h1 className="m-0 mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-[var(--adv-ink)]">
@@ -1448,11 +1944,9 @@ export function GoogleAdsIntelligenceDashboard({
         </div>
       </div>
 
-      {/* Scope receipt. With more than one account assigned every figure below
-          is a blend; the operator has to be able to see that, and narrow it,
-          before trusting any of them. Hidden at one account, where there is
-          nothing to disclose. */}
-      {accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
+      {/* The browser-owned picker exists only on the preserved legacy entry.
+          Canonical routes receive immutable account scope from the server. */}
+      {!authorizedScope && accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
         <div
           role="status"
           className={cn(
@@ -1592,19 +2086,20 @@ export function GoogleAdsIntelligenceDashboard({
   	                  return (
   	                      <button
   	                        type="button"
-  	                        onClick={() =>
-  	                          runAdvisorAnalysis({
-  	                            refresh:
-  	                              advisorCtaState === "prepare" ||
-  	                              advisorCtaState === "refreshable",
-  	                          })
-  	                        }
-  	                        disabled={!advisorCanOpen || isAdvisorLoading}
+                        onClick={() => {
+                          if (!resolvedProviderAccountId) return;
+                          runAdvisorAnalysis({
+                            refresh:
+                              advisorCtaState === "prepare" ||
+                              advisorCtaState === "refreshable",
+                          });
+                        }}
+                        disabled={!advisorCanOpen || !hasResolvedReadScope || isAdvisorLoading}
                           title={advisorHelperText}
                           aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
                           className={cn(
                             "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-semibold transition-colors",
-                            !advisorCanOpen || isAdvisorLoading
+                            !advisorCanOpen || !hasResolvedReadScope || isAdvisorLoading
                               ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
                               : advisorCurrent
                                 ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)] hover:bg-[var(--adc-pos-bg)]"
@@ -1808,614 +2303,6 @@ export function GoogleAdsIntelligenceDashboard({
         </section>
       ) : null}
 
-      {activePanel === "plan" ? (
-        /* Design's Plan & activity surface: the execution queue over the advisor's
-           ranked findings, then budget headroom and scaling moves. */
-        <section className="flex flex-col gap-4">
-          <div className="grid items-start gap-3 [grid-template-columns:minmax(0,1.5fr)_minmax(300px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
-            <div className="flex flex-col gap-3">
-              <GoogleExecutionQueue
-                recommendations={summaryAdvisor?.recommendations ?? []}
-                accountLabel={advisorExecutionAccountId ?? null}
-                businessId={businessId}
-                accountId={advisorExecutionAccountId}
-                onApplied={refreshAdvisorView}
-              />
-              {/* The design states the batch contract next to the queue. */}
-              <article className="rounded-[14px] border border-dashed border-[var(--adv-scroll-thumb)] px-4 py-3.5">
-                <p className="m-0 text-[12.5px] font-semibold text-[var(--adv-ink-2)]">
-                  Batch apply — guarded
-                </p>
-                <p className="m-0 mt-1 text-[12px] leading-[1.5] text-[var(--adv-ink-3)]">
-                  One execution target type per run, up to 250 items, one receipt
-                  chain. Batches run inside the same approval, guardrail and quiet
-                  hour boundary as a single change.
-                </p>
-              </article>
-            </div>
-            <GoogleActivityTable rows={activityData?.rows ?? []} isLoading={isActivityLoading} />
-          </div>
-
-          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
-          <p className="text-xs text-muted-foreground">
-            Budget headroom and scaling candidates · suggested shifts are advisor previews, applied manually in Google Ads
-          </p>
-          <BudgetScalingTab
-            campaigns={budgetData?.rows}
-            recommendations={budgetRecommendations}
-            totalSpend={budgetData?.totalSpend}
-            accountAvgRoas={budgetData?.accountAvgRoas}
-            isLoading={isBudgetLoading}
-          />
-          </div>
-
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
-            Writes execute only through the guarded boundary — approval,
-            guardrails, quiet hours. Anything outside it stays a read.
-          </p>
-        </section>
-      ) : null}
-
-      {activePanel === "search" ? (
-        <section className="space-y-3">
-          {scopedSearchTerms.length > 0 ? (
-            <GoogleSearchStats
-              rows={scopedSearchTerms}
-              active={searchTermFilter}
-              onFilterChange={setSearchTermFilter}
-              currencyFormatter={fmtCurrency}
-            />
-          ) : null}
-          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
-          <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
-          <div className="space-y-2">
-            <SurfaceRecoveryNotice surface={searchSurfaceState} rangeCompletion={searchRangeCompletion} />
-            <SurfaceRecoveryNotice surface={geoSurfaceState} rangeCompletion={geoRangeCompletion} />
-            <SurfaceRecoveryNotice surface={deviceSurfaceState} rangeCompletion={deviceRangeCompletion} />
-          </div>
-          {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-[14px]" />)}</div>
-          ) : scopedSearchTerms.length === 0 && topGeoRows.length === 0 && topDeviceRows.length === 0 ? (
-            <EmptyState title={insightsEmptyState.title} description={insightsEmptyState.description} />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
-                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">PMax {searchSourceCounts.pmax}</span>
-                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
-                <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Negative {searchTermNegativeRows.length}</span>
-                <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Positive {searchTermPositiveRows.length}</span>
-              </div>
-
-              {/* Escape hatch. The design closes this screen on the served
-                  tables, but an operator who decides to act still needs a way
-                  out to Google Ads, and it has to be aimed at the account these
-                  numbers actually cover. */}
-              <div className="rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-3 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
-                      Escape hatch
-                    </p>
-                    <p className="m-0 mt-0.5 text-[11px] text-[var(--adv-ink-3)]">
-                      Read-only hop into Google Ads, scoped to the account in view.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px]">
-                    <button
-                      type="button"
-                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
-                      title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
-                      onClick={() => {
-                        // Reported from the clipboard's own result: a browser
-                        // with no Clipboard API, or a denied permission, must
-                        // not record a clean success for a copy that never
-                        // happened.
-                        void reportGoogleEscapeHatch({
-                          eventName: "google_copy_used",
-                          businessId,
-                          itemCount: searchTermNegativeRows.length,
-                          run: () => {
-                            if (!navigator.clipboard?.writeText) {
-                              return Promise.reject(new Error("clipboard_unavailable"));
-                            }
-                            return navigator.clipboard.writeText(
-                              buildNegativeKeywordList(searchTermNegativeRows, "phrase"),
-                            );
-                          },
-                        });
-                      }}
-                    >
-                      Copy negatives
-                    </button>
-                    <button
-                      type="button"
-                      className="h-[26px] rounded-[8px] border border-[var(--adv-border)] bg-[var(--adv-surface)] px-2.5 text-[11px] font-semibold text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
-                      title="Download the scoped search terms as CSV"
-                      onClick={() => {
-                        void reportGoogleEscapeHatch({
-                          eventName: "google_csv_used",
-                          businessId,
-                          itemCount: scopedSearchTerms.length,
-                          run: async () => {
-                            const csv = buildSearchTermCsv(scopedSearchTerms);
-                            const url = URL.createObjectURL(
-                              new Blob([csv], { type: "text/csv;charset=utf-8" }),
-                            );
-                            const anchor = document.createElement("a");
-                            anchor.href = url;
-                            anchor.download = "search-terms.csv";
-                            anchor.click();
-                            URL.revokeObjectURL(url);
-                          },
-                        });
-                      }}
-                    >
-                      Download CSV
-                    </button>
-                    {scopedSearchTerms.length > 0 ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="font-[family-name:var(--adv-font-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--adv-ink-4)]">
-                          Search terms
-                        </span>
-                        {/*
-                          Scoped deep link into Google Ads. Refused rather than
-                          guessed when the account cannot be named -- landing on
-                          the wrong account is worse than no link, because the
-                          operator then acts on someone else's data. The guard
-                          and the href call the same builder with the same
-                          target, so a refused link cannot render as an anchor
-                          pointing nowhere.
-                        */}
-                        {buildGoogleAdsDeepLink({
-                          accountId: advisorExecutionAccountId,
-                          target: { kind: "search_terms" },
-                        }) ? (
-                          <a
-                            href={
-                              buildGoogleAdsDeepLink({
-                                accountId: advisorExecutionAccountId,
-                                target: { kind: "search_terms" },
-                              }) ?? undefined
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-md border border-[var(--adv-border)] bg-[var(--adv-fill)] px-2 py-0.5 text-[var(--adv-ink-2)] hover:bg-[var(--adv-surface)]"
-                            onClick={() =>
-                              emitProductInstrumentation({
-                                eventName: "google_deep_link_used",
-                                surface: "google_ads",
-                                outcome: "ok",
-                                scope: "business",
-                                businessId,
-                                provider: "google",
-                              })
-                            }
-                          >
-                            {describeGoogleAdsDeepLink({ kind: "search_terms" })}
-                          </a>
-                        ) : null}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              {/* The design renders one served search-terms table, not two
-                  ad-hoc waste/opportunity lists. */}
-              <GoogleSearchTermsTable
-                rows={
-                  searchTermFilter === "waste" || searchTermFilter === "negative"
-                    ? searchTermNegativeRows
-                    : searchTermFilter === "opportunity"
-                      ? searchTermPositiveRows
-                      : scopedSearchTerms
-                }
-                currencyFormatter={fmtCurrency}
-              />
-
-              {/* The design closes the screen on the served keyword report. */}
-              <GoogleKeywordsTable
-                rows={keywordsData?.rows ?? []}
-                currencyFormatter={fmtCurrency}
-              />
-
-              <div className="grid gap-2 xl:grid-cols-2">
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
-                  <div className="mt-2 space-y-1.5">
-                    {topGeoRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {geoSurfaceState && geoSurfaceState.state !== "ready"
-                          ? geoSurfaceState.message
-                          : geoEmptyState.description}
-                      </p>
-                    ) : (
-                      topGeoRows.map((row, index) => (
-                        <div
-                          key={`${row.country}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
-                        >
-                          <span className="truncate font-medium">{row.country}</span>
-                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
-                  <div className="mt-2 space-y-1.5">
-                    {topDeviceRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {deviceSurfaceState && deviceSurfaceState.state !== "ready"
-                          ? deviceSurfaceState.message
-                          : deviceEmptyState.description}
-                      </p>
-                    ) : (
-                      topDeviceRows.map((row, index) => (
-                        <div
-                          key={`${row.device}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
-                        >
-                          <span className="truncate font-medium">{row.device}</span>
-                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-          </div>
-        </section>
-      ) : null}
-
-      {activePanel === "assetGroupAudience" ? (
-        <section className="space-y-3 rounded-[14px] border border-border/70 bg-card p-3">
-          <p className="text-xs text-muted-foreground">Asset group performance, search theme alignment, and audience risks by campaign</p>
-          <div className="space-y-2">
-            <SurfaceRecoveryNotice
-              surface={assetGroupSurfaceState}
-              rangeCompletion={assetGroupRangeCompletion}
-            />
-            <SurfaceRecoveryNotice
-              surface={audienceSurfaceState}
-              rangeCompletion={audienceRangeCompletion}
-            />
-          </div>
-          {isAssetGroupsLoading || isAudiencesLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-[14px]" />)}</div>
-          ) : (
-            <div className="space-y-3">
-              {campaignSignalCards.length === 0 ? (
-                <EmptyState
-                  title={assetGroupEmptyState.title}
-                  description={assetGroupEmptyState.description}
-                />
-              ) : (
-                <div className="max-h-[420px] space-y-2.5 overflow-auto pr-1">
-                  {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
-                    <div key={campaign.id} className="rounded-lg border border-border/70 bg-card p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold">{campaign.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                      <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Theme match {fmtPct(themeAlignment)} ({alignedThemes}/{totalThemes})</span>
-                      <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakAudienceSegments.length === 0 ? "bg-[var(--adc-pos-bg)]/40 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/40 text-[var(--adc-danger-fg)]")}>Audience risk {weakAudienceSegments.length}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {groups.map((group) => {
-                      const groupThemeCount = group.searchThemeCount ?? group.searchThemes?.length ?? 0;
-                      const groupAlignedCount = group.searchThemeAlignedCount ?? 0;
-                      const groupThemeAlignment = groupThemeCount > 0 ? (groupAlignedCount / groupThemeCount) * 100 : 0;
-
-                      return (
-                        <div key={group.id} className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
-                          <div className="mb-2 flex flex-wrap gap-1">
-                            {focusedAssetGroups.some(
-                              (name) => name.toLowerCase().trim() === group.name.toLowerCase().trim()
-                            ) ? (
-                              <span className="rounded-full border border-border/70 bg-[var(--adc-info-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-info-fg)]">
-                                Advisor focus
-                              </span>
-                            ) : null}
-                            {(group.coverageScore ?? 0) < 50 || group.messagingMismatchCount ? (
-                              <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-danger-fg)]">
-                                Weak structure
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-semibold">{group.name}</p>
-                              <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
-                            </div>
-                            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-[var(--adc-pos-bg)]/50 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/50 text-[var(--adc-danger-fg)]")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
-                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-danger-fg)]">{group.messagingMismatchCount} mismatch</span> : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="rounded-lg border border-border/70 bg-card p-3">
-                <p className="text-xs font-semibold tracking-tight">Audience signals</p>
-                {(() => {
-                  const rows = [...(audiencesData?.rows ?? [])]
-                    .sort((a, b) => b.spend - a.spend)
-                    .slice(0, 8);
-                  if (rows.length === 0) {
-                    return (
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        {audienceSurfaceState && audienceSurfaceState.state !== "ready"
-                          ? audienceSurfaceState.message
-                          : audienceEmptyState.description}
-                      </p>
-                    );
-                  }
-                  return (
-                    <div className="mt-2 space-y-1.5">
-                      {rows.map((row, index) => (
-                        <div
-                          key={`${row.campaign ?? "audience"}-${row.type}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{row.type}</p>
-                            <p className="truncate text-[10px] text-muted-foreground">
-                              {row.campaign ?? "Campaign signal"}
-                            </p>
-                          </div>
-                          <span className="text-muted-foreground">
-                            Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-          {assetGroupAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel
-              advisor={assetGroupAdvisor}
-              onFocusEntity={focusAdvisorEntity}
-              businessId={businessId}
-              accountId={advisorExecutionAccountId}
-              onRefreshAdvisor={refreshAdvisorView}
-            />
-          ) : (
-            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
-          )}
-        </section>
-      ) : null}
-
-      {activePanel === "products" ? (
-        <section className="space-y-3">
-          {productRows.length > 0 ? (
-            <GoogleFeedTiles rows={productRows} currencyFormatter={fmtCurrency} />
-          ) : null}
-          <div className="grid gap-3 items-start [grid-template-columns:minmax(0,1.6fr)_minmax(290px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
-          <div className="flex flex-col gap-3">
-          <SurfaceRecoveryNotice surface={productSurfaceState} rangeCompletion={productRangeCompletion} />
-          {isProductsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-[14px]" />)}</div>
-          ) : productRows.length === 0 ? (
-            <EmptyState title={productsEmptyState.title} description={productsEmptyState.description} />
-          ) : (
-            <GoogleProductsTable
-              rows={productRows}
-              currencyFormatter={fmtCurrency}
-              focusedTitles={focusedProducts}
-            />
-          )}
-          {productsAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel
-              advisor={productsAdvisor}
-              onFocusEntity={focusAdvisorEntity}
-              businessId={businessId}
-              accountId={advisorExecutionAccountId}
-              onRefreshAdvisor={refreshAdvisorView}
-            />
-          ) : (
-            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
-          )}
-          </div>
-          <GoogleAllocationRead
-            recommendations={summaryAdvisor?.recommendations ?? []}
-            layer="Shopping & Products"
-            subtitle="advisor · product allocation"
-            footnote="Cluster reads are directional — restructures apply from Advisor → Plan as guarded writes."
-          />
-          </div>
-          {/* The design closes Products on the Merchant Center boundary note. */}
-          <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] text-[var(--adv-ink-4)]">
-            A disapproval blocks the whole listing group — the fix lives in
-            Merchant Center, never edited here.
-          </p>
-        </section>
-      ) : null}
-
-      {activePanel === "assets" ? (
-        <section className="flex flex-col gap-4">
-          {/* The design switches this screen between three surfaces with one
-              pill row: the PMax asset groups, the served assets, the audiences. */}
-          <div className="flex flex-wrap gap-2">
-            {ASSET_VIEWS.map((view) => (
-              <button
-                key={view.key}
-                type="button"
-                onClick={() => setAssetView(view.key)}
-                className={cn(
-                  "inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-[13px] text-[12.5px] font-semibold transition-colors",
-                  assetView === view.key
-                    ? "border-[var(--adv-accent-bd)] bg-[var(--adv-accent-bg)] text-[var(--adv-accent)]"
-                    : "border-[var(--adv-border)] bg-[var(--adv-surface)] text-[var(--adv-ink-2)] hover:bg-[var(--adv-fill)]"
-                )}
-              >
-                {view.label}
-              </button>
-            ))}
-          </div>
-
-          {assetView === "groups" ? (
-            isAssetGroupsLoading ? (
-              <Skeleton className="h-40 w-full rounded-[14px]" />
-            ) : (assetGroupData?.rows?.length ?? 0) === 0 ? (
-              <EmptyState
-                title={assetGroupEmptyState.title}
-                description={assetGroupEmptyState.description}
-              />
-            ) : (
-              <GoogleAssetGroupsTable
-                rows={assetGroupData?.rows ?? []}
-                currencyFormatter={fmtCurrency}
-                focusedNames={focusedAssetGroups}
-                footnote={assetGroupQueueNote}
-              />
-            )
-          ) : null}
-
-          {assetView === "assets" ? (
-            isAssetsLoading ? (
-              <Skeleton className="h-40 w-full rounded-[14px]" />
-            ) : scopedAssets.length === 0 ? (
-              <EmptyState
-                title={assetsEmptyState.title}
-                description={assetsEmptyState.description}
-              />
-            ) : (
-              <GoogleAssetPair
-                assets={scopedAssets}
-                focusedLabels={focusedAssets}
-                labelOf={getAssetDisplayLabel}
-              />
-            )
-          ) : null}
-
-          {assetView === "audiences" ? (
-            isAudiencesLoading ? (
-              <Skeleton className="h-40 w-full rounded-[14px]" />
-            ) : (audiencesData?.rows?.length ?? 0) === 0 ? (
-              <EmptyState
-                title={audienceEmptyState.title}
-                description={audienceEmptyState.description}
-              />
-            ) : (
-              <GoogleAudiencesTable
-                rows={audiencesData?.rows ?? []}
-                currencyFormatter={fmtCurrency}
-                footnote="Attach or detach applies from the Plan page as a guarded write — this view stays analysis."
-              />
-            )
-          ) : null}
-
-          <div className="grid gap-3 items-start [grid-template-columns:minmax(0,1.6fr)_minmax(290px,1fr)] max-[1100px]:[grid-template-columns:minmax(0,1fr)]">
-          <div className="space-y-3 rounded-[14px] border border-[var(--adv-border)] bg-[var(--adv-surface)] p-3">
-          <p className="text-xs text-muted-foreground">Instantly highlights weak headline, description, image, and video assets</p>
-          <SurfaceRecoveryNotice surface={assetSurfaceState} rangeCompletion={assetRangeCompletion} />
-          {isAssetsLoading ? (
-            <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-[14px]" />)}</div>
-          ) : scopedAssets.length === 0 ? (
-            <EmptyState title={assetsEmptyState.title} description={assetsEmptyState.description} />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                <span className="rounded-full border border-border/70 bg-[var(--adc-danger-bg)]/40 px-2 py-0.5 text-[var(--adc-danger-fg)]">Underperforming {underperformingAssets.length}</span>
-                <span className="rounded-full border border-border/70 bg-[var(--adc-pos-bg)]/40 px-2 py-0.5 text-[var(--adc-pos-fg)]">Top assets {topAssets.length}</span>
-                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Total assets {scopedAssets.length}</span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                {["Headline", "Description", "Image", "Video"].map((type) => {
-                  const list = weakAssetsByType.get(type) ?? [];
-                  return (
-                    <div key={type} className="rounded-lg border border-border/70 bg-card p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-xs font-semibold">{type}</p>
-                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-[var(--adc-pos-bg)]/50 text-[var(--adc-pos-fg)]" : "bg-[var(--adc-danger-bg)]/50 text-[var(--adc-danger-fg)]")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
-                      </div>
-                      {list.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {list.map((asset) => (
-                            <div
-                              key={asset.id}
-                              className={cn(
-                                "rounded-md border border-border/70 bg-muted/20 p-2",
-                                focusedAssets.some(
-                                  (name) =>
-                                    name.toLowerCase().trim() ===
-                                    getAssetDisplayLabel(asset)
-                                      .toLowerCase()
-                                      .trim()
-                                ) && "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]/40"
-                              )}
-                            >
-                              <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
-                              {focusedAssets.some(
-                                (name) =>
-                                  name.toLowerCase().trim() ===
-                                  getAssetDisplayLabel(asset)
-                                    .toLowerCase()
-                                    .trim()
-                              ) ? (
-                                <div className="mt-1">
-                                  <span className="rounded-full border border-border/70 bg-[var(--adc-caution-bg)]/40 px-1.5 py-0.5 text-[9px] text-[var(--adc-caution-fg)]">
-                                    Advisor replace focus
-                                  </span>
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {assetsAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel
-              advisor={assetsAdvisor}
-              onFocusEntity={focusAdvisorEntity}
-              businessId={businessId}
-              accountId={advisorExecutionAccountId}
-              onRefreshAdvisor={refreshAdvisorView}
-            />
-          ) : (
-            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
-          )}
-          </div>
-          <GoogleAllocationRead
-            recommendations={summaryAdvisor?.recommendations ?? []}
-            layer="Assets & Testing"
-            title="Asset read"
-            subtitle="advisor · asset & audience coverage"
-            footnote="Asset reads are directional — replacements apply from Advisor → Plan as guarded writes."
-          />
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

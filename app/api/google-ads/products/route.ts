@@ -4,6 +4,10 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsProducts } from "@/lib/demo-business";
 import { getGoogleAdsProductsReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
 
 export async function GET(request: NextRequest) {
   const { businessId, accountId, dateRange, customStart, customEnd, debug } =
@@ -18,6 +22,18 @@ export async function GET(request: NextRequest) {
 
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsProducts());
+  }
+
+  if (accountId && accountId !== "all") {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId, accountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
   }
 
   const report = await getGoogleAdsProductsReport({
@@ -35,6 +51,10 @@ export async function GET(request: NextRequest) {
     count: report.rows.length,
     summary: report.summary,
     insights: report.insights,
+    // Merchant Center feed evidence. `null` is the honest answer when no
+    // Merchant Center read has landed for this account; the screen prints the
+    // em dash rather than a zero it cannot stand behind.
+    feed: report.feed,
     meta: report.meta,
   };
   return NextResponse.json(payload);

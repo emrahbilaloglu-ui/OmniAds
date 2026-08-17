@@ -65,8 +65,17 @@ export async function resolveProviderAccountId(input: {
   businessId: string;
   provider: "meta" | "google";
   requestedAccountId?: string | null;
+  /**
+   * Reuse an already-authorized catalog when the route also needs account
+   * presentation metadata. This keeps identity and the chosen id on one
+   * assignment snapshot instead of racing two independent reads.
+   */
+  catalog?: ProviderScopeCatalog;
 }): Promise<string | null> {
-  const catalog = await readProviderScopeCatalog(input.businessId, input.provider);
+  const catalog =
+    input.catalog?.provider === input.provider
+      ? input.catalog
+      : await readProviderScopeCatalog(input.businessId, input.provider);
   const requested = input.requestedAccountId?.trim() || null;
   if (requested) {
     return catalog.accounts.some((account) => account.id === requested) ? requested : null;

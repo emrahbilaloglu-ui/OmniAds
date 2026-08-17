@@ -1,5 +1,8 @@
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { normalizeGoogleCustomerId } from "@/lib/google-ads/account-id";
+
+export { normalizeGoogleCustomerId } from "@/lib/google-ads/account-id";
 
 /**
  * Tri-state current-selection authority for a Google Ads customer.
@@ -24,9 +27,12 @@ export interface GoogleAdsAccountAuthorityDecision {
   errorMessage: string | null;
 }
 
-/** Digits only: `123-456-7890`, `1234567890` and `  1234567890 ` are one id. */
-export function normalizeGoogleCustomerId(value: string | null | undefined): string {
-  return String(value ?? "").replace(/[^0-9]/g, "");
+export interface GoogleAdsReadAccountAuthorityFailure {
+  code:
+    | typeof GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE
+    | typeof GOOGLE_ADS_ACCOUNT_AUTHORITY_UNKNOWN_CODE;
+  httpStatus: 409 | 503;
+  message: string;
 }
 
 export const GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE = "google_account_not_selected";
@@ -81,6 +87,56 @@ export async function resolveGoogleAdsAccountAuthority(
       errorMessage: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * Assignment-only authority for persisted reporting reads.
+ *
+ * Unlike provider mutation, a warehouse read does not require a currently
+ * connected credential. It does require the customer to remain explicitly
+ * assigned to this business. This keeps historical reporting available during
+ * reconnects without letting a request select any customer visible to a shared
+ * credential.
+ */
+export async function resolveGoogleAdsReadAccountAuthority(
+  businessId: string,
+  accountId: string,
+): Promise<GoogleAdsAccountAuthorityDecision> {
+  try {
+    const assignments = await getProviderAccountAssignments(businessId, "google");
+    const wanted = normalizeGoogleCustomerId(accountId);
+    if (!wanted) return { state: "confirmed_revoked", errorMessage: null };
+    const selected = (assignments?.account_ids ?? []).map(normalizeGoogleCustomerId);
+    return selected.includes(wanted)
+      ? { state: "authorized", errorMessage: null }
+      : { state: "confirmed_revoked", errorMessage: null };
+  } catch (error) {
+    return {
+      state: "unknown_error",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/** A route-ready refusal, or null when the reporting account is authorized. */
+export function googleAdsReadAccountAuthorityFailure(
+  authority: GoogleAdsAccountAuthorityDecision,
+): GoogleAdsReadAccountAuthorityFailure | null {
+  if (authority.state === "authorized") return null;
+  if (authority.state === "unknown_error") {
+    return {
+      code: GOOGLE_ADS_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
+      httpStatus: 503,
+      message:
+        "Could not verify that this Google Ads account is assigned to the business. No reporting data was read.",
+    };
+  }
+  return {
+    code: GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE,
+    httpStatus: 409,
+    message:
+      "This Google Ads account is not assigned to this business. No reporting data was read.",
+  };
 }
 
 /**

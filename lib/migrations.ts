@@ -3609,6 +3609,11 @@ export async function runMigrations(options?: {
           payload_json               JSONB,
           response_json              JSONB,
           error_message              TEXT,
+          -- The seat that authored the guarded write, as the authorized
+          -- session's own user id. Nullable: a write this column predates, and
+          -- any write with no session behind it, stays NULL and is never
+          -- attributed to anyone.
+          actor_user_id              TEXT,
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
         sql`CREATE TABLE IF NOT EXISTS google_ads_advisor_snapshots (
@@ -4667,6 +4672,235 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (business_id, decision_type)
         )`.catch(() => {}),
+        // ── Automation rules and the ONE confirmation queue ───────────────────
+        //
+        // There is a single queue table. `meta_automation_proposals` holds both
+        // kinds of row the design's "Needs your confirmation" list shows, and
+        // `origin` is the discriminator:
+        //
+        //   'engine_decision'  — a PROJECTION of one persisted engine decision
+        //                        (`meta_decision_snapshots_daily`). Its
+        //                        descriptive columns are copied from the
+        //                        decision row; `rec_id` / `rec_type` /
+        //                        `engine_version` / `decision_label` are its
+        //                        lineage and are required.
+        //   'automation_rule'  — raised by a deterministic rule firing. It has
+        //                        no engine decision behind it, so those four
+        //                        lineage columns are NULL rather than filled
+        //                        with a rule id wearing an engine's clothes;
+        //                        `rule_id` and `dedupe_key` are required
+        //                        instead. `snapshot_date` stays required and
+        //                        carries the warehouse day the verdict was
+        //                        computed for, which is the same fact the
+        //                        engine's snapshot day is.
+        //
+        // The lineage CHECK below is what stops either shape from degrading
+        // into the other. A rule NEVER writes to a provider: the only thing it
+        // can produce here is a `pending` row, and only the queue's own approve
+        // path can execute one.
+        //
+        // ORDER IS LOAD-BEARING. Statements inside a batch array start
+        // immediately and are not issued in order, so an FK-dependent CREATE
+        // must run after the table it references. `meta_automation_proposals`
+        // references `meta_automation_rules`, and `meta_automation_rule_firings`
+        // references `meta_automation_proposals`.
+        orderedMigrationSteps([
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rules (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset')),
+          trigger_json JSONB NOT NULL,
+          action_json JSONB NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'confirm'
+            CHECK (mode IN ('confirm', 'suggest', 'enforced')),
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (business_id, name)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rules_business
+          ON meta_automation_rules (business_id, created_at ASC)`.catch(
+              () => {},
+            ),
+          // `proposed_action` and `scope_type` carry the full allowlist the
+          // dispatch contract knows about even though only the subset that has
+          // a real guarded endpoint is ever written; widening a CHECK later
+          // would mean rewriting a column, which this file does not do.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_proposals (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id TEXT NOT NULL,
+          origin TEXT NOT NULL DEFAULT 'engine_decision'
+            CHECK (origin IN ('engine_decision', 'automation_rule')),
+          rule_id UUID REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          dedupe_key TEXT,
+          decision_key TEXT NOT NULL,
+          scope_type TEXT NOT NULL
+            CHECK (scope_type IN ('campaign', 'adset', 'ad')),
+          scope_id TEXT NOT NULL,
+          rec_id TEXT,
+          rec_type TEXT,
+          snapshot_date DATE NOT NULL,
+          engine_version TEXT,
+          decision_label TEXT,
+          proposed_action TEXT NOT NULL
+            CHECK (proposed_action IN ('pause', 'resume', 'bid', 'duplicate')),
+          action_label TEXT NOT NULL,
+          primary_caption TEXT NOT NULL,
+          entity_label TEXT,
+          reason TEXT NOT NULL,
+          evidence_label TEXT,
+          evidence_ref JSONB NOT NULL DEFAULT '{}'::jsonb,
+          expires_at TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'approved', 'failed', 'modified', 'dismissed', 'expired')),
+          decided_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          decided_at TIMESTAMPTZ,
+          decision_note TEXT,
+          receipt_json JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`.catch(() => {}),
+          // Additive repair for a database that already ran the projection-only
+          // shape of this table. Every statement is idempotent, and none of
+          // them drops anything.
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'engine_decision'`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS rule_id UUID REFERENCES meta_automation_rules(id) ON DELETE CASCADE`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS dedupe_key TEXT`.catch(() => {}),
+          // A rule-raised row has no engine lineage to put here. Relaxing the
+          // four lineage columns is a widening, never a data loss, and the
+          // CHECK below keeps the projection's own rows complete.
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ALTER COLUMN rec_id DROP NOT NULL,
+          ALTER COLUMN rec_type DROP NOT NULL,
+          ALTER COLUMN engine_version DROP NOT NULL,
+          ALTER COLUMN decision_label DROP NOT NULL`.catch(() => {}),
+          () =>
+            sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.conname = 'meta_automation_proposals_origin_check'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_origin_check
+                CHECK (origin IN ('engine_decision', 'automation_rule'));
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.conname = 'meta_automation_proposals_origin_lineage'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_origin_lineage
+                CHECK (
+                  (origin = 'engine_decision'
+                     AND rule_id IS NULL
+                     AND dedupe_key IS NULL
+                     AND rec_id IS NOT NULL
+                     AND rec_type IS NOT NULL
+                     AND engine_version IS NOT NULL
+                     AND decision_label IS NOT NULL)
+                  OR
+                  (origin = 'automation_rule'
+                     AND rule_id IS NOT NULL
+                     AND dedupe_key IS NOT NULL
+                     AND rec_id IS NULL
+                     AND rec_type IS NULL
+                     AND engine_version IS NULL
+                     AND decision_label IS NULL)
+                );
+            END IF;
+          END $$;`.catch(() => {}),
+          // The projection's own idempotency key: one proposal per decision per
+          // snapshot day.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_projection
+          ON meta_automation_proposals (business_id, provider_account_id, decision_key, rec_type, snapshot_date)`.catch(
+              () => {},
+            ),
+          // The rule intake's idempotency key: one proposal per firing.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_dedupe
+          ON meta_automation_proposals (dedupe_key)
+          WHERE dedupe_key IS NOT NULL`.catch(() => {}),
+          // ONE pending row per entity per action, whatever raised it. This is
+          // what stops a rule firing and an engine projection from queueing the
+          // same pause twice — two rows would be two chances to do the same
+          // thing, and the header count would double-count them.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_pending_slot
+          ON meta_automation_proposals (business_id, provider_account_id, decision_key, proposed_action)
+          WHERE status = 'pending'`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_proposals_queue
+          ON meta_automation_proposals (business_id, provider_account_id, status, expires_at DESC)`.catch(
+              () => {},
+            ),
+          // The real events behind "Fired · 28d". One row per rule/entity/day,
+          // so re-running an evaluation over an unchanged warehouse day is a
+          // no-op rather than a second count. `proposal_id` points at the queue
+          // row this firing raised — or joined, when another firing already
+          // holds the entity's pending slot — so the count of firings and the
+          // count of queued proposals stay independent facts.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rule_firings (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          rule_id UUID NOT NULL REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          provider_account_id TEXT,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset', 'account')),
+          entity_id TEXT NOT NULL,
+          entity_name TEXT,
+          evaluated_for_date DATE NOT NULL,
+          outcome TEXT NOT NULL
+            CHECK (outcome IN ('proposal_raised', 'hard_block_recorded')),
+          reason TEXT NOT NULL,
+          evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          proposal_id UUID REFERENCES meta_automation_proposals(id) ON DELETE SET NULL,
+          fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (rule_id, entity_id, evaluated_for_date)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_business_window
+          ON meta_automation_rule_firings (business_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_rule_window
+          ON meta_automation_rule_firings (rule_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+        ]),
         sql`DO $$
           DECLARE
             action_constraint_name TEXT;
@@ -4822,8 +5056,16 @@ export async function runMigrations(options?: {
           payload_json JSONB,
           response_json JSONB,
           error_message TEXT,
+          actor_user_id TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        // Additive for every database that already has the table: the Plan
+        // screen's `Who` column reads it. Nullable and never back-filled —
+        // rows written before this ran keep the em dash instead of being
+        // attributed to a seat that may not have authored them.
+        sql`ALTER TABLE google_ads_advisor_execution_logs ADD COLUMN IF NOT EXISTS actor_user_id TEXT`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_state (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -8349,6 +8591,46 @@ export async function runMigrations(options?: {
         ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_product_dimensions_product
           ON google_ads_product_dimensions (product_key, updated_at DESC)`.catch(
+          () => {},
+        ),
+        // ── Merchant Center per-item state ────────────────────────────────
+        //
+        // CURRENT state, not a daily fact, so it is keyed like a dimension and
+        // NOT partitioned by date: an item is approved or it is not, and there
+        // is no such thing as yesterday's approval. `observed_at` is when the
+        // read happened, which is the only date this row has and the one the
+        // `Feed synced` tile prints.
+        //
+        // `merchant_center_id` is stored per row rather than per account because
+        // it is what the provider returned for THIS item; a Google Ads account
+        // can be linked to more than one Merchant Center account, and collapsing
+        // them to one id per business would be an invention.
+        sql`CREATE TABLE IF NOT EXISTS google_merchant_center_item_state (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          merchant_center_id      TEXT,
+          item_id                 TEXT NOT NULL,
+          product_title           TEXT,
+          feed_label              TEXT,
+          language_code           TEXT,
+          channel                 TEXT,
+          availability            TEXT,
+          raw_status              TEXT,
+          feed_state              TEXT NOT NULL,
+          issues_json             JSONB NOT NULL DEFAULT '[]'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          observed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, item_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_merchant_center_item_state_business_account
+          ON google_merchant_center_item_state (business_id, provider_account_id, observed_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_merchant_center_item_state_item
+          ON google_merchant_center_item_state (item_id, observed_at DESC)`.catch(
           () => {},
         ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_dimensions (
@@ -13869,6 +14151,47 @@ export async function runMigrations(options?: {
       `);
       await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
+      // ── Klaviyo lifecycle warehouse ───────────────────────────────────────
+      //
+      // The five columns the design's Klaviyo table shows (design 1710-1727),
+      // at rest, per flow, per window.
+      //
+      // Every metric column is NULLABLE and carries NO DEFAULT, deliberately.
+      // `NOT NULL DEFAULT 0` — which the neighbouring ads tables use, correctly,
+      // because a day with no spend really did cost nothing — would be a lie
+      // here: Klaviyo's value report omits a statistic it cannot compute, and a
+      // stored 0 would render as "$0" / "0%" on a screen whose contract is that
+      // an unsupplied fact renders an em-dash. NULL is that em-dash at rest.
+      //
+      // The natural key is (business, account, flow, window) so a re-sync
+      // overwrites the snapshot rather than accumulating duplicates, and a
+      // second Klaviyo account under the same business cannot collide with the
+      // first.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS klaviyo_flow_metrics (
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          flow_id             TEXT NOT NULL,
+          window_days         INTEGER NOT NULL CHECK (window_days > 0),
+          window_start        DATE NOT NULL,
+          window_end          DATE NOT NULL,
+          flow_name           TEXT,
+          flow_status         TEXT,
+          currency            TEXT,
+          revenue             NUMERIC(18, 4),
+          open_rate           NUMERIC(9, 6) CHECK (open_rate IS NULL OR open_rate >= 0),
+          recipients          BIGINT CHECK (recipients IS NULL OR recipients >= 0),
+          source_fetched_at   TIMESTAMPTZ NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, flow_id, window_days)
+        )
+      `);
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_klaviyo_flow_metrics_business_window
+         ON klaviyo_flow_metrics (business_id, window_days, source_fetched_at DESC)`,
+      );
+
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([
           sql`DROP TABLE IF EXISTS provider_account_snapshots`.catch(() => {}),
@@ -14058,6 +14381,72 @@ export async function runMigrations(options?: {
       await sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS progress_json JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
         () => {},
       );
+
+      // ── Automation control-plane tuple + guardrail policy ─────────────────
+      //
+      // Additive and nullable throughout, with no backfill and no default.
+      //
+      // The Automation screen's activity table has Actor / Entity / Result
+      // columns and its autonomy ladder has a ROAS floor, a quiet-hours window
+      // and a per-action promotion target. None of those facts had anywhere to
+      // live, so five of the screen's fields rendered an em dash regardless of
+      // what the operator had actually decided. These columns give them a home.
+      //
+      // A row written before this batch keeps rendering the em dash: that is the
+      // correct answer for it, because nobody recorded the fact. Seeding a value
+      // (the prototype's 2.50 floor, its 30-approval target) would put a number
+      // this system never agreed to under a caption that reads as policy.
+      //
+      // The actor's USER ID is deliberately not a new column: the ledger already
+      // has `created_by UUID REFERENCES users(id)`, filled at every write site,
+      // and the row's author and its actor are the same person. `actor_kind`
+      // adds the type that column never carried; a second uuid would be a second
+      // source of truth for one fact.
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS actor_kind TEXT
+          CHECK (actor_kind IS NULL OR actor_kind IN ('operator', 'system'))`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS entity_type TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS entity_id TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS result_status TEXT
+          CHECK (
+            result_status IS NULL
+            OR result_status IN ('applied', 'blocked', 'failed', 'recorded')
+          )`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS result_receipt_id TEXT`.catch(() => {}),
+        // Guardrail policy lives in real columns rather than in
+        // `guardrails_json`, whose column DEFAULT is a literal JSON document —
+        // a value inside it cannot be told apart from one the server supplied.
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS min_roas_floor NUMERIC(10,4)
+          CHECK (min_roas_floor IS NULL OR min_roas_floor > 0)`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_start TIME`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_end TIME`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_timezone TEXT`.catch(() => {}),
+        // Per business AND action kind, not a shared constant: this number is
+        // the denominator of an audit statement, so a deploy must not be able to
+        // rewrite the progress every business has already been shown.
+        sql`ALTER TABLE meta_automation_decision_type_modes
+          ADD COLUMN IF NOT EXISTS clean_approval_threshold INTEGER
+          CHECK (clean_approval_threshold IS NULL OR clean_approval_threshold >= 1)`.catch(
+          () => {},
+        ),
+        // The clean-approval streak is counted from operator-attributed
+        // provider writes of one action kind since the tier started, which is a
+        // keyed scan of the action log this index serves.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_clean_approvals
+          ON meta_ads_action_log (business_id, action, status, requested_at DESC)
+          WHERE requested_by IS NOT NULL`.catch(() => {}),
+      ]);
 
       // ── Shopify install grants at rest ────────────────────────────────────
       //

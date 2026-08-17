@@ -1,13 +1,57 @@
 import type { SearchConsoleAnalyticsRow } from "@/lib/seo/intelligence";
 
-export type SeoFindingSeverity = "critical" | "warning" | "opportunity";
+/**
+ * The design's Technical findings ladder is Critical / Warning / Passed — a
+ * per-page verdict. `passed` is the fourth member: a page that cleared every
+ * check the audit was actually able to run on it. It is emitted, never
+ * derived, so the panel's Passed card reports a measured count rather than a
+ * subtraction that only holds when no page carries an `opportunity` alone.
+ */
+export type SeoFindingSeverity = "critical" | "warning" | "opportunity" | "passed";
 export type SeoFindingCategory =
   | "crawl"
   | "indexation"
   | "canonical"
   | "metadata"
   | "content"
-  | "structured-data";
+  | "structured-data"
+  /** Spans every category above — the verdict for a page, not for one check. */
+  | "site-health";
+
+/**
+ * Individual checks `runPageChecks` can evaluate. A check only enters a page's
+ * `checksRun` list when it actually executed on that page: type-gated checks
+ * (robots/canonical/structured data) are absent for page types they do not
+ * apply to, and `url-inspection` is absent for every URL Google was not asked
+ * about. A passing finding names the subset it cleared instead of implying a
+ * clean bill of health across checks that never ran.
+ */
+export type SeoPassedCheck =
+  | "crawl-reachable"
+  | "http-status"
+  | "redirect-target"
+  | "robots-noindex"
+  | "canonical-present"
+  | "canonical-target"
+  | "title"
+  | "meta-description"
+  | "h1"
+  | "structured-data"
+  | "url-inspection";
+
+const PASSED_CHECK_LABELS: Record<SeoPassedCheck, string> = {
+  "crawl-reachable": "crawl reachability",
+  "http-status": "HTTP status",
+  "redirect-target": "redirect target",
+  "robots-noindex": "robots noindex directive",
+  "canonical-present": "canonical tag present",
+  "canonical-target": "canonical target",
+  title: "title tag",
+  "meta-description": "meta description",
+  h1: "H1 heading",
+  "structured-data": "structured data",
+  "url-inspection": "Search Console URL Inspection verdict",
+};
 
 export type SeoFindingPageType =
   | "Homepage"
@@ -75,10 +119,21 @@ export interface SeoTechnicalFindingsPayload {
     generatedAt: string;
     urlInspection?: SeoUrlInspectionEvidence;
   };
+  /**
+   * Distinct audited pages per severity. `passed` is disjoint from the other
+   * three by construction — a page only earns a passing finding when it
+   * produced no other finding at all — so
+   * `auditedPageCount === passed + |pages carrying at least one
+   * critical/warning/opportunity finding|` holds exactly. When no page carries
+   * an `opportunity` alone and the critical and warning page sets do not
+   * overlap, that reduces to the design's own arithmetic:
+   * `Pages audited − Critical − Warnings = Passed` (script L4013).
+   */
   summary: {
     critical: number;
     warning: number;
     opportunity: number;
+    passed: number;
   };
   confirmedExcludedPages: Array<
     SeoTechnicalFindingPage & {
@@ -192,12 +247,42 @@ export function buildDemoTechnicalFindings(siteUrl: string): SeoTechnicalFinding
         },
       ],
     },
+    // Kept last so the AI analysis' `findings.slice(0, 2)` still reads the two
+    // failing findings, and so the demo's four cards reconcile: 5 audited =
+    // 2 passed + 3 pages carrying at least one non-passing finding.
+    {
+      id: "passed:product:not-inspected:crawl-reachable+http-status+redirect-target+robots-noindex+canonical-present+canonical-target+title+meta-description+h1+structured-data",
+      severity: "passed",
+      category: "site-health",
+      pageType: "Product",
+      title: "Pages cleared every technical check that ran",
+      description:
+        "Checks that ran on these pages: crawl reachability, HTTP status, redirect target, robots noindex directive, canonical tag present, canonical target, title tag, meta description, H1 heading, structured data. Search Console URL Inspection did not run for these URLs, so Google's own index verdict is not part of this result.",
+      recommendation:
+        "No action needed from this audit. Inspect these URLs in Search Console if you need Google's own index verdict as well.",
+      affectedPages: [
+        {
+          path: "/products/trail-daypack",
+          url: "https://urbantrail.co/products/trail-daypack",
+          pageType: "Product",
+          clicksDelta: 6,
+          impressions: 4120,
+        },
+        {
+          path: "/products/packing-cubes",
+          url: "https://urbantrail.co/products/packing-cubes",
+          pageType: "Product",
+          clicksDelta: 2,
+          impressions: 2980,
+        },
+      ],
+    },
   ];
 
   return {
     meta: {
       siteUrl,
-      auditedPageCount: 3,
+      auditedPageCount: 5,
       generatedAt: new Date().toISOString(),
     },
     summary: summarizeFindings(findings),
@@ -418,29 +503,32 @@ function aggregateFindings(
   const grouped = new Map<string, SeoTechnicalFinding>();
 
   for (const finding of buildInspectionFindings(pages, inspectionMap)) {
-    grouped.set(
-      `${finding.severity}:${finding.category}:${finding.pageType}:${finding.title}`,
-      finding,
-    );
+    grouped.set(findingGroupKey(finding), finding);
   }
 
   for (const finding of buildTemplateRiskFindings(pages, discoveredPaths, inspectionMap)) {
-    grouped.set(
-      `${finding.severity}:${finding.category}:${finding.pageType}:${finding.title}`,
-      finding,
-    );
+    grouped.set(findingGroupKey(finding), finding);
   }
 
+  const checksRunByPath = new Map<string, SeoPassedCheck[]>();
   for (const audit of audits) {
-    for (const finding of buildFindingsForPage(audit)) {
-      const key = `${finding.severity}:${finding.category}:${finding.pageType}:${finding.title}`;
-      const existing = grouped.get(key);
-      if (existing) {
-        existing.affectedPages.push(...finding.affectedPages);
-      } else {
-        grouped.set(key, finding);
-      }
+    const outcome = runPageChecks(audit);
+    checksRunByPath.set(audit.page.path, outcome.checksRun);
+    for (const finding of outcome.findings) {
+      mergeFinding(grouped, finding);
     }
+  }
+
+  // A page passes only once every failing finding is known, including the
+  // inspection and template-risk findings above, which attach pages this
+  // page-level pass never looks at.
+  const flaggedPaths = new Set<string>();
+  for (const finding of grouped.values()) {
+    for (const page of finding.affectedPages) flaggedPaths.add(page.path);
+  }
+
+  for (const finding of buildPassedFindings(audits, checksRunByPath, flaggedPaths, inspectionMap)) {
+    mergeFinding(grouped, finding);
   }
 
   return Array.from(grouped.values())
@@ -452,8 +540,38 @@ function aggregateFindings(
     .sort(compareFindings);
 }
 
-function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
+/**
+ * Passing findings are keyed by id, because their id already encodes the page
+ * type, the URL Inspection state and the exact subset of checks that ran —
+ * everything that makes two passing verdicts the same verdict. Grouping them
+ * on title alone would merge a page that cleared ten checks with one that
+ * cleared six and keep only the first description.
+ */
+function findingGroupKey(finding: SeoTechnicalFinding) {
+  return finding.severity === "passed"
+    ? `passed:${finding.id}`
+    : `${finding.severity}:${finding.category}:${finding.pageType}:${finding.title}`;
+}
+
+function mergeFinding(grouped: Map<string, SeoTechnicalFinding>, finding: SeoTechnicalFinding) {
+  const key = findingGroupKey(finding);
+  const existing = grouped.get(key);
+  if (existing) {
+    existing.affectedPages.push(...finding.affectedPages);
+  } else {
+    grouped.set(key, finding);
+  }
+}
+
+interface PageCheckOutcome {
+  findings: SeoTechnicalFinding[];
+  /** Only the checks that actually executed on this page. */
+  checksRun: SeoPassedCheck[];
+}
+
+function runPageChecks(audit: PageAuditResult): PageCheckOutcome {
   const findings: SeoTechnicalFinding[] = [];
+  const checksRun: SeoPassedCheck[] = [];
   const { page } = audit;
 
   if (
@@ -464,10 +582,12 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     page.pageType !== "Product" &&
     page.pageType !== "Editorial"
   ) {
-    return findings;
+    // No check is evaluated for this page, so it has not passed any.
+    return { findings, checksRun };
   }
 
   if (audit.fetchError || audit.status === null) {
+    checksRun.push("crawl-reachable");
     findings.push(
       createFinding({
         id: `${page.path}-crawl-failed`,
@@ -482,9 +602,11 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
         page,
       }),
     );
-    return findings;
+    // The fetch failed, so nothing downstream of it was evaluated.
+    return { findings, checksRun };
   }
 
+  checksRun.push("crawl-reachable", "http-status");
   if ((audit.status ?? 0) >= 400) {
     findings.push(
       createFinding({
@@ -501,6 +623,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  if (audit.finalUrl) checksRun.push("redirect-target");
   if (audit.finalUrl && normalizeComparableUrl(audit.finalUrl) !== normalizeComparableUrl(page.url)) {
     findings.push(
       createFinding({
@@ -519,6 +642,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
   }
 
   const robots = (audit.robots ?? "").toLowerCase();
+  if (shouldBeIndexable(page.pageType)) checksRun.push("robots-noindex");
   if (shouldBeIndexable(page.pageType) && robots.includes("noindex")) {
     findings.push(
       createFinding({
@@ -536,6 +660,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  if (shouldHaveCanonical(page.pageType)) checksRun.push("canonical-present");
   if (shouldHaveCanonical(page.pageType) && !audit.canonical) {
     findings.push(
       createFinding({
@@ -553,6 +678,8 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  // Only a page that declares a canonical can have its target compared.
+  if (audit.canonical) checksRun.push("canonical-target");
   if (audit.canonical && normalizeComparableUrl(audit.canonical) !== normalizeComparableUrl(page.url)) {
     findings.push(
       createFinding({
@@ -570,6 +697,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  checksRun.push("title");
   if (!audit.title) {
     findings.push(
       createFinding({
@@ -602,6 +730,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  checksRun.push("meta-description");
   if (!audit.metaDescription) {
     findings.push(
       createFinding({
@@ -619,6 +748,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  checksRun.push("h1");
   if (audit.h1Count === 0) {
     findings.push(
       createFinding({
@@ -636,6 +766,7 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
     );
   }
 
+  if (shouldHaveStructuredData(page.pageType)) checksRun.push("structured-data");
   if (shouldHaveStructuredData(page.pageType) && !hasRelevantStructuredData(page.pageType, audit.schemaTypes)) {
     findings.push(
       createFinding({
@@ -651,6 +782,89 @@ function buildFindingsForPage(audit: PageAuditResult): SeoTechnicalFinding[] {
         page,
       }),
     );
+  }
+
+  return { findings, checksRun };
+}
+
+type PassedInspectionState = "confirmed" | "inconclusive" | "not-run";
+
+/**
+ * Google's `UrlInspectionResult.verdict` enum is
+ * `VERDICT_UNSPECIFIED | PASS | PARTIAL | FAIL | NEUTRAL`. Only `PASS` means
+ * "indexed", so only `PASS` lets a passing finding say the index verdict was
+ * part of what it cleared. `PARTIAL` and an unspecified verdict are reported
+ * as inconclusive rather than folded into either outcome.
+ */
+function passedInspectionState(
+  inspection: UrlInspectionSummary | undefined,
+): PassedInspectionState {
+  if (!inspection) return "not-run";
+  return inspection.verdict === "PASS" ? "confirmed" : "inconclusive";
+}
+
+const PASSED_INSPECTION_NOTES: Record<PassedInspectionState, string> = {
+  confirmed:
+    "Search Console URL Inspection returns a PASS verdict for these URLs, so Google's own index status is part of this result.",
+  inconclusive:
+    "Search Console URL Inspection ran for these URLs but did not return a PASS verdict, so Google's own index status is not part of this result.",
+  "not-run":
+    "Search Console URL Inspection did not run for these URLs, so Google's own index verdict is not part of this result.",
+};
+
+/**
+ * Emits one passing finding per audited page that cleared every check the
+ * audit could actually run on it. Three conditions gate a pass, and each one
+ * exists to stop a page being called clean on evidence nobody gathered:
+ *
+ * 1. the page carries no other finding at all — including the inspection and
+ *    template-risk findings, which are page-level and never pass through
+ *    `runPageChecks`;
+ * 2. at least one check ran, so a page nothing was evaluated on stays silent
+ *    rather than passing by default;
+ * 3. URL Inspection, where it ran, did not report the URL as excluded.
+ *
+ * The finding names the exact subset it cleared. A page whose type exempted it
+ * from the structured-data check, or that Google was never asked about, is
+ * reported as having cleared the checks that ran — not as healthy.
+ */
+function buildPassedFindings(
+  audits: PageAuditResult[],
+  checksRunByPath: Map<string, SeoPassedCheck[]>,
+  flaggedPaths: Set<string>,
+  inspectionMap: Map<string, UrlInspectionSummary>,
+): SeoTechnicalFinding[] {
+  const findings: SeoTechnicalFinding[] = [];
+
+  for (const audit of audits) {
+    const { page } = audit;
+    if (flaggedPaths.has(page.path)) continue;
+
+    const inspection = inspectionMap.get(page.path);
+    if (isInspectionExcluded(inspection)) continue;
+
+    const state = passedInspectionState(inspection);
+    const checks = [...(checksRunByPath.get(page.path) ?? [])];
+    if (state === "confirmed") checks.push("url-inspection");
+    if (checks.length === 0) continue;
+
+    const checkList = checks.map((check) => PASSED_CHECK_LABELS[check]).join(", ");
+    findings.push({
+      id: `passed:${page.pageType.toLowerCase()}:${state}:${checks.join("+")}`,
+      severity: "passed",
+      category: "site-health",
+      pageType: page.pageType,
+      title:
+        state === "confirmed"
+          ? "Pages cleared every technical check that ran, including URL Inspection"
+          : "Pages cleared every technical check that ran",
+      description: `Checks that ran on these pages: ${checkList}. ${PASSED_INSPECTION_NOTES[state]}`,
+      recommendation:
+        state === "confirmed"
+          ? "No action needed from this audit."
+          : "No action needed from this audit. Inspect these URLs in Search Console if you need Google's own index verdict as well.",
+      affectedPages: [page],
+    });
   }
 
   return findings;
@@ -1235,6 +1449,7 @@ function summarizeFindings(findings: SeoTechnicalFinding[]) {
     critical: new Set<string>(),
     warning: new Set<string>(),
     opportunity: new Set<string>(),
+    passed: new Set<string>(),
   };
 
   for (const finding of findings) {
@@ -1247,6 +1462,7 @@ function summarizeFindings(findings: SeoTechnicalFinding[]) {
     critical: buckets.critical.size,
     warning: buckets.warning.size,
     opportunity: buckets.opportunity.size,
+    passed: buckets.passed.size,
   };
 }
 
@@ -1255,6 +1471,7 @@ function compareFindings(a: SeoTechnicalFinding, b: SeoTechnicalFinding) {
     critical: 0,
     warning: 1,
     opportunity: 2,
+    passed: 3,
   };
   return (
     severityRank[a.severity] - severityRank[b.severity] ||

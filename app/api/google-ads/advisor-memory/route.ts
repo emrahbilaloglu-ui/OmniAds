@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isGoogleAdsAccountAuthorityError } from "@/lib/google-ads/account-authority";
+import {
+  assertGoogleAdsAccountAuthority,
+  isGoogleAdsAccountAuthorityError,
+} from "@/lib/google-ads/account-authority";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
   executeActionCluster,
@@ -138,6 +141,13 @@ function isWritebackExecutionRequested(body: RequestBody) {
 
 async function applyBatchMutateInternal(input: {
   businessId: string;
+  /**
+   * The authorizing session's user id, read from `requireBusinessAccess` at the
+   * boundary and never from the request body. Every execution-log row this
+   * helper writes carries it, so the Plan screen's `Who` names the seat that
+   * authored the write.
+   */
+  actorUserId: string | null;
   items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
   transactionId?: string | null;
   extraMetadata?: Record<string, unknown>;
@@ -188,6 +198,7 @@ async function applyBatchMutateInternal(input: {
     });
     await logAdvisorExecutionEvent({
       businessId: input.businessId,
+      actorUserId: input.actorUserId,
       accountId: item.accountId,
       recommendationFingerprint: item.recommendationFingerprint,
       mutateActionType: item.mutateActionType,
@@ -263,6 +274,7 @@ async function applyBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.mutateActionType,
@@ -300,6 +312,7 @@ async function applyBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.mutateActionType,
@@ -347,6 +360,8 @@ async function applyBatchMutateInternal(input: {
 
 async function rollbackBatchMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   transactionId: string;
   items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
   extraMetadata?: Record<string, unknown>;
@@ -379,6 +394,7 @@ async function rollbackBatchMutateInternal(input: {
       });
       await logAdvisorExecutionEvent({
         businessId: input.businessId,
+        actorUserId: input.actorUserId,
         accountId: item.accountId,
         recommendationFingerprint: item.recommendationFingerprint,
         mutateActionType: item.rollbackActionType,
@@ -416,6 +432,8 @@ async function rollbackBatchMutateInternal(input: {
 
 async function applySingleMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   accountId: string;
   recommendationFingerprint: string;
   mutateActionType: NonNullable<NonNullable<RequestBody>["mutateActionType"]>;
@@ -453,6 +471,7 @@ async function applySingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.mutateActionType,
@@ -552,6 +571,7 @@ async function applySingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.mutateActionType,
@@ -565,6 +585,8 @@ async function applySingleMutateInternal(input: {
 
 async function rollbackSingleMutateInternal(input: {
   businessId: string;
+  /** The authorizing session's user id; see `applyBatchMutateInternal`. */
+  actorUserId: string | null;
   accountId: string;
   recommendationFingerprint: string;
   rollbackActionType: NonNullable<NonNullable<RequestBody>["rollbackActionType"]>;
@@ -594,6 +616,7 @@ async function rollbackSingleMutateInternal(input: {
   });
   await logAdvisorExecutionEvent({
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     accountId: input.accountId,
     recommendationFingerprint: input.recommendationFingerprint,
     mutateActionType: input.rollbackActionType,
@@ -615,7 +638,20 @@ export async function POST(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
 
+  // The author of every guarded write below, taken from the authorized session
+  // and nowhere else — the request body never names the actor.
+  const actorUserId = access.session?.user?.id ?? null;
+
   if (await isDemoBusiness(businessId)) {
+    if (body?.action) {
+      return NextResponse.json(
+        {
+          error: "Advisor memory is read-only for demo businesses.",
+          code: "demo_read_only",
+        },
+        { status: 403 },
+      );
+    }
     return NextResponse.json({ ok: true, demo: true });
   }
 
@@ -662,6 +698,7 @@ export async function POST(request: NextRequest) {
         const batchItems = step.batchItems ?? [];
         const result = await applyBatchMutateInternal({
           businessId,
+          actorUserId,
           items: batchItems.map((item) => ({ ...item, accountId: body.accountId! })),
           extraMetadata: {
             clusterId: body.cluster?.clusterId,
@@ -677,6 +714,7 @@ export async function POST(request: NextRequest) {
         }
         const result = await applySingleMutateInternal({
           businessId,
+          actorUserId,
           accountId: body.accountId!,
           recommendationFingerprint: step.mutateItem.recommendationFingerprint,
           mutateActionType: step.mutateItem.mutateActionType,
@@ -754,6 +792,7 @@ export async function POST(request: NextRequest) {
 
     await logAdvisorExecutionEvent({
       businessId,
+      actorUserId,
       accountId: body.accountId,
       recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
       mutateActionType: "cluster_execute",
@@ -797,6 +836,7 @@ export async function POST(request: NextRequest) {
         const transactionId = step.transactionIds?.[0] ?? randomUUID();
         const result = await rollbackBatchMutateInternal({
           businessId,
+          actorUserId,
           transactionId,
           items: batchItems,
           extraMetadata: {
@@ -818,6 +858,7 @@ export async function POST(request: NextRequest) {
         try {
           const result = await rollbackSingleMutateInternal({
             businessId,
+            actorUserId,
             accountId: body.accountId!,
             recommendationFingerprint: step.mutateItem.recommendationFingerprint,
             rollbackActionType: step.mutateItem.rollbackActionType,
@@ -869,6 +910,7 @@ export async function POST(request: NextRequest) {
 
     await logAdvisorExecutionEvent({
       businessId,
+      actorUserId,
       accountId: body.accountId,
       recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
       mutateActionType: "cluster_rollback",
@@ -887,6 +929,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await applyBatchMutateInternal({
         businessId,
+        actorUserId,
         items: Array.isArray(body.batchItems) ? body.batchItems : [],
         transactionId: body.transactionId,
       });
@@ -904,6 +947,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await rollbackBatchMutateInternal({
       businessId,
+      actorUserId,
       transactionId,
       items,
     });
@@ -917,6 +961,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await applySingleMutateInternal({
         businessId,
+        actorUserId,
         accountId: body.accountId,
         recommendationFingerprint: body.recommendationFingerprint ?? "",
         mutateActionType: body.mutateActionType,
@@ -950,6 +995,7 @@ export async function POST(request: NextRequest) {
     try {
       const result = await rollbackSingleMutateInternal({
         businessId,
+        actorUserId,
         accountId: body.accountId,
         recommendationFingerprint: body.recommendationFingerprint ?? "",
         rollbackActionType: body.rollbackActionType,
@@ -1068,19 +1114,71 @@ export async function POST(request: NextRequest) {
   if (!body?.action) {
     return NextResponse.json({ error: "action or executionAction is required" }, { status: 400 });
   }
+  if (!["dismissed", "ignored", "applied", "unsuppress"].includes(body.action)) {
+    return NextResponse.json({ error: "Unsupported advisor memory action." }, { status: 400 });
+  }
 
-  await updateAdvisorMemoryAction({
+  if (!body.accountId || body.accountId === "all") {
+    return NextResponse.json(
+      {
+        error: "A selected Google Ads account is required for advisor memory actions.",
+        code: "google_ads_account_scope_required",
+      },
+      { status: 400 },
+    );
+  }
+  try {
+    await assertGoogleAdsAccountAuthority({
+      businessId,
+      accountId: body.accountId,
+    });
+  } catch (error) {
+    if (isGoogleAdsAccountAuthorityError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.httpStatus },
+      );
+    }
+    throw error;
+  }
+
+  const memoryUpdate = await updateAdvisorMemoryAction({
     businessId,
-    accountId: topLevelAccountId,
+    accountId: body.accountId,
     recommendationFingerprint: body.recommendationFingerprint,
     action: body.action,
     dismissReason: body.dismissReason ?? null,
     suppressUntil: body.suppressUntil ?? null,
   });
+  if (
+    !memoryUpdate.matched ||
+    memoryUpdate.recommendationFingerprint !== body.recommendationFingerprint
+  ) {
+    return NextResponse.json(
+      {
+        error: "The recommendation is no longer present in this account.",
+        code: "advisor_recommendation_not_found",
+      },
+      { status: 404 },
+    );
+  }
+  if (
+    body.action === "dismissed" &&
+    (memoryUpdate.currentStatus !== "suppressed" ||
+      memoryUpdate.userAction !== "dismissed")
+  ) {
+    return NextResponse.json(
+      {
+        error: "The dismissal could not be verified after the memory write.",
+        code: "advisor_memory_write_unverified",
+      },
+      { status: 409 },
+    );
+  }
   if (body.action === "applied" || body.action === "dismissed" || body.action === "unsuppress") {
     await appendGoogleAdsDecisionActionOutcomeLog({
       businessId,
-      providerAccountId: topLevelAccountId === "all" ? null : topLevelAccountId,
+      providerAccountId: body.accountId,
       recommendationFingerprint: body.recommendationFingerprint,
       decisionFamily: null,
       actionType: "plan",
@@ -1104,7 +1202,14 @@ export async function POST(request: NextRequest) {
     }).catch(() => null);
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    action: body.action,
+    accountId: body.accountId,
+    recommendationFingerprint: memoryUpdate.recommendationFingerprint,
+    currentStatus: memoryUpdate.currentStatus,
+    suppressUntil: memoryUpdate.suppressUntil,
+  });
 }
 
 export async function GET(request: NextRequest) {

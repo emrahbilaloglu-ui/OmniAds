@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -40,14 +40,30 @@ import {
   describeDecisionWorkspaceFailure,
   MetaRequestFailure,
 } from "@/lib/meta/workspace-failure";
-import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
+import type {
+  MetaOsAdDecision,
+  MetaOsDecisionsPresentation,
+} from "@/lib/meta/decisions-os-contract";
 import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
+import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
 import { cn } from "@/lib/utils";
-import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
-import { MetaDrillDrawer } from "@/components/meta/redesign/MetaDrillDrawer";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
-import { MetaUpperFunnelInformationalCard } from "@/components/meta/redesign/MetaUpperFunnelInformationalCard";
+import {
+  MetaDecisionCenterExact,
+  type MetaDecisionCenterExactLane,
+  type MetaDecisionCenterExactViewModel,
+  type MetaDecisionCenterExactWindow,
+} from "@/components/meta/decision-center/MetaDecisionCenterExact";
+import { buildMetaDecisionCenterExactViewModel } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
+import { CreativeEvidenceWindowExact } from "@/components/creatives/CreativeEvidenceWindowExact";
+import {
+  buildCreativeEvidenceWindowExactViewModel,
+  buildMetaAdsManagerHref,
+  type CreativeEvidenceWindowExactAdRow,
+  type CreativeEvidenceWindowExactSeriesPayload,
+} from "@/components/creatives/creative-evidence-window-exact-adapter";
+import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import styles from "./MetaPlatformPage.module.css";
 import {
   decisionLabelForRec,
@@ -107,6 +123,33 @@ export function resolveMetaDecisionMoneyCurrency(
 
   const normalizedProviderCurrency = providerCurrency?.trim();
   return normalizedProviderCurrency || null;
+}
+
+type MetaSnapshotRunStatus = "ran" | "cooldown" | "already_running";
+
+export function interpretMetaSnapshotRunResponse(
+  responseOk: boolean,
+  payload: unknown,
+):
+  | { ok: true; status: MetaSnapshotRunStatus }
+  | { ok: false; message: string } {
+  const record =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : null;
+  const status = record?.status;
+  const validStatus =
+    status === "ran" || status === "cooldown" || status === "already_running";
+  if (responseOk && record?.ok === true && validStatus) {
+    return { ok: true, status };
+  }
+  const message =
+    typeof record?.message === "string" && record.message.trim()
+      ? record.message
+      : responseOk
+        ? "Snapshot refresh returned an invalid response."
+        : "Snapshot refresh failed.";
+  return { ok: false, message };
 }
 
 export function paginateMetaMonitorRows<T>(rows: T[], page: number): T[] {
@@ -207,6 +250,36 @@ function parseMetaWindow(value: string | null): MetaWindowKey {
   )
     return value;
   return "28d";
+}
+
+function exactLaneForMetaLane(lane: MetaLaneView): MetaDecisionCenterExactLane {
+  return lane === "nonSales" ? "nonsales" : lane;
+}
+
+function metaLaneForExactLane(lane: MetaDecisionCenterExactLane): MetaLaneView {
+  return lane === "nonsales" ? "nonSales" : lane;
+}
+
+function exactWindowForMetaWindow(
+  window: MetaWindowKey,
+): MetaDecisionCenterExactWindow | null {
+  return window === "custom" ? null : window;
+}
+
+function metaOsCreativeSearchMatch(
+  decision: MetaOsAdDecision,
+  query: string,
+): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    decision.adName,
+    decision.creativeName,
+    decision.campaignName,
+    decision.adsetName,
+    decision.action.label,
+    decision.publishedLabel,
+  ].some((value) => value?.toLowerCase().includes(normalized));
 }
 
 function metaDateRangeFromParams(
@@ -533,19 +606,6 @@ export function sortMetaRecs(
     const spend = rec.metrics?.spend;
     return typeof spend === "number" && Number.isFinite(spend) ? spend : null;
   });
-}
-
-function useMinWidth(px: number) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(`(min-width: ${px}px)`);
-    const update = () => setMatches(mq.matches);
-    update();
-    mq.addEventListener?.("change", update);
-    return () => mq.removeEventListener?.("change", update);
-  }, [px]);
-  return matches;
 }
 
 function groupAdsetRollups(recs: MetaRecommendation[]) {
@@ -1423,190 +1483,140 @@ function MetaCreativeDecisionCard({
   );
 }
 
-function MetaCreativeEvidenceDrawer({
-  decision,
-  onClose,
-}: {
-  decision: MetaCanonicalDecision | null;
-  onClose: () => void;
-}) {
-  if (!decision) return null;
-  const metrics = [
-    ["Spend", formatMoney(decision.metrics.spend, decision.metrics.currency)],
-    [
-      "ROAS",
-      decision.metrics.roas == null ? "—" : formatRoas(decision.metrics.roas),
-    ],
-    [
-      "Purchases",
-      decision.metrics.purchases == null
-        ? "—"
-        : String(decision.metrics.purchases),
-    ],
-    [
-      "ROAS · 7d",
-      decision.metrics.recent7dRoas == null
-        ? "—"
-        : formatRoas(decision.metrics.recent7dRoas),
-    ],
-  ];
-  return (
-    <div
-      className={styles.creativeDrawerLayer}
-      data-testid="meta-creative-evidence-drawer"
-    >
-      <button
-        type="button"
-        className={styles.creativeDrawerBackdrop}
-        onClick={onClose}
-        aria-label="Close creative evidence"
-      />
-      <aside className={styles.creativeDrawer} aria-label="Ad evidence">
-        <header className={styles.creativeDrawerHeader}>
-          <div>
-            <span>Ad evidence</span>
-            <h2>
-              {decision.parentChain.ad?.name ??
-                decision.parentChain.ad?.id ??
-                "Ad identity unavailable"}
-            </h2>
-            <p>
-              {decision.identityGrain === "ad"
-                ? "Native Ad"
-                : "Legacy creative"}{" "}
-              engine · {decision.sourceDecision.engineVersion} ·{" "}
-              {decision.providerAccountId}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
-        </header>
-        <div className={styles.creativeDrawerBody}>
-          <section>
-            <span className={styles.sectionEyebrow}>Decision contract</span>
-            <div className={styles.drawerDecisionLine}>
-              <span className="chip chip--info">
-                {decision.classification.buyerLabel}
-              </span>
-              <b>
-                {Math.round(decision.sourceDecision.confidence)}% ·{" "}
-                {decision.sourceDecision.confidenceBand}
-              </b>
-            </div>
-            <p>
-              {decision.sourceDecision.reason ||
-                "No server reason was provided."}
-            </p>
-          </section>
-          <section className={styles.drawerMetrics}>
-            {metrics.map(([label, value]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <b>{value}</b>
-              </div>
-            ))}
-          </section>
-          <section>
-            <span className={styles.sectionEyebrow}>Evidence context</span>
-            <dl className={styles.drawerFacts}>
-              <div>
-                <dt>Ad ID</dt>
-                <dd>{decision.parentChain.ad?.id ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Creative group</dt>
-                <dd>
-                  {decision.parentChain.creative?.name ??
-                    decision.parentChain.creative?.id ??
-                    "Unavailable"}
-                </dd>
-              </div>
-              <div>
-                <dt>Truth source</dt>
-                <dd>{decision.sourceDecision.truthSource}</dd>
-              </div>
-              <div>
-                <dt>Target ROAS</dt>
-                <dd>
-                  {decision.metrics.effectiveTargetRoas != null
-                    ? formatRoas(decision.metrics.effectiveTargetRoas)
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt>Lifecycle role</dt>
-                <dd>
-                  {humanizeDecisionToken(
-                    decision.classification.lifecycleRole.value,
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Generated</dt>
-                <dd>{decision.sourceDecision.computedAt || "—"}</dd>
-              </div>
-              <div>
-                <dt>Risk</dt>
-                <dd>
-                  {decision.riskTier
-                    ? humanizeDecisionToken(decision.riskTier)
-                    : `Unclassified · ${decision.confirmationCeremony} ceremony`}
-                </dd>
-              </div>
-            </dl>
-          </section>
-          {decision.sourceDecision.badges.length > 0 ? (
-            <section>
-              <span className={styles.sectionEyebrow}>Signals</span>
-              <div className={styles.drawerBadges}>
-                {decision.sourceDecision.badges.map((badge) => (
-                  <span key={badge}>{humanizeDecisionToken(badge)}</span>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {decision.classification.blockers.length > 0 ? (
-            <section>
-              <span className={styles.sectionEyebrow}>Blockers</span>
-              <div className={styles.drawerBlockers}>
-                {decision.classification.blockers.map((blocker) => (
-                  <p key={blocker.code}>{blocker.label}</p>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          <div className={styles.contractNote}>
-            Decision {decision.decisionId} · episode {decision.episodeId}.{" "}
-            Response attribution: {decision.history.responses.status}; provider
-            write linkage: {decision.history.providerWrites.status}.
-          </div>
-        </div>
-        <footer className={styles.creativeDrawerFooter}>
-          {decision.parentChain.creative ? (
-            <>
-              <a
-                className="btn btn--primary"
-                href={`/platforms/meta/launchpad?fromMetaBriefing=true&providerAccountId=${encodeURIComponent(decision.providerAccountId)}&sourceDecisionId=${encodeURIComponent(decision.decisionId)}&sourceDecisionSnapshotId=${encodeURIComponent(decision.sourceSnapshotId)}&creativeIds=${encodeURIComponent(decision.parentChain.creative.id)}&mode=rebuild`}
-              >
-                Open in Launchpad
-              </a>
-              <a
-                className="btn"
-                href={`/platforms/meta/creatives?providerAccountId=${encodeURIComponent(decision.providerAccountId)}&creativeId=${encodeURIComponent(decision.parentChain.creative.id)}`}
-              >
-                Open Creative Studio
-              </a>
-            </>
-          ) : null}
-        </footer>
-      </aside>
-    </div>
+/**
+ * The decisions-workspace contract stops at spend / purchases / ROAS. The
+ * funnel, thumbstop, first-seen date and per-ad-set split the evidence window
+ * draws are ad-grain facts served by `/api/meta/creatives`, which keeps its
+ * own `requireBusinessAccess` gate. Reading them here adds no new authority.
+ */
+async function fetchCreativeEvidenceAdRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  creativeId: string;
+  start: string;
+  end: string;
+}): Promise<CreativeEvidenceWindowExactAdRow[]> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    creativeId: input.creativeId,
+    groupBy: "ad",
+    mediaMode: "metadata",
+    start: input.start,
+    end: input.end,
+  });
+  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Ad-grain creative evidence is unavailable.");
+  }
+  const payload: unknown = await response.json();
+  const rows: MetaCreativeApiRow[] =
+    payload && typeof payload === "object" && Array.isArray((payload as { rows?: unknown }).rows)
+      ? ((payload as { rows: MetaCreativeApiRow[] }).rows ?? [])
+      : [];
+  return rows
+    .filter((row) => row.creative_id === input.creativeId)
+    .map((row) => ({
+      id: row.id,
+      adsetId: row.adset_id ?? null,
+      adsetName: row.adset_name ?? null,
+      spend: numberOrNull(row.spend),
+      purchaseValue: numberOrNull(row.purchase_value),
+      roas: numberOrNull(row.roas),
+      impressions: numberOrNull(row.impressions),
+      linkClicks: numberOrNull(row.link_clicks),
+      addToCart: numberOrNull(row.add_to_cart),
+      purchases: numberOrNull(row.purchases),
+      thumbstop: numberOrNull(row.thumbstop),
+      launchDate: row.launch_date ?? null,
+    }));
+}
+
+/**
+ * The daily CTR / frequency trail behind the two sparkline cards.
+ *
+ * `meta_ad_daily` has stored date + ad_id + link_clicks + frequency all along —
+ * indexed on (ad_id, date DESC) — but nothing read it as a series, so both
+ * cards drew an empty path. `/api/meta/ads/series` is that read path and keeps
+ * its own `requireBusinessAccess` gate.
+ */
+async function fetchCreativeEvidenceAdSeries(input: {
+  businessId: string;
+  adIds: string[];
+  start: string;
+  end: string;
+}): Promise<CreativeEvidenceWindowExactSeriesPayload> {
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    adIds: input.adIds.join(","),
+    start: input.start,
+    end: input.end,
+  });
+  const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("The per-ad daily series is unavailable.");
+  }
+  const payload = (await response.json()) as Partial<CreativeEvidenceWindowExactSeriesPayload>;
+  return {
+    adCount: typeof payload.adCount === "number" ? payload.adCount : 0,
+    points: Array.isArray(payload.points) ? payload.points : [],
+  };
+}
+
+function numberOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The evidence window's primary carries the server decision's own caption. It
+ * only gets a destination when that decision routes to a draft; execute-intent
+ * decisions keep their confirmation ceremony on the decision row and are not
+ * given a second, unguarded trigger here.
+ */
+function creativeEvidenceLaunchpadHref(input: {
+  decision: MetaOsAdDecision | null;
+  canonical: MetaCanonicalDecision;
+  pathname: string | null;
+}): string | null {
+  const code = input.decision?.action.code ?? null;
+  const mode =
+    code === "plan_promotion"
+      ? "duplicate"
+      : code === "refresh_creative"
+        ? "rebuild"
+        : null;
+  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
+  if (!mode || !creativeId) return null;
+  const params = new URLSearchParams({
+    fromMetaBriefing: "true",
+    providerAccountId: input.canonical.providerAccountId,
+    sourceDecisionId: input.canonical.decisionId,
+    sourceDecisionSnapshotId: input.canonical.sourceSnapshotId,
+    creativeIds: creativeId,
+    mode,
+  });
+  return dashboardHrefForRouteFamily(
+    `/platforms/meta/launchpad?${params.toString()}`,
+    input.pathname ?? "",
+  );
+}
+
+function creativeEvidenceStudioHref(input: {
+  canonical: MetaCanonicalDecision;
+  pathname: string | null;
+}): string {
+  const params = new URLSearchParams({
+    providerAccountId: input.canonical.providerAccountId,
+  });
+  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
+  if (creativeId) params.set("creativeId", creativeId);
+  return dashboardHrefForRouteFamily(
+    `/platforms/meta/creatives?${params.toString()}`,
+    input.pathname ?? "",
   );
 }
 
@@ -2310,6 +2320,7 @@ export function MetaPlatformPage({
   businessName,
 }: MetaPlatformPageProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedWindow = parseMetaWindow(searchParams.get("window"));
@@ -2344,10 +2355,11 @@ export function MetaPlatformPage({
   const [minSpendOnly, setMinSpendOnly] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(6);
   const [monitorPage, setMonitorPage] = useState(1);
-  const [creativeDrill, setCreativeDrill] =
-    useState<MetaCanonicalDecision | null>(null);
+  const [creativeDrill, setCreativeDrill] = useState<{
+    decision: MetaOsAdDecision | null;
+    canonical: MetaCanonicalDecision;
+  } | null>(null);
   const [scopeRailOpen, setScopeRailOpen] = useState(false);
-  const pushInspector = useMinWidth(1440);
   const latestSearchParamsRef = useRef(searchParams.toString());
 
   useEffect(() => {
@@ -2401,6 +2413,63 @@ export function MetaPlatformPage({
     searchParams,
     selectedReferenceDate,
   );
+
+  const creativeEvidenceCreativeId =
+    creativeDrill?.canonical.parentChain.creative?.id?.trim() ||
+    creativeDrill?.decision?.creativeId?.trim() ||
+    null;
+  const creativeEvidenceQuery = useQuery({
+    queryKey: [
+      "meta-creative-evidence-ad-rows",
+      businessId,
+      providerAccountId,
+      creativeEvidenceCreativeId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+    ],
+    enabled: Boolean(
+      businessId && providerAccountId && creativeEvidenceCreativeId,
+    ),
+    queryFn: () =>
+      fetchCreativeEvidenceAdRows({
+        businessId,
+        providerAccountId: providerAccountId!,
+        creativeId: creativeEvidenceCreativeId!,
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  /**
+   * The sparkline pair is the decision's own ad, not the creative's whole ad
+   * set: the Frequency evidence key beside it is that ad's frequency, and a
+   * cross-ad frequency would need a deduplicated reach Meta does not report.
+   */
+  const creativeEvidenceAdId =
+    creativeDrill?.canonical.parentChain.ad?.id?.trim() ||
+    creativeDrill?.decision?.adId?.trim() ||
+    null;
+  const creativeEvidenceSeriesQuery = useQuery({
+    queryKey: [
+      "meta-creative-evidence-series",
+      businessId,
+      creativeEvidenceAdId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+    ],
+    enabled: Boolean(businessId && creativeEvidenceAdId),
+    queryFn: () =>
+      fetchCreativeEvidenceAdSeries({
+        businessId,
+        adIds: [creativeEvidenceAdId!],
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const workspaceQuery = useQuery({
     queryKey: [
@@ -2680,11 +2749,13 @@ export function MetaPlatformPage({
   );
 
   const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
-  const viewerReadOnlyReason = workspaceQuery.data?.viewer?.readOnly
-    ? (workspaceQuery.data.viewer.readOnlyReason ??
-      "Current viewer is read-only; write controls are downgraded to review.")
-    : null;
-  const isViewerReadOnly = Boolean(viewerReadOnlyReason);
+  const viewerReadOnlyReason = !workspaceQuery.data?.viewer
+    ? "Decision authority is unavailable; write controls remain disabled."
+    : workspaceQuery.data.viewer.readOnly
+      ? (workspaceQuery.data.viewer.readOnlyReason ??
+        "Current viewer is read-only; write controls are downgraded to review.")
+      : null;
+  const isViewerReadOnly = viewerReadOnlyReason !== null;
   const workspaceBanners = useMemo<MetaWorkspaceBanner[]>(() => {
     const served = workspaceQuery.data?.banners ?? [];
     if (served.length > 0) return served;
@@ -2765,10 +2836,15 @@ export function MetaPlatformPage({
           : window.location.search),
     );
 
+  const metaDecisionsHref = dashboardHrefForRouteFamily(
+    "/platforms/meta",
+    pathname,
+  );
+
   const replaceMetaParams = (params: URLSearchParams) => {
     const query = params.toString();
     latestSearchParamsRef.current = query;
-    router.replace(`/platforms/meta${query ? `?${query}` : ""}`);
+    router.replace(`${metaDecisionsHref}${query ? `?${query}` : ""}`);
   };
 
   const setDateRange = (next: DateWindowValue) => {
@@ -2793,12 +2869,22 @@ export function MetaPlatformPage({
       params.delete("endDate");
     }
     const query = params.toString();
-    const nextHref = `/platforms/meta${query ? `?${query}` : ""}`;
+    const nextHref = `${metaDecisionsHref}${query ? `?${query}` : ""}`;
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", nextHref);
     }
     latestSearchParamsRef.current = query;
     router.replace(nextHref);
+  };
+
+  const selectExactWindow = (nextWindow: MetaDecisionCenterExactWindow) => {
+    setDateRange(
+      rangeValueToDateWindow(
+        dateWindowToRangeValue({ window: nextWindow, start: "", end: "" }),
+        selectedReferenceDate,
+        { includeCurrentDay: true },
+      ),
+    );
   };
 
   const setProviderAccount = (nextProviderAccountId: string) => {
@@ -2876,21 +2962,14 @@ export function MetaPlatformPage({
         body: JSON.stringify({ businessId }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok === false) {
-        const message =
-          payload && typeof payload === "object" && "message" in payload
-            ? String((payload as { message?: unknown }).message)
-            : "Snapshot refresh failed.";
-        throw new Error(message);
-      }
-      const status =
-        payload && typeof payload === "object" && "status" in payload
-          ? String((payload as { status?: unknown }).status)
-          : "ran";
+      const outcome = interpretMetaSnapshotRunResponse(response.ok, payload);
+      if (!outcome.ok) throw new Error(outcome.message);
       setNotice(
-        status === "cooldown"
+        outcome.status === "cooldown"
           ? "Decision snapshot refresh is in cooldown."
-          : "Decision snapshot refreshed.",
+          : outcome.status === "already_running"
+            ? "Decision snapshot refresh is already running."
+            : "Decision snapshot refreshed.",
       );
       await refreshDecisionData();
     } catch (error) {
@@ -3028,11 +3107,6 @@ export function MetaPlatformPage({
     setEntityParam(rec.id);
   };
 
-  const closeDrill = () => {
-    setDrillItem(null);
-    if (entityParam) setEntityParam(null);
-  };
-
   const compareRec = (rec: MetaRecommendation) => {
     setSelectedIds((current) => new Set(current).add(rec.id));
     setCompareOpen(true);
@@ -3146,7 +3220,7 @@ export function MetaPlatformPage({
       rec,
       overlay.mode === "rebuild" ? "rebuild_clicked" : "audience_swap_clicked",
     );
-    router.push(href);
+    router.push(dashboardHrefForRouteFamily(href, pathname));
   };
 
   const handleBulkAction = (action: string) => {
@@ -3200,7 +3274,12 @@ export function MetaPlatformPage({
       params.set("campaignIds", Array.from(new Set(campaignIds)).join(","));
     if (adsetIds.length > 0)
       params.set("adsetIds", Array.from(new Set(adsetIds)).join(","));
-    router.push(`/platforms/meta/launchpad?${params.toString()}`);
+    router.push(
+      dashboardHrefForRouteFamily(
+        `/platforms/meta/launchpad?${params.toString()}`,
+        pathname,
+      ),
+    );
   };
 
   const handleCompareDrawerAction = async (
@@ -3274,10 +3353,113 @@ export function MetaPlatformPage({
   }, [activeMonitorPageCount]);
   const boundedCreativeDecisions = creativeActionDecisions;
   const creativeActionTotal = creativeDecisionSection?.preCapCount ?? null;
+  const exactCanonicalKeys = new Set(
+    creativeActionDecisions.map(
+      (decision) => `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
+    ),
+  );
+  const exactCreativeDecisions = (workspaceQuery.data?.os?.ads?.items ?? []).filter(
+    (decision) =>
+      exactCanonicalKeys.has(
+        `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
+      ) &&
+      metaOsCreativeSearchMatch(decision, rowSearch) &&
+      (!minSpendOnly ||
+        (typeof decision.metrics.spend === "number" &&
+          decision.metrics.spend >= META_MIN_SPEND_THRESHOLD)),
+  );
+  const exactArchiveRows = inactiveViewItems.flatMap((item) =>
+    item.kind === "structure" ? [item.row] : [],
+  );
+  const exactActionRows = sortMetaRecs(
+    actionNow.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        passesMetaMinSpend(recommendation, minSpendOnly),
+    ),
+    rowSort,
+  );
+  const exactWatchingRows = sortMetaRecs(
+    watching.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        passesMetaMinSpend(recommendation, minSpendOnly),
+    ),
+    rowSort,
+  );
+  const exactNonSalesRows = sortMetaRecs(
+    nonSales.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        passesMetaMinSpend(recommendation, minSpendOnly),
+    ),
+    rowSort,
+  );
+  const exactHealthyRows = healthy.filter((row) => {
+    const searchMatch =
+      !rowSearch.trim() ||
+      [row.name, row.campaignName ?? ""].some((value) =>
+        value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
+      );
+    const spendMatch =
+      !minSpendOnly || row.spend >= META_MIN_SPEND_THRESHOLD;
+    return searchMatch && spendMatch;
+  });
+  const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
+    ? buildMetaDecisionCenterExactViewModel({
+        workspace: workspaceQuery.data,
+        account: selectedProviderAccount,
+        now: Date.now(),
+        selection:
+          drillItem && drillItem.mode !== "anomaly"
+            ? {
+                kind: "structure",
+                recommendationId: drillItem.rec.id,
+              }
+            : undefined,
+        overrides: {
+          actionNow: exactActionRows,
+          watching: exactWatchingRows,
+          healthy: exactHealthyRows,
+          nonSales: exactNonSalesRows,
+          archive: exactArchiveRows,
+          creatives: exactCreativeDecisions,
+          canonicalDecisions: creativeActionDecisions,
+          deferredCount,
+        },
+        callbacks: {
+          onStructurePrimary:
+            !isViewerReadOnly && !workspaceQuery.data.system.killSwitchEngaged
+              ? (recommendation) => {
+                  void handlePrimary(recommendation);
+                }
+              : undefined,
+          onStructureMenu: openDrillForRec,
+          onWatchingReview: openDrillForRec,
+          onCreativeReview: (decision, canonicalDecision) => {
+            if (canonicalDecision) {
+              // The presentation decision carries CTR, frequency and the ad
+              // set identity the canonical envelope does not; the evidence
+              // window needs both.
+              setCreativeDrill({ decision, canonical: canonicalDecision });
+              return;
+            }
+            setNotice("Canonical creative evidence is unavailable.");
+          },
+        },
+      })
+    : {
+        activeWindow: exactWindowForMetaWindow(selectedWindow),
+        identity: {
+          accountLabel:
+            selectedProviderAccount?.name ?? selectedProviderAccount?.id ?? null,
+          currency: moneyCurrency,
+        },
+      };
 
   return (
     <div
-      className="ad-final meta-decisions-final"
+      className={cn("ad-final meta-decisions-final", styles.metaPageRoot)}
       data-testid="meta-platform-page"
       data-workspace-query-status={workspaceQuery.status}
       data-workspace-fetch-status={workspaceQuery.fetchStatus}
@@ -3309,120 +3491,6 @@ export function MetaPlatformPage({
       )}
 
       <div className={styles.metaOsDesktop} data-testid="meta-os-decisions">
-        <header className={styles.osHeader}>
-          <div className={styles.osIdentity}>
-            <span className={styles.osEyebrow}>
-              {`Meta · ${
-                selectedProviderAccount?.name ??
-                selectedProviderAccount?.id ??
-                businessName ??
-                "Select an ad account"
-              }${moneyCurrency ? ` · ${moneyCurrency}` : ""}`}
-            </span>
-            <div className={styles.osTitleRow}>
-              <h1>Decision Center</h1>
-            </div>
-            <p data-testid="meta-queue-scope-note">
-              {briefingLoading
-                ? "Loading the latest persisted decision snapshot"
-                : briefingError
-                  ? describeDecisionWorkspaceFailure(briefingError)
-                  : `Snapshot ${laneSnapshotDate ?? "unavailable"} · date range scopes metrics, not decisions`}
-            </p>
-          </div>
-
-          <div className={styles.osHeaderTools}>
-            <MetaAsOfCluster
-              pulse={pulseQuery.data ?? null}
-              laneSnapshotDate={laneSnapshotDate}
-              loading={briefingLoading}
-              error={briefingError}
-            />
-            <div className={styles.osHeaderCommands}>
-              <label className={styles.accountSelect}>
-                <span>Ad account</span>
-                <select
-                  aria-label="Meta ad account"
-                  value={providerAccountId ?? ""}
-                  disabled={providerAccountsQuery.isLoading}
-                  onChange={(event) =>
-                    setProviderAccount(event.currentTarget.value)
-                  }
-                >
-                  <option value="">
-                    {providerAccountsQuery.isLoading
-                      ? "Loading accounts"
-                      : providerAccounts.length === 0
-                        ? "No assigned account"
-                        : "Select account"}
-                  </option>
-                  {providerAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name ?? account.id}
-                      {account.currency ? ` · ${account.currency}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <DateRangePicker
-                value={dateWindowToRangeValue(selectedDateRange)}
-                onChange={(next) =>
-                  setDateRange(
-                    rangeValueToDateWindow(next, selectedReferenceDate, {
-                      includeCurrentDay: true,
-                    }),
-                  )
-                }
-                label="Metric date range"
-                testId="meta-date-range-picker"
-                showComparisonTrigger={false}
-                rangePresets={[
-                  "today",
-                  "yesterday",
-                  "7d",
-                  "14d",
-                  "28d",
-                  "90d",
-                  "thisMonth",
-                  "lastMonth",
-                  "custom",
-                ]}
-                referenceDate={selectedReferenceDate}
-                timeZoneLabel={selectedAccountTimeZone}
-                includeCurrentDayInRollingRanges
-                align="end"
-              />
-              <button
-                type="button"
-                className="btn"
-                disabled={
-                  !providerAccountId || refreshingSnapshot || isViewerReadOnly
-                }
-                title={
-                  isViewerReadOnly
-                    ? (viewerReadOnlyReason ?? "Current viewer is read-only.")
-                    : "Generate a new persisted snapshot"
-                }
-                onClick={refreshSnapshotNow}
-              >
-                <RefreshCw size={13} aria-hidden="true" />
-                {isViewerReadOnly
-                  ? "Snapshot read-only"
-                  : refreshingSnapshot
-                    ? "Running..."
-                    : "Run snapshot"}
-              </button>
-              <a
-                className="btn btn--primary"
-                href={`/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate${providerAccountId ? `&providerAccountId=${encodeURIComponent(providerAccountId)}` : ""}`}
-              >
-                <Plus size={13} aria-hidden="true" />
-                New campaign
-              </a>
-            </div>
-          </div>
-        </header>
-
         {!providerAccountsQuery.isLoading && !providerAccountId ? (
           <div className="banner warn" data-testid="meta-account-required">
             <div className="icon">i</div>
@@ -3432,18 +3500,43 @@ export function MetaPlatformPage({
                 Decisions stay withheld until an explicitly assigned provider
                 account defines identity and currency scope.
               </span>
+              <label>
+                <span className="sr-only">Meta ad account</span>
+                <select
+                  aria-label="Meta ad account"
+                  value=""
+                  onChange={(event) =>
+                    setProviderAccount(event.currentTarget.value)
+                  }
+                >
+                  <option value="">
+                    {providerAccounts.length === 0
+                      ? "No assigned account"
+                      : "Select account"}
+                  </option>
+                  {providerAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name ?? account.id}
+                      {account.currency ? " · " + account.currency : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         ) : null}
 
         {briefingError ? (
-          <div className="banner danger" data-testid="meta-briefing-error">
+          <div
+            className="banner danger"
+            data-testid="meta-briefing-error"
+            role="alert"
+          >
             <div className="icon">!</div>
             <div className="msg">
               <b>Decision workspace could not load.</b>
               <span className="sub">
-                {briefingError.message ||
-                  "Decision metrics and counts are withheld to avoid false zeros."}
+                {describeDecisionWorkspaceFailure(briefingError)}
               </span>
             </div>
             <button
@@ -3458,12 +3551,47 @@ export function MetaPlatformPage({
           </div>
         ) : null}
 
+        {anomalyQuery.error && !briefingError ? (
+          <div className="banner warn" data-testid="meta-anomaly-error" role="alert">
+            <div className="icon">!</div>
+            <div className="msg">
+              <b>Integrity scan is unavailable.</b>
+              <span className="sub">
+                {anomalyQuery.error instanceof Error
+                  ? anomalyQuery.error.message
+                  : "Integrity evidence is withheld; the decision workspace remains readable."}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         {notice ? (
-          <div className="banner warn">
+          <div className="banner warn" role="status">
             <div className="icon">i</div>
             <div className="msg">
               <b>{notice}</b>
-              <span className="sub">{businessName ?? "Selected account"}</span>
+              <span className="sub">
+                {selectedProviderAccount?.name ??
+                  selectedProviderAccount?.id ??
+                  "Selected account"}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {workspaceQuery.data?.decisionReadModel.status === "unavailable" ? (
+          <div
+            className="banner danger"
+            data-testid="meta-decision-unavailable"
+            role="alert"
+          >
+            <div className="icon">!</div>
+            <div className="msg">
+              <b>Canonical decision source is unavailable.</b>
+              <span className="sub">
+                {workspaceQuery.data.decisionReadModel.unavailable?.message ??
+                  "Decision rows are withheld because source authority could not be verified."}
+              </span>
             </div>
           </div>
         ) : null}
@@ -3483,643 +3611,84 @@ export function MetaPlatformPage({
           }
         />
 
-        <FinalMetaPulse
-          pulse={pulseQuery.data ?? null}
-          window={selectedWindow}
-          onManageLabels={() => setLabelModalOpen(true)}
-          moneyCurrency={moneyCurrency}
-          laneAsOf={
-            laneQuery.data
-              ? {
-                  snapshotDate: laneQuery.data.snapshotDate,
-                  snapshotCreatedAt: laneQuery.data.snapshotCreatedAt ?? null,
-                }
-              : null
+        <MetaDecisionCenterExact
+          viewModel={exactViewModel}
+          lane={exactLaneForMetaLane(activeLane)}
+          onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
+          onWindowChange={selectExactWindow}
+          onRunSnapshot={
+            providerAccountId && !refreshingSnapshot && !isViewerReadOnly
+              ? () => void refreshSnapshotNow()
+              : undefined
           }
-          loading={briefingLoading}
-          error={briefingError}
+          onNewCampaign={
+            providerAccountId && !isViewerReadOnly
+              ? () => {
+                  const params = new URLSearchParams({
+                    fromMetaBriefing: "true",
+                    mode: "duplicate",
+                    providerAccountId,
+                  });
+                  router.push(
+                    dashboardHrefForRouteFamily(
+                      "/platforms/meta/launchpad?" + params.toString(),
+                      pathname,
+                    ),
+                  );
+                }
+              : undefined
+          }
+          onManageLabels={
+            providerAccountId && !isViewerReadOnly
+              ? () => setLabelModalOpen(true)
+              : undefined
+          }
+          onSortChange={setRowSort}
+          onSearchChange={setRowSearch}
+          onOpenCreativeStudio={() => {
+            const query = providerAccountId
+              ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
+              : "";
+            router.push(
+              dashboardHrefForRouteFamily(
+                "/platforms/meta/creatives" + query,
+                pathname,
+              ),
+            );
+          }}
         />
-
-        <nav className={styles.osAreaTabs} aria-label="Decision workspace">
-          <button
-            type="button"
-            data-active={activeLane === "action" ? "true" : "false"}
-            onClick={() => selectLane("action")}
-          >
-            <span>Act Now</span>
-            <b>
-              {briefingUnavailable
-                ? "—"
-                : creativeActionTotal == null
-                  ? "—"
-                  : filteredActionNow.length +
-                    anomalies.length +
-                    creativeActionTotal}
-            </b>
-          </button>
-          <button
-            type="button"
-            data-active={
-              activeLane !== "action" && activeLane !== "archive"
-                ? "true"
-                : "false"
-            }
-            onClick={() => selectLane("watching")}
-          >
-            <span>Monitor</span>
-            <b>
-              {briefingUnavailable
-                ? "—"
-                : filteredWatching.length +
-                  filteredHealthy.length +
-                  filteredNonSales.length}
-            </b>
-          </button>
-          <button
-            type="button"
-            data-active={activeLane === "archive" ? "true" : "false"}
-            onClick={() => selectLane("archive")}
-          >
-            <span>Inactive assets</span>
-            <b>{briefingUnavailable ? "—" : inactiveViewItems.length}</b>
-          </button>
-          <a href="/platforms/meta/history">
-            <History size={13} aria-hidden="true" />
-            History
-          </a>
-          <span className={styles.osDeferred}>Deferred {deferredCount}</span>
-        </nav>
-
-        <div className={styles.osToolbar} data-meta-secondary-controls>
-          <button
-            type="button"
-            className={styles.scopeToggle}
-            aria-expanded={scopeRailOpen}
-            onClick={() => setScopeRailOpen((current) => !current)}
-          >
-            <PanelLeft size={13} aria-hidden="true" />
-            Scope
-          </button>
-          <input
-            className={styles.toolbarSearch}
-            data-testid="meta-row-search"
-            value={rowSearch}
-            onChange={(event) => setRowSearch(event.currentTarget.value)}
-            placeholder="Find a campaign, ad set, or decision"
-            aria-label="Search decision rows"
-          />
-          <label className={styles.toolbarSort}>
-            Sort
-            <select
-              data-testid="meta-row-sort"
-              value={rowSort}
-              onChange={(event) =>
-                setRowSort(event.currentTarget.value as MetaRowSort)
-              }
-              aria-label="Sort decision rows"
-            >
-              <option value="money">Spend exposure</option>
-              <option value="priority">Server priority</option>
-              <option value="age">Evidence age</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={styles.minSpendToggle}
-            data-testid="meta-min-spend-toggle"
-            data-active={minSpendOnly ? "true" : "false"}
-            aria-pressed={minSpendOnly}
-            onClick={() => setMinSpendOnly((current) => !current)}
-          >
-            Min spend · {formatMoney(META_MIN_SPEND_THRESHOLD, moneyCurrency)}
-          </button>
-          <span className={styles.osToolbarNote}>
-            Filters change presentation only. Server decisions remain
-            authoritative.
-          </span>
-        </div>
-
-        <div className={styles.osWorkspace}>
-          <div
-            className={cn(
-              styles.osQueueShell,
-              scopeRailOpen && styles.osQueueShellWithScope,
-            )}
-          >
-            {scopeRailOpen ? (
-              <MetaScopeRail
-                campaigns={scopeCampaigns}
-                selectedCampaignId={campaignFilter}
-                selectedAdsetId={adsetFilter}
-                disabled={false}
-                onSelectCampaign={selectCampaignScope}
-                onSelectAdset={selectAdsetScope}
-              />
-            ) : null}
-
-            <main className={styles.osQueue}>
-              {!pushInspector ? (
-                <MetaOvernightDigest
-                  snapshotDate={laneSnapshotDate}
-                  digest={workspaceQuery.data?.digest ?? null}
-                  actionStates={workspaceQuery.data?.queue.actionStates ?? null}
-                  anomaliesCount={anomalies.length}
-                  deferredCount={deferredCount}
-                />
-              ) : null}
-
-              {loading ? (
-                <div className={styles.boardGrid}>
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={index}
-                      className="dcard animate-pulse min-h-[128px]"
-                    />
-                  ))}
-                </div>
-              ) : error ? (
-                <div className="lane-empty">
-                  {error instanceof Error
-                    ? error.message
-                    : "Meta briefing failed."}
-                </div>
-              ) : activeLane === "action" ? (
-                <div
-                  className={styles.osSections}
-                  data-testid="meta-decision-board"
-                >
-                  <section data-decision-section="integrity_fires">
-                    <MetaLaneSectionHeader
-                      title="Integrity fires"
-                      count={anomalies.length}
-                      note={
-                        <span data-testid="meta-anomaly-asof">
-                          delivery, policy, tracking · scan{" "}
-                          {anomalyQuery.data?.snapshotDate ?? "-"}
-                        </span>
-                      }
-                    />
-                    {anomalies.length > 0 ? (
-                      <div className={styles.boardGrid}>
-                        {anomalies.map((anomaly) => (
-                          <MetaActionCard
-                            key={anomaly.id}
-                            anomaly={anomaly}
-                            onOpenDrill={(item) =>
-                              setDrillItem({
-                                mode: "anomaly",
-                                anomaly: item as MetaAnomaly,
-                              })
-                            }
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className={styles.sectionEmpty}>
-                        No verified integrity fire is open.
-                      </p>
-                    )}
-                  </section>
-
-                  <section data-decision-section="money_moves">
-                    <MetaLaneSectionHeader
-                      title="Money moves"
-                      count={visibleActionRecs.length}
-                      note="Campaign and ad-set actions · ranked from server evidence"
-                    />
-                    {boundedActionRecs.length > 0 ? (
-                      <div className={styles.boardGrid}>
-                        {boundedActionRecs.map((rec) => (
-                          <MetaActionCard
-                            key={rec.id}
-                            layout="board"
-                            moneyCurrency={moneyCurrency}
-                            targetRoas={targetRoas}
-                            rec={rec}
-                            selected={selectedIds.has(rec.id)}
-                            deferred={isDeferred(rec)}
-                            responseState={responseStateForRec(rec)}
-                            actionFeedback={
-                              primaryActionFeedback?.recId === rec.id
-                                ? primaryActionFeedback
-                                : null
-                            }
-                            readOnlyReason={viewerReadOnlyReason}
-                            evidenceWindow={selectedWindow}
-                            onSelect={selectRec}
-                            onPrimary={handlePrimary}
-                            onOpenDrill={(item) =>
-                              openDrillForRec(item as MetaRecommendation)
-                            }
-                            onDefer={deferRec}
-                            onUndoDefer={undeferRec}
-                            onCompare={compareRec}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className={styles.sectionEmpty}>
-                        No server-qualified money move is ready.
-                      </p>
-                    )}
-                    <MetaRevealReceipt
-                      visible={boundedActionRecs.length}
-                      total={visibleActionRecs.length}
-                      noun="money moves"
-                      onReveal={() => setVisibleLimit((current) => current + 6)}
-                    />
-                  </section>
-
-                  <section data-decision-section="creative_rotation">
-                    <MetaLaneSectionHeader
-                      title={
-                        nativeAdDecisionAuthority
-                          ? "Ad decisions"
-                          : "Creative rotation"
-                      }
-                      count={creativeActionTotal ?? "—"}
-                      note={
-                        nativeAdDecisionAuthority
-                          ? "Exact Ad decisions · optional creative grouping"
-                          : "Legacy creative-grain calls · review only"
-                      }
-                    />
-                    {boundedCreativeDecisions.length > 0 ? (
-                      <div className={styles.creativeGrid}>
-                        {boundedCreativeDecisions.map((decision) => (
-                          <MetaCreativeDecisionCard
-                            key={decision.decisionId}
-                            decision={decision}
-                            onOpen={() => setCreativeDrill(decision)}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className={styles.sectionEmpty}>
-                        {creativeDecisionSection
-                          ? "No server-selected creative rotation call meets the display filters."
-                          : (canonicalDecisionModel?.unavailable?.message ??
-                            "Creative decision selection is unavailable.")}
-                      </p>
-                    )}
-                    <MetaServerSuppressionReceipt
-                      section={creativeDecisionSection}
-                    />
-                  </section>
-                </div>
-              ) : (
-                <div className={styles.osMonitor}>
-                  {activeLane !== "archive" ? (
-                    <div
-                      className={styles.monitorSegments}
-                      role="tablist"
-                      aria-label="Monitor segment"
-                    >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeLane === "watching"}
-                      data-active={activeLane === "watching" ? "true" : "false"}
-                      onClick={() => selectLane("watching")}
-                    >
-                      Watch · {visibleWatchingRecs.length}
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeLane === "healthy"}
-                      data-active={activeLane === "healthy" ? "true" : "false"}
-                      onClick={() => selectLane("healthy")}
-                    >
-                      Healthy context · {healthyRowsForView.length}
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeLane === "nonSales"}
-                      data-active={activeLane === "nonSales" ? "true" : "false"}
-                      onClick={() => selectLane("nonSales")}
-                    >
-                      Out of sales scope · {visibleNonSalesRecs.length}
-                    </button>
-                    </div>
-                  ) : null}
-
-                  {activeLane === "watching" ? (
-                    boundedWatchingRecs.length > 0 ? (
-                      <div className={styles.osSections}>
-                        {META_WATCHING_SEGMENT_ORDER.map((key) => {
-                          const recs = boundedWatchingRecs.filter(
-                            (rec) => (rec.watchSegment ?? "other") === key,
-                          );
-                          if (recs.length === 0) return null;
-                          const copy = (
-                            laneQuery.data?.watchingSegments ?? []
-                          ).find((segment) => segment.key === key);
-                          return (
-                            <section key={key} data-meta-watching-segment={key}>
-                              <MetaLaneSectionHeader
-                                title={copy?.label ?? key.replaceAll("_", " ")}
-                                count={recs.length}
-                                note={copy?.description}
-                              />
-                              <div className={styles.boardGrid}>
-                                {recs.map((rec) => (
-                                  <MetaActionCard
-                                    key={rec.id}
-                                    layout="board"
-                                    moneyCurrency={moneyCurrency}
-                                    targetRoas={targetRoas}
-                                    rec={rec}
-                                    selected={selectedIds.has(rec.id)}
-                                    deferred={isDeferred(rec)}
-                                    responseState={responseStateForRec(rec)}
-                                    actionFeedback={
-                                      primaryActionFeedback?.recId === rec.id
-                                        ? primaryActionFeedback
-                                        : null
-                                    }
-                                    readOnlyReason={viewerReadOnlyReason}
-                                    evidenceWindow={selectedWindow}
-                                    onSelect={selectRec}
-                                    onPrimary={handlePrimary}
-                                    onOpenDrill={(item) =>
-                                      openDrillForRec(
-                                        item as MetaRecommendation,
-                                      )
-                                    }
-                                    onDefer={deferRec}
-                                    onUndoDefer={undeferRec}
-                                    onCompare={compareRec}
-                                  />
-                                ))}
-                              </div>
-                            </section>
-                          );
-                        })}
-                        <MetaMonitorPager
-                          page={effectiveMonitorPage}
-                          total={visibleWatchingRecs.length}
-                          noun="watch items"
-                          onPage={setMonitorPage}
-                        />
-                      </div>
-                    ) : (
-                      <div className="lane-empty">
-                        No watch items match the current filters.
-                      </div>
-                    )
-                  ) : activeLane === "healthy" ? (
-                    boundedHealthyRows.length > 0 ? (
-                      <>
-                        <div className={styles.quietList}>
-                          {boundedHealthyRows.map((row) => (
-                            <MetaQuietEntityRow
-                              key={`${row.level}-${row.id}`}
-                              row={row}
-                              moneyCurrency={moneyCurrency}
-                            />
-                          ))}
-                        </div>
-                        <MetaMonitorPager
-                          page={effectiveMonitorPage}
-                          total={healthyRowsForView.length}
-                          noun="healthy entities"
-                          onPage={setMonitorPage}
-                        />
-                      </>
-                    ) : (
-                      <div className="lane-empty">
-                        No healthy context matches the current filters.
-                      </div>
-                    )
-                  ) : activeLane === "nonSales" ? (
-                    boundedNonSalesRecs.length > 0 ? (
-                      <>
-                        <div className={styles.boardGrid}>
-                          {boundedNonSalesRecs.map((rec) =>
-                            rec.cohort === "upper_funnel" ? (
-                              <MetaUpperFunnelInformationalCard
-                                key={rec.id}
-                                rec={rec}
-                                moneyCurrency={moneyCurrency}
-                                onOpenDrill={(item) =>
-                                  setDrillItem({
-                                    mode: "informational",
-                                    rec: item,
-                                  })
-                                }
-                              />
-                            ) : (
-                              <MetaActionCard
-                                key={rec.id}
-                                layout="board"
-                                moneyCurrency={moneyCurrency}
-                                targetRoas={targetRoas}
-                                rec={rec}
-                                responseState={responseStateForRec(rec)}
-                                actionFeedback={
-                                  primaryActionFeedback?.recId === rec.id
-                                    ? primaryActionFeedback
-                                    : null
-                                }
-                                readOnlyReason={viewerReadOnlyReason}
-                                onPrimary={handlePrimary}
-                                onOpenDrill={(item) =>
-                                  openDrillForRec(item as MetaRecommendation)
-                                }
-                                onDefer={deferRec}
-                                onUndoDefer={undeferRec}
-                                onCompare={compareRec}
-                              />
-                            ),
-                          )}
-                        </div>
-                        <MetaMonitorPager
-                          page={effectiveMonitorPage}
-                          total={visibleNonSalesRecs.length}
-                          noun="out-of-scope rows"
-                          onPage={setMonitorPage}
-                        />
-                      </>
-                    ) : (
-                      <div className="lane-empty">
-                        No out-of-sales-scope entities match the current
-                        filters.
-                      </div>
-                    )
-                  ) : boundedInactiveItems.length > 0 ? (
-                    <>
-                      <MetaLaneSectionHeader
-                        title="Inactive assets"
-                        count={inactiveViewItems.length}
-                        note="Closed or status-unknown campaign, ad-set, and Ad rows · advisory only"
-                      />
-                      <div className={styles.quietList}>
-                        {boundedInactiveItems.map((item) =>
-                          item.kind === "structure" ? (
-                            <MetaInactiveStructureRow
-                              key={`inactive-${item.row.level}-${item.row.id}`}
-                              row={item.row}
-                              moneyCurrency={moneyCurrency}
-                            />
-                          ) : (
-                            <MetaInactiveAdRow
-                              key={`inactive-ad-${item.decision.decisionId}`}
-                              decision={item.decision}
-                              moneyCurrency={moneyCurrency}
-                              onOpen={() => setCreativeDrill(item.decision)}
-                            />
-                          ),
-                        )}
-                      </div>
-                      <MetaMonitorPager
-                        page={effectiveMonitorPage}
-                        total={inactiveViewItems.length}
-                        noun="inactive assets"
-                        onPage={setMonitorPage}
-                      />
-                    </>
-                  ) : (
-                    <div className="lane-empty">
-                      No inactive asset recommendation is available for this
-                      account.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedRecs.length > 0 ? (
-                <div className="bulkbar">
-                  <span>
-                    {selectedRecs.length} selected ·{" "}
-                    {selectedRecs.slice(0, 2).map(scopeNameForRec).join(", ")}
-                  </span>
-                  <div className="acts">
-                    <button
-                      type="button"
-                      className="btn"
-                      data-testid="meta-bulk-defer"
-                      disabled={isViewerReadOnly}
-                      onClick={() => void deferSelectedRecs()}
-                    >
-                      Defer 24h
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      onClick={() => handleBulkAction("compare")}
-                    >
-                      Compare
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      onClick={() => handleBulkAction("clear")}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </main>
-          </div>
-
-          {pushInspector ? (
-            <aside className={styles.contextDock} aria-label="Decision context">
-              {drillItem ? (
-                <MetaDrillDrawer
-                  moneyCurrency={moneyCurrency}
-                  targetRoas={targetRoas}
-                  item={drillItem}
-                  variant="push"
-                  onClose={closeDrill}
-                  onLaunch={
-                    !isViewerReadOnly &&
-                    drillItem.mode === "decision" &&
-                    launchModeForRec(drillItem.rec)
-                      ? () =>
-                          openOverlayForRec(
-                            drillItem.rec,
-                            launchModeForRec(drillItem.rec)!,
-                          )
-                      : undefined
-                  }
-                />
-              ) : (
-                <div className={styles.contextIdle}>
-                  <header>
-                    <span>Account context</span>
-                    <strong>Nothing selected</strong>
-                    <p>
-                      Select a row to inspect evidence without moving the queue.
-                    </p>
-                  </header>
-                  <MetaOvernightDigest
-                    snapshotDate={laneSnapshotDate}
-                    digest={workspaceQuery.data?.digest ?? null}
-                    actionStates={
-                      workspaceQuery.data?.queue.actionStates ?? null
-                    }
-                    anomaliesCount={anomalies.length}
-                    deferredCount={deferredCount}
-                  />
-                  <section>
-                    <span>Authority</span>
-                    <dl>
-                      <div>
-                        <dt>Target</dt>
-                        <dd>
-                          {pulseQuery.data?.roas.target == null
-                            ? "Unavailable"
-                            : `${formatRoas(pulseQuery.data.roas.target)} · ${pulseQuery.data.roas.targetFreshness ?? "unknown"}`}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Tracking</dt>
-                        <dd>
-                          {pulseQuery.data?.trackingHealth.status ?? "Unknown"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Write scope</dt>
-                        <dd>
-                          {workspaceQuery.data?.system.killSwitchEngaged
-                            ? "Blocked by kill switch"
-                            : isViewerReadOnly
-                              ? "Read-only"
-                              : "Approval required"}
-                        </dd>
-                      </div>
-                    </dl>
-                  </section>
-                  <section>
-                    <span>Due backs</span>
-                    <strong>
-                      {workspaceQuery.data?.digest.deferrals.dueCount ??
-                        deferredCount}{" "}
-                      decisions
-                    </strong>
-                    <p>
-                      Deferred work returns to Monitor; release never
-                      auto-executes it.
-                    </p>
-                  </section>
-                  <footer>
-                    <a href="/platforms/meta/automation">Automation controls</a>
-                    <a href="/platforms/meta/history">Decision history</a>
-                  </footer>
-                </div>
-              )}
-            </aside>
-          ) : null}
-        </div>
       </div>
 
-      <MetaCreativeEvidenceDrawer
-        decision={creativeDrill}
-        onClose={() => setCreativeDrill(null)}
-      />
+      {creativeDrill ? (
+        <CreativeEvidenceWindowExact
+          onClose={() => setCreativeDrill(null)}
+          viewModel={buildCreativeEvidenceWindowExactViewModel({
+            decision: creativeDrill.decision,
+            canonical: creativeDrill.canonical,
+            adRows: creativeEvidenceQuery.data,
+            adSeries: creativeEvidenceSeriesQuery.data,
+            fallbackCurrency: moneyCurrency,
+            hrefs: {
+              primary: creativeEvidenceLaunchpadHref({
+                decision: creativeDrill.decision,
+                canonical: creativeDrill.canonical,
+                pathname,
+              }),
+              compareInStudio: creativeEvidenceStudioHref({
+                canonical: creativeDrill.canonical,
+                pathname,
+              }),
+              adsManager: buildMetaAdsManagerHref({
+                providerAccountId: creativeDrill.canonical.providerAccountId,
+                adId:
+                  creativeDrill.canonical.parentChain.ad?.id ??
+                  creativeDrill.decision?.adId ??
+                  null,
+              }),
+            },
+          })}
+        />
+      ) : null}
 
       {labelModalOpen ? (
         <div
@@ -4157,27 +3726,6 @@ export function MetaPlatformPage({
           </div>
         </div>
       ) : null}
-
-      {pushInspector ? null : (
-        <MetaDrillDrawer
-          moneyCurrency={moneyCurrency}
-          targetRoas={targetRoas}
-          item={drillItem}
-          variant="overlay"
-          onClose={closeDrill}
-          onLaunch={
-            !isViewerReadOnly &&
-            drillItem?.mode === "decision" &&
-            launchModeForRec(drillItem.rec)
-              ? () =>
-                  openOverlayForRec(
-                    drillItem.rec,
-                    launchModeForRec(drillItem.rec)!,
-                  )
-              : undefined
-          }
-        />
-      )}
 
       <MetaLaunchpadOverlay
         open={overlay.open}

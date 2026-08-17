@@ -15,6 +15,7 @@ import {
 import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import { buildGoogleAdsQueryHash, normalizeGoogleAdsQueryText, persistGoogleAdsSearchIntelligenceFoundation } from "@/lib/google-ads/search-intelligence-storage";
 import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT, buildCustomerSummaryQuery } from "@/lib/google-ads/query-builders";
+import { refreshMerchantCenterItemState } from "@/lib/google-ads/merchant-center-sync";
 import {
   aggregateOverviewKpis,
   resolveContext,
@@ -5747,6 +5748,23 @@ async function syncGoogleAdsAccountDay(input: {
               }),
           }),
       );
+
+      // Merchant Center item state rides along with the product scope because
+      // it answers the other half of the same screen, and this is the one place
+      // in the sync that already has this account's product context.
+      //
+      // It is NOT date-partitioned and NOT part of the scope's success
+      // contract: item state is current state, so a backfill of thirty days
+      // must not read it thirty times (the refresh's own interval guard
+      // collapses that), and an account with no Merchant Center link must not
+      // fail a product partition that succeeded. Hence the deliberate swallow —
+      // the failure mode is an em-dashed Feed status column, which is exactly
+      // what "we could not read it" should look like.
+      await refreshMerchantCenterItemState({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        source: "google_ads_warehouse_sync",
+      }).catch(() => null);
     }
 
     await Promise.all(

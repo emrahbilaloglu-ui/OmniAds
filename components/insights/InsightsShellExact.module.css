@@ -1,0 +1,184 @@
+/*
+ * Insights outer chrome — ported literally from `Adsecute Dashboard v2.dc.html`
+ * markup lines 1734-1751. Every value here is the design's inline style.
+ */
+
+/* dashboard-v2-insights-shell-exact-reference-type:start */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #0e1526;
+  font-family: var(--adv-font-body), var(--font-instrument-sans), "Instrument Sans",
+    -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: normal;
+}
+
+/* L1735: display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap */
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.identity {
+  min-width: 0;
+}
+
+.eyebrow {
+  /* L1737 */
+  margin: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+/* L1738 */
+.title {
+  margin: 4px 0 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+/* L1740 */
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * L1741 — the date chip. The working range control is mounted inside it so the
+ * head chip is the picker rather than a second, decorative copy of it.
+ */
+.dateChip {
+  display: inline-flex;
+}
+
+.dateChip :global(.adv-date-range-trigger) {
+  height: auto;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #0e1526;
+}
+
+/* The design's chip carries no calendar mark, only the trailing caret. */
+.dateChip :global(.adv-date-range-trigger) > svg:first-child {
+  display: none;
+}
+
+/* Design order is the resolved dates first, then the window name. */
+.dateChip :global(.adv-date-range-trigger) > span[data-topbar-secondary] {
+  order: -1;
+  color: #0e1526;
+  font-weight: 400;
+}
+
+.dateChip :global(.adv-date-range-trigger) > svg:last-child {
+  width: 11px;
+  height: 11px;
+  color: #98a4ba;
+}
+
+/* L1742-1743 */
+.sourceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e4e8f0;
+  border-radius: 9px;
+  background: #ffffff;
+  padding: 6px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.sourceIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.sourceState {
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+}
+
+.sourceState[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.sourceState[data-tone="warning"] {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.sourceState[data-tone="neutral"] {
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+/* L1746 */
+.tabRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* L1748 */
+.tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+}
+
+.tab[data-active="true"] {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* dashboard-v2-insights-shell-exact-reference-type:end */

@@ -20,7 +20,7 @@ const SURFACES: Array<{ label: string; file: string }> = [
   { label: "Overview", file: "app/(dashboard)/overview/legacy-page.tsx" },
   { label: "Integrations", file: "app/(dashboard)/integrations/legacy-page.tsx" },
   { label: "Settings", file: "app/(dashboard)/settings/legacy-page.tsx" },
-  { label: "Reports", file: "app/(dashboard)/reports/legacy-page.tsx" },
+  { label: "Reports", file: "components/reports/reports-exact-container.tsx" },
   {
     label: "Creative Studio",
     file: "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
@@ -89,7 +89,7 @@ describe("no surface dates itself from something that is not a measurement", () 
 
   it("Reports does not use the newest report's edit time", () => {
     const asOf = asOfExpression(
-      readFileSync("app/(dashboard)/reports/legacy-page.tsx", "utf8"),
+      readFileSync("components/reports/reports-exact-container.tsx", "utf8"),
     )!;
     expect(asOf).not.toContain("[0]?.updatedAt");
     expect(asOf).toContain("generatedAt");

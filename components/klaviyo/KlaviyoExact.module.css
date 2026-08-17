@@ -1,0 +1,188 @@
+/*
+ * Klaviyo — design lines 1694-1733, model 3895-3903.
+ *
+ * The design's section has no max-width, no padding and no font override: it
+ * inherits the shell page frame. This module reproduces the section's own
+ * inline styles and nothing more.
+ */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.betaBadge {
+  display: inline-flex;
+  border-radius: 9999px;
+  background: #fbf3e1;
+  color: #b45309;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+}
+
+.tabActive {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+.tableCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.th {
+  padding: 9px 12px;
+  text-align: left;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+}
+
+.thEdge {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.cellName {
+  padding: 11px 16px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.cellStatus {
+  padding: 11px 12px;
+}
+
+.statusChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.statusChipLive {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.cellRevenue {
+  padding: 11px 12px;
+  text-align: right;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.cellMetric {
+  padding: 11px 12px;
+  text-align: right;
+  color: #45526b;
+}
+
+.cellMetricEdge {
+  padding: 11px 16px;
+  text-align: right;
+  color: #45526b;
+}
+
+.footNote {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+/*
+ * The design's own sub-12px type scale for this screen, kept together so the
+ * readable-floor check can see exactly which values were copied from the
+ * reference and nothing else drifts under it.
+ */
+/* dashboard-v2-klaviyo-exact-reference-type:start */
+.eyebrow,
+.statusChip,
+.footNote {
+  font-size: 11px;
+}
+
+.th {
+  font-size: 10px;
+}
+/* dashboard-v2-klaviyo-exact-reference-type:end */

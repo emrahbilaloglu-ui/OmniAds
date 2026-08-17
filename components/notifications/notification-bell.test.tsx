@@ -21,15 +21,15 @@ const bell = readFileSync(
 describe("the badge cannot show a reassuring zero", () => {
   it("shows no count at all while the first read is in flight", () => {
     // Not "0" — a zero during load is indistinguishable from a real zero.
-    expect(bell).toContain("query.isLoading || !selectedBusinessId\n      ? null");
+    expect(bell).toContain("!query.isLoading");
+    expect(bell).toContain("Boolean(selectedBusinessId)");
   });
 
-  it("says the count is unknown when the read failed, rather than showing none", () => {
-    // An absent badge means "nothing waiting". A failed read must not look
-    // like that.
-    expect(bell).toContain('? "?"');
-    expect(bell).toContain('data-notification-state=');
+  it("reports a failed read without drawing a badge state absent from the design", () => {
+    expect(bell).toContain("data-notification-state=");
     expect(bell).toContain('"unreadable"');
+    expect(bell).toContain("Notifications — count unavailable");
+    expect(bell).not.toContain('? "?"');
   });
 
   it("renders no badge only for a genuine zero", () => {

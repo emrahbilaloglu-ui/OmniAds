@@ -1,7 +1,7 @@
 import React from "react";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   metaAnomaly,
   metaHealthy,
@@ -22,8 +22,13 @@ import {
   trackingConfirmLabelForRec,
   metaRecSearchMatch,
   resolveMetaDecisionMoneyCurrency,
+  interpretMetaSnapshotRunResponse,
   sortMetaRecs,
 } from "@/components/meta/redesign/MetaPlatformPage";
+import type {
+  MetaOsAdDecision,
+  MetaOsDecisionsPresentation,
+} from "@/lib/meta/decisions-os-contract";
 
 const state = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -34,6 +39,7 @@ const state = vi.hoisted(() => ({
   labelCampaigns: [] as any[],
   campaignLabels: [] as any[],
   search: "window=28d",
+  pathname: "/platforms/meta",
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
   workspaceBanners: [] as any[],
   workspaceViewer: null as any,
@@ -47,12 +53,19 @@ const state = vi.hoisted(() => ({
   ] as any[],
   decisionReadModel: null as any,
   osSource: null as any,
+  osPresentation: null as MetaOsDecisionsPresentation | null,
+  exactScope: null as "structure" | "creatives" | null,
+  exactProps: null as any,
   selectBusiness: vi.fn(),
   queryOverrides: {} as Record<
     string,
     { data?: unknown; isLoading?: boolean; error?: Error | null }
   >,
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function queryState(
   data: unknown,
@@ -78,6 +91,40 @@ describe("resolveMetaDecisionMoneyCurrency", () => {
     expect(resolveMetaDecisionMoneyCurrency(null, "EUR")).toBe("EUR");
     expect(resolveMetaDecisionMoneyCurrency("   ", " GBP ")).toBe("GBP");
     expect(resolveMetaDecisionMoneyCurrency(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("interpretMetaSnapshotRunResponse", () => {
+  it.each(["ran", "cooldown", "already_running"] as const)(
+    "accepts the typed %s success status",
+    (status) => {
+      expect(
+        interpretMetaSnapshotRunResponse(true, { ok: true, status }),
+      ).toEqual({ ok: true, status });
+    },
+  );
+
+  it("fails closed for an empty or untyped 2xx payload", () => {
+    expect(interpretMetaSnapshotRunResponse(true, null)).toEqual({
+      ok: false,
+      message: "Snapshot refresh returned an invalid response.",
+    });
+    expect(
+      interpretMetaSnapshotRunResponse(true, { ok: true, status: "unknown" }),
+    ).toEqual({
+      ok: false,
+      message: "Snapshot refresh returned an invalid response.",
+    });
+  });
+
+  it("preserves a server failure reason without treating it as success", () => {
+    expect(
+      interpretMetaSnapshotRunResponse(false, {
+        ok: false,
+        status: "failed",
+        message: "Provider scope is unavailable.",
+      }),
+    ).toEqual({ ok: false, message: "Provider scope is unavailable." });
   });
 });
 
@@ -191,7 +238,9 @@ function workspacePayload() {
     },
     decisionReadModel:
       state.decisionReadModel ?? emptyCanonicalDecisionReadModel(),
-    os: state.osSource ? { source: state.osSource } : undefined,
+    os:
+      state.osPresentation ??
+      (state.osSource ? { source: state.osSource } : undefined),
   };
 }
 
@@ -260,8 +309,136 @@ function emptyCanonicalDecisionReadModel(): any {
   };
 }
 
+function exactNativeAdDecision(
+  over: Partial<MetaOsAdDecision> = {},
+): MetaOsAdDecision {
+  return {
+    id: "os_ad_1",
+    decisionId: "mdd_1",
+    sourceSnapshotId: "snapshot_1",
+    episodeId: "mde_1",
+    providerAccountId: "act_1",
+    adId: "120000000000000001",
+    adName: "Hook Variant A",
+    campaignId: "cmp_1",
+    campaignName: "Prospecting",
+    adsetId: "adset_1",
+    adsetName: "Broad",
+    creativeId: "creative_1",
+    creativeName: "Hook Variant A",
+    thumbnailUrl: null,
+    lifecycleRole: "test",
+    campaignRoleSource: "automatic",
+    campaignRoleConfidence: "high",
+    campaignRoleTrustedForAction: true,
+    action: {
+      code: "promote_to_main",
+      label: "Scale · Promote To Main",
+      intent: "review",
+      targetLevel: "ad",
+      providerMutation: null,
+      scopeNote: "Canonical review only",
+    },
+    lane: "act",
+    priority: {
+      band: "high",
+      rank: 1,
+      version: "meta-os-decisions.presentation.v5",
+    },
+    assessment: "proven_winner",
+    confidence: "high",
+    confidenceScore: 87,
+    riskTier: null,
+    confirmationCeremony: "highest",
+    whyNow: "Fresh commercial truth supports the call.",
+    blockers: [],
+    resolution: null,
+    metrics: {
+      spend: 250,
+      purchases: 6,
+      roas: 3.2,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+      effectiveTargetRoas: 2.4,
+      ratioToTarget: 1.33,
+      currency: "USD",
+      attribution: "meta_attributed",
+      grain: "ad",
+    },
+    rawLabel: "scale",
+    publishedLabel: "scale",
+    engineVersion: "v3-test",
+    snapshotAsOf: "2026-07-10",
+    sourceGrain: "ad",
+    decisionAvailability: "available",
+    ...over,
+  };
+}
+
+function exactOsPresentation(
+  items: MetaOsAdDecision[],
+): MetaOsDecisionsPresentation {
+  return {
+    contractVersion: "meta-os-decisions.presentation.v5",
+    generatedAt: "2026-07-10T12:00:00.000Z",
+    source: {
+      snapshotAsOf: "2026-07-10",
+      engineVersion: "v3-test",
+      structureSource: "meta_recommendations",
+      adsSource: "native_ad_decision",
+      health: "healthy",
+      fallbackReason: null,
+    },
+    structure: {
+      groups: [],
+      actCount: 0,
+      blockedCount: 0,
+      monitorCount: 0,
+      suppressedAlternativeCount: 0,
+    },
+    ads: {
+      items,
+      actCount: items.filter((item) => item.lane === "act").length,
+      blockedCount: items.filter((item) => item.lane === "blocked").length,
+      monitorCount: items.filter((item) => item.lane === "monitor").length,
+      statePreCapCounts: {
+        act: items.filter((item) => item.lane === "act").length,
+        blocked: items.filter((item) => item.lane === "blocked").length,
+        monitor: items.filter((item) => item.lane === "monitor").length,
+      },
+      eligiblePreCapCount: items.length,
+      omittedWithoutVerifiedAdId: 0,
+      omittedAmbiguousIdentity: 0,
+      omittedNotApplicable: 0,
+      sourcePreCapCount: items.length,
+    },
+    limitations: [],
+  };
+}
+
+vi.mock(
+  "@/components/meta/decision-center/MetaDecisionCenterExact",
+  async (importOriginal) => {
+    const actual = await importOriginal<
+      typeof import("@/components/meta/decision-center/MetaDecisionCenterExact")
+    >();
+    return {
+      ...actual,
+      MetaDecisionCenterExact: (props: any) => {
+        state.exactProps = props;
+        return React.createElement(actual.MetaDecisionCenterExact, {
+          ...props,
+          ...(state.exactScope ? { scope: state.exactScope } : {}),
+        });
+      },
+    };
+  },
+);
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: state.routerPush, replace: state.routerReplace }),
+  usePathname: () => state.pathname,
   useSearchParams: () => new URLSearchParams(state.search),
 }));
 
@@ -303,10 +480,12 @@ function countText(html: string, text: string) {
   return html.split(text).length - 1;
 }
 
-function sectionHtml(html: string, id: string, nextId: string) {
-  const start = html.indexOf(`id="${id}"`);
-  const end = html.indexOf(`id="${nextId}"`);
-  return html.slice(start, end === -1 ? undefined : end);
+function exactArticleHtml(html: string, attribute: string) {
+  const attributeIndex = html.indexOf(attribute);
+  if (attributeIndex < 0) return "";
+  const start = html.lastIndexOf("<article", attributeIndex);
+  const end = html.indexOf("</article>", attributeIndex);
+  return html.slice(start, end < 0 ? undefined : end + "</article>".length);
 }
 
 describe("MetaPlatformPage", () => {
@@ -317,9 +496,15 @@ describe("MetaPlatformPage", () => {
     state.labelCampaigns = [];
     state.campaignLabels = [];
     state.search = "window=28d";
+    state.pathname = "/platforms/meta";
     state.storeBusinesses = [];
     state.workspaceBanners = [];
-    state.workspaceViewer = null;
+    state.workspaceViewer = {
+      role: "collaborator",
+      isReviewer: false,
+      readOnly: false,
+      readOnlyReason: null,
+    };
     state.providerAccounts = [
       {
         id: "act_1",
@@ -330,6 +515,9 @@ describe("MetaPlatformPage", () => {
     ];
     state.decisionReadModel = null;
     state.osSource = null;
+    state.osPresentation = null;
+    state.exactScope = null;
+    state.exactProps = null;
     state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
@@ -345,7 +533,7 @@ describe("MetaPlatformPage", () => {
     expect(paginateMetaMonitorRows(rows, 0)).toEqual(rows.slice(0, 48));
   });
 
-  it("renders the Decisions operating surface and permanent Act Now sections", () => {
+  it("renders the exact Decision Center desktop anatomy without legacy chrome", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage
         businessId="biz_1"
@@ -356,25 +544,31 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Meta · ");
     expect(html).toContain("<h1>Decision Center</h1>");
     expect(html).toContain("Policy delivery block");
-    expect(html).toContain("Act Now");
-    expect(html).toContain("Monitor");
-    expect(html).toContain("History");
-    // Fixture endDate is historical, so the honest label names the day.
-    expect(html).toContain("Spend · 2026-05-07");
-    expect(html).toContain("avg $350.00/day");
+    expect(html).toContain('data-screen-label="Meta Decision Center"');
+    expect(html).toContain('data-meta-exact-section="kpis"');
+    expect(html).toContain("Spend · today");
+    expect(html).toContain("ROAS · 28d");
+    expect(html).toContain("$401");
     expect(html).toContain("+15%");
-    expect(html).toContain('data-testid="meta-business-strip"');
-    expect(html).toContain('data-testid="meta-overnight-digest"');
-    expect(html).toContain("Since last snapshot");
-    expect(html).toContain("2 label flips (2 published)");
-    expect(html).toContain("1 action verified");
-    expect(html).toContain(">Scope</button>");
-    expect(html).not.toContain('data-testid="meta-scope-rail"');
-    expect(html).toContain('data-testid="meta-decision-board"');
-    expect(html).toContain("Integrity fires");
-    expect(html).toContain("Money moves");
-    expect(html).toContain("Creative rotation");
+    expect(html).toContain('data-meta-exact-scope="structure"');
+    expect(html).toContain('data-meta-exact-scope="creatives"');
+    expect(html).toContain('data-meta-exact-lane="action"');
+    expect(html).toContain('data-meta-exact-lane="watching"');
+    expect(html).toContain('data-meta-exact-lane="healthy"');
+    expect(html).toContain('data-meta-exact-lane="nonsales"');
+    expect(html).toContain('data-meta-exact-lane="archive"');
+    expect(html).toContain('data-meta-exact-action-row="rec_1"');
+    expect(html).toContain('data-meta-exact-workspace="true"');
+    expect(html).toContain('data-meta-exact-inspector="true"');
+    expect(html).toContain('aria-label="Sort decisions"');
+    expect(html).toContain('aria-label="Search entities"');
     expect(html).toContain("Run snapshot");
+    expect(html).toContain("+ New campaign");
+    expect(html).not.toContain('data-testid="meta-business-strip"');
+    expect(html).not.toContain('data-testid="meta-overnight-digest"');
+    expect(html).not.toContain("Since last snapshot");
+    expect(html).not.toContain('data-testid="meta-decision-board"');
+    expect(html).not.toContain("suppression receipt");
     expect(html).toContain('data-testid="meta-mobile-decisions"');
     expect(html).toContain("TheSwaf · Act now 2");
     expect(html).toContain("Policy delivery block");
@@ -395,6 +589,94 @@ describe("MetaPlatformPage", () => {
     );
     expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-lanes");
   });
+
+  it("posts one exact Run snapshot request when writable and zero when read-only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, status: "ran" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(state.exactProps.onRunSnapshot).toEqual(expect.any(Function));
+    state.exactProps.onRunSnapshot();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/meta/snapshot/run-now", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify({ businessId: "biz_1" }),
+    });
+
+    fetchMock.mockClear();
+    state.workspaceViewer = {
+      role: "collaborator",
+      isReviewer: true,
+      readOnly: true,
+      readOnlyReason: "Read-only fixture",
+    };
+    renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(state.exactProps.onRunSnapshot).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    state.workspaceViewer = null;
+    renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(state.exactProps.onRunSnapshot).toBeUndefined();
+    expect(state.exactProps.onNewCampaign).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+  });
+
+  it.each([
+    {
+      pathname: "/platforms/meta",
+      decisions: "/platforms/meta?window=14d",
+      launchpad:
+        "/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+      creativeStudio: "/platforms/meta/creatives?providerAccountId=act_1",
+    },
+    {
+      pathname: "/app/meta/decisions",
+      decisions: "/app/meta/decisions?window=14d",
+      launchpad:
+        "/app/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+      creativeStudio: "/app/creative/performance?providerAccountId=act_1",
+    },
+    {
+      pathname: "/c/biz_1/meta/decisions",
+      decisions: "/c/biz_1/meta/decisions?window=14d",
+      launchpad:
+        "/c/biz_1/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+      creativeStudio:
+        "/c/biz_1/creative/performance?providerAccountId=act_1",
+    },
+  ])(
+    "keeps exact window and CTA navigation inside $pathname",
+    ({ pathname, decisions, launchpad, creativeStudio }) => {
+      state.pathname = pathname;
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      );
+
+      state.exactProps.onWindowChange("14d");
+      state.exactProps.onNewCampaign();
+      state.exactProps.onOpenCreativeStudio();
+
+      expect(state.routerReplace).toHaveBeenCalledWith(decisions);
+      expect(state.routerPush).toHaveBeenNthCalledWith(1, launchpad);
+      expect(state.routerPush).toHaveBeenNthCalledWith(2, creativeStudio);
+    },
+  );
 
   it.each([
     ["native_latest_job_failed", "latest native Ad decision job failed"],
@@ -553,15 +835,22 @@ describe("MetaPlatformPage", () => {
       },
     };
     state.decisionReadModel = model;
+    state.osPresentation = exactOsPresentation([exactNativeAdDecision()]);
+    state.exactScope = "creatives";
 
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
-    expect(html).toContain("Hook Variant A");
-    expect(html).toContain("Scale · Promote To Main");
-    expect(html).toContain("high confidence");
-    expect(html).toContain("Server selected 1 of 8");
+    const creative = exactArticleHtml(
+      html,
+      'data-meta-exact-creative-row="os_ad_1"',
+    );
+    expect(creative).toContain("Hook Variant A");
+    expect(creative).toContain("Scale · Promote To Main");
+    expect(creative).toContain("$250 · ROAS 3.20");
+    expect(html).not.toContain("Server selected 1 of 8");
     expect(html).not.toContain("87% confidence");
+    expect(html).not.toContain("suppression receipt");
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
       "meta-decisions-creative-engine",
     );
@@ -665,15 +954,49 @@ describe("MetaPlatformPage", () => {
       ],
     };
     state.decisionReadModel = model;
+    state.osPresentation = exactOsPresentation([
+      exactNativeAdDecision({
+        id: "os_native_ad_1",
+        decisionId: "native_ad_decision_1",
+        sourceSnapshotId: "native_snapshot_1",
+        adId: "120000000000000001",
+        adName: "UGC Winner Ad",
+        creativeId: null,
+        creativeName: null,
+        action: {
+          code: "review_cut",
+          label: "Cut",
+          intent: "review",
+          targetLevel: "ad",
+          providerMutation: null,
+          scopeNote: "Exact Ad review only",
+        },
+        publishedLabel: "cut",
+        rawLabel: "cut",
+        metrics: {
+          ...exactNativeAdDecision().metrics,
+          spend: 125,
+          purchases: 1,
+          roas: 0.8,
+          effectiveTargetRoas: 2,
+          ratioToTarget: 0.4,
+        },
+      }),
+    ]);
+    state.exactScope = "creatives";
 
     const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
-    expect(html).toContain("Ad decisions");
-    expect(html).toContain("Exact Ad decisions · optional creative grouping");
-    expect(html).toContain("UGC Winner Ad");
-    expect(html).toContain("Creative grouping unavailable");
-    expect(html).toContain('data-ad-id="120000000000000001"');
+    const creative = exactArticleHtml(
+      html,
+      'data-meta-exact-creative-row="os_native_ad_1"',
+    );
+    expect(creative).toContain("UGC Winner Ad");
+    expect(creative).toContain("Ad");
+    expect(creative).toContain("$125 · ROAS 0.80");
+    expect(creative).not.toContain("Hook Variant A");
+    expect(html).not.toContain("Creative grouping unavailable");
   });
 
   it("withholds Decisions until a provider account is explicit when multiple are assigned", () => {
@@ -717,12 +1040,14 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain('data-testid="meta-pulse-loading"');
-    expect(html).toContain("briefing loading");
-    expect(html).toContain("Loading the latest persisted decision snapshot");
-    expect(html).toContain("<b>—</b>");
-    expect(html).not.toContain("Snapshot missing");
-    expect(html).not.toContain("sync unknown snapshot — engine");
+    expect(html).toContain('data-screen-label="Meta Decision Center"');
+    expect(html).toContain('data-meta-exact-section="kpis"');
+    expect(html).toContain("Spend · today");
+    expect(html).toContain("ROAS · 28d");
+    expect(countText(html, ">—<")).toBeGreaterThan(10);
+    expect(html).not.toContain("$0");
+    expect(html).not.toContain(">0.00<");
+    expect(html).not.toContain("snapshot 0");
   });
 
   it("surfaces workspace query errors before rendering briefing summaries", () => {
@@ -742,11 +1067,12 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-testid="meta-briefing-error"');
-    expect(html).toContain('data-testid="meta-pulse-error"');
-    expect(html).toContain("briefing unavailable");
+    expect(html).toContain('data-screen-label="Meta Decision Center"');
     expect(html).toContain("workspace request failed");
-    expect(html).toContain("<b>—</b>");
-    expect(html).not.toContain("queue reflects");
+    expect(countText(html, ">—<")).toBeGreaterThan(10);
+    expect(html).toContain("queue reflects —");
+    expect(html).not.toContain("$0");
+    expect(html).not.toContain(">0.00<");
   });
 
   it("surfaces anomaly query errors without hiding a healthy pulse and lane briefing", () => {
@@ -765,13 +1091,13 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("Snapshot 2026-05-07");
-    expect(html).toContain("Spend · 2026-05-07");
+    expect(html).toContain('data-testid="meta-anomaly-error"');
+    expect(html).toContain("snapshot 2026-05-07");
+    expect(html).toContain("Spend · today");
+    expect(html).toContain("$401");
     expect(html).toContain("anomaly scan failed");
     expect(html).not.toContain('data-testid="meta-briefing-error"');
-    expect(html).not.toContain('data-testid="meta-pulse-error"');
-    expect(html).not.toContain("briefing unavailable");
-    expect(html).not.toContain("act —");
+    expect(html).toContain('data-meta-exact-action-row="rec_1"');
   });
 
   it("fails an injected legacy execute action closed to review on decision rows", () => {
@@ -825,14 +1151,15 @@ describe("MetaPlatformPage", () => {
 
     // Even a stale/injected execute_* value cannot manufacture write authority
     // in the client; the evidence drawer remains the only primary destination.
-    expect(html).toContain('data-testid="meta-decision-board"');
-    expect(html).toContain('data-card="meta-action"');
-    expect(html).toContain('data-layout="board"');
-    expect(html).toContain('data-action-authority="review"');
-    expect(html).toContain('data-action-kind="review_drill"');
-    expect(html).toContain('data-spend-anchor="true"');
-    expect(html).toContain("Review evidence");
+    const row = exactArticleHtml(
+      html,
+      'data-meta-exact-action-row="rec_pause"',
+    );
+    expect(row).toContain("Cold Prospecting - Broad");
+    expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
+    expect(row).not.toContain("Pause adset");
     expect(html).not.toContain('data-action-authority="execute"');
+    expect(html).not.toContain('data-action-kind="execute_pause"');
     expect(html).toContain("Cold Prospecting - Broad");
   });
 
@@ -844,9 +1171,10 @@ describe("MetaPlatformPage", () => {
     expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause");
     expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid");
     expect(source).not.toContain("resumeEndpointForEntity");
+    expect(source).not.toContain("<MetaDrillDrawer");
   });
 
-  it("exposes automatic context exceptions without rendering the correction manager inline", () => {
+  it("keeps label coverage in the exact KPI without mounting legacy scope management", () => {
     state.pulsePayload = metaPulse({
       labelCoverage: {
         activeCampaigns: 2,
@@ -896,14 +1224,18 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("Review exceptions");
-    expect(html).toContain('aria-label="Review campaign context exceptions"');
+    expect(html).toContain('data-meta-exact-section="kpis"');
+    expect(html).toContain(">1/2 ");
+    expect(html).toContain(">50%</span>");
+    expect(html).toContain("Manage labels →");
+    expect(html).not.toContain("Review exceptions");
+    expect(html).not.toContain('aria-label="Review campaign context exceptions"');
     expect(html).not.toContain('href="#campaign-labels"');
     expect(html).not.toContain("data-meta-campaign-labels-section");
     expect(html).not.toContain("data-meta-label-management-modal");
     expect(html).not.toContain("Main ASC");
     expect(html).not.toContain("Creative Test");
-    expect(html).toContain("automatic context · 1 overrides");
+    expect(html).not.toContain("automatic context · 1 overrides");
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
       "meta-campaigns-for-labels",
     );
@@ -990,12 +1322,14 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain('data-testid="meta-decision-board"');
-    expect(html).toContain('data-card="meta-action"');
-    expect(html).toContain("Paused Adset");
-    expect(html).toContain('data-operator-response="acted"');
+    const row = exactArticleHtml(
+      html,
+      'data-meta-exact-action-row="rec_acted"',
+    );
+    expect(row).toContain("Paused Adset");
+    expect(row).not.toContain("Resume");
+    expect(html).not.toContain('data-operator-response="acted"');
     expect(html).not.toContain("Resume adset");
-    expect(html).toContain("Paused");
   });
 
   it("pins Decisions to active status even when a legacy URL requests all", () => {
@@ -1046,9 +1380,9 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("ROAS · custom");
-    expect(html).toContain("4.20×");
-    expect(html).not.toContain("1.10×");
+    expect(html).toContain("ROAS · selected range");
+    expect(html).toContain(">4.20 ");
+    expect(html).not.toContain(">1.10 ");
     expect(state.queryKeys).toContainEqual([
       "meta-decisions-workspace",
       "biz_1",
@@ -1089,10 +1423,9 @@ describe("MetaPlatformPage", () => {
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
 
-    expect(html).toContain("Target review due - authority unchanged");
+    expect(html).toContain("target 2.50 · stale");
     expect(html).not.toContain("reduced authority");
-    expect(html).toContain("Review target pack");
-    expect(html).toContain('data-target-freshness="stale"');
+    expect(html).not.toContain("freshness unknown");
   });
 
   it("withholds authority when a configured target timestamp is unavailable", () => {
@@ -1124,12 +1457,9 @@ describe("MetaPlatformPage", () => {
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
 
-    expect(html).toContain(
-      "Target timestamp unavailable - Scale/Cut authority withheld",
-    );
+    expect(html).toContain("target 2.50 · freshness unknown");
     expect(html).not.toContain("authority unchanged");
-    expect(html).toContain("Review target pack");
-    expect(html).toContain('data-target-freshness="unknown"');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
   });
 
   it("routes closed structures to the additive History surface", () => {
@@ -1182,10 +1512,16 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("Inactive assets");
-    expect(html).toContain('data-quiet-row="inactive-structure"');
+    expect(html).toContain('data-meta-exact-lane="archive"');
+    expect(html).toContain('data-meta-exact-archive="true"');
+    expect(html).toContain("Entity");
+    expect(html).toContain("Status");
+    expect(html).toContain("Spend · 28d");
+    expect(html).toContain("Note");
     expect(html).toContain("Paused ASC");
     expect(html).toContain("Archived Adset");
+    expect(html).not.toContain("Inactive assets");
+    expect(html).not.toContain('data-quiet-row="inactive-structure"');
   });
 
   it("renders the Out of Sales Scope lane when nonSales entries are present", () => {
@@ -1216,7 +1552,9 @@ describe("MetaPlatformPage", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain("Out of sales scope");
+    expect(html).toContain('data-meta-exact-lane="nonsales"');
+    expect(html).toContain('data-meta-exact-nonsales="true"');
+    expect(html).toContain("Non-sales");
     expect(html).toContain("Video Views");
     expect(html).not.toContain('type="checkbox"');
   });
@@ -1241,8 +1579,11 @@ describe("MetaPlatformPage", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain("Out of sales scope · 0");
-    expect(html).toContain(
+    expect(html).toContain('data-meta-exact-lane="nonsales"');
+    expect(html).toContain("Non-sales<span>0</span>");
+    expect(html).toContain('data-meta-exact-nonsales="true"');
+    expect(countText(html, ">—<")).toBeGreaterThanOrEqual(5);
+    expect(html).not.toContain(
       "No out-of-sales-scope entities match the current filters.",
     );
   });
@@ -1274,7 +1615,7 @@ describe("MetaPlatformPage", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).toContain('data-meta-exact-nonsales="true"');
     expect(html).toContain("Video Views");
     expect(html).not.toContain('type="checkbox"');
   });
@@ -1317,7 +1658,11 @@ describe("MetaPlatformPage", () => {
       />,
     );
     expect(html).toContain("ThruPlay Broad");
-    expect(html).toContain('data-card="meta-upper-funnel-informational"');
+    expect(html).toContain('data-meta-exact-nonsales="true"');
+    expect(html).toContain("Upper funnel · informational");
+    expect(html).toContain("Thruplay");
+    expect(html).toContain("CPM · acct p50");
+    expect(html).toContain("Reach · 28d");
     expect(html).not.toContain('type="checkbox"');
   });
 
@@ -1351,9 +1696,10 @@ describe("MetaPlatformPage", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain('data-card="meta-action"');
-    expect(html).toContain('data-layout="board"');
+    expect(html).toContain('data-meta-exact-nonsales="true"');
     expect(html).toContain("ATC Broad");
+    expect(html).toContain("Mid Funnel · informational");
+    expect(html).not.toContain("Upper funnel · informational");
     expect(html).not.toContain('data-card="meta-upper-funnel-informational"');
   });
 
@@ -1391,15 +1737,15 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain('data-testid="meta-decision-board"');
-    expect(countText(html, 'data-card="meta-action"')).toBe(2);
-    expect(countText(html, 'data-layout="board"')).toBe(2);
+    expect(countText(html, "data-meta-exact-action-row=")).toBe(2);
+    expect(html).toContain('data-meta-exact-action-row="rec_cut"');
+    expect(html).toContain('data-meta-exact-action-row="rec_scale"');
     expect(html).toContain("Weak Adset");
     expect(html).toContain("Strong Adset");
     expect(html).not.toContain('data-card="cross-adset-rollup"');
   });
 
-  it("renders healthy campaign and adsets as compact quiet rows", () => {
+  it("renders a healthy campaign and its adsets in one exact group", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -1452,19 +1798,17 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
-    expect(html).toContain(">CMP</span>");
-    expect(html).toContain(">SET</span>");
+    expect(countText(html, "data-meta-exact-healthy-group=")).toBe(1);
+    expect(html).toContain('data-meta-exact-healthy-group="cmp_parent"');
     expect(html).toContain("Parent Campaign");
     expect(html).toContain("Bathroom-USA-BC");
     expect(html).toContain("Claude-MAF-G1-LP");
-    expect(countText(html, ">Healthy</span>")).toBe(3);
     expect(html.indexOf("Parent Campaign")).toBeLessThan(
       html.indexOf("Bathroom-USA-BC"),
     );
   });
 
-  it("renders every healthy entity as its own quiet row", () => {
+  it("keeps every healthy entity inside its exact campaign group", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -1523,14 +1867,14 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(countText(html, "data-meta-exact-healthy-group=")).toBe(1);
+    expect(html).toContain('data-meta-exact-healthy-group="cmp_uniform"');
     expect(html).toContain("Uniform Campaign");
     expect(html).toContain("Uniform Adset A");
     expect(html).toContain("Uniform Adset B");
-    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("renders each healthy adset of a mixed-optimization campaign as a quiet row", () => {
+  it("keeps mixed-optimization adsets in the exact healthy group", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -1581,14 +1925,14 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(countText(html, "data-meta-exact-healthy-group=")).toBe(1);
+    expect(html).toContain('data-meta-exact-healthy-group="cmp_mixed_events"');
     expect(html).toContain("Mixed Event Campaign");
     expect(html).toContain("Purchase Adset");
     expect(html).toContain("ATC Adset");
-    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("renders each healthy adset of a mixed-bid campaign as a quiet row", () => {
+  it("keeps mixed-bid adsets in the exact healthy group", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -1643,14 +1987,14 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(countText(html, 'data-quiet-row="healthy"')).toBe(3);
+    expect(countText(html, "data-meta-exact-healthy-group=")).toBe(1);
+    expect(html).toContain('data-meta-exact-healthy-group="cmp_mixed_bid"');
     expect(html).toContain("Mixed Bid Campaign");
     expect(html).toContain("Cost Cap Adset");
     expect(html).toContain("Bid Cap Adset");
-    expect(countText(html, ">Healthy</span>")).toBe(3);
   });
 
-  it("renders an orphan healthy adset as a quiet row with its campaign as context", () => {
+  it("renders an orphan healthy adset once under its campaign context", () => {
     state.search = "window=28d&lane=healthy";
     state.lanePayload = metaLanePayload({
       healthy: [
@@ -1686,11 +2030,10 @@ describe("MetaPlatformPage", () => {
 
     // No synthetic campaign header: the orphan ad set remains a single row.
     expect(html).not.toContain("data-healthy-synthetic-campaign");
-    expect(html).toContain('data-quiet-row="healthy"');
-    expect(html).toContain(">SET</span>");
-    expect(html).toContain(">25Video<");
+    expect(countText(html, "data-meta-exact-healthy-group=")).toBe(1);
+    expect(html).toContain('data-meta-exact-healthy-group="cmp_adtc"');
+    expect(html).toContain("25Video");
     expect(html).toContain("ADTC");
-    expect(countText(html, ">Healthy</span>")).toBe(1);
   });
 });
 
@@ -1713,12 +2056,9 @@ describe("header as-of cluster and queue-scope note", () => {
       />,
     );
 
-    expect(html).toContain('data-testid="meta-asof-cluster"');
-    expect(html).toContain("synced");
-    expect(html).toContain("ago");
-    expect(html).toContain("snapshot 2026-05-07");
-    expect(html).toContain("engine v3.6.0-meta-taxonomy");
-    expect(html).toContain("03:00 UTC");
+    expect(html).toContain('data-screen-label="Meta Decision Center"');
+    expect(html).toMatch(/synced \d+d ago · snapshot 2026-05-07 · engine v3-test · 06:00 UTC/);
+    expect(html).not.toContain("engine v3.6.0-meta-taxonomy");
   });
 
   it("renders sync unknown when ingest freshness is absent, never a fabricated time", () => {
@@ -1730,7 +2070,10 @@ describe("header as-of cluster and queue-scope note", () => {
       />,
     );
 
-    expect(html).toContain("sync unknown");
+    expect(html).toContain(
+      ">synced — · snapshot 2026-05-07 · engine v3-test · 06:00 UTC<",
+    );
+    expect(html).not.toContain("sync unknown");
   });
 
   it("pins the queue to the served snapshot date, scoping metrics not decisions", () => {
@@ -1742,10 +2085,10 @@ describe("header as-of cluster and queue-scope note", () => {
       />,
     );
 
-    expect(html).toContain('data-testid="meta-queue-scope-note"');
-    expect(html).toContain("Snapshot 2026-05-07");
-    expect(html).toContain("2026-05-07");
-    expect(html).toContain("date range scopes metrics, not decisions");
+    expect(html).toContain(
+      "queue reflects snapshot 2026-05-07 — the date range scopes metrics, not decisions",
+    );
+    expect(html).not.toContain('data-testid="meta-queue-scope-note"');
   });
 });
 
@@ -1758,9 +2101,10 @@ describe("decision row sort and search", () => {
         currency="USD"
       />,
     );
-    expect(html).toContain('data-testid="meta-row-sort"');
-    expect(html).toContain('data-testid="meta-row-search"');
-    expect(html).toContain('data-spend-anchor="true"');
+    expect(html).toContain('aria-label="Sort decisions"');
+    expect(html).toContain('aria-label="Search entities"');
+    expect(html).not.toContain('data-testid="meta-row-sort"');
+    expect(html).not.toContain('data-testid="meta-row-search"');
   });
 
   it("sorts by money at stake and keeps missing-metric rows last", () => {
@@ -1988,15 +2332,22 @@ describe("workspace posture banners", () => {
 
     expect(html).toContain('data-banner-id="reviewer_read_only"');
     expect(html).toContain("Reviewer access is read-only.");
-    expect(html).toContain('data-testid="meta-decision-board"');
-    expect(html).toContain('data-action-authority="review"');
-    expect(html).toContain('data-read-only-action="true"');
-    expect(html).toContain("Review evidence");
+    expect(html).toContain('data-screen-label="Meta Decision Center"');
+    const row = exactArticleHtml(
+      html,
+      'data-meta-exact-action-row="pause-rec"',
+    );
+    expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
+    expect(html).toMatch(
+      /<button[^>]*disabled=""[^>]*>Run snapshot<\/button>/,
+    );
+    expect(html).toMatch(
+      /<button[^>]*disabled=""[^>]*>\+ New campaign<\/button>/,
+    );
     expect(html).not.toContain('data-action-authority="execute"');
-    expect(html).toContain("Snapshot read-only");
-    expect(html).not.toContain(">Run snapshot<");
     expect(html).not.toContain('data-action="undefer"');
     expect(html).not.toContain(">Pause weakest<");
+    expect(html).not.toContain(">Resume<");
   });
 });
 

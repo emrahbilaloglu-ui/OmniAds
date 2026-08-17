@@ -42,4 +42,16 @@ describe("MetaPage", () => {
   it("renders the full five-lane Decision Center for the selected business, with its scope", () => {
     expect(renderToStaticMarkup(<MetaPage />)).toContain("meta-platform:biz_1:TheSwaf:USD");
   });
+
+  it("uses the server-authorized route scope instead of a different selected-store business", () => {
+    expect(
+      renderToStaticMarkup(
+        <MetaPage
+          businessId="biz_route"
+          businessName="Route Business"
+          currency="TRY"
+        />,
+      ),
+    ).toContain("meta-platform:biz_route:Route Business:TRY");
+  });
 });

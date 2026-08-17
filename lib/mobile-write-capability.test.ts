@@ -38,6 +38,11 @@ describe("provider surfaces keep the claim, because it is true there", () => {
     "/platforms/meta",
     "/platforms/meta/automation",
     "/platforms/google",
+    "/app/meta/decisions",
+    "/app/creative/performance",
+    "/app/google/overview",
+    "/c/biz_1/meta/launchpad",
+    "/c/biz_1/google/plan",
   ]) {
     it(`${path} is read-only on a phone`, () => {
       expect(mobileWriteCapabilityForPath(path)).toBe("read_only");
@@ -46,11 +51,36 @@ describe("provider surfaces keep the claim, because it is true there", () => {
   }
 });
 
+describe("readable and scoped workspace routes keep their real mobile capability", () => {
+  for (const path of [
+    "/app/home",
+    "/app/analytics/seo",
+    "/app/reports",
+    "/app/manage/integrations",
+    "/c/biz_1/manage/team",
+  ]) {
+    it(`${path} remains write-capable on a phone`, () => {
+      expect(mobileWriteCapabilityForPath(path)).toBe("writes_allowed");
+      expect(shouldClaimMobileReadOnly(path)).toBe(false);
+    });
+  }
+});
+
 describe("an unknown route says nothing rather than the wrong thing", () => {
-  it("does not claim read-only for a route it does not recognise", () => {
+  it.each([
+    "/something-new",
+    "/app/metadata",
+    "/app/creative-writing",
+    "/app/googleish",
+    "/c/biz_1/metadata",
+  ])("does not claim read-only for unknown route %s", (path) => {
     // Silence is recoverable; a false read-only claim over a working form is
     // not.
-    expect(shouldClaimMobileReadOnly("/something-new")).toBe(false);
+    expect(mobileWriteCapabilityForPath(path)).toBe("writes_allowed");
+    expect(shouldClaimMobileReadOnly(path)).toBe(false);
+  });
+
+  it("keeps a missing pathname write-capable", () => {
     expect(shouldClaimMobileReadOnly(null)).toBe(false);
   });
 });

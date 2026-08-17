@@ -51,7 +51,13 @@ import {
   analyzeProducts,
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
+import { attachMerchantCenterState } from "@/lib/google-ads/merchant-center-item-state";
+import { readMerchantCenterFeedState } from "@/lib/google-ads/merchant-center-warehouse";
 import { applyCanonicalGoogleAdsProductFields } from "@/lib/google-ads/product-name";
+import {
+  countGoogleAdsKeywordInsights,
+  type GoogleAdsKeywordInsightRow,
+} from "@/lib/google-ads/keyword-insights";
 import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import {
   createGoogleAdsWarehouseFreshness,
@@ -3270,7 +3276,16 @@ export async function getGoogleAdsKeywordsReport(
   const analysis = analyzeKeywords(report.rows);
   return {
     rows: analysis.rows,
-    summary: analysis.summary,
+    summary: {
+      ...analysis.summary,
+      // The Search screen's three keyword tallies. They were computed only on
+      // the live report path, so the warehouse-served screen had nothing to
+      // read and invented row counts in their place. Same predicates, one
+      // module, both readers.
+      ...countGoogleAdsKeywordInsights(
+        report.rows as unknown as GoogleAdsKeywordInsightRow[],
+      ),
+    },
     insights: analysis.insights,
     meta: report.meta,
   };
@@ -3308,16 +3323,80 @@ export async function getGoogleAdsAssetGroupsReport(
   };
 }
 
+/**
+ * The Merchant Center block the Products screen's tiles print.
+ *
+ * Every field is nullable and null means "not read", never "zero". The screen
+ * distinguishes the two: an unread count is ink and prints the em dash, a real
+ * count of zero is tinted and prints `0`.
+ */
+export interface GoogleAdsProductFeedSummary {
+  totalItemsInFeed: number | null;
+  servingItemCount: number | null;
+  limitedItemCount: number | null;
+  disapprovedItemCount: number | null;
+  /** ISO timestamp of the newest Merchant Center observation. */
+  syncedAt: string | null;
+  /** Which Merchant Center accounts answered. Empty when none did. */
+  merchantCenterIds: string[];
+}
+
+export interface GoogleAdsProductsReportResult
+  extends ReportResult<Record<string, unknown>> {
+  feed: GoogleAdsProductFeedSummary | null;
+}
+
 export async function getGoogleAdsProductsReport(
   params: BaseReportParams
-): Promise<ReportResult<Record<string, unknown>>> {
-  const report = await buildSimpleEntityReport(params, "product_daily");
+): Promise<GoogleAdsProductsReportResult> {
+  const scope = await buildScopeResponse({ params, scope: "product_daily" });
+  const report: ReportResult<Record<string, unknown>> = {
+    rows: scope.rows,
+    summary: { total: scope.rows.length },
+    meta: buildMeta({
+      freshness: scope.freshness,
+      rowCounts: { product_daily: scope.rows.length },
+    }),
+  };
   const analysis = analyzeProducts(report.rows);
+
+  // Merchant Center item state is read separately and joined here, never
+  // fetched from the provider on this path: this is the warehouse reader, and a
+  // read that reached out to Google would make the screen's latency depend on
+  // an account link most businesses do not have. A failed or missing read
+  // yields null and the surface keeps its em dashes.
+  const feedRead = await readMerchantCenterFeedState({
+    businessId: params.businessId,
+    providerAccountIds: scope.context.providerAccountIds,
+  }).catch(() => null);
+
+  if (!feedRead) {
+    // The absence, stated. The Products screen itself has no slot for a
+    // sentence — its tiles print the em dash, which is the design's own way of
+    // saying "not read" — so the reason belongs where every other unreadable
+    // Google surface reports itself: the Diagnostics tab's warning list.
+    report.meta.warnings.push(
+      "Merchant Center item state is unavailable: no Merchant Center product has been read for this account. Feed status and the feed-health counts stay blank until the Google Ads account is linked to a Merchant Center account.",
+    );
+  }
+
+  const rows = attachMerchantCenterState(analysis.rows, feedRead?.items ?? null);
+
   return {
-    rows: analysis.rows,
+    rows,
     summary: analysis.summary,
     insights: analysis.insights,
     meta: report.meta,
+    feed: feedRead
+      ? {
+          totalItemsInFeed: feedRead.tallies.totalItemsInFeed,
+          servingItemCount: feedRead.tallies.servingItemCount,
+          limitedItemCount: feedRead.tallies.limitedItemCount,
+          disapprovedItemCount: feedRead.tallies.disapprovedItemCount,
+          syncedAt: feedRead.observedAt,
+          merchantCenterIds: feedRead.merchantCenterIds,
+        }
+      : null,
   };
 }
 
@@ -3511,7 +3590,13 @@ async function finalizeGoogleAdsAdvisorReport(input: {
   selectedWindowKey: "operational_28d" | "custom";
   selectedCampaigns: Awaited<ReturnType<typeof getGoogleAdsCampaignsReport>>;
   selectedSearch: Awaited<ReturnType<typeof getGoogleAdsSearchIntelligenceReport>>;
-  selectedProducts: Awaited<ReturnType<typeof getGoogleAdsProductsReport>>;
+  /**
+   * Rows only. Widened off `getGoogleAdsProductsReport`'s return type because
+   * the advisor reads `.rows` and nothing else — binding it to the Products
+   * screen's shape would have made every synthetic product window owe a
+   * Merchant Center block it has no business carrying.
+   */
+  selectedProducts: ReportResult<Record<string, unknown>>;
   selectedAssets: Awaited<ReturnType<typeof getGoogleAdsAssetsReport>>;
   selectedAssetGroups: Awaited<ReturnType<typeof getGoogleAdsAssetGroupsReport>>;
   selectedGeos: Awaited<ReturnType<typeof getGoogleAdsGeoReport>>;

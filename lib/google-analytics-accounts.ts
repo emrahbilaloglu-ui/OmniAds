@@ -35,6 +35,14 @@ export interface GA4PropertyOption {
 export interface GA4PropertyMetadata {
   propertyId: string;
   timeZone: string | null;
+  /**
+   * ISO 4217 code the Admin API reports for this property (`Property.currencyCode`).
+   * Every GA4 money metric — `purchaseRevenue`, `itemRevenue`, `totalRevenue` —
+   * is denominated in it, so without it a served revenue number has no unit.
+   * `null` when the provider omitted it or returned something that is not a
+   * three-letter code; never defaulted.
+   */
+  currencyCode: string | null;
 }
 
 export interface GA4PropertiesFetchResult {
@@ -182,6 +190,18 @@ function normalizeTimezone(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * ISO 4217 alphabetic codes only. `Intl.NumberFormat` throws a RangeError on
+ * anything else, and a stored non-code would take a revenue table down rather
+ * than render the missing value, so a shape we do not recognise is stored as
+ * absent instead of being passed through.
+ */
+export function normalizeCurrencyCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(trimmed) ? trimmed : null;
+}
+
 export async function fetchGA4PropertyMetadata(
   accessToken: string,
   propertyId: string,
@@ -207,11 +227,12 @@ export async function fetchGA4PropertyMetadata(
       );
     }
     const payload = (await response.json().catch(() => null)) as
-      | { timeZone?: string | null }
+      | { timeZone?: string | null; currencyCode?: string | null }
       | null;
     return {
       propertyId: normalizedPropertyId,
       timeZone: normalizeTimezone(payload?.timeZone),
+      currencyCode: normalizeCurrencyCode(payload?.currencyCode),
     };
   } finally {
     clearTimeout(timeout);

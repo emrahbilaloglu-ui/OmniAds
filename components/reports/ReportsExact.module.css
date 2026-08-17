@@ -1,0 +1,1507 @@
+/*
+ * Geometry, colour and layout for the v2 Reports screen and for the block
+ * bodies its exported, printed and shared pages reuse.
+ *
+ * Every declaration below the 12px reading floor is collected into the single
+ * marked block at the foot of this file, and pinned selector-by-selector in
+ * lib/typography-floor.test.ts. Nothing above that block may set a sub-floor
+ * size: the exemption is a short, enumerated list, not a property of this
+ * stylesheet.
+ */
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  width: 100%;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+}
+
+.root button,
+.root input,
+.root select {
+  font-family: inherit;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.newReport {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: none;
+  background: #2f6bff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.newReport:hover {
+  background: #1e4fd6;
+}
+
+/* ── tab row ────────────────────────────────────────────────────────────── */
+
+.tabRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+}
+
+.tabActive {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+.tabCount {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-radius: 9999px;
+  padding: 1px 7px;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.tabActive .tabCount {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.exportNote {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.footnote {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+/* ── my reports ─────────────────────────────────────────────────────────── */
+
+.savedList {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow: hidden;
+}
+
+.savedRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-top: 1px solid #f3f5f9;
+  flex-wrap: wrap;
+}
+
+.savedThumb {
+  flex-shrink: 0;
+  width: 86px;
+  border-radius: 8px;
+  border: 1px solid #edf0f6;
+  background: #f7f9fc;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  align-content: start;
+}
+
+.savedThumbHead {
+  height: 12px;
+  border-radius: 3px;
+  grid-column: span 2;
+}
+
+.savedThumbCell {
+  height: 16px;
+  border-radius: 3px;
+  background: #dce4f2;
+}
+
+.savedThumbFoot {
+  height: 10px;
+  border-radius: 3px;
+  background: #edf0f6;
+  grid-column: span 2;
+}
+
+.savedBody {
+  min-width: 230px;
+  flex: 1;
+}
+
+.savedTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.savedName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.savedStatus {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-weight: 700;
+}
+
+.savedDesc {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+.savedMeta {
+  margin: 5px 0 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.savedActions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rowActionPrimary {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd9ff;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2f6bff;
+  cursor: pointer;
+}
+
+.rowActionPrimary:hover:not(:disabled) {
+  background: #eaf0ff;
+}
+
+.rowAction {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #45526b;
+  cursor: pointer;
+}
+
+.rowAction:hover:not(:disabled) {
+  background: #f7f9fc;
+}
+
+.rowActionPrimary:disabled,
+.rowAction:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.savedEmpty {
+  margin: 0;
+  padding: 14px 16px;
+  border-top: 1px solid #f3f5f9;
+  font-size: 12.5px;
+  color: #45526b;
+}
+
+/* ── templates ──────────────────────────────────────────────────────────── */
+
+.templateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+}
+
+.templateCard {
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.templateCard:hover {
+  border-color: #cbd9ff;
+}
+
+.templatePreview {
+  border-radius: 10px;
+  border: 1px solid #edf0f6;
+  background: #f7f9fc;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  align-content: start;
+  height: 92px;
+  overflow: hidden;
+}
+
+.templatePreviewBlock {
+  border-radius: 3px;
+}
+
+.templateMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.templateCategory {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 5px;
+  padding: 3px 7px;
+}
+
+.templateCadence {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.templateName {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.templateDesc {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+.templateContents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.templateContentRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.templateContentIndex {
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  width: 14px;
+}
+
+.templateContentText {
+  font-size: 12px;
+  color: #45526b;
+}
+
+.templateFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid #f3f5f9;
+}
+
+.templateFooterMeta {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.templateUse {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: none;
+  background: #2f6bff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.templateUse:hover {
+  background: #1e4fd6;
+}
+
+/* ── builder toolbar ────────────────────────────────────────────────────── */
+
+.builderToolbar {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.builderName {
+  height: 34px;
+  min-width: 220px;
+  flex: 0 1 300px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  outline: none;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  color: #0e1526;
+}
+
+.builderRange {
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 0 10px;
+  font-size: 12.5px;
+  color: #45526b;
+}
+
+.comparePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  background: #eaf0ff;
+  color: #2f6bff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.builderCounter {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.builderSecondary {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #45526b;
+  cursor: pointer;
+}
+
+.builderSecondary:hover:not(:disabled) {
+  background: #f7f9fc;
+}
+
+.builderPrimary {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: #0b1020;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.builderSecondary:disabled,
+.builderPrimary:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ── builder columns ────────────────────────────────────────────────────── */
+
+.builderScroll {
+  overflow-x: auto;
+}
+
+.builderGrid {
+  display: grid;
+  grid-template-columns: 236px minmax(430px, 1fr) 264px;
+  gap: 12px;
+  align-items: start;
+  min-width: 960px;
+}
+
+.palette {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+
+.paletteEyebrow {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.paletteGroupName {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: #98a4ba;
+}
+
+.paletteItems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paletteItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 1px solid #edf0f6;
+  background: #fbfcfe;
+  cursor: grab;
+  width: 100%;
+  text-align: left;
+}
+
+.paletteItem:hover {
+  border-color: #9db4e8;
+  background: #f5f8ff;
+}
+
+.paletteIcon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+}
+
+.paletteIcon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.paletteLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.paletteSource {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+/* ── canvas ─────────────────────────────────────────────────────────────── */
+
+.canvas {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  box-shadow:
+    0 1px 2px rgba(14, 21, 38, 0.05),
+    0 14px 34px rgba(14, 21, 38, 0.07);
+  padding: 22px;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.canvasHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border-bottom: 2px solid #0b1020;
+  padding-bottom: 10px;
+}
+
+.canvasMark {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #2f6bff;
+  align-self: center;
+}
+
+.canvasName {
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.canvasMeta {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.canvasFlow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: flex-start;
+}
+
+.block {
+  border-radius: 11px;
+  border: 1.5px solid #e4e8f0;
+  background: #ffffff;
+  padding: 10px 12px;
+  cursor: pointer;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.block:hover {
+  border-color: #9db4e8;
+}
+
+.blockHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.blockHandle {
+  color: #c2cbda;
+  letter-spacing: 1.5px;
+  cursor: grab;
+  line-height: 1;
+}
+
+.blockTitle {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7a869e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blockSize {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid #e4e8f0;
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: #7a869e;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.blockSize:hover {
+  background: #f7f9fc;
+}
+
+.blockRemove {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: #98a4ba;
+  cursor: pointer;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.blockRemove:hover {
+  color: #e11d48;
+  background: #fdecf0;
+}
+
+.kpiValue {
+  margin: 0;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.kpiDelta {
+  margin: 3px 0 0;
+  font-weight: 600;
+}
+
+.kpiDeltaNote {
+  color: #98a4ba;
+  font-weight: 400;
+}
+
+.kpiRow {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.kpiMini {
+  min-width: 70px;
+}
+
+.kpiMiniKey {
+  display: block;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+  color: #98a4ba;
+}
+
+.kpiMiniValue {
+  display: block;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.lineChart {
+  display: block;
+  width: 100%;
+  height: 52px;
+}
+
+.barChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 52px;
+}
+
+.bar {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+  background: #dce4f2;
+}
+
+.barAccent {
+  background: #2f6bff;
+}
+
+.donutWrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.donut {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  -webkit-mask: radial-gradient(circle, transparent 15px, #000 15.5px);
+  mask: radial-gradient(circle, transparent 15px, #000 15.5px);
+}
+
+.donutLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.donutLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #45526b;
+}
+
+.donutSwatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.tableSchematic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tableSchematicRow {
+  display: flex;
+  gap: 6px;
+}
+
+.tableHeadCell {
+  height: 8px;
+  border-radius: 3px;
+  background: #c9d2e0;
+}
+
+.tableBodyCell {
+  height: 7px;
+  border-radius: 3px;
+  background: #f1f4f9;
+}
+
+.tableBodyLead {
+  height: 7px;
+  border-radius: 3px;
+  background: #edf0f6;
+}
+
+.textSchematic {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.textSchematicLine {
+  height: 6px;
+  border-radius: 3px;
+  background: #e4e8f0;
+}
+
+.aiPanel {
+  border-radius: 8px;
+  background: #fdfbff;
+  border: 1px solid #ede4fa;
+  padding: 8px 10px;
+}
+
+.aiTag {
+  display: inline-flex;
+  border-radius: 4px;
+  background: #f1ebfb;
+  color: #6c41be;
+  padding: 1px 6px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+}
+
+.aiBody {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #98a4ba;
+}
+
+/* ── funnel (reference l.2470-2477) ─────────────────────────────────────── */
+
+.funnelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.funnelStep {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.funnelBar {
+  height: 10px;
+  border-radius: 3px;
+  background: #2f6bff;
+}
+
+/* An unmeasured step keeps the track's geometry in the neutral fill so no
+   proportion is asserted where none was measured. */
+.funnelBarUnmeasured {
+  background: #edf0f6;
+}
+
+.funnelLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
+}
+
+/* ── heat grid (reference l.2492-2498) ──────────────────────────────────── */
+
+.heatGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+}
+
+.heatCell {
+  height: 14px;
+  border-radius: 3px;
+  background: #f1f4f9;
+}
+
+/* ── creative brief (reference l.2500-2551) ─────────────────────────────── */
+
+.brief {
+  border-radius: 10px;
+  border: 1px solid #e6e0f2;
+  overflow: hidden;
+}
+
+.briefHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #fdfbff;
+  border-bottom: 1px solid #f0ebf9;
+}
+
+.briefTag {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 4px;
+  background: #f1ebfb;
+  color: #6c41be;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+.briefConcept {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefGate {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
+}
+
+.briefStatus {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.briefBody {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.briefGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 7px;
+}
+
+.briefFromCard {
+  border-radius: 8px;
+  border: 1px solid #edf0f6;
+  background: #f9fafc;
+  padding: 8px 10px;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.briefStripe {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  background: repeating-linear-gradient(
+    135deg,
+    #edf0f6,
+    #edf0f6 4px,
+    #f7f9fc 4px,
+    #f7f9fc 8px
+  );
+}
+
+.briefFromText {
+  min-width: 0;
+}
+
+.briefLabel {
+  display: block;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #98a4ba;
+}
+
+.briefFromName {
+  display: block;
+  margin-top: 2px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefFromMeta {
+  display: block;
+  margin-top: 1px;
+  color: #7a869e;
+}
+
+.briefNeedCard {
+  border-radius: 8px;
+  border: 1px solid #e6dbf6;
+  background: #fdfbff;
+  padding: 8px 10px;
+}
+
+.briefNeedLabel {
+  display: block;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #6c41be;
+}
+
+.briefMake {
+  display: block;
+  margin-top: 2px;
+  font-family: "Space Grotesk", var(--font-instrument-sans), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.briefMakeSub {
+  display: block;
+  margin-top: 1px;
+  color: #7a869e;
+}
+
+.briefWhy {
+  margin: 0;
+  line-height: 1.5;
+  color: #45526b;
+}
+
+.briefWhyLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #0e9f6e;
+  margin-right: 6px;
+}
+
+.briefRowLabel {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  color: #7a869e;
+}
+
+.briefChipRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.briefChip {
+  display: inline-flex;
+  border-radius: 6px;
+  border: 1px solid #e6dbf6;
+  background: #ffffff;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.briefRuleRow {
+  display: flex;
+  align-items: center;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+}
+
+.briefRule {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #45526b;
+}
+
+.briefRuleSign {
+  font-weight: 700;
+  color: #98a4ba;
+}
+
+.briefSpecRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  border-top: 1px solid #f3f5f9;
+  padding-top: 7px;
+}
+
+.briefSpec {
+  display: inline-flex;
+  border-radius: 5px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #45526b;
+  white-space: nowrap;
+}
+
+.briefFoot {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+  white-space: nowrap;
+}
+
+.blockUnavailable {
+  margin: 0;
+  font-size: 16px;
+  color: #98a4ba;
+}
+
+.blockSourceNote {
+  margin: 8px 0 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #c2cbda;
+}
+
+.dropZone {
+  width: 100%;
+  border: 1.5px dashed #c9d2e0;
+  border-radius: 11px;
+  min-height: 74px;
+  display: grid;
+  place-items: center;
+  background: rgba(247, 249, 252, 0.6);
+}
+
+.dropZoneText {
+  margin: 0;
+  font-size: 12px;
+  color: #98a4ba;
+}
+
+/* ── inspector ──────────────────────────────────────────────────────────── */
+
+.inspector {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  position: sticky;
+  top: 0;
+}
+
+.inspectorHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspectorEyebrow {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.inspectorKind {
+  margin-left: auto;
+  display: inline-flex;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-weight: 600;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-weight: 600;
+  color: #45526b;
+}
+
+.fieldInput {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+  padding: 0 10px;
+  font-size: 12.5px;
+  outline: none;
+  color: #0e1526;
+}
+
+.fieldSelect {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 0 9px;
+  font-size: 12.5px;
+  color: #0e1526;
+}
+
+.fieldSelect:disabled {
+  color: #45526b;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: none;
+}
+
+.segmentActive {
+  background: #0b1020;
+  color: #ffffff;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.checkBox {
+  width: 15px;
+  height: 15px;
+  border-radius: 4.5px;
+  border: 1.5px solid #c9d2e0;
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.checkBoxOn {
+  border-color: #2f6bff;
+  background: #2f6bff;
+}
+
+.checkBox svg {
+  width: 9px;
+  height: 9px;
+}
+
+.checkLabel {
+  font-size: 12px;
+  color: #0e1526;
+}
+
+.removeBlock {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #f6c6d2;
+  background: #ffffff;
+  color: #e11d48;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.removeBlock:hover {
+  background: #fdecf0;
+}
+
+.inspectorFootnote {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.6;
+  color: #c2cbda;
+}
+
+.recipientList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.recipient {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  background: #f1f4f9;
+  color: #45526b;
+  padding: 3px 8px;
+}
+
+.recipientRemove {
+  color: #98a4ba;
+  cursor: pointer;
+}
+
+.recipientAdd {
+  display: inline-flex;
+  border-radius: 6px;
+  border: 1px dashed #c9d2e0;
+  color: #7a869e;
+  padding: 3px 8px;
+  cursor: pointer;
+  background: none;
+}
+
+.recipientAdd:not(:disabled):hover {
+  border-color: #2f6bff;
+  color: #2f6bff;
+}
+
+.recipientAdd:disabled {
+  cursor: default;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.toggle {
+  display: inline-flex;
+  width: 34px;
+  height: 19px;
+  border-radius: 9999px;
+  background: #c9d2e0;
+  padding: 2px;
+  justify-content: flex-start;
+  border: none;
+}
+
+.toggleOn {
+  background: #0e9f6e;
+  justify-content: flex-end;
+}
+
+.toggleKnob {
+  width: 15px;
+  height: 15px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(14, 21, 38, 0.25);
+}
+
+.toggleNote {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #98a4ba;
+}
+
+.inspectorHint {
+  border-radius: 10px;
+  border: 1px dashed #c9d2e0;
+  background: #fbfcfe;
+  padding: 10px 12px;
+}
+
+.inspectorHintText {
+  margin: 0;
+  line-height: 1.6;
+  color: #7a869e;
+}
+
+/*
+ * The Reports reference sets its mono provenance lines, block titles, palette
+ * source tags, counters and brief labels at 8px–11.5px. Those sizes are the
+ * specification, not a shortcut: each one is a label attached to a figure that
+ * is itself at the reading size, and re-scaling them would change the page the
+ * client receives. Every sub-floor declaration in this stylesheet is listed
+ * below and nowhere else, and lib/typography-floor.test.ts pins this exact
+ * selector/size list so the exemption cannot widen unnoticed.
+ */
+/* dashboard-v2-reports-exact-reference-type:start */
+.kpiMiniKey,
+.briefLabel,
+.briefRowLabel,
+.briefNeedLabel,
+.briefWhyLabel {
+  font-size: 8px;
+}
+
+.paletteSource,
+.aiTag,
+.blockSourceNote,
+.funnelLabel,
+.briefTag,
+.briefSpec,
+.briefFoot {
+  font-size: 8.5px;
+}
+
+.templateCategory,
+.blockSize,
+.briefGate {
+  font-size: 9px;
+}
+
+.templateContentIndex,
+.paletteEyebrow,
+.blockTitle,
+.inspectorEyebrow,
+.inspectorKind,
+.inspectorFootnote,
+.toggleNote,
+.briefStatus {
+  font-size: 9.5px;
+}
+
+.tabCount,
+.templateCadence,
+.templateFooterMeta,
+.builderCounter,
+.canvasMeta,
+.briefFromMeta,
+.briefMakeSub {
+  font-size: 10px;
+}
+
+.exportNote,
+.savedStatus,
+.savedMeta,
+.donutLegendItem,
+.briefWhy,
+.briefChip,
+.briefRule {
+  font-size: 10.5px;
+}
+
+.eyebrow,
+.footnote,
+.blockHandle,
+.blockRemove,
+.kpiDelta,
+.recipient,
+.recipientAdd {
+  font-size: 11px;
+}
+
+.paletteGroupName,
+.fieldLabel,
+.segment,
+.inspectorHintText,
+.briefFromName {
+  font-size: 11.5px;
+}
+/* dashboard-v2-reports-exact-reference-type:end */

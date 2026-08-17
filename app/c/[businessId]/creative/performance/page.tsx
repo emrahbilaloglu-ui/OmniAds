@@ -6,7 +6,6 @@ import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyCreativePerformancePage from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
-import { LegacyInteriorBridge } from "@/components/legacy/legacy-interior-bridge";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +27,10 @@ export default async function CreativePerformancePage({
   const scope = scopeFromSearchParams(await searchParams, defaultCreativeWindow(new Date()));
   const providerAccountId = await resolveProviderAccountId({ businessId, provider: "meta", requestedAccountId: scope.providerAccountId });
 
-  void providerAccountId;
   return (
-    <LegacyInteriorBridge>
-      <LegacyCreativePerformancePage />
-    </LegacyInteriorBridge>
+    <LegacyCreativePerformancePage
+      businessId={businessId}
+      providerAccountId={providerAccountId}
+    />
   );
 }

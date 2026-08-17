@@ -26,7 +26,7 @@ import {
   IntegrationsClient,
   TeamClient,
 } from "@/components/zero-base/manage/manage-clients";
-import { IntegrationsView } from "@/components/zero-base/manage/manage-views";
+import { BusinessView, IntegrationsView } from "@/components/zero-base/manage/manage-views";
 import { oauthStartUrl } from "@/lib/zero-base/manage/manage-contract";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
@@ -329,6 +329,41 @@ describe("WP-23 business settings", () => {
     });
     const patch = calls.find((call) => call.method === "PATCH")!;
     expect(patch.body).toEqual({ name: "Grandmix EU", currency: "EUR" });
+  });
+
+  it("REGRESSION: a read landing mid-edit does not discard what was typed", async () => {
+    // The settings effect used to re-seed name and currency from `settings`
+    // every time that prop changed, unguarded. A refetch landing while the
+    // operator was typing silently replaced their input with the stored value,
+    // and Save then sent the value they had just changed away from -- the same
+    // hazard the cost model three lines below had already been guarded against.
+    // It surfaced as a flake (`saves both fields together`, ~1 run in 5,
+    // always `expected 'Grandmix' to be 'Grandmix EU'`), because the seed raced
+    // the keystroke. Rendered directly, so the late read is the only moving part.
+    const view = (stored: { name: string; currency: string }) => (
+      <BusinessView
+        canDelete={false}
+        costPermission={{ ok: false, reason: "" }}
+        deleteOutcome={{ kind: "unstarted" }}
+        economics={[]}
+        recommendedMode={null}
+        settings={stored}
+        settingsPermission={{ ok: true }}
+        settingsState={{ pending: false, error: null, confirmed: null }}
+      />
+    );
+    const { rerender } = render(view({ name: "Grandmix", currency: "TRY" }));
+    await waitFor(() =>
+      expect((document.querySelector("[data-business-name]") as HTMLInputElement).value).toBe("Grandmix"),
+    );
+
+    type("[data-business-name]", "Grandmix EU");
+
+    // The read lands now, with a *different object* carrying the old values --
+    // exactly what a refetch produces.
+    rerender(view({ name: "Grandmix", currency: "TRY" }));
+
+    expect((document.querySelector("[data-business-name]") as HTMLInputElement).value).toBe("Grandmix EU");
   });
 
   it("refuses a too-short name without a request, as the route would", async () => {

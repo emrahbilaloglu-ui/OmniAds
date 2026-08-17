@@ -143,7 +143,17 @@ describe("no surface offers a comparison it does not read", () => {
     // so the narrowing is asserted where the control now lives. The rule is
     // unchanged: Overview must not offer a comparison its route cannot read.
     const topbar = await read("components/layout/v2/app-topbar.tsx");
-    expect(topbar).toContain("OVERVIEW_COMPARISON_PRESETS");
+    const picker = await read("components/date-range/DateRangePicker.tsx");
+    const persistentRange = await read("hooks/use-persistent-date-range.ts");
+    expect(topbar).toContain('variant="v2"');
+    expect(picker).toContain("togglePreviousPeriodComparison(value)");
+    expect(picker).toContain(
+      'value.comparisonPreset === "none" ? "previousPeriod" : "none"',
+    );
+    expect(persistentRange).toContain("normalizeDashboardV2DateRange");
+    expect(persistentRange).toContain(
+      'value.comparisonPreset === "none" ? "none" : "previousPeriod"',
+    );
     expect(page).not.toContain(
       'dateRange.comparisonPreset === "none" ? "none" : "previous_period"',
     );
@@ -162,7 +172,31 @@ describe("no surface offers a comparison it does not read", () => {
       // These surfaces rendered an active-looking Compare chip and read
       // nothing from it: the operator could pick "Previous year", watch the
       // chip light up and print year-ago dates, and change nothing at all.
-      expect(page).toContain("showComparisonTrigger={false}");
+      if (file.includes("platforms/meta/landing-pages")) {
+        // Dashboard v2 removed the page-local date/comparison control from
+        // Creative Studio entirely. The shell owns the date window, while
+        // Landing Pages still consumes no comparison baseline.
+        expect(page).toContain("<CreativeStudioExact");
+        expect(page).not.toContain("<DateRangePicker");
+        expect(page).not.toContain("<CreativesTopSection");
+        expect(page).not.toContain("showComparisonTrigger");
+      } else if (file.includes("insights/")) {
+        // Dashboard v2 moved the Insights range control into the screen's own
+        // head chip, so no Insights tab body mounts a picker. The rule is
+        // unchanged and asserted where the control now lives: the head offers
+        // no comparison chip, and the one comparison these screens do read —
+        // the previous period behind the KPI cards' third line — is fixed, not
+        // something the operator can pick and have silently ignored.
+        expect(page).toMatch(
+          /<(InsightsAnalyticsScreen|InsightsSeoScreen|InsightsGeoScreen)/,
+        );
+        expect(page).not.toContain("<DateRangePicker");
+        expect(page).not.toContain("showComparisonTrigger");
+        const chrome = await read("components/insights/InsightsChrome.tsx");
+        expect(chrome).toContain("showComparisonTrigger={false}");
+      } else {
+        expect(page).toContain("showComparisonTrigger={false}");
+      }
       expect(page).not.toMatch(/compareMode|comparisonMode/);
     });
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireBusinessAccess } from "@/lib/access";
+import { getUserById } from "@/lib/account-store";
 import {
   listBusinessTargetPackHistory,
   type BusinessTargetPackHistoryEntry,
@@ -42,13 +43,38 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const history = await listBusinessTargetPackHistory({ businessId, limit: 20 });
+
+  /**
+   * Who made each change.
+   *
+   * The revision rows already carry the acting user id; resolving it here is
+   * what lets the Commercial Truth change log and its "last updated by" line
+   * name a person instead of an em dash. A user we cannot read stays null —
+   * the surface renders the absence rather than guessing an actor.
+   */
+  const actorIds = [
+    ...new Set(
+      history
+        .map((entry) => entry.updatedByUserId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  ];
+  const actorNames = new Map<string, string>();
+  await Promise.all(
+    actorIds.map(async (userId) => {
+      const user = await getUserById(userId).catch(() => null);
+      const label = user?.name?.trim() || user?.email?.trim();
+      if (label) actorNames.set(userId, label);
+    }),
+  );
+
   return NextResponse.json({
     entries: history.map((entry, index) => ({
       id: entry.id,
       at: entry.effectiveAt,
       operation: entry.operation,
       sourceLabel: entry.sourceLabel,
-      actor: null,
+      actor: entry.updatedByUserId ? (actorNames.get(entry.updatedByUserId) ?? null) : null,
       changes: describeChanges(entry, history[index + 1]),
     })),
   });

@@ -1,0 +1,615 @@
+/*
+ * Canonical Dashboard v2 stylesheet for `Google Ads · Search` (reference markup
+ * lines 1359-1459) and `Google Ads · Products` (lines 1460-1524).
+ *
+ * Both screens are one stylesheet because they are one design language: the
+ * same page head, the same 14px card, the same table shell, the same ROAS chip.
+ * Every declaration below is the reference's own inline value.
+ */
+
+.screen,
+.screen * {
+  box-sizing: border-box;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  color: #0e1526;
+  font-family: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.headerStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.syncPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 9999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.syncDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.syncPositive {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.syncWarning {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.syncNegative {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.syncNeutral {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+/* Tabs — Search terms / Keywords. */
+.tabRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tabPill {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+  font-family: inherit;
+}
+
+.tabPillActive {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+/* Search-term stat cards. */
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.statCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.statDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.statDotWaste {
+  background: #d64550;
+}
+
+.statDotOpportunity {
+  background: #6c41be;
+}
+
+.statDotHigh {
+  background: #0e9f6e;
+}
+
+.statValue {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+/* Search-term filter pills. */
+.filterRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filterPill {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+  font-family: inherit;
+}
+
+.filterPillActive {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+/* Keyword stat pills. */
+.keywordStatRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.keywordStat {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #e4e8f0;
+  border-radius: 9999px;
+  background: #ffffff;
+  padding: 6px 13px;
+  font-size: 12px;
+  color: #45526b;
+}
+
+.keywordStatCount {
+  font-weight: 700;
+}
+
+.keywordStatWarning {
+  color: #b45309;
+}
+
+.keywordStatInfo {
+  color: #2f6bff;
+}
+
+.keywordStatAuto {
+  color: #6c41be;
+}
+
+/* Table shell. */
+.tableCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.termTable {
+  min-width: 860px;
+}
+
+.keywordTable {
+  min-width: 880px;
+}
+
+.productTable {
+  min-width: 640px;
+}
+
+.headEdge {
+  padding: 9px 16px;
+}
+
+.headInner {
+  padding: 9px 12px;
+}
+
+.left {
+  text-align: left;
+}
+
+.right {
+  text-align: right;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.cellEdge {
+  padding: 10px 16px;
+}
+
+.cellInner {
+  padding: 10px 12px;
+}
+
+.productCellEdge {
+  padding: 11px 16px;
+}
+
+.productCellInner {
+  padding: 11px 12px;
+}
+
+.primaryText {
+  display: block;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.keywordLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keywordText {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.chipRow {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.mutedCell {
+  color: #45526b;
+}
+
+.strongCell {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.spendCell {
+  color: #45526b;
+  font-weight: 400;
+}
+
+.spendWasteful {
+  color: #d64550;
+  font-weight: 700;
+}
+
+.qualityCell {
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.qualityPositive {
+  color: #0e9f6e;
+}
+
+.qualityNegative {
+  color: #d64550;
+}
+
+/* Products & feed tiles. */
+.tileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px 16px;
+}
+
+.tileValue {
+  margin: 6px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 23px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.tileValueWarning {
+  color: #b45309;
+}
+
+.tileValueDanger {
+  color: #d64550;
+}
+
+/* Products two-column body. */
+.productsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(290px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .productsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.allocationCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow: hidden;
+}
+
+.cardHeader {
+  padding: 13px 16px;
+  border-bottom: 1px solid #edf0f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.allocationBody {
+  padding: 13px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.allocationItems {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.allocationChip {
+  border: 1px solid #e4e8f0;
+  border-radius: 7px;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: #0e1526;
+  background: #ffffff;
+}
+
+/* dashboard-v2-google-search-products-exact-reference-type:start */
+.eyebrow {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.guardCopy, .cardSubtitle {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.statLabel, .allocationNote {
+  color: #7a869e;
+  font-size: 11.5px;
+}
+
+.filterCount {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.table th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+  white-space: nowrap;
+}
+
+.chip, .matchChip {
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.roasChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.keywordComponents, .allocationLabel {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  color: #98a4ba;
+}
+
+.productSku {
+  display: block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: #98a4ba;
+  margin-top: 1px;
+}
+
+.statusChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tileLabel {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.tileSub, .footnote {
+  color: #7a869e;
+  font-size: 11px;
+}
+/* dashboard-v2-google-search-products-exact-reference-type:end */
+
+.statLabel {
+  margin: 1px 0 0;
+}
+
+.allocationNote {
+  margin: 0;
+  line-height: 1.5;
+  color: #98a4ba;
+}
+
+.allocationLabel {
+  margin: 0 0 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7a869e;
+}
+
+.keywordComponents {
+  display: block;
+  margin-top: 2px;
+}
+
+.campaignCell {
+  padding: 10px 12px;
+  color: #7a869e;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.impressionShareCell {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #7a869e;
+}
+
+.tileSub {
+  margin: 2px 0 0;
+}
+
+.footnote {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  color: #98a4ba;
+}
+
+/* Chip tones, shared by the intent, match-type, ROAS and feed-status chips. */
+.tonePositive {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.toneInfo {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.toneAuto {
+  background: #f1ebfb;
+  color: #6c41be;
+}
+
+.toneWarning {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.toneNegative {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+/* A served value inside the neutral band: the reference's own `neu` pair. */
+.toneNeutral {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+/*
+ * No value served at all. The reference keeps the same `neu[0]` fill and drops
+ * the ink to #7A869E only for the rows that print the em dash, so a measured
+ * in-band number never renders as an absence.
+ */
+.toneUnserved {
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.opportunityChip {
+  background: #f0eafb;
+  color: #6c41be;
+}

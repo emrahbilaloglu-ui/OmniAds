@@ -20,8 +20,9 @@ const platformSwitcher = readFileSync(
   "components/layout/PlatformSwitcher.tsx",
   "utf8",
 );
-const globalSearch = readFileSync(
-  "components/layout/GlobalSearch.tsx",
+const globalSearch = readFileSync("components/layout/GlobalSearch.tsx", "utf8");
+const dashboardFrame = readFileSync(
+  "components/layout/dashboard-frame.tsx",
   "utf8",
 );
 
@@ -134,7 +135,7 @@ describe("the search shortcut is real", () => {
 
   it("only prevents the default when it actually handled the key", () => {
     // Preventing default on keys it ignores would break normal typing.
-    expect(globalSearch).toContain("preventDefault");
-    expect(globalSearch).toMatch(/action === "open"|=== "open"/);
+    expect(dashboardFrame).toContain('if (action === "ignore") return');
+    expect(dashboardFrame).toContain("event.preventDefault()");
   });
 });

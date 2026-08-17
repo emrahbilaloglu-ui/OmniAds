@@ -101,6 +101,17 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("google_ads_keyword_dimensions");
     expect(queries.join("\n")).toContain("google_ads_asset_group_dimensions");
     expect(queries.join("\n")).toContain("google_ads_product_dimensions");
+    // Merchant Center item state: additive, idempotent, and keyed on the item
+    // rather than on a date, because an approval has no yesterday.
+    expect(queries.join("\n")).toContain(
+      "CREATE TABLE IF NOT EXISTS google_merchant_center_item_state",
+    );
+    expect(queries.join("\n")).toContain(
+      "UNIQUE (business_id, provider_account_id, item_id)",
+    );
+    expect(queries.join("\n")).toContain(
+      "idx_google_merchant_center_item_state_business_account",
+    );
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS sync_incidents");
     expect(queries.join("\n")).toContain("business_ref_id");
     expect(queries.join("\n")).toContain("provider_account_ref_id");

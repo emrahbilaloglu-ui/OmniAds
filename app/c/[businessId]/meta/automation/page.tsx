@@ -1,23 +1,26 @@
 import { notFound, redirect } from "next/navigation";
 
-import { getSessionFromCookies } from "@/lib/auth";
+import MetaAutomationPage from "@/app/(dashboard)/platforms/meta/automation/automation-view";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
-import { loginUrlFor } from "@/lib/zero-base/auth-routing";
+import { getSessionFromCookies } from "@/lib/auth";
 import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
-import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { AutomationClient } from "@/components/zero-base/meta/automation/automation-client";
-import {
-  buildProviderPostures,
-  type GoogleConnectionRead,
-} from "@/lib/zero-base/meta/automation-posture";
+import { loginUrlFor } from "@/lib/zero-base/auth-routing";
+import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 
 export const dynamic = "force-dynamic";
 
-export default async function MetaAutomationPage({
+function first(value: string | string[] | undefined) {
+  if (typeof value === "string") return value.trim() || null;
+  if (Array.isArray(value)) return value[0]?.trim() || null;
+  return null;
+}
+
+export default async function MetaAutomationRoute({
   params,
+  searchParams,
 }: {
   params: Promise<{ businessId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { businessId } = await params;
 
@@ -27,47 +30,36 @@ export default async function MetaAutomationPage({
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  const [control, integrations, assignment] = await Promise.all([
-    getMetaAutomationControlPlane({ businessId }).catch(() => null),
-    // Google's own separate authority. Read, never assumed: the row must state
-    // what was actually observed, and a failure here is `unknown`, not healthy.
-    getIntegrationStatusByBusiness(businessId).catch((error: unknown) => ({
-      failed: error instanceof Error ? error.message : "integration status is unavailable",
-    })),
-    getProviderAccountAssignments(businessId, "meta").catch(() => null),
-  ]);
+  const raw = (await searchParams) ?? {};
+  const providerAccountId = await resolveProviderAccountId({
+    businessId,
+    provider: "meta",
+    requestedAccountId: first(raw.providerAccountId),
+  });
+  const control = await getMetaAutomationControlPlane({
+    businessId,
+    providerAccountId,
+  }).catch(() => null);
 
-  const google: GoogleConnectionRead =
-    integrations && "failed" in integrations
-      ? { read: false, reason: integrations.failed }
-      : { read: true, connected: Boolean(integrations?.google) };
+  // When several assigned accounts require an explicit choice, the business
+  // control remains readable but account-owned provider action rows do not.
+  // This prevents a missing selection from becoming an implicit all-account
+  // activity scope while preserving real business-wide control ledger rows.
+  const scopedControl =
+    control && !providerAccountId
+      ? {
+          ...control,
+          activityLedger: control.activityLedger.filter(
+            (item) => item.source === "automation_ledger",
+          ),
+        }
+      : control;
 
   return (
-    <AutomationClient
+    <MetaAutomationPage
       businessId={businessId}
-      providerAccountId={assignment?.account_ids?.length === 1 ? assignment.account_ids[0] : null}
-      postures={buildProviderPostures({
-        meta: control
-          ? { state: "serving", reason: null }
-          : {
-              state: "degraded",
-              reason: "The automation control plane could not be read.",
-            },
-        google,
-      })}
-      guardrails={(control?.businessControl?.guardrails ?? {}) as unknown as Record<string, unknown>}
-      ceremony={{
-        intent: control?.businessControl?.killSwitchEngaged ? "release" : "engage",
-        viewer: {
-          role: access.context.role,
-          isReviewer: access.context.reviewerReadOnly,
-          demo: access.context.demo,
-        },
-        // Null when the plane could not be read: the ceremony refuses to change
-        // a state nobody has observed.
-        currentlyEngaged: control ? Boolean(control.businessControl?.killSwitchEngaged) : null,
-        readBack: null,
-      }}
+      providerAccountId={providerAccountId}
+      initialPayload={scopedControl}
     />
   );
 }

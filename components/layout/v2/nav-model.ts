@@ -3,6 +3,11 @@ import type { AppLanguage } from "@/lib/i18n";
 import { getTranslations } from "@/lib/i18n";
 import type { PlanId } from "@/lib/pricing/plans";
 import {
+  dashboardHrefForRouteFamily,
+  dashboardScreenForPath,
+  normalizeDashboardPath,
+} from "@/lib/dashboard-v2/screen-registry";
+import {
   getLayer1Items,
   getLayer3Items,
   getPlatformLayer2Items,
@@ -71,7 +76,7 @@ function toRailLink(item: ShellNavItem): RailLink {
 /** Platforms the design renders with their sub-navigation always open in the rail. */
 const EXPANDED_PLATFORMS: PlatformId[] = ["meta", "google"];
 
-export function getRailModel(language: AppLanguage): RailModel {
+export function getRailModel(language: AppLanguage, options: { showKlaviyo?: boolean } = {}): RailModel {
   const t = getTranslations(language).navigation;
   const layer1 = getLayer1Items(language);
   const layer3 = getLayer3Items(language);
@@ -82,9 +87,12 @@ export function getRailModel(language: AppLanguage): RailModel {
     .filter((item): item is ShellNavItem => Boolean(item))
     .map(toRailLink);
 
-  const platforms: RailPlatform[] = (
-    ["meta", "google", "klaviyo", "tiktok", "pinterest", "snapchat"] as PlatformId[]
-  ).map((platformId) => {
+  const visiblePlatformIds: PlatformId[] = [
+    "meta",
+    "google",
+    ...(options.showKlaviyo ? (["klaviyo"] as PlatformId[]) : []),
+  ];
+  const platforms: RailPlatform[] = visiblePlatformIds.map((platformId) => {
     const registry = platformsRegistry[platformId];
     const layer2 = getPlatformLayer2Items(platformId, language);
     const expanded = EXPANDED_PLATFORMS.includes(platformId);
@@ -113,18 +121,34 @@ export function getRailModel(language: AppLanguage): RailModel {
 }
 
 export function isRailLinkActive(link: RailLink, pathname: string) {
-  const candidates = [link.href, ...(link.activeHrefs ?? [])];
-  if (link.exact) return candidates.some((href) => pathname === href);
+  if (
+    link.id === "insights" &&
+    dashboardScreenForPath(pathname)?.screen === "insights"
+  ) {
+    return true;
+  }
+  const current = normalizeDashboardPath(pathname);
+  const candidates = [link.href, ...(link.activeHrefs ?? [])].map((href) =>
+    normalizeDashboardPath(dashboardHrefForRouteFamily(href, pathname)),
+  );
+  if (link.exact) return candidates.some((href) => current === href);
   return candidates.some(
-    (href) => pathname === href || pathname.startsWith(`${href}/`),
+    (href) => current === href || current.startsWith(`${href}/`),
   );
 }
 
 export function isPlatformFamilyActive(platform: RailPlatform, pathname: string) {
-  return (
-    pathname === platform.routePrefix ||
-    pathname.startsWith(`${platform.routePrefix}/`)
+  const screen = dashboardScreenForPath(pathname)?.screen;
+  if (platform.id === "meta" && screen) {
+    return ["meta", "creative", "launchpad", "automation"].includes(screen);
+  }
+  if (platform.id === "google" && screen) return screen.startsWith("google");
+  if (platform.id === "klaviyo" && screen) return screen === "klaviyo";
+  const current = normalizeDashboardPath(pathname);
+  const prefix = normalizeDashboardPath(
+    dashboardHrefForRouteFamily(platform.routePrefix, pathname),
   );
+  return current === prefix || current.startsWith(`${prefix}/`);
 }
 
 /** Flattened jump targets for the ⌘K palette. */

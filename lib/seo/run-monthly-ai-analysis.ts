@@ -128,6 +128,10 @@ function buildDemoSnapshotAnalysis(params: {
   const topDecliningPage = params.overview.movers.decliningPages[0];
   const topDecliningQuery = params.overview.movers.decliningQueries[0];
   const topExcludedPage = params.technicalFindings.confirmedExcludedPages[0];
+  // A passing verdict is neither a root cause nor a priority.
+  const failingFindings = params.technicalFindings.findings.filter(
+    (finding) => finding.severity !== "passed",
+  );
   const dominantAffectedArea: SeoAiAnalysis["rootCauses"][number]["affectedArea"] = topDecliningPage
     ? topDecliningPage.classificationTone === "category"
       ? "category"
@@ -161,7 +165,7 @@ function buildDemoSnapshotAnalysis(params: {
           affectedArea: normalizeDemoAffectedArea(topExcludedPage.pageType),
         }
       : null,
-    ...params.technicalFindings.findings.slice(0, 2).map((finding) => ({
+    ...failingFindings.slice(0, 2).map((finding) => ({
       title: finding.title,
       detail: `${finding.description} Recommended next move: ${finding.recommendation}`,
       confidence:
@@ -181,7 +185,7 @@ function buildDemoSnapshotAnalysis(params: {
   ].filter((item): item is NonNullable<typeof item> => Boolean(item)).slice(0, 3);
 
   const priorities = [
-    ...params.technicalFindings.findings.slice(0, 2).map((finding) => ({
+    ...failingFindings.slice(0, 2).map((finding) => ({
       title: finding.recommendation,
       detail: `Snapshot-backed priority from ${finding.pageType.toLowerCase()} pages. ${finding.affectedPages[0]?.path ?? finding.title}`,
       impact: finding.severity === "critical" ? ("high" as const) : ("medium" as const),

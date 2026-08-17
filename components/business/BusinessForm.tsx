@@ -8,7 +8,14 @@ interface BusinessFormProps {
   }) => void;
 }
 
-const CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "TRY"];
+/**
+ * The currencies this product offers a workspace.
+ *
+ * Exported because `/select-business` edits the same column through
+ * `PATCH /api/businesses/{id}`, and a second hand-written list is how the two
+ * surfaces would come to disagree about what a workspace may be set to.
+ */
+export const CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "TRY"];
 
 export function BusinessForm({ onSubmit }: BusinessFormProps) {
   const [name, setName] = useState("");

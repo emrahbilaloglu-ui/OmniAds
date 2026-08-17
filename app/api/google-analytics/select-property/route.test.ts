@@ -138,6 +138,7 @@ describe("GA4 select-property selection authority", () => {
     fetchGA4PropertyMetadata.mockResolvedValue({
       propertyId: PROVIDER_PROPERTY.propertyId,
       timeZone: "Europe/Istanbul",
+      currencyCode: "TRY",
     });
     upsertIntegration.mockImplementation(
       async (params: Record<string, unknown>) => {
@@ -190,6 +191,7 @@ describe("GA4 select-property selection authority", () => {
       ga4AccountId: PROVIDER_PROPERTY.accountId,
       ga4AccountName: PROVIDER_PROPERTY.accountName,
       ga4PropertyTimeZone: "Europe/Istanbul",
+      ga4PropertyCurrency: "TRY",
       unrelatedExistingKey: "kept",
     });
     expect(JSON.stringify(write.metadata)).not.toContain("Attacker");
@@ -217,8 +219,51 @@ describe("GA4 select-property selection authority", () => {
         ga4AccountId: PROVIDER_PROPERTY.accountId,
         ga4AccountName: PROVIDER_PROPERTY.accountName,
         ga4PropertyTimeZone: "Europe/Istanbul",
+        ga4PropertyCurrency: "TRY",
       },
     });
+  });
+
+  it("persists the property's currency from the same Admin read as its time zone", async () => {
+    // GA4 reports every revenue metric in the property's own currency, and the
+    // Admin `properties/{id}` record carries the code beside the time zone. It
+    // is stored here, at selection, because no read path may write.
+    await POST(post(selectionBody()));
+
+    const write = lastWrite() as { metadata: Record<string, unknown> };
+    expect(write.metadata.ga4PropertyCurrency).toBe("TRY");
+    expect(fetchGA4PropertyMetadata).toHaveBeenCalledWith(
+      "token",
+      PROVIDER_PROPERTY.propertyId,
+    );
+  });
+
+  it("stores no currency when the Admin read gave none, and never a default", async () => {
+    // A property whose record carries no `currencyCode`, or whose Admin call
+    // failed, is stored as absent. Downstream that renders the missing value —
+    // a guessed "USD" would put a wrong unit under a real number.
+    fetchGA4PropertyMetadata.mockResolvedValue({
+      propertyId: PROVIDER_PROPERTY.propertyId,
+      timeZone: null,
+      currencyCode: null,
+    });
+
+    await POST(post(selectionBody()));
+
+    const write = lastWrite() as { metadata: Record<string, unknown> };
+    expect(write.metadata.ga4PropertyCurrency).toBeNull();
+    expect(JSON.stringify(write.metadata)).not.toContain("USD");
+  });
+
+  it("stores no currency when the Admin call itself fails", async () => {
+    fetchGA4PropertyMetadata.mockRejectedValue(new Error("admin_unavailable"));
+
+    const response = await POST(post(selectionBody()));
+
+    expect(response.status).toBe(200);
+    const write = lastWrite() as { metadata: Record<string, unknown> };
+    expect(write.metadata.ga4PropertyCurrency).toBeNull();
+    expect(write.metadata.ga4PropertyTimeZone).toBeNull();
   });
 
   it("refuses when the assignment lane closes between the listing and the write", async () => {

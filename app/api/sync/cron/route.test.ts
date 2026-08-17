@@ -49,6 +49,10 @@ vi.mock("@/lib/sync/search-console-sync", () => ({
   syncSearchConsoleReports: vi.fn(),
 }));
 
+vi.mock("@/lib/klaviyo/sync", () => ({
+  syncKlaviyoFlowMetrics: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/shopify-sync", () => ({
   syncShopifyCommerceReports: vi.fn(),
 }));
@@ -99,6 +103,7 @@ const duplicateReconciliation = await import(
 const creativeDecisionEngine = await import("@/lib/creative-decision-engine");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
+const klaviyoSync = await import("@/lib/klaviyo/sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
 const soakGate = await import("@/lib/sync/soak-gate");
 const releaseGates = await import("@/lib/sync/release-gates");
@@ -293,6 +298,16 @@ describe("POST /api/sync/cron", () => {
     });
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
     vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({ synced: true } as never);
+    vi.mocked(klaviyoSync.syncKlaviyoFlowMetrics).mockResolvedValue({
+      businessId: "biz_1",
+      skipped: true,
+      skipReason: "not_connected",
+      flowsSeen: 0,
+      rowsWritten: 0,
+      revenueUnavailable: false,
+      windowStart: "2026-07-20",
+      windowEnd: "2026-08-17",
+    } as never);
     vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
       success: true,
       returns: 2,
@@ -858,6 +873,41 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
     expect(payload.results[0].shopify).toEqual(expect.objectContaining({ success: true, returns: 2 }));
+  });
+
+  it("runs the Klaviyo lane for every active business and reports its skip honestly", async () => {
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(klaviyoSync.syncKlaviyoFlowMetrics).toHaveBeenCalledWith("biz_1");
+    // A business that never connected Klaviyo skips; that is not a lane
+    // failure and must not fail the tick.
+    expect(payload.results[0].klaviyo).toEqual(
+      expect.objectContaining({ skipped: true, skipReason: "not_connected" }),
+    );
+    expect(payload.failed).toBe(0);
+  });
+
+  it("does not fail the tick when the Klaviyo lane refuses itself", async () => {
+    const refusal = new Error("Sync lane 'source_ingest' is disabled (lane_switch_unset).");
+    refusal.name = "SyncLaneDisabledError";
+    vi.mocked(klaviyoSync.syncKlaviyoFlowMetrics).mockRejectedValue(refusal);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(payload.results[0].klaviyo).toEqual(
+      expect.objectContaining({ error: expect.stringContaining("source_ingest") }),
+    );
   });
 
   it("persists current-build control-plane state without scheduling work", async () => {

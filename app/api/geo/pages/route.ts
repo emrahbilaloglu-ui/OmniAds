@@ -7,7 +7,7 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import { GA4_AI_SOURCE_FILTER } from "@/lib/geo-intelligence";
+import { GA4_AI_SOURCE_FILTER, classifyAiSource } from "@/lib/geo-intelligence";
 import {
   scorePageGeo,
   scoreAiTrafficValue,
@@ -42,9 +42,13 @@ export async function GET(request: NextRequest) {
     ({ accessToken, propertyId } = await getGA4TokenAndProperty(businessId));
   } catch (err) {
     if (err instanceof GA4AuthError) {
+      // `action` names the one step that resolves this, and the screen decides
+      // between "not set up yet" and "this failed" from it. Dropping it — as
+      // this route did — made a 422 "no property selected" arrive as a 401
+      // crash with a Retry button that can never fix it.
       return NextResponse.json(
-        { error: err.code, message: err.message },
-        { status: err.code === "integration_not_found" ? 404 : 401 }
+        { error: err.code, message: err.message, action: err.action },
+        { status: err.status }
       );
     }
     throw err;
@@ -52,7 +56,8 @@ export async function GET(request: NextRequest) {
 
   const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
 
-  const [aiPagesReport, totalPagesReport, prevAiPagesReport] = await Promise.all([
+  const [aiPagesReport, totalPagesReport, prevAiPagesReport, aiPageSourceReport] =
+    await Promise.all([
     // Current: AI-origin traffic by landing page
     runGA4Report({
       propertyId, accessToken,
@@ -88,7 +93,31 @@ export async function GET(request: NextRequest) {
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: 100,
     }),
+    // Current: AI-origin sessions by landing page AND engine, so each row can
+    // name the engines that referred it (the design's "Sourced by" column).
+    runGA4Report({
+      propertyId, accessToken,
+      dateRanges: [{ startDate, endDate }],
+      dimensions: [{ name: "landingPage" }, { name: "sessionSource" }],
+      metrics: [{ name: "sessions" }],
+      dimensionFilter: GA4_AI_SOURCE_FILTER,
+      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      limit: 500,
+    }),
   ]);
+
+  // Engines per landing page, strongest first — duplicate engines (one per
+  // referring domain) collapse to a single name.
+  const sourcedByMap = new Map<string, Map<string, number>>();
+  for (const row of aiPageSourceReport.rows) {
+    const path = row.dimensions[0] ?? "/";
+    const engine = classifyAiSource(row.dimensions[1] ?? "");
+    if (!engine) continue;
+    const sessions = parseFloat(row.metrics[0] ?? "0");
+    const engines = sourcedByMap.get(path) ?? new Map<string, number>();
+    engines.set(engine, (engines.get(engine) ?? 0) + sessions);
+    sourcedByMap.set(path, engines);
+  }
 
   // Build lookup maps
   const totalSessionsMap = new Map<string, number>();
@@ -178,6 +207,9 @@ export async function GET(request: NextRequest) {
 
     return {
       path,
+      sourcedBy: Array.from(sourcedByMap.get(path)?.entries() ?? [])
+        .sort((a, b) => b[1] - a[1])
+        .map(([engine]) => engine),
       aiSessions,
       engagedSessions,
       engagementRate,

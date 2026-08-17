@@ -18,6 +18,11 @@ vi.mock("@/lib/google-ads/advisor-memory", () => ({
   hydrateAdvisorRecommendationsFromMemory: vi.fn(async ({ recommendations }) => recommendations),
 }));
 
+vi.mock("@/lib/google-ads/account-authority", () => ({
+  resolveGoogleAdsReadAccountAuthority: vi.fn(),
+  googleAdsReadAccountAuthorityFailure: vi.fn(),
+}));
+
 vi.mock("@/lib/google-ads/action-clusters", () => ({
   buildActionClusters: vi.fn(() => []),
 }));
@@ -41,6 +46,7 @@ const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const snapshots = await import("@/lib/google-ads/advisor-snapshots");
 const advisorMemory = await import("@/lib/google-ads/advisor-memory");
+const accountAuthority = await import("@/lib/google-ads/account-authority");
 const actionClusters = await import("@/lib/google-ads/action-clusters");
 const serving = await import("@/lib/google-ads/serving");
 
@@ -53,6 +59,45 @@ describe("GET /api/google-ads/advisor", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(
+      accountAuthority.resolveGoogleAdsReadAccountAuthority,
+    ).mockResolvedValue({ state: "authorized", errorMessage: null });
+    vi.mocked(
+      accountAuthority.googleAdsReadAccountAuthorityFailure,
+    ).mockReturnValue(null);
+  });
+
+  it("refuses an unassigned account before reading or hydrating a snapshot", async () => {
+    vi.mocked(
+      accountAuthority.resolveGoogleAdsReadAccountAuthority,
+    ).mockResolvedValueOnce({ state: "confirmed_revoked", errorMessage: null });
+    vi.mocked(
+      accountAuthority.googleAdsReadAccountAuthorityFailure,
+    ).mockReturnValueOnce({
+      code: "google_account_not_selected",
+      httpStatus: 409,
+      message: "Account is not assigned.",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/google-ads/advisor?businessId=biz&accountId=9999999999",
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Account is not assigned.",
+      code: "google_account_not_selected",
+    });
+    expect(
+      accountAuthority.resolveGoogleAdsReadAccountAuthority,
+    ).toHaveBeenCalledWith("biz", "9999999999");
+    expect(snapshots.getOrCreateGoogleAdsAdvisorSnapshot).not.toHaveBeenCalled();
+    expect(serving.getGoogleAdsAdvisorReport).not.toHaveBeenCalled();
+    expect(
+      advisorMemory.hydrateAdvisorRecommendationsFromMemory,
+    ).not.toHaveBeenCalled();
   });
 
   it("returns the V2 decision snapshot metadata shape and keeps selected range contextual", async () => {
@@ -339,7 +384,7 @@ describe("GET /api/google-ads/advisor", () => {
     });
   });
 
-  it("overlays live advisor-memory state onto snapshot recommendations before returning the payload", async () => {
+  it("overlays cached snapshot memory and removes suppressed recommendations from the active payload", async () => {
     vi.mocked(snapshots.getOrCreateGoogleAdsAdvisorSnapshot).mockResolvedValue({
       advisorPayload: {
         summary: {
@@ -367,6 +412,14 @@ describe("GET /api/google-ads/advisor", () => {
             doBucket: "do_now",
             integrityState: "ready",
           },
+          {
+            id: "rec_2",
+            title: "Dismissed recommendation",
+            recommendationFingerprint: "fp_2",
+            decisionState: "act",
+            doBucket: "do_now",
+            integrityState: "ready",
+          },
         ],
         sections: [
           {
@@ -377,6 +430,14 @@ describe("GET /api/google-ads/advisor", () => {
                 id: "rec_1",
                 title: "Add exact negative",
                 recommendationFingerprint: "fp_1",
+                decisionState: "act",
+                doBucket: "do_now",
+                integrityState: "ready",
+              },
+              {
+                id: "rec_2",
+                title: "Dismissed recommendation",
+                recommendationFingerprint: "fp_2",
                 decisionState: "act",
                 doBucket: "do_now",
                 integrityState: "ready",
@@ -439,6 +500,16 @@ describe("GET /api/google-ads/advisor", () => {
         integrityState: "blocked",
         currentStatus: "escalated",
       },
+      {
+        id: "rec_2",
+        title: "Dismissed recommendation",
+        recommendationFingerprint: "fp_2",
+        decisionState: "act",
+        doBucket: "do_now",
+        integrityState: "ready",
+        currentStatus: "suppressed",
+        userAction: "dismissed",
+      },
     ] as never);
     vi.mocked(actionClusters.buildActionClusters).mockReturnValue([
       { id: "cluster_1", title: "cluster" },
@@ -461,11 +532,16 @@ describe("GET /api/google-ads/advisor", () => {
       currentStatus: "escalated",
       decisionState: "watch",
     });
+    expect(payload.recommendations).toHaveLength(1);
     expect(payload.sections[0]?.recommendations[0]).toMatchObject({
       id: "rec_1",
       currentStatus: "escalated",
     });
+    expect(payload.sections[0]?.recommendations).toHaveLength(1);
     expect(payload.summary.watchouts).toContain("Add exact negative");
     expect(payload.clusters).toEqual([{ id: "cluster_1", title: "cluster" }]);
+    expect(vi.mocked(actionClusters.buildActionClusters)).toHaveBeenCalledWith({
+      recommendations: [expect.objectContaining({ id: "rec_1" })],
+    });
   });
 });

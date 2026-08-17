@@ -2742,6 +2742,15 @@ async function main() {
       path.join("scripts", "ephemeral-postgres-launch-intent-seam-child.ts"),
       "launch intent DB seam check",
     );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-automation-control-plane-seam-child.ts",
+      ),
+      "automation control-plane DB seam check",
+    );
 
     log("PASS: migrations build the schema from zero and are idempotent.");
   } catch (error) {

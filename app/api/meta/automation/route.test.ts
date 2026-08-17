@@ -13,9 +13,20 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),
+  setMetaAutomationGuardrailPolicy: vi.fn(),
   getMetaAutomationControlPlane: vi.fn(),
   getMetaWriteBlockState: vi.fn(),
   META_AUTOMATION_DECISION_TYPES: ["pause", "bid", "budget", "creative"],
+  normalizeCleanApprovalThreshold: (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const next = Number(value);
+    return Number.isFinite(next) && next >= 1 ? Math.trunc(next) : null;
+  },
+  normalizeQuietHourTime: (value: unknown) => {
+    if (typeof value !== "string") return null;
+    const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?/.exec(value.trim());
+    return match ? `${match[1]}:${match[2]}` : null;
+  },
 }));
 
 const access = await import("@/lib/access");
@@ -25,11 +36,16 @@ const { GET, POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 
-function request(url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`) {
+function request(
+  url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`,
+) {
   return new NextRequest(url);
 }
 
-function postRequest(body: unknown, url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`) {
+function postRequest(
+  body: unknown,
+  url = `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1`,
+) {
   return new NextRequest(url, {
     method: "POST",
     body: JSON.stringify(body),
@@ -39,7 +55,9 @@ function postRequest(body: unknown, url = `http://localhost/api/meta/automation?
 describe("GET /api/meta/automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
+    vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "user_1" } },
       membership: { businessId: BUSINESS_ID, role: "admin" },
@@ -67,6 +85,8 @@ describe("GET /api/meta/automation", () => {
           requireLivePreflight: true,
           requireRollbackPlan: true,
           dryRunOnly: true,
+          minRoasFloor: null,
+          quietHours: null,
         },
         updatedAt: null,
         updatedBy: null,
@@ -78,6 +98,7 @@ describe("GET /api/meta/automation", () => {
         blockedReasons: ["business_kill_switch", "auto_execution_not_enabled"],
       },
       promotionRecords: [],
+      readCompleteness: { promotionRecords: "complete" },
       activityLedger: [],
       decisionTypeModes: [],
     });
@@ -104,6 +125,8 @@ describe("GET /api/meta/automation", () => {
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        minRoasFloor: null,
+        quietHours: null,
       },
       updatedAt: "2026-07-08T10:00:00.000Z",
       updatedBy: "user_1",
@@ -127,6 +150,8 @@ describe("GET /api/meta/automation", () => {
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        minRoasFloor: null,
+        quietHours: null,
       },
       updatedAt: "2026-07-08T11:00:00.000Z",
       updatedBy: "user_1",
@@ -143,7 +168,12 @@ describe("GET /api/meta/automation", () => {
       expect.objectContaining({ businessId: BUSINESS_ID, minRole: "guest" }),
     );
     expect(payload.automation.execution.writeEndpointsBlocked).toBe(true);
-    expect(payload.automation.businessControl.killSwitchReason).toBe("Owner paused automation.");
+    expect(payload.automation.businessControl.killSwitchReason).toBe(
+      "Owner paused automation.",
+    );
+    expect(payload.automation.readCompleteness.promotionRecords).toBe(
+      "complete",
+    );
     expect(controlPlane.getMetaAutomationControlPlane).toHaveBeenCalledWith({
       businessId: BUSINESS_ID,
       providerAccountId: "act_1",
@@ -217,7 +247,10 @@ describe("GET /api/meta/automation", () => {
 
     expect(response.status).toBe(200);
     expect(access.requireBusinessAccess).toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: BUSINESS_ID, minRole: "collaborator" }),
+      expect.objectContaining({
+        businessId: BUSINESS_ID,
+        minRole: "collaborator",
+      }),
     );
     expect(controlPlane.engageMetaAutomationKillSwitch).toHaveBeenCalledWith({
       businessId: BUSINESS_ID,
@@ -229,7 +262,9 @@ describe("GET /api/meta/automation", () => {
 
   it("rejects reviewer read-only stop attempts before persistence", async () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
-      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } },
+      session: {
+        user: { id: "reviewer_1", email: "shopify-review@adsecute.com" },
+      },
       membership: { businessId: BUSINESS_ID },
     } as never);
 
@@ -245,7 +280,9 @@ describe("GET /api/meta/automation", () => {
   });
 
   it("rejects unsupported automation writes", async () => {
-    const response = await POST(postRequest({ action: "enable_auto_execution" }));
+    const response = await POST(
+      postRequest({ action: "enable_auto_execution" }),
+    );
     const payload = await response.json();
 
     expect(response.status).toBe(400);
@@ -276,13 +313,15 @@ describe("GET /api/meta/automation", () => {
       businessId: BUSINESS_ID,
       providerAccountId: "act_1",
     });
-    vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValueOnce({
-      ...current,
-      businessControl: {
-        ...current.businessControl,
-        killSwitchEngaged: false,
+    vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValueOnce(
+      {
+        ...current,
+        businessControl: {
+          ...current.businessControl,
+          killSwitchEngaged: false,
+        },
       },
-    });
+    );
 
     const response = await POST(postRequest({ action: "release_kill_switch" }));
 
@@ -295,7 +334,9 @@ describe("GET /api/meta/automation", () => {
 
   it("rejects reviewer read-only release attempts before persistence", async () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
-      session: { user: { id: "reviewer_1", email: "shopify-review@adsecute.com" } },
+      session: {
+        user: { id: "reviewer_1", email: "shopify-review@adsecute.com" },
+      },
       membership: { businessId: BUSINESS_ID },
     } as never);
 
@@ -309,28 +350,176 @@ describe("GET /api/meta/automation", () => {
   });
 
   it("persists a per-decision-type standing mode", async () => {
-    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue([]);
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue(
+      [],
+    );
 
     const response = await POST(
-      postRequest({ action: "set_decision_type_mode", decisionType: "bid", mode: "semi_auto" }),
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "bid",
+        mode: "semi_auto",
+      }),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
     expect(controlPlane.setMetaAutomationDecisionTypeMode).toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: BUSINESS_ID, decisionType: "bid", mode: "semi_auto" }),
+      expect.objectContaining({
+        businessId: BUSINESS_ID,
+        decisionType: "bid",
+        mode: "semi_auto",
+      }),
     );
+  });
+
+  it("carries an explicit clean-approval threshold into the persisted mode", async () => {
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue(
+      [],
+    );
+
+    const response = await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+        cleanApprovalThreshold: 30,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(controlPlane.setMetaAutomationDecisionTypeMode).toHaveBeenCalledWith(
+      expect.objectContaining({ cleanApprovalThreshold: 30 }),
+    );
+  });
+
+  it("leaves the persisted threshold alone when the field is absent", async () => {
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue(
+      [],
+    );
+
+    await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+      }),
+    );
+
+    const call = vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mock
+      .calls[0]?.[0];
+    expect(call && "cleanApprovalThreshold" in call).toBe(false);
+  });
+
+  it("refuses a fractional or zero clean-approval threshold instead of rounding it", async () => {
+    const response = await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+        cleanApprovalThreshold: 2.5,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_clean_approval_threshold");
+    expect(
+      controlPlane.setMetaAutomationDecisionTypeMode,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("persists the guardrail policy behind the stop-release role", async () => {
+    vi.mocked(controlPlane.setMetaAutomationGuardrailPolicy).mockResolvedValue(
+      {} as never,
+    );
+
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: 2.5,
+        quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(access.requireBusinessAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS_ID, minRole: "admin" }),
+    );
+    expect(controlPlane.setMetaAutomationGuardrailPolicy).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      userId: "user_1",
+      minRoasFloor: 2.5,
+      quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+    });
+  });
+
+  it("refuses a half-specified quiet-hours window", async () => {
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: null,
+        quietHours: { start: "00:00", end: "", timezone: "ET" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_quiet_hours");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-positive ROAS floor", async () => {
+    const response = await POST(
+      postRequest({ action: "set_guardrail_policy", minRoasFloor: 0 }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_min_roas_floor");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects reviewer read-only guardrail changes before persistence", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: {
+        user: { id: "reviewer_1", email: "shopify-review@adsecute.com" },
+      },
+      membership: { businessId: BUSINESS_ID },
+    } as never);
+
+    const response = await POST(
+      postRequest({ action: "set_guardrail_policy", minRoasFloor: 2.5 }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("automation_guardrail_policy");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid decision type or mode without persisting", async () => {
     const response = await POST(
-      postRequest({ action: "set_decision_type_mode", decisionType: "bid", mode: "nonsense" }),
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "bid",
+        mode: "nonsense",
+      }),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(400);
     expect(payload.error.code).toBe("invalid_decision_type_mode");
-    expect(controlPlane.setMetaAutomationDecisionTypeMode).not.toHaveBeenCalled();
+    expect(
+      controlPlane.setMetaAutomationDecisionTypeMode,
+    ).not.toHaveBeenCalled();
   });
 });

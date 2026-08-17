@@ -144,6 +144,9 @@ export async function POST(request: NextRequest) {
           ga4AccountId: property.accountId,
           ga4AccountName: property.accountName,
           ga4PropertyTimeZone: null,
+          // The demo workspace's own denomination — every fabricated money
+          // figure in `lib/demo-business.ts` is already declared in USD.
+          ga4PropertyCurrency: "USD",
           propertyId: property.propertyId.replace(/^properties\//, ""),
           propertyName: property.propertyName,
           propertyResourceName: property.propertyId,
@@ -255,7 +258,11 @@ export async function POST(request: NextRequest) {
       propertyId: selectedPropertyResourceName,
       message: error instanceof Error ? error.message : String(error),
     });
-    return { propertyId: selectedPropertyResourceName, timeZone: null };
+    return {
+      propertyId: selectedPropertyResourceName,
+      timeZone: null,
+      currencyCode: null,
+    };
   });
 
   // Save property selection to integration metadata
@@ -303,6 +310,11 @@ export async function POST(request: NextRequest) {
         ga4AccountId: matchedProperty.accountId ?? null,
         ga4AccountName: matchedProperty.accountName ?? null,
         ga4PropertyTimeZone: propertyMetadata.timeZone,
+        // The unit every GA4 revenue metric this property serves is quoted in.
+        // Stored beside the time zone from the same Admin read; `null` when the
+        // provider did not give one, which every reader renders as missing
+        // rather than as dollars.
+        ga4PropertyCurrency: propertyMetadata.currencyCode,
       },
     });
   } catch (error: unknown) {

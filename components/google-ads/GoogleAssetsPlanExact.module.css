@@ -1,0 +1,776 @@
+/*
+ * Canonical Dashboard v2 stylesheet for `Google Ads · Assets & Audiences`
+ * (reference markup lines 1525-1624) and `Google Ads · Plan & activity`
+ * (lines 1625-1693).
+ *
+ * Both screens share one stylesheet because they are one design language: the
+ * same page head, the same 14px card, the same table shell, the same chip.
+ * Every declaration below is the reference's own inline value.
+ */
+
+.screen,
+.screen * {
+  box-sizing: border-box;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  color: #0e1526;
+  font-family: "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.headerStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.syncPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 9999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.syncDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.syncPositive {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.syncWarning {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.syncNegative {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.syncNeutral {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+/* Assets & Audiences — the three-surface pill row. */
+.tabRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tabPill {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+  font-family: inherit;
+}
+
+.tabPillActive {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+/* Card shell. */
+.tableCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.card {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow: hidden;
+}
+
+.cardHeader {
+  padding: 13px 16px;
+  border-bottom: 1px solid #edf0f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.groupTable {
+  min-width: 720px;
+}
+
+.audienceTable {
+  min-width: 640px;
+}
+
+.headEdge {
+  padding: 9px 16px;
+}
+
+.headInner {
+  padding: 9px 12px;
+}
+
+.left {
+  text-align: left;
+}
+
+.right {
+  text-align: right;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.cellEdge {
+  padding: 11px 16px;
+}
+
+.cellInner {
+  padding: 11px 12px;
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.mutedCell {
+  color: #45526b;
+}
+
+.strongCell {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+/* Text & image assets — the 1.55fr / 280px pair. */
+.assetGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .assetGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.assetRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-top: 1px solid #f3f5f9;
+  flex-wrap: wrap;
+}
+
+.assetText {
+  min-width: 180px;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.imageCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+}
+
+.imageCardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.imageGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.imageTile {
+  border-radius: 10px;
+  border: 1px solid #e4e8f0;
+  overflow: hidden;
+}
+
+.imageSwatch {
+  height: 64px;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/*
+ * The reference's four placeholder stripe pairs (model line 3383). They stand
+ * in only where the synced asset carries no image URL, which is exactly what
+ * the card's own closing sentence describes.
+ */
+.swatch0 {
+  background: repeating-linear-gradient(
+    135deg,
+    #dce8ff,
+    #dce8ff 8px,
+    #eaf0ff 8px,
+    #eaf0ff 16px
+  );
+}
+
+.swatch1 {
+  background: repeating-linear-gradient(
+    135deg,
+    #dff3ea,
+    #dff3ea 8px,
+    #ecf8f2 8px,
+    #ecf8f2 16px
+  );
+}
+
+.swatch2 {
+  background: repeating-linear-gradient(
+    135deg,
+    #f3eafb,
+    #f3eafb 8px,
+    #f8f2fd 8px,
+    #f8f2fd 16px
+  );
+}
+
+.swatch3 {
+  background: repeating-linear-gradient(
+    135deg,
+    #fbefdd,
+    #fbefdd 8px,
+    #fdf6ea 8px,
+    #fdf6ea 16px
+  );
+}
+
+/* Plan & activity — the 1.5fr / 300px body. */
+.planGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .planGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.planColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.queueActions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.primaryButton {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: none;
+  background: #0b1020;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.secondaryButton {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  color: #45526b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.applyButton:disabled,
+.stepButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.queueIntro {
+  margin: 0;
+  padding: 11px 16px;
+  border-bottom: 1px solid #edf0f6;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #7a869e;
+}
+
+.step {
+  padding: 13px 16px;
+  border-top: 1px solid #f3f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stepHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.stepNumber {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: #f1f4f9;
+  display: grid;
+  place-items: center;
+}
+
+.stepBody {
+  flex: 1;
+  min-width: 200px;
+}
+
+.stepTitle {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.stepOpen {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2f6bff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.stepControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-left: 33px;
+}
+
+.stepToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.stepToggle:disabled {
+  cursor: default;
+}
+
+.tick {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid #c9d2e0;
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.tickOn {
+  border-color: #2f6bff;
+  background: #2f6bff;
+}
+
+.tickMark {
+  width: 11px;
+  height: 11px;
+}
+
+.stepButtons {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.applyButton {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: none;
+  background: #2f6bff;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.applyButtonRollback {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.stepButton {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  color: #45526b;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.stepButtonMuted {
+  color: #7a869e;
+}
+
+.batchCard {
+  border-radius: 14px;
+  border: 1px dashed #c9d2e0;
+  padding: 14px 16px;
+}
+
+.batchTitle {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #45526b;
+}
+
+.batchBody {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a869e;
+}
+
+.activityIntro {
+  margin: 0;
+  padding: 11px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a869e;
+}
+
+.activityTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.activityWho {
+  padding: 10px 12px;
+  color: #45526b;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.activityWhat {
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #0e1526;
+  vertical-align: top;
+}
+
+.activityDetail {
+  padding: 10px 16px;
+  color: #45526b;
+  vertical-align: top;
+}
+
+/* dashboard-v2-google-assets-plan-exact-reference-type:start */
+.eyebrow {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.guardCopy, .cardSubtitle {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.table th, .activityTable th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+  white-space: nowrap;
+}
+
+.roasChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.strengthChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.typeChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.assetKind {
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid #e4e8f0;
+  border-radius: 5px;
+  padding: 2px 6px;
+  color: #7a869e;
+}
+
+.assetImpressions {
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.performanceChip {
+  flex-shrink: 0;
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.imageShare {
+  margin: 0;
+  padding: 6px 9px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: #7a869e;
+}
+
+.imageNote, .stepNote, .retentionLine {
+  font-size: 11.5px;
+  color: #98a4ba;
+}
+
+.campaignCell {
+  padding: 11px 12px;
+  color: #7a869e;
+  font-size: 12.5px;
+}
+
+.stepSource {
+  margin: 2px 0 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: #98a4ba;
+}
+
+.queueCount {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.stepNumber {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: #45526b;
+}
+
+.applyButton, .stepButton {
+  font-size: 11.5px;
+}
+
+.activityWhen {
+  padding: 10px 16px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+  vertical-align: top;
+  color: #7a869e;
+}
+
+.footnote {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #98a4ba;
+}
+/* dashboard-v2-google-assets-plan-exact-reference-type:end */
+
+.imageNote {
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+
+.stepNote {
+  margin: 3px 0 0;
+  color: #b45309;
+}
+
+.retentionLine {
+  margin: 0;
+  padding: 0 16px 11px;
+  color: #b45309;
+}
+
+.stepStatus {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7a869e;
+}
+
+.stepStatusApplied {
+  color: #0e9f6e;
+}
+
+.footnote {
+  margin: 0;
+}
+
+/* Chip tones, shared by the ROAS, ad-strength and asset-performance chips. */
+.tonePositive {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.toneInfo {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.toneAuto {
+  background: #f1ebfb;
+  color: #6c41be;
+}
+
+.toneWarning {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.toneNegative {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+/* A served value inside the neutral band: the reference's own `neu` pair. */
+.toneNeutral {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+/*
+ * No value served at all. The same `neu[0]` fill with the lighter ink the
+ * reference reserves for the rows that print the em dash, so a measured
+ * in-band number never renders as an absence.
+ */
+.toneUnserved {
+  background: #f1f4f9;
+  color: #7a869e;
+}

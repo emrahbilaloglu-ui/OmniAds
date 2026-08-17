@@ -79,7 +79,16 @@ function scopeFor(canonicalUrls: readonly string[]): CompatibilityScope {
 export const COMPATIBILITY_TABLE: readonly CompatibilityTarget[] = UNIQUE_CHANGED_PATHS.map(
   (route) => {
     const records = CHANGED_MAPPINGS.filter((mapping) => mapping.route === route);
-    const canonicalUrls = [...new Set(records.map((record) => record.canonicalUrl))];
+    const generatedCanonicalUrls = [...new Set(records.map((record) => record.canonicalUrl))];
+    // Dashboard v2 restores Audiences as the fifth Creative Studio view. The
+    // archived zero-base package predates that exact screen and marked the
+    // legacy URL as merged into Meta Intelligence. Keep the generated package
+    // immutable, but route this one compatibility spelling to the live screen
+    // registry contract used by every other Creative Studio tab.
+    const canonicalUrls =
+      route === "/platforms/meta/audiences"
+        ? ["/c/[businessId]/creative/audiences"]
+        : generatedCanonicalUrls;
     return {
       route,
       scope: scopeFor(canonicalUrls),

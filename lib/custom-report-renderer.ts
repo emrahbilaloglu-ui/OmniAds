@@ -134,12 +134,26 @@ function aggregateSeriesPoints(
   return Array.from(buckets.entries()).map(([label, value]) => ({ label, value }));
 }
 
-function resolveDateRangePreset(preset: CustomReportDocument["dateRangePreset"]) {
+export function resolveDateRangePreset(preset: CustomReportDocument["dateRangePreset"]) {
   const end = new Date();
   end.setUTCDate(end.getUTCDate() - 1);
   const endDate = end.toISOString().slice(0, 10);
+
+  // "This month" is a calendar window, not a trailing one: it starts on the
+  // first of the month that yesterday falls in. A trailing 30 days would
+  // silently answer a different question from the one the operator picked.
+  if (preset === "this_month") {
+    const start = new Date(end);
+    start.setUTCDate(1);
+    return {
+      startDate: start.toISOString().slice(0, 10),
+      endDate,
+      label: "This month",
+    };
+  }
+
   const start = new Date(end);
-  const days = preset === "7" ? 6 : preset === "90" ? 89 : 29;
+  const days = preset === "7" ? 6 : preset === "28" ? 27 : preset === "90" ? 89 : 29;
   start.setUTCDate(start.getUTCDate() - days);
   return {
     startDate: start.toISOString().slice(0, 10),
@@ -632,7 +646,76 @@ export async function renderCustomReport(params: {
           };
         }
 
+        const blockShell = {
+          id: widget.id,
+          slot: widget.slot,
+          colSpan: widget.colSpan,
+          rowSpan: widget.rowSpan,
+          type: widget.type,
+          title: widget.title,
+          subtitle: widget.subtitle,
+        };
+
         try {
+          // A KPI row is one block carrying four figures. It reads the same
+          // blended summary a single KPI tile reads, so a strip and the tiles
+          // beside it can never disagree about the same period.
+          if (widget.type === "kpirow") {
+            const summary = await getOverviewSummaryData();
+            const pins = summary?.pins ?? [];
+            const wanted = (
+              widget.yMetrics?.length ? widget.yMetrics : ["spend", "revenue", "roas", "purchases"]
+            ).slice(0, 4);
+            const metrics = wanted.map((metricKey) => {
+              const pin = pins.find((item) => item.id === metricKey);
+              const value = parseNumber(pin?.value);
+              return {
+                key: metricKey,
+                label: pin?.title ?? formatSeriesMetricLabel(metricKey),
+                // An unmeasured figure stays unmeasured. A KPI strip that
+                // prints 0 for "we have no number" is the failure this avoids.
+                value: value == null ? "—" : formatMetricValue(metricKey, value, currency),
+              };
+            });
+            return {
+              ...blockShell,
+              metrics,
+              emptyMessage:
+                metrics.every((metric) => metric.value === "—")
+                  ? "No blended figures for this period yet."
+                  : undefined,
+            };
+          }
+
+          // A share donut is the attribution table expressed as proportions.
+          // Shares come from the same rows the attribution table prints, so a
+          // report cannot show one split in the chart and another in the table.
+          if (widget.type === "donut") {
+            const summary = await getOverviewSummaryData();
+            const metricKey = widget.metricKey === "spend" ? "spend" : "revenue";
+            const measured = (summary?.attribution ?? [])
+              .map((row) => ({
+                label: String(row.channel ?? "-"),
+                amount: parseNumber(row[metricKey]) ?? 0,
+              }))
+              .filter((row) => row.amount > 0)
+              .sort((left, right) => right.amount - left.amount);
+            const total = measured.reduce((sum, row) => sum + row.amount, 0);
+            const slices =
+              total > 0
+                ? measured.slice(0, 4).map((row) => ({
+                    label: row.label,
+                    value: formatMetricValue(metricKey, row.amount, currency),
+                    sharePct: (row.amount / total) * 100,
+                  }))
+                : [];
+            return {
+              ...blockShell,
+              slices,
+              emptyMessage: slices.length === 0 ? "No channel split for this period yet." : undefined,
+            };
+          }
+
           if (widget.dataSource === "overview_summary") {
             const summary = await getOverviewSummaryData();
             const pins = summary?.pins ?? [];

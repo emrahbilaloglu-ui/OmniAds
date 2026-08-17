@@ -3,10 +3,17 @@ import { notFound, redirect } from "next/navigation";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
-import { SeoClient } from "@/components/zero-base/analytics/analytics-clients";
+import { InsightsSeoScreen } from "@/components/seo/InsightsSeoScreen";
+import { InsightsChrome } from "@/components/insights/InsightsChrome";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The canonical twin of `/insights/seo`.
+ *
+ * Both route families mount the same exact screen; only the authorization in
+ * front of it differs, and that stays server-side.
+ */
 export default async function AnalyticsSeoPage({
   params,
 }: {
@@ -20,5 +27,9 @@ export default async function AnalyticsSeoPage({
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  return <SeoClient businessId={businessId} role={access.context.role} />;
+  return (
+    <InsightsChrome businessId={businessId} pathname={`/c/${businessId}/analytics/seo`}>
+      <InsightsSeoScreen businessId={businessId} />
+    </InsightsChrome>
+  );
 }

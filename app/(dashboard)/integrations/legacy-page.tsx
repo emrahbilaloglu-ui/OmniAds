@@ -3,39 +3,45 @@
 import { measuredAsOf, newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StateBanner } from "@/components/ui/product-surface";
-import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import {
   IntegrationProvider,
   useIntegrationsStore,
 } from "@/store/integrations-store";
-import { deriveProviderViewStates } from "@/store/integrations-support";
-import { IntegrationsCard, getProviderLogo } from "@/components/integrations/integrations-card";
-import { SoonCard } from "@/components/integrations/soon-card";
-import { ConnectModal } from "@/components/integrations/connect-modal";
+import {
+  deriveProviderViewStates,
+  providerConnectionFacts,
+} from "@/store/integrations-support";
+import {
+  resolveGa4ReadCapability,
+  resolveSearchConsoleReadCapability,
+} from "@/lib/provider-read-capability";
+import {
+  IntegrationsExact,
+  IntegrationsExactSkeleton,
+} from "@/components/integrations/IntegrationsExact";
+import {
+  buildIntegrationsExactModel,
+  INTEGRATIONS_LIVE_ORDER,
+} from "@/components/integrations/integrations-exact-adapter";
+import { getProviderLogo } from "@/components/integrations/provider-logos";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
 import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker";
-import { getProviderLabel } from "@/components/integrations/oauth";
+import { getOAuthStartUrl } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
-import { isDemoBusinessId } from "@/lib/demo-business";
-import { usePreferencesStore } from "@/store/preferences-store";
-import { ArrowRight, Link2 } from "lucide-react";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-status";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
-import {
-  formatMetaDateTime,
-  getMetaStatusNotice,
-} from "@/lib/meta/ui";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = [
@@ -47,10 +53,14 @@ const REAL_PROVIDERS: IntegrationProvider[] = [
 ];
 
 /**
- * Providers a user can actually connect right now — each has a real authorization flow
- * (OAuth start route, or Shopify's app-store install). Providers NOT in this list have no
- * live backend, so their cards render an honest "coming soon" state rather than a Connect
- * button that would 404 (tiktok/pinterest/snapchat) or fake a handshake (klaviyo).
+ * Providers a user can actually authorize right now — each has a real flow
+ * (OAuth start route, or Shopify's app-store install).
+ *
+ * Klaviyo is not in this constant because its answer is not constant: the
+ * start/callback pair now exists, but it needs a Klaviyo OAuth app id and
+ * secret this repo does not ship. `/api/klaviyo/status` reports whether THIS
+ * deployment holds them, and Klaviyo is appended below only when it does — so
+ * the card still shows no button rather than one that lands on a 501.
  */
 const CONNECTABLE_PROVIDERS: IntegrationProvider[] = [
   "meta",
@@ -60,31 +70,20 @@ const CONNECTABLE_PROVIDERS: IntegrationProvider[] = [
   "shopify",
 ];
 
-const DISPLAY_PROVIDERS: IntegrationProvider[] = [
-  "meta",
-  "google",
-  "ga4",
-  "search_console",
-  "shopify",
-  "klaviyo",
-  "tiktok",
-  "pinterest",
-  "snapchat",
-];
+interface KlaviyoStatusResponse {
+  connectable?: boolean;
+}
 
-const DESCRIPTIONS: Record<IntegrationProvider, string> = {
-  shopify: "Sync storefront events and conversion data for attribution.",
-  meta: "Connect Ads Manager to import campaigns, ad sets, and spend.",
-  google: "Link Google Ads to track performance and sync account data.",
-  search_console:
-    "Connect Google Search Console to analyze organic search performance and keyword visibility.",
-  tiktok: "Pull campaign metrics from TikTok Ads into your dashboard.",
-  pinterest: "Import Pinterest Ads performance and audience insights.",
-  snapchat: "Connect Snapchat Ads for campaign and creative reporting.",
-  ga4: "Connect Google Analytics 4 to enrich landing page and conversion insights.",
-  klaviyo:
-    "Monitor email and SMS flow performance, campaign revenue, benchmark gaps, and lifecycle recommendations.",
-};
+async function fetchKlaviyoStatus(
+  businessId: string,
+): Promise<KlaviyoStatusResponse> {
+  const response = await fetch(
+    `/api/klaviyo/status?businessId=${encodeURIComponent(businessId)}`,
+    { credentials: "same-origin" },
+  );
+  if (!response.ok) return { connectable: false };
+  return (await response.json()) as KlaviyoStatusResponse;
+}
 
 interface SearchConsoleProperty {
   siteUrl: string;
@@ -142,6 +141,48 @@ async function fetchShopifyStatus(
     );
   }
   return payload as ShopifyStatusResponse;
+}
+
+async function fetchGa4Status(
+  businessId: string
+): Promise<GoogleAnalyticsStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(
+    `/api/google-analytics/status?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `GA4 status request failed (${response.status})`
+    );
+  }
+  return payload as GoogleAnalyticsStatusResponse;
+}
+
+async function fetchSearchConsoleStatus(
+  businessId: string
+): Promise<SearchConsoleStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(
+    `/api/google-search-console/status?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Search Console status request failed (${response.status})`
+    );
+  }
+  return payload as SearchConsoleStatusResponse;
 }
 
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
@@ -203,6 +244,26 @@ function getShopifyStatusRefetchInterval(status: ShopifyStatusResponse | undefin
   return 30_000;
 }
 
+/**
+ * GA4 and Search Console poll only while something can still change.
+ *
+ * Their importer is the report warmer, whose windows finish in seconds once it
+ * starts, so an in-flight first sync is worth a tight poll; every other state
+ * is either terminal or waiting on the operator, and polling it would be a
+ * request per card per interval that can never learn anything new.
+ */
+function getReportWarmerStatusRefetchInterval(
+  status:
+    | Pick<GoogleAnalyticsStatusResponse, "connected" | "state">
+    | Pick<SearchConsoleStatusResponse, "connected" | "state">
+    | undefined,
+) {
+  if (!status?.connected) return false;
+  if (status.state === "syncing") return 5_000;
+  if (status.state === "awaiting_first_sync") return 30_000;
+  return false;
+}
+
 function hasRenderableProviderViews(
   cards: Array<{ status: string; isConnected: boolean; assignedCount: number }>,
 ) {
@@ -212,15 +273,12 @@ function hasRenderableProviderViews(
 }
 
 export default function IntegrationsPage() {
-  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
-  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId;
-  const activeBusiness =
-    businesses.find((item) => item.id === businessId) ?? null;
-  const language = usePreferencesStore((state) => state.language);
 
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const domainsByBusinessId = useIntegrationsStore((state) => state.domainsByBusinessId);
@@ -235,17 +293,9 @@ export default function IntegrationsPage() {
   const setProviderAccounts = useIntegrationsStore(
     (state) => state.setProviderAccounts,
   );
-  const toast = useIntegrationsStore((state) => state.toast);
-  const setToast = useIntegrationsStore((state) => state.setToast);
-  const clearToast = useIntegrationsStore((state) => state.clearToast);
 
-  const { connect, cancel, retry } = useIntegrationConnection(
-    businessId ?? "",
-  );
   const { isBootstrapping } = useBusinessIntegrationsBootstrap(businessId ?? null);
 
-  const [activeProvider, setActiveProvider] =
-    useState<IntegrationProvider | null>(null);
   const [assignmentProvider, setAssignmentProvider] =
     useState<IntegrationProvider | null>(null);
   const [ga4PickerOpen, setGa4PickerOpen] = useState(false);
@@ -304,6 +354,35 @@ export default function IntegrationsPage() {
       ),
     queryFn: () => fetchShopifyStatus(businessId!),
   });
+  const ga4StatusQuery = useQuery({
+    queryKey: ["ga4-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getReportWarmerStatusRefetchInterval(
+        query.state.data as GoogleAnalyticsStatusResponse | undefined
+      ),
+    queryFn: () => fetchGa4Status(businessId!),
+  });
+  const searchConsoleStatusQuery = useQuery({
+    queryKey: ["search-console-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getReportWarmerStatusRefetchInterval(
+        query.state.data as SearchConsoleStatusResponse | undefined
+      ),
+    queryFn: () => fetchSearchConsoleStatus(businessId!),
+  });
+  // Deployment configuration, not tenant data, so it needs no polling: the
+  // answer only changes when the owner sets KLAVIYO_CLIENT_ID/SECRET and the
+  // process restarts.
+  const klaviyoStatusQuery = useQuery({
+    queryKey: ["klaviyo-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchKlaviyoStatus(businessId!),
+  });
 
   useTierZeroFreshness({
     surface: "integrations",
@@ -314,7 +393,10 @@ export default function IntegrationsPage() {
     // A provider we could not read is a hole in the picture, not a healthy
     // provider: say which one rather than showing a confident row.
     partialReason:
-      googleAdsStatusQuery.error || shopifyStatusQuery.error
+      googleAdsStatusQuery.error ||
+      shopifyStatusQuery.error ||
+      ga4StatusQuery.error ||
+      searchConsoleStatusQuery.error
         ? "Some providers could not be read; connection status is incomplete"
         : null,
     // Each provider's own last sync. `dataUpdatedAt` would report when the
@@ -327,6 +409,10 @@ export default function IntegrationsPage() {
       void metaStatusQuery.refetch();
       if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
       if (shopifyStatusQuery.isError) void shopifyStatusQuery.refetch();
+      if (ga4StatusQuery.isError) void ga4StatusQuery.refetch();
+      if (searchConsoleStatusQuery.isError) {
+        void searchConsoleStatusQuery.refetch();
+      }
     },
   });
 
@@ -372,7 +458,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsLoadingProperties(false);
     }
-  }, [businessId, searchConsoleState]);
+  }, [businessId, integrations, searchConsoleState]);
 
   const loadGa4PropertyInfo = useCallback(async () => {
     if (!businessId) return;
@@ -452,10 +538,6 @@ export default function IntegrationsPage() {
             integration?.provider_account_name ?? selectedPropertyUrl,
         },
       );
-      setToast({
-        type: "success",
-        message: "Search Console property selected.",
-      });
       closeSearchConsoleSelector();
     } catch {
       setPropertyError("Could not save selected property.");
@@ -465,10 +547,10 @@ export default function IntegrationsPage() {
   }, [
     businessId,
     closeSearchConsoleSelector,
+    integrations,
     searchConsoleState,
     selectedPropertyUrl,
     setConnected,
-    setToast,
   ]);
 
   /** Disconnect: calls backend API for real providers, then updates local store */
@@ -505,12 +587,6 @@ export default function IntegrationsPage() {
   }, [businessId, loadGa4PropertyInfo]);
 
   useEffect(() => {
-    if (!toast) return;
-    const timeout = setTimeout(() => clearToast(), 3000);
-    return () => clearTimeout(timeout);
-  }, [toast, clearToast]);
-
-  useEffect(() => {
     if (!businessId) return;
     for (const view of providerViews) {
       const previous = viewStateLogCache.get(view.provider);
@@ -525,233 +601,138 @@ export default function IntegrationsPage() {
     }
   }, [businessId, providerViews, viewStateLogCache]);
 
+  const viewsByProvider = useMemo(() => {
+    const map: Partial<Record<IntegrationProvider, (typeof providerViews)[number]>> = {};
+    for (const view of providerViews) map[view.provider] = view;
+    return map;
+  }, [providerViews]);
+
+  /**
+   * What GA4 and Search Console can actually serve, not what their rows say.
+   * Search Console reads on the `google` connection's credential, so a
+   * disconnected or unscoped Google leaves its card claiming a source that
+   * 401s on every read.
+   */
+  const capabilities = useMemo(
+    () => ({
+      ga4: resolveGa4ReadCapability(providerConnectionFacts(domains?.ga4)),
+      search_console: resolveSearchConsoleReadCapability(
+        providerConnectionFacts(domains?.search_console),
+        providerConnectionFacts(domains?.google),
+      ),
+    }),
+    [domains],
+  );
+
+  const model = useMemo(
+    () =>
+      buildIntegrationsExactModel({
+        views: viewsByProvider,
+        capabilities,
+        metaStatus: metaStatusQuery.data ?? null,
+        googleStatus: googleAdsStatusQuery.data ?? null,
+        shopifyStatus: shopifyStatusQuery.data ?? null,
+        ga4Status: ga4StatusQuery.data ?? null,
+        searchConsoleStatus: searchConsoleStatusQuery.data ?? null,
+        connectableProviders: klaviyoStatusQuery.data?.connectable
+          ? [...CONNECTABLE_PROVIDERS, "klaviyo"]
+          : CONNECTABLE_PROVIDERS,
+        logoFor: getProviderLogo,
+      }),
+    [
+      capabilities,
+      ga4StatusQuery.data,
+      googleAdsStatusQuery.data,
+      klaviyoStatusQuery.data,
+      metaStatusQuery.data,
+      searchConsoleStatusQuery.data,
+      shopifyStatusQuery.data,
+      viewsByProvider,
+    ],
+  );
+
+  const returnTo = useMemo(() => {
+    const search = searchParams.toString();
+    if (!pathname || pathname === "/") return "/integrations";
+    return `${pathname}${search ? `?${search}` : ""}`;
+  }, [pathname, searchParams]);
+
+  /**
+   * The design gives each card one button and one click. Connect goes straight
+   * to the provider handshake — there is no interstitial permissions dialog —
+   * and Manage opens whatever destination that provider actually has.
+   */
+  const handleCardAction = useCallback(
+    (provider: IntegrationProvider, kind: "connect" | "manage") => {
+      if (!businessId) return;
+      if (kind === "connect") {
+        // Section 9: provider health recovery started. The design folds
+        // Reconnect and Retry into this one button, so a Connect click on a
+        // provider that already has a broken connection is the recovery start.
+        // Completion is recorded by the callback path when the connection lands.
+        const view = viewsByProvider[provider];
+        if (
+          (provider === "google" || provider === "meta") &&
+          view &&
+          view.status === "action_required"
+        ) {
+          emitProductInstrumentation({
+            eventName: "provider_health_recovery_started",
+            surface: "integrations",
+            outcome: "ok",
+            scope: "business",
+            businessId,
+            provider,
+          });
+        }
+        window.location.href =
+          provider === "shopify"
+            ? "https://apps.shopify.com/adsecute"
+            : getOAuthStartUrl(provider, businessId, returnTo);
+        return;
+      }
+      if (provider === "ga4") {
+        setGa4PickerOpen(true);
+        return;
+      }
+      if (provider === "search_console") {
+        void openSearchConsoleSelector();
+        return;
+      }
+      if (provider === "klaviyo") {
+        // A Klaviyo grant covers exactly one account and there is nothing to
+        // assign, so the account-assignment drawer every other provider opens
+        // would be a dead end. The destination Klaviyo actually has is its own
+        // read-only lifecycle screen.
+        window.location.href = "/platforms/klaviyo";
+        return;
+      }
+      setAssignmentProvider(provider);
+    },
+    [businessId, openSearchConsoleSelector, returnTo, viewsByProvider],
+  );
+
   const isWorkspaceLoading =
     !hasHydrated || authBootstrapStatus === "loading" || authBootstrapStatus === "idle";
 
   if (!businessId && isWorkspaceLoading) {
-    return <IntegrationsPageSkeleton />;
+    return <IntegrationsExactSkeleton cardCount={INTEGRATIONS_LIVE_ORDER.length} />;
   }
   if (!businessId) return <BusinessEmptyState />;
   if ((!integrations || !domains) && isBootstrapping) {
-    return <IntegrationsPageSkeleton />;
+    return <IntegrationsExactSkeleton cardCount={INTEGRATIONS_LIVE_ORDER.length} />;
   }
   if (isBootstrapping && !hasRenderableData) {
-    return <IntegrationsPageSkeleton />;
+    return <IntegrationsExactSkeleton cardCount={INTEGRATIONS_LIVE_ORDER.length} />;
   }
-
-  const handleConnect = (provider: IntegrationProvider) => {
-    setActiveProvider(provider);
-  };
-
-  const handleRetry = (provider: IntegrationProvider) => {
-    retry(provider);
-    setActiveProvider(provider);
-  };
 
   const assignedIdsForDrawer = assignmentProvider
     ? (assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? [])
     : [];
-  const providerCards = DISPLAY_PROVIDERS.map((provider) => {
-    const view = providerViews.find((item) => item.provider === provider);
-    const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
-    const domain = domains?.[provider];
-    let syncNotice: string | null = null;
-    let syncNoticeTone: "info" | "warning" | "error" = "info";
-    let metaSyncStatus: MetaStatusResponse | null = null;
-    let metaSyncLoading = false;
-    let googleSyncStatus: GoogleAdsStatusResponse | null = null;
-    let googleSyncLoading = false;
-    let shopifySyncStatus: ShopifyStatusResponse | null = null;
-    let shopifySyncLoading = false;
-    if (provider === "meta") {
-      const status = metaStatusQuery.data;
-      metaSyncLoading = metaStatusQuery.isLoading && !status;
-      metaSyncStatus = status ?? null;
-      if (status?.state === "ready" && status.latestSync?.finishedAt) {
-        const finishedAt = formatMetaDateTime(status.latestSync.finishedAt, language);
-        syncNotice =
-          language === "tr"
-            ? `Geçmiş veri hazır. Son senkron ${finishedAt ?? status.latestSync.finishedAt} tarihinde tamamlandı.`
-            : `Historical data is ready. The last sync finished ${finishedAt ?? status.latestSync.finishedAt}.`;
-      } else if (status?.state === "action_required") {
-        syncNotice = getMetaStatusNotice(status, language);
-        syncNoticeTone = "error";
-      } else if (status) {
-        syncNotice = getMetaStatusNotice(status, language);
-      }
-    } else if (provider === "google") {
-      const status = googleAdsStatusQuery.data;
-      const sourceHealth = domain?.discovery.sourceHealth ?? null;
-      googleSyncLoading = googleAdsStatusQuery.isLoading && !status;
-      googleSyncStatus = status ?? null;
-
-      if (status?.state === "action_required") {
-        syncNotice =
-          status.operations?.blockingReasons?.[0]?.detail ??
-          status.latestSync?.lastError ??
-          "Google Ads sync needs attention before required data can be refreshed.";
-        syncNoticeTone = "error";
-      } else if (sourceHealth === "healthy_cached") {
-        syncNotice =
-          domain?.discovery.notice ??
-          "Cached accounts available while the latest refresh finishes.";
-        syncNoticeTone = "info";
-      } else if (sourceHealth === "stale_cached") {
-        syncNotice =
-          domain?.discovery.notice ?? "Account list may be stale.";
-        syncNoticeTone = "warning";
-      } else if (status?.domainReadiness?.summary) {
-        syncNotice = status.domainReadiness.summary;
-      }
-    } else if (provider === "shopify") {
-      const status = shopifyStatusQuery.data;
-      shopifySyncLoading = Boolean(view?.isConnected) && shopifyStatusQuery.isLoading && !status;
-      shopifySyncStatus = status ?? null;
-    }
-    return {
-      provider,
-      assignedIds,
-      view,
-      syncNotice,
-      syncNoticeTone,
-      metaSyncStatus,
-      metaSyncLoading,
-      googleSyncStatus,
-      googleSyncLoading,
-      shopifySyncStatus,
-      shopifySyncLoading,
-    };
-  }).filter(
-    (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
-  );
-
-  const isDemoWorkspace = isDemoBusinessId(businessId);
-  // A provider is "live" when it has a real authorization flow. Everything else
-  // is roadmap, and the design keeps the two apart rather than greying a
-  // Connect button that would 404.
-  const liveCards = providerCards.filter((item) =>
-    CONNECTABLE_PROVIDERS.includes(item.provider),
-  );
-  const soonCards = providerCards.filter(
-    (item) => !CONNECTABLE_PROVIDERS.includes(item.provider),
-  );
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* The design's header: an eyebrow, the name, and one sentence about how
-          sync actually behaves. It replaced the three summary tiles -- counts
-          the cards below already state, one card at a time. */}
-      <div>
-        <p className="m-0 font-[family-name:var(--adv-font-mono)] text-[11px] uppercase tracking-[0.12em] text-[var(--adv-ink-3)]">
-          Workspace · Data sources
-        </p>
-        <h1 className="mt-1 font-[family-name:var(--adv-font-display)] text-[26px] font-bold tracking-[-0.02em] text-[var(--adv-ink)]">
-          Integrations
-        </h1>
-        <p className="mt-1.5 max-w-[640px] text-[12.5px] leading-[1.55] text-[var(--adv-ink-3)]">
-          Connected sources refresh themselves — a full sync runs nightly at 03:00 ET, deltas
-          land continuously. Sync progress appears once: while a new source runs its first
-          import.
-        </p>
-        <p className="mt-2 inline-flex w-fit items-center gap-2 font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
-          {activeBusiness?.name ?? "Unknown business"}
-          {isDemoWorkspace ? (
-            <span className="rounded-[4px] bg-[var(--adc-caution-bg)] px-1.5 py-[1.5px] text-[9.5px] font-semibold text-[var(--adc-caution-fg)]">
-              demo fixtures
-            </span>
-          ) : null}
-        </p>
-      </div>
-
-      {toast && (
-        <StateBanner
-          tone={toast.type === "success" ? "success" : "danger"}
-          title={toast.type === "success" ? "Integration updated" : "Integration action failed"}
-        >
-          {toast.message}
-        </StateBanner>
-      )}
-
-      {/* One grid, not four titled groups: the design lists every live source
-          together and keeps the not-yet-built ones in their own section below,
-          so a roadmap card can never sit beside a working one. */}
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
-        {liveCards.map((item) => (
-          <IntegrationsCard
-            key={item.provider}
-            provider={item.provider}
-            businessId={selectedBusinessId}
-            language={language}
-            description={DESCRIPTIONS[item.provider]}
-            view={item.view}
-            syncNotice={item.syncNotice}
-            syncNoticeTone={item.syncNoticeTone}
-            metaSyncStatus={item.metaSyncStatus}
-            metaSyncLoading={item.metaSyncLoading}
-            googleSyncStatus={item.googleSyncStatus}
-            googleSyncLoading={item.googleSyncLoading}
-            shopifySyncStatus={item.shopifySyncStatus}
-            shopifySyncLoading={item.shopifySyncLoading}
-            onConnect={handleConnect}
-            onReconnect={(p) => setActiveProvider(p)}
-            onRetry={handleRetry}
-            onCancel={(p) => cancel(p)}
-            onDisconnect={(p) => handleDisconnect(p)}
-            onOpenAssignments={(p) => {
-              if (p === "shopify") {
-                return;
-              }
-              if (p === "ga4") {
-                setGa4PickerOpen(true);
-                return;
-              }
-              if (p === "search_console") {
-                void openSearchConsoleSelector();
-                return;
-              }
-              if (p === "klaviyo") {
-                router.push("/platforms/klaviyo");
-                return;
-              }
-              setAssignmentProvider(p);
-            }}
-          />
-        ))}
-      </div>
-
-      {soonCards.length > 0 ? (
-        <>
-          <div className="mt-1.5 flex items-baseline gap-2.5">
-            <h2 className="m-0 font-[family-name:var(--adv-font-display)] text-[16px] font-semibold text-[var(--adv-ink)]">
-              Coming soon
-            </h2>
-            <span className="font-[family-name:var(--adv-font-mono)] text-[10.5px] text-[var(--adv-ink-4)]">
-              these stay out of the sidebar until the integration is live — never simulated
-            </span>
-          </div>
-
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-            {soonCards.map((item) => (
-              <SoonCard
-                key={item.provider}
-                provider={item.provider}
-                logoSrc={getProviderLogo(item.provider)}
-                note="No live connector yet — no date scheduled."
-              />
-            ))}
-          </div>
-        </>
-      ) : null}
-
-      <ConnectModal
-        provider={activeProvider}
-        businessId={businessId}
-        onClose={() => setActiveProvider(null)}
-        onContinue={(provider) => {
-          connect(provider);
-          setActiveProvider(null);
-        }}
-      />
+    <>
+      <IntegrationsExact model={model} onAction={handleCardAction} />
 
       <ProviderAssignmentDrawer
         open={Boolean(assignmentProvider)}
@@ -759,6 +740,10 @@ export default function IntegrationsPage() {
         businessId={businessId}
         assignedAccountIds={assignedIdsForDrawer}
         onClose={() => setAssignmentProvider(null)}
+        onDisconnect={(provider) => {
+          setAssignmentProvider(null);
+          void handleDisconnect(provider);
+        }}
         onSave={(provider, accountIds, accounts) => {
           const normalizedAccounts = accounts.map((account) => ({
             id: account.id,
@@ -769,13 +754,6 @@ export default function IntegrationsPage() {
           }));
           setProviderAccounts(businessId, provider, normalizedAccounts);
           setAssignedAccounts(businessId, provider, accountIds);
-          setToast({
-            type: "success",
-            message:
-              accountIds.length > 0
-                ? `Assignments saved (${accountIds.length}).`
-                : "Assignments cleared for this provider.",
-          });
         }}
       />
 
@@ -784,6 +762,10 @@ export default function IntegrationsPage() {
         businessId={businessId}
         currentPropertyId={ga4PropertyInfo?.propertyId ?? null}
         onClose={() => setGa4PickerOpen(false)}
+        onDisconnect={() => {
+          setGa4PickerOpen(false);
+          void handleDisconnect("ga4");
+        }}
         onSave={(property) => {
           setConnected(
             businessId,
@@ -798,10 +780,6 @@ export default function IntegrationsPage() {
           setGa4PropertyInfo({
             propertyId: property.propertyId,
             propertyName: property.propertyName,
-          });
-          setToast({
-            type: "success",
-            message: `GA4 property "${property.propertyName}" linked.`,
           });
         }}
       />
@@ -851,7 +829,19 @@ export default function IntegrationsPage() {
               </p>
             ) : null}
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                className="px-2.5 text-muted-foreground hover:text-destructive"
+                disabled={isSavingProperty}
+                onClick={() => {
+                  closeSearchConsoleSelector();
+                  void handleDisconnect("search_console");
+                }}
+              >
+                Disconnect
+              </Button>
+              <span className="flex-1" />
               <Button
                 variant="outline"
                 onClick={closeSearchConsoleSelector}
@@ -871,74 +861,6 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
-
-function IntegrationsPageSkeleton() {
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl space-y-2">
-            <Skeleton className="h-7 w-40 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-8 w-44" />
-              <Skeleton className="h-4 w-full max-w-xl" />
-              <Skeleton className="h-4 w-4/5 max-w-lg" />
-            </div>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <div
-                key={index}
-                className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4"
-              >
-                <Skeleton className="h-3 w-16" />
-                <Skeleton className="mt-4 h-8 w-12" />
-                <Skeleton className="mt-3 h-4 w-24" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {Array.from({ length: 3 }).map((_, sectionIndex) => (
-        <section key={sectionIndex} className="space-y-3">
-          <div className="space-y-2">
-            <Skeleton className="h-5 w-44" />
-            <Skeleton className="h-4 w-80 max-w-full" />
-          </div>
-          <div className="grid gap-3 xl:grid-cols-2">
-            {Array.from({ length: sectionIndex === 2 ? 1 : 2 }).map((__, cardIndex) => (
-              <div
-                key={`${sectionIndex}-${cardIndex}`}
-                className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2">
-                    <Skeleton className="h-5 w-28" />
-                    <Skeleton className="h-4 w-72 max-w-full" />
-                  </div>
-                  <Skeleton className="h-6 w-20 rounded-full" />
-                </div>
-                <div className="mt-6 grid gap-3 md:grid-cols-2">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-4 w-28" />
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Skeleton className="h-10 w-28 rounded-xl" />
-                  <Skeleton className="h-10 w-24 rounded-xl" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-

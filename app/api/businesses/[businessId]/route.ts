@@ -26,6 +26,15 @@ interface UpdateBusinessBody {
   currency?: string;
 }
 
+/**
+ * ISO 4217 alphabetic codes only — the same shape every currency reader in this
+ * repo enforces (`normalizeCurrencyCode`, `normalizeReportCurrency`,
+ * `lib/google-ads/account-scope.ts:32`, …). A stored non-code reaches
+ * `Intl.NumberFormat`, which throws a RangeError rather than rendering the
+ * missing value, so the write is the place to refuse it.
+ */
+const ISO_4217_ALPHABETIC = /^[A-Z]{3}$/;
+
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ businessId: string }> }
@@ -64,6 +73,18 @@ export async function PATCH(
   if (name.length < 2 || !currency) {
     return NextResponse.json(
       { error: "invalid_payload", message: language === "tr" ? "Ad ve currency zorunludur." : "Name and currency are required." },
+      { status: 400 }
+    );
+  }
+  if (!ISO_4217_ALPHABETIC.test(currency)) {
+    return NextResponse.json(
+      {
+        error: "invalid_currency",
+        message:
+          language === "tr"
+            ? "Currency üç harfli bir ISO 4217 kodu olmalidir."
+            : "Currency must be a three-letter ISO 4217 code.",
+      },
       { status: 400 }
     );
   }

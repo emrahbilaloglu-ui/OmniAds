@@ -1,6 +1,32 @@
-export type CustomReportDateRangePreset = "7" | "30" | "90";
+export type CustomReportDateRangePreset = "7" | "28" | "30" | "90" | "this_month";
 export type CustomReportCompareMode = "none" | "previous_period";
-export type CustomReportWidgetType = "metric" | "trend" | "bar" | "table" | "text" | "section";
+/**
+ * Block kinds a report page can carry.
+ *
+ * `section` predates the v2 builder and is no longer offered in the palette;
+ * it stays in the union because rows already stored in `custom_reports`
+ * contain it, and dropping it from the type would silently rewrite documents
+ * an operator saved months ago.
+ */
+export type CustomReportWidgetType =
+  | "metric"
+  | "kpirow"
+  | "trend"
+  | "bar"
+  | "donut"
+  | "funnel"
+  | "table"
+  | "heat"
+  | "ai"
+  | "text"
+  | "brief"
+  | "section";
+/**
+ * The page width a block occupies: a third, a half, or the full page. The grid
+ * columns below are kept in step so the print and share surfaces, which lay
+ * out from `colSpan`, keep rendering documents the v2 builder writes.
+ */
+export type CustomReportWidgetSize = "S" | "M" | "L";
 export type CustomReportAxisMode = "adaptive" | "zero_based" | "symmetric";
 export type CustomReportBreakdown = "day" | "week" | "month" | "age" | "gender" | "country" | "region";
 export type CustomReportPlatform =
@@ -31,6 +57,8 @@ export interface CustomReportWidgetDefinition {
   slot: number;
   colSpan: number;
   rowSpan: number;
+  /** Page width. Derived from `colSpan` for documents written before v2. */
+  size?: CustomReportWidgetSize;
   title: string;
   subtitle?: string;
   dataSource?: CustomReportDataSource;
@@ -72,6 +100,8 @@ export interface CustomReportTemplate {
   category: string;
   providers: string[];
   accent: string;
+  /** The send rhythm this structure is built for, e.g. "best weekly · Mon". */
+  cadence: string;
   definition: CustomReportDocument;
 }
 
@@ -95,6 +125,10 @@ export interface RenderedReportWidget {
   rows?: Array<Record<string, string | number | null>>;
   columns?: string[];
   text?: string;
+  /** Populated for `kpirow`: the four figures the strip shows, in order. */
+  metrics?: Array<{ key: string; label: string; value: string }>;
+  /** Populated for `donut`: one slice per channel, shares summing to 100. */
+  slices?: Array<{ label: string; value: string; sharePct: number }>;
   emptyMessage?: string;
   /**
    * Set only when this widget failed to build. A failure is distinct from an
@@ -136,6 +170,27 @@ export interface CustomReportSharePayload extends RenderedReportPayload {
 
 export const REPORT_GRID_SLOT_COUNT = 48;
 export const REPORT_GRID_COLUMNS = 4;
+export const REPORT_DATE_RANGE_PRESETS: CustomReportDateRangePreset[] = [
+  "7",
+  "28",
+  "30",
+  "90",
+  "this_month",
+];
+export const REPORT_WIDGET_TYPES: CustomReportWidgetType[] = [
+  "metric",
+  "kpirow",
+  "trend",
+  "bar",
+  "donut",
+  "funnel",
+  "table",
+  "heat",
+  "ai",
+  "text",
+  "brief",
+  "section",
+];
 export const REPORT_SHARE_EXPIRY_OPTIONS = [
   { value: 1, label: "24 hours" },
   { value: 7, label: "7 days" },
@@ -150,11 +205,34 @@ export function createCustomReportId() {
 }
 
 export function getDefaultWidgetSpan(type: CustomReportWidgetType) {
-  if (type === "section") return { colSpan: 4, rowSpan: 1 };
+  if (type === "section" || type === "kpirow" || type === "heat" || type === "brief") {
+    return { colSpan: 4, rowSpan: 1 };
+  }
   if (type === "table") return { colSpan: 2, rowSpan: 2 };
   if (type === "trend" || type === "bar") return { colSpan: 2, rowSpan: 2 };
-  if (type === "text") return { colSpan: 2, rowSpan: 1 };
+  if (type === "text" || type === "ai") return { colSpan: 2, rowSpan: 1 };
   return { colSpan: 1, rowSpan: 1 };
+}
+
+/** A block's page width expressed as grid columns, so print keeps working. */
+export function widgetSizeToColSpan(size: CustomReportWidgetSize): number {
+  if (size === "L") return REPORT_GRID_COLUMNS;
+  if (size === "M") return 2;
+  return 1;
+}
+
+/** The reverse, for documents saved before the builder stored `size`. */
+export function colSpanToWidgetSize(colSpan: number | undefined): CustomReportWidgetSize {
+  if ((colSpan ?? 1) >= REPORT_GRID_COLUMNS) return "L";
+  if ((colSpan ?? 1) >= 2) return "M";
+  return "S";
+}
+
+export function resolveWidgetSize(
+  widget: Pick<CustomReportWidgetDefinition, "size" | "colSpan">
+): CustomReportWidgetSize {
+  if (widget.size === "S" || widget.size === "M" || widget.size === "L") return widget.size;
+  return colSpanToWidgetSize(widget.colSpan);
 }
 
 export function clampWidgetSpan(input: {
@@ -178,8 +256,10 @@ function createWidget(
 export function createBlankReportDefinition(): CustomReportDocument {
   return {
     version: 1,
-    dateRangePreset: "30",
-    compareMode: "none",
+    // The v2 builder opens on "Last 28 days" — four whole weeks, so a weekly
+    // report never compares a 30-day window against a 28-day one.
+    dateRangePreset: "28",
+    compareMode: "previous_period",
     widgets: [],
   };
 }
@@ -192,6 +272,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Executive",
     providers: ["Meta", "Google", "GA4", "Shopify"],
     accent: "from-emerald-100 via-sky-50 to-white",
+    cadence: "best weekly · Mon",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -271,6 +352,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Meta",
     providers: ["Meta"],
     accent: "from-sky-100 via-indigo-50 to-white",
+    cadence: "best weekly · Fri",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -326,6 +408,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Creative",
     providers: ["Meta"],
     accent: "from-blue-100 via-violet-50 to-white",
+    cadence: "best biweekly",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -381,6 +464,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Creative",
     providers: ["Meta"],
     accent: "from-violet-100 via-purple-50 to-white",
+    cadence: "best biweekly · Wed",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -402,6 +486,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Economics",
     providers: ["Shopify", "GA4"],
     accent: "from-emerald-100 via-teal-50 to-white",
+    cadence: "best monthly · 1st",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -423,6 +508,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Channels",
     providers: ["Meta", "Google"],
     accent: "from-amber-100 via-orange-50 to-white",
+    cadence: "best weekly",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -444,6 +530,7 @@ export const CUSTOM_REPORT_TEMPLATES: CustomReportTemplate[] = [
     category: "Growth",
     providers: ["Search Console", "GA4"],
     accent: "from-lime-100 via-emerald-50 to-white",
+    cadence: "best monthly",
     definition: {
       version: 1,
       dateRangePreset: "30",
@@ -474,12 +561,11 @@ export function ensureReportDefinition(
   const fallback = createBlankReportDefinition();
   return {
     version: 1,
-    dateRangePreset:
-      input?.dateRangePreset === "7" || input?.dateRangePreset === "90"
-        ? input.dateRangePreset
-        : input?.dateRangePreset === "30"
-          ? "30"
-          : fallback.dateRangePreset,
+    dateRangePreset: REPORT_DATE_RANGE_PRESETS.includes(
+      input?.dateRangePreset as CustomReportDateRangePreset
+    )
+      ? (input?.dateRangePreset as CustomReportDateRangePreset)
+      : fallback.dateRangePreset,
     compareMode: input?.compareMode === "previous_period" ? "previous_period" : "none",
     widgets: Array.isArray(input?.widgets)
       ? input.widgets
@@ -518,8 +604,14 @@ export function ensureReportDefinition(
               widget.platform === "search_console"
                 ? widget.platform
                 : undefined;
+            // A block written before v2 has no `size`; its stored column span
+            // is the only record of how wide the operator made it, so the
+            // width is recovered from it rather than reset to a default.
+            const size = resolveWidgetSize(widget);
             return {
               ...widget,
+              type: REPORT_WIDGET_TYPES.includes(widget.type) ? widget.type : "text",
+              size,
               colSpan: span.colSpan,
               rowSpan: span.rowSpan,
               breakdown: breakdown as CustomReportBreakdown | undefined,

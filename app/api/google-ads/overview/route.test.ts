@@ -22,10 +22,16 @@ vi.mock("@/lib/perf", () => ({
   logPerfEvent: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/account-authority", () => ({
+  resolveGoogleAdsReadAccountAuthority: vi.fn(),
+  googleAdsReadAccountAuthorityFailure: vi.fn(),
+}));
+
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const serving = await import("@/lib/google-ads/serving");
 const perf = await import("@/lib/perf");
+const accountAuthority = await import("@/lib/google-ads/account-authority");
 
 describe("GET /api/google-ads/overview", () => {
   beforeEach(() => {
@@ -35,6 +41,12 @@ describe("GET /api/google-ads/overview", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(
+      accountAuthority.resolveGoogleAdsReadAccountAuthority,
+    ).mockResolvedValue({ state: "authorized", errorMessage: null });
+    vi.mocked(
+      accountAuthority.googleAdsReadAccountAuthorityFailure,
+    ).mockReturnValue(null);
   });
 
   it("logs aligned telemetry fields for overview reads", async () => {
@@ -76,5 +88,30 @@ describe("GET /api/google-ads/overview", () => {
         readSource: "warehouse_account_aggregate",
       })
     );
+  });
+
+  it("refuses an unassigned account before reading the overview report", async () => {
+    vi.mocked(
+      accountAuthority.googleAdsReadAccountAuthorityFailure,
+    ).mockReturnValueOnce({
+      code: "google_account_not_selected",
+      httpStatus: 409,
+      message: "Account is not assigned.",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/google-ads/overview?businessId=biz&accountId=foreign",
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "google_account_not_selected",
+    });
+    expect(
+      accountAuthority.resolveGoogleAdsReadAccountAuthority,
+    ).toHaveBeenCalledWith("biz", "foreign");
+    expect(serving.getGoogleAdsOverviewReport).not.toHaveBeenCalled();
   });
 });

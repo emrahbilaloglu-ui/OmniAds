@@ -5,6 +5,10 @@ import { getDemoGoogleAdsOverview } from "@/lib/demo-business";
 import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
 import { logPerfEvent } from "@/lib/perf";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
 
 function getDateSpanDays(start: string | null | undefined, end: string | null | undefined) {
   if (!start || !end) return null;
@@ -45,6 +49,18 @@ export async function GET(request: NextRequest) {
 
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsOverview());
+  }
+
+  if (accountId && accountId !== "all") {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId, accountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
   }
 
   const report = await getGoogleAdsOverviewReport({

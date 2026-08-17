@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { readSelectedEntityId } from "@/lib/provider-read-capability";
 import {
   buildDefaultProviderDomains,
   DEFAULT_INTEGRATION_ACCOUNTS,
@@ -89,6 +90,24 @@ export interface ProviderConnectionState {
   providerAccountId?: string;
   providerAccountName?: string;
   errorMessage?: string;
+  /**
+   * The granted OAuth scope string, verbatim from the manifest.
+   *
+   * Search Console reads on the `google` connection's credential, so whether
+   * that connection carries the webmasters scope decides whether a Search
+   * Console read can run at all. Without this the header could only ever read
+   * the `search_console` row and would claim a capability the reads refuse.
+   * Not a secret: the same `/api/integrations` payload already carries it.
+   */
+  scopes?: string | null;
+  /**
+   * The provider entity the read gate requires — GA4's selected property,
+   * Search Console's selected site — resolved by `readSelectedEntityId`.
+   *
+   * Deliberately not `providerAccountId`: the GA4 handshake writes the Google
+   * *user* id there before any property exists.
+   */
+  selectedEntityId?: string | null;
 }
 
 export interface ProviderDiscoveryEntity {
@@ -172,6 +191,8 @@ interface ManifestConnectionRow {
   token_expires_at?: string | null;
   refresh_token?: string | null;
   has_refresh_token?: boolean | null;
+  scopes?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface IntegrationsStore {
@@ -394,6 +415,8 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                     status: "disconnected",
                     lastCheckedAt: new Date().toISOString(),
                     errorMessage: undefined,
+                    scopes: null,
+                    selectedEntityId: null,
                   },
                 };
                 continue;
@@ -433,6 +456,13 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                   providerAccountName:
                     row.provider_account_name ??
                     nextDomains[provider].connection.providerAccountName,
+                  // No carry-forward for either: the manifest row is complete,
+                  // and a retained scope or selection would let a capability
+                  // survive the reconnect that revoked it. Only the derived id
+                  // is stored — the whole metadata blob would otherwise ride
+                  // along into this store's localStorage persistence.
+                  scopes: row.scopes ?? null,
+                  selectedEntityId: readSelectedEntityId(provider, row),
                   errorMessage:
                     row.error_message ??
                     (nextStatus === "error"

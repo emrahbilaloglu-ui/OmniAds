@@ -624,7 +624,17 @@ export function getCatalogWidgetConfig(
   platform: CustomReportPlatform,
   widgetType: CustomReportWidgetType
 ) {
-  if (widgetType === "text" || widgetType === "section") return null;
+  // The catalogue describes the four block kinds that take a platform-scoped
+  // metric. Every other kind — text, section, and the v2 kinds that read a
+  // fixed source — has no per-platform configuration to look up.
+  if (
+    widgetType !== "metric" &&
+    widgetType !== "trend" &&
+    widgetType !== "bar" &&
+    widgetType !== "table"
+  ) {
+    return null;
+  }
   return REPORT_PLATFORM_CATALOG[platform].widgets[widgetType] ?? null;
 }
 

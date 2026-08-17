@@ -420,6 +420,10 @@ export function buildAssetGroupCoreQuery(
         "asset_group.id",
         "asset_group.name",
         "asset_group.status",
+        // Google's own Performance Max ad-strength verdict. The design's
+        // Ad strength column states it is Google-served, and it is: this is the
+        // provider's enum, never a locally recomputed score.
+        "asset_group.ad_strength",
         "campaign.id",
         "campaign.name",
         "metrics.impressions",
@@ -503,6 +507,77 @@ export function buildAudienceCoreQuery(
       where: [buildDateWhereClause(startDate, endDate)],
       orderBy: ["metrics.cost_micros DESC"],
       limit: 1000,
+    }),
+  };
+}
+
+/**
+ * The link between an audience criterion and the user list behind it.
+ *
+ * `ad_group_audience_view` carries no list identity and no membership size —
+ * only the criterion id, its type and metrics. `ad_group_criterion` is the
+ * resource that names the list a USER_LIST criterion points at, as the list's
+ * own resource name (`customers/{cid}/userLists/{id}`), which is the join key
+ * into `user_list`.
+ *
+ * It is deliberately a **separate** named query rather than an extra field on
+ * `audience_core`: a criterion-config read failing must leave the audience
+ * table's metrics standing, with the list-only columns printing the em dash.
+ * Non-list audience types (affinity, in-market, life events) have no user list
+ * and so appear in neither this query nor the size read.
+ */
+export function buildAudienceUserListLinkQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "audience_user_list_link",
+    family: "audience_user_list",
+    resource: "ad_group_criterion",
+    mergeKey: "ad_group_criterion.criterion_id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "ad_group_criterion.criterion_id",
+        "ad_group_criterion.type",
+        "ad_group_criterion.user_list.user_list",
+        "ad_group.id",
+        "campaign.id",
+      ],
+      from: "ad_group_criterion",
+      where: [
+        "ad_group_criterion.type = 'USER_LIST'",
+        "ad_group_criterion.status != 'REMOVED'",
+      ],
+      limit: 5000,
+    }),
+  };
+}
+
+/**
+ * Google's own membership sizes for every user list on the account.
+ *
+ * `user_list.size_for_display` and `user_list.size_for_search` are the two
+ * numbers Google serves — one per network — and `user_list.name` is the list's
+ * real display name, which is what the design's Audience column shows in place
+ * of a criterion id. A list Google has not sized yet returns null on both, and
+ * a null stays null all the way to the cell.
+ */
+export function buildUserListSizeQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "user_list_size",
+    family: "audience_user_list",
+    resource: "user_list",
+    mergeKey: "user_list.id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "user_list.id",
+        "user_list.resource_name",
+        "user_list.name",
+        "user_list.type",
+        "user_list.size_for_display",
+        "user_list.size_for_search",
+      ],
+      from: "user_list",
+      limit: 5000,
     }),
   };
 }
@@ -647,6 +722,12 @@ export function buildAssetPerformanceCoreQuery(
         "campaign.id",
         "campaign.name",
         "asset_group_asset.field_type",
+        // Google's own per-asset performance verdict. The design's Text assets
+        // card states the rating is Google-served, and this is the field that
+        // makes that true: the provider's PENDING/LEARNING/LOW/GOOD/BEST enum,
+        // never a locally recomputed score. `lib/google-ads/metrics-matrix.ts`
+        // has listed it as a primary metric of the assets tab all along.
+        "asset_group_asset.performance_label",
         "asset.id",
         "asset.name",
         "asset.type",
@@ -781,6 +862,49 @@ export function buildProductPerformanceLegacyQuery(
       from: "shopping_product_view",
       where: [buildDateWhereClause(startDate, endDate)],
       orderBy: ["metrics.cost_micros DESC"],
+      limit,
+    }),
+  };
+}
+
+/**
+ * Merchant Center per-item state, read through the Google Ads API.
+ *
+ * `shopping_performance_view` and `shopping_product_view` answer "what did this
+ * item do", and neither carries an approval, availability or item-issue field —
+ * which is why the design's Feed status column had no source. `shopping_product`
+ * answers "what state is this item in", and it does it under the `adwords`
+ * scope the business has already granted, so no Merchant Center re-consent and
+ * no second OAuth client is involved.
+ *
+ * Deliberately dateless. Item state is CURRENT state, not a daily fact: adding
+ * `segments.date` would multiply every item by the window and then force a
+ * "which day is the truth" question the resource has no answer to. `metrics.*`
+ * is likewise absent — the metrics on this screen come from the shopping
+ * report, and asking twice would only let the two disagree.
+ */
+export function buildMerchantCenterItemStateQuery(
+  limit = 5000,
+): GoogleAdsNamedQuery {
+  return {
+    name: "merchant_center_item_state",
+    family: "product_feed_state",
+    resource: "shopping_product",
+    mergeKey: "shopping_product.item_id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "shopping_product.merchant_center_id",
+        "shopping_product.item_id",
+        "shopping_product.title",
+        "shopping_product.feed_label",
+        "shopping_product.language_code",
+        "shopping_product.channel",
+        "shopping_product.availability",
+        "shopping_product.status",
+        "shopping_product.issues",
+      ],
+      from: "shopping_product",
       limit,
     }),
   };

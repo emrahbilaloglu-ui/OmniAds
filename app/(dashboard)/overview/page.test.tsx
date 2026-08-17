@@ -17,9 +17,8 @@ vi.mock("@/components/date-range/DateRangePicker", () => ({
     return React.createElement("div", null, "date-range-picker");
   },
   getTodayIsoForTimeZone: (...args: [string]) => mockGetTodayIsoForTimeZone(...args),
-  getPresetDatesForReferenceDate: (
-    ...args: [string, string, string | undefined, string | undefined]
-  ) => mockGetPresetDatesForReferenceDate(...args),
+  getPresetDatesForReferenceDate: (...args: [string, string, string | undefined, string | undefined]) =>
+    mockGetPresetDatesForReferenceDate(...args),
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -122,6 +121,23 @@ function baseQueryState(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function metric(id: string, title: string, unit = "count") {
+  return {
+    id,
+    title,
+    value: 1,
+    previousValue: null,
+    changePct: null,
+    sparklineData: [],
+    previousSparklineData: [],
+    trendDirection: "neutral",
+    trendSentiment: "neutral",
+    dataSource: { key: "test", label: "Test" },
+    status: "available",
+    unit,
+  };
+}
+
 describe("OverviewPage timezone date selection", () => {
   beforeEach(() => {
     capturedPickerProps.length = 0;
@@ -139,6 +155,7 @@ describe("OverviewPage timezone date selection", () => {
         return baseQueryState({
           data: {
             comparison: { startDate: null, endDate: null },
+            pins: [],
             storeMetrics: [],
             ltv: [],
             expenses: [],
@@ -158,38 +175,63 @@ describe("OverviewPage timezone date selection", () => {
   it("uses workspace timezone for overview preset resolution and picker props", async () => {
     const { default: OverviewPage } = await import("@/app/(dashboard)/overview/legacy-page");
 
-    renderToStaticMarkup(React.createElement(OverviewPage));
+    const html = renderToStaticMarkup(React.createElement(OverviewPage));
 
     expect(mockGetTodayIsoForTimeZone).toHaveBeenCalledWith("America/Los_Angeles");
-    expect(mockGetPresetDatesForReferenceDate).toHaveBeenCalledWith(
-      "today",
-      "2026-04-07",
-      "",
-      ""
-    );
+    expect(mockGetPresetDatesForReferenceDate).toHaveBeenCalledWith("today", "2026-04-07", "", "");
 
     const overviewSummaryCall = mockUseQuery.mock.calls.find((call) => {
       const input = call[0] as { queryKey: unknown[] } | undefined;
       return input?.queryKey?.[0] === "overview-summary";
     });
-    expect(overviewSummaryCall?.[0].queryKey).toEqual([
-      "overview-summary",
-      "biz",
-      "2026-04-07",
-      "2026-04-07",
-      "none",
-    ]);
+    expect(overviewSummaryCall?.[0].queryKey).toEqual(["overview-summary", "biz", "2026-04-07", "2026-04-07", "none"]);
 
     // Dashboard v2 moves the range control into the shell topbar, so the page
     // itself must not render a second picker.
     expect(capturedPickerProps).toHaveLength(0);
+    expect(html).toContain('data-screen-label="Overview"');
+    expect(html).toContain("Edit cost model");
+    expect(html).toContain("Share snapshot");
+    expect(html).not.toContain("Set cost model");
+    expect(html).not.toContain("cost-model-sheet");
+    expect(html).not.toContain("Headline metrics");
+    expect(html).toContain('class="flex flex-wrap items-end justify-between gap-4"');
+    expect(html).not.toContain("adv-page-head");
+
+    // The reference fixes every Overview surface and order. Missing data keeps
+    // those surfaces in place with em dashes instead of deleting cards.
+    for (const label of [
+      "Revenue",
+      "Ad Spend",
+      "Blended ROAS · target —",
+      "Orders",
+      "Conv Rate · GA4",
+      "Attribution by channel",
+      "Meta Ads",
+      "Google Ads",
+      "Klaviyo",
+      "Organic · GA4",
+      "Store &amp; customer value",
+      "New customers",
+      "Repeat rate",
+      "LTV : CAC",
+      "Web analytics · GA4",
+      "Engagement",
+      "Avg session",
+      "Conv rate",
+    ]) {
+      expect(html).toContain(label);
+    }
   });
 
   it("keeps the shell topbar picker resolving against the workspace timezone", async () => {
     const { AppTopbar } = await import("@/components/layout/v2/app-topbar");
 
     renderToStaticMarkup(
-      React.createElement(AppTopbar, { userName: "Reviewer", onOpenNav: () => {} }),
+      React.createElement(AppTopbar, {
+        userName: "Reviewer",
+        onOpenNav: () => {},
+      })
     );
 
     expect(mockGetTodayIsoForTimeZone).toHaveBeenCalledWith("America/Los_Angeles");
@@ -197,5 +239,132 @@ describe("OverviewPage timezone date selection", () => {
     expect(capturedPickerProps[0]?.referenceDate).toBe("2026-04-07");
     expect(capturedPickerProps[0]?.timeZoneLabel).toBe("America/Los_Angeles");
     expect(capturedPickerProps[0]?.variant).toBe("v2");
+  });
+
+  it("enforces the fixed reference sections and rejects injected extra rows", async () => {
+    mockUseQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      if (queryKey[0] !== "overview-summary") return baseQueryState();
+      return baseQueryState({
+        data: {
+          comparison: { startDate: null, endDate: null },
+          pins: [
+            metric("pins-orders", "Wrong order", "count"),
+            metric("pins-mer", "MER injected", "ratio"),
+            metric("pins-revenue", "Wrong title", "currency"),
+            metric("pins-conversion-rate", "Wrong conversion", "percent"),
+            metric("pins-spend", "Wrong spend", "currency"),
+            metric("pins-blended-roas", "Blended ROAS · target 4.20", "ratio"),
+          ],
+          storeMetrics: [
+            metric("store-new-customers", "New customers"),
+            metric("store-gross-sales", "Gross Sales injected", "currency"),
+            metric("store-aov", "AOV", "currency"),
+          ],
+          ltv: [
+            metric("ltv-cac", "LTV : CAC", "ratio"),
+            metric("ltv-average", "Average LTV injected", "currency"),
+            metric("ltv-repeat-rate", "Repeat rate", "percent"),
+          ],
+          expenses: [],
+          customMetrics: [],
+          webAnalytics: [
+            metric("web-conversion-rate", "Conv rate", "percent"),
+            metric("web-extra", "Web extra injected"),
+            metric("web-session-duration", "Avg session", "duration_seconds"),
+            metric("web-sessions", "Sessions"),
+            metric("web-engagement-rate", "Engagement", "percent"),
+          ],
+          platforms: [
+            {
+              id: "tiktok",
+              provider: "tiktok",
+              title: "TikTok injected",
+              metrics: [],
+            },
+            { id: "google", provider: "google", title: "Google", metrics: [] },
+            { id: "meta", provider: "meta", title: "Meta", metrics: [] },
+          ],
+          attribution: [
+            {
+              channel: "TikTok injected",
+              spend: 999,
+              spendShare: 99,
+              revenue: 999,
+              roas: 1,
+              conversions: 1,
+              clicks: null,
+              ctr: null,
+              cpa: 1,
+              aov: 1,
+              source: "test",
+            },
+            ...["Organic · GA4", "Google Ads", "Klaviyo", "Meta Ads"].map((channel) => ({
+              channel,
+              spend: null,
+              spendShare: null,
+              revenue: null,
+              roas: null,
+              conversions: null,
+              clicks: null,
+              ctr: null,
+              cpa: null,
+              aov: null,
+              source: "test",
+            })),
+          ],
+          costModel: { configured: false, values: null },
+          shopifyServing: null,
+        },
+      });
+    });
+
+    const { default: OverviewPage } = await import("@/app/(dashboard)/overview/legacy-page");
+    const html = renderToStaticMarkup(React.createElement(OverviewPage));
+
+    expect(Array.from(html.matchAll(/data-overview-section="([^"]+)"/g), (match) => match[1])).toEqual([
+      "headline",
+      "attribution-and-brief",
+      "platforms",
+      "store-and-web",
+    ]);
+    expect(Array.from(html.matchAll(/data-overview-metric-id="([^"]+)"/g), (match) => match[1])).toEqual([
+      "pins-revenue",
+      "pins-spend",
+      "pins-blended-roas",
+      "pins-orders",
+      "pins-conversion-rate",
+      "store-aov",
+      "store-new-customers",
+      "ltv-repeat-rate",
+      "ltv-cac",
+      "web-sessions",
+      "web-engagement-rate",
+      "web-session-duration",
+      "web-conversion-rate",
+    ]);
+    expect(Array.from(html.matchAll(/data-overview-provider="([^"]+)"/g), (match) => match[1])).toEqual([
+      "meta",
+      "google",
+    ]);
+    expect(Array.from(html.matchAll(/data-overview-channel="([^"]+)"/g), (match) => match[1])).toEqual([
+      "Meta Ads",
+      "Google Ads",
+      "Klaviyo",
+      "Organic · GA4",
+    ]);
+    expect(Array.from(html.matchAll(/data-overview-brief-kind="([^"]+)"/g), (match) => match[1])).toEqual([
+      "Opportunity",
+      "Risk",
+      "Action",
+    ]);
+    for (const extra of [
+      "MER injected",
+      "Gross Sales injected",
+      "Average LTV injected",
+      "Web extra injected",
+      "TikTok injected",
+    ]) {
+      expect(html).not.toContain(extra);
+    }
   });
 });

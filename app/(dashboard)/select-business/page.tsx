@@ -1,13 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAppStore } from "@/store/app-store";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAppStore, type Business } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
+import { CURRENCY_OPTIONS } from "@/components/business/BusinessForm";
+
+/** The same ISO 4217 shape `PATCH /api/businesses/{id}` refuses on the server. */
+const ISO_4217_ALPHABETIC = /^[A-Z]{3}$/;
+
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  timezone: string | null;
+  timezoneSource?: Business["timezoneSource"];
+  currency: string;
+  isDemoBusiness?: boolean;
+  /** Present on `/api/businesses`; the client store deliberately drops it. */
+  role?: string;
+}
 
 export default function SelectBusinessPage() {
   const router = useRouter();
@@ -15,8 +30,10 @@ export default function SelectBusinessPage() {
   const searchParams = useSearchParams();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
   const deleteBusiness = useAppStore((state) => state.deleteBusiness);
+  const setWorkspaceSnapshot = useAppStore((state) => state.setWorkspaceSnapshot);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const assignedAccountsByBusiness = useIntegrationsStore((state) => state.assignedAccountsByBusiness);
   const removeBusinessData = useIntegrationsStore((state) => state.removeBusinessData);
@@ -24,10 +41,19 @@ export default function SelectBusinessPage() {
   const [confirmInput, setConfirmInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [roleByBusinessId, setRoleByBusinessId] = useState<Record<string, string>>({});
+  const [editBusinessId, setEditBusinessId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCurrency, setEditCurrency] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
 
   const confirmBusiness = useMemo(
     () => businesses.find((business) => business.id === confirmBusinessId) ?? null,
     [businesses, confirmBusinessId]
+  );
+  const editBusiness = useMemo(
+    () => businesses.find((business) => business.id === editBusinessId) ?? null,
+    [businesses, editBusinessId]
   );
   const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
 
@@ -43,6 +69,58 @@ export default function SelectBusinessPage() {
     );
     return hasConnectedIntegration || assignedCount > 0;
   }, [assignedAccountsByBusiness, byBusinessId, confirmBusiness]);
+
+  /**
+   * Reads each workspace's membership role from the endpoint the store is built
+   * from.
+   *
+   * `PATCH /api/businesses/{id}` requires `admin`, and the client store drops
+   * `role` when the bootstrap maps the payload into it
+   * (`components/layout/auth-bootstrap.tsx:143-153`), so the rename control asks
+   * `/api/businesses` rather than assuming. A read that does not land leaves the
+   * control hidden: the route is the authority either way, but an unread role is
+   * not a permission.
+   */
+  const readWorkspaces = useCallback(async () => {
+    const response = await fetch("/api/businesses", { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) return null;
+    const payload = (await response.json().catch(() => null)) as {
+      businesses?: WorkspaceRow[];
+      activeBusinessId?: string | null;
+    } | null;
+    const rows = payload?.businesses;
+    if (!Array.isArray(rows)) return null;
+    setRoleByBusinessId(
+      Object.fromEntries(rows.map((row) => [row.id, typeof row.role === "string" ? row.role : ""]))
+    );
+    return rows;
+  }, []);
+
+  useEffect(() => {
+    void readWorkspaces();
+  }, [readWorkspaces]);
+
+  /**
+   * The delete ceremony's own gate — a demo workspace is refused by the route
+   * too — plus the role that route requires. `admin` is the top weight in
+   * `ROLE_WEIGHT`, so this is exactly `hasRole("admin", role)`.
+   */
+  function canEditWorkspace(business: Business) {
+    return !business.isDemoBusiness && roleByBusinessId[business.id] === "admin";
+  }
+
+  /**
+   * The product's currency list, plus the workspace's own stored code when it
+   * predates that list — so opening the form can never silently redenominate a
+   * workspace. A stored value that is not an ISO 4217 code is not offered at
+   * all; it has to be replaced with a real one before the form will save.
+   */
+  function currencyOptionsFor(business: Business) {
+    const stored = business.currency?.trim().toUpperCase() ?? "";
+    return ISO_4217_ALPHABETIC.test(stored) && !CURRENCY_OPTIONS.includes(stored)
+      ? [stored, ...CURRENCY_OPTIONS]
+      : CURRENCY_OPTIONS;
+  }
 
   function getAssignedAccountCount(businessId: string) {
     return Object.values(assignedAccountsByBusiness[businessId] ?? {}).reduce(
@@ -106,6 +184,58 @@ export default function SelectBusinessPage() {
     logClientAuthEvent("select_business_succeeded", { activeBusinessId: id });
     router.push(destination);
     router.refresh();
+  }
+
+  /**
+   * The only surface that renames a workspace or changes its currency.
+   *
+   * Dashboard v2's Settings screen is Full name, Email, Interface language and
+   * Workspace timezone; it defines no workspace name or currency field, so this
+   * lives beside the delete ceremony — the other workspace-level operation this
+   * page already owns — and calls the untouched `PATCH /api/businesses/{id}`.
+   */
+  async function handleSaveWorkspace() {
+    if (!editBusiness) return;
+    const name = editName.trim();
+    const currency = editCurrency.trim().toUpperCase();
+    if (name.length < 2) {
+      setFeedback({ type: "error", message: "Workspace name needs at least two characters." });
+      return;
+    }
+    if (!ISO_4217_ALPHABETIC.test(currency) || !currencyOptionsFor(editBusiness).includes(currency)) {
+      setFeedback({ type: "error", message: "Choose a supported currency." });
+      return;
+    }
+
+    setEditLoading(true);
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/businesses/${encodeURIComponent(editBusiness.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, currency }),
+      });
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.message ?? "Could not save the workspace.");
+      }
+
+      // Nothing is claimed saved on the strength of the write alone: the list is
+      // re-read, and what it serves is what the page then shows.
+      const rows = await readWorkspaces();
+      if (rows && workspaceOwnerId) {
+        setWorkspaceSnapshot(workspaceOwnerId, rows, selectedBusinessId);
+      }
+      setEditBusinessId(null);
+      setFeedback({ type: "success", message: "Workspace saved." });
+    } catch (error: unknown) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save the workspace.",
+      });
+    } finally {
+      setEditLoading(false);
+    }
   }
 
   async function handleDeleteBusiness() {
@@ -185,6 +315,24 @@ export default function SelectBusinessPage() {
                     {isSelected ? " · current" : ""}
                   </span>
                 </button>
+                {canEditWorkspace(business) ? (
+                  <button
+                    type="button"
+                    className="ad-auth-secondary shrink-0 px-3"
+                    data-workspace-edit={business.id}
+                    onClick={() => {
+                      const stored = business.currency?.trim().toUpperCase() ?? "";
+                      setConfirmBusinessId(null);
+                      setConfirmInput("");
+                      setEditBusinessId(business.id);
+                      setEditName(business.name);
+                      setEditCurrency(ISO_4217_ALPHABETIC.test(stored) ? stored : "");
+                      setFeedback(null);
+                    }}
+                  >
+                    Edit
+                  </button>
+                ) : null}
                 {!business.isDemoBusiness ? (
                   <button
                     type="button"
@@ -192,6 +340,7 @@ export default function SelectBusinessPage() {
                     onClick={() => {
                       setConfirmBusinessId(business.id);
                       setConfirmInput("");
+                      setEditBusinessId(null);
                     }}
                   >
                     Delete
@@ -216,6 +365,58 @@ export default function SelectBusinessPage() {
             + Create business
           </button>
         )}
+
+        {editBusiness ? (
+          <div className="ad-auth-alert" data-workspace-edit-form="">
+            <p>
+              Rename <span className="font-semibold">{editBusiness.name}</span>, or change the
+              currency its figures are denominated in.
+            </p>
+            <label className="ad-auth-label mt-3">
+              Workspace name
+              <input
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                className="ad-auth-input"
+              />
+            </label>
+            <label className="ad-auth-label mt-3">
+              Currency
+              <select
+                value={editCurrency}
+                onChange={(event) => setEditCurrency(event.target.value)}
+                className="ad-auth-select"
+              >
+                {editCurrency === "" ? <option value="">Select a currency</option> : null}
+                {currencyOptionsFor(editBusiness).map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                className="ad-auth-secondary flex-1"
+                onClick={() => {
+                  if (editLoading) return;
+                  setEditBusinessId(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ad-auth-primary flex-1"
+                disabled={editLoading}
+                onClick={handleSaveWorkspace}
+              >
+                {editLoading ? "Saving workspace..." : "Save workspace"}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {confirmBusiness ? (
           <div className="ad-auth-alert ad-auth-alert-caution">

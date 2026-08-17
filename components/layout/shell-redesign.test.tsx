@@ -4,7 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 // mounts it under the root QueryProvider, so the test renders it the same way.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AppRail } from "@/components/layout/v2/app-rail";
+import {
+  AppRail,
+  buildRailScopedHref,
+} from "@/components/layout/v2/app-rail";
 import { DashboardFrame } from "@/components/layout/dashboard-frame";
 
 const state = vi.hoisted(() => ({
@@ -13,6 +16,7 @@ const state = vi.hoisted(() => ({
   selectedBusinessId: "biz_1",
   search: "",
   actionNowCount: null as number | null,
+  googleAdvisorCount: null as number | null,
   businesses: [
     {
       id: "biz_1",
@@ -75,7 +79,12 @@ vi.mock("@/lib/pricing/usePlan", () => ({
 
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   useMetaActionNowCount: () => state.actionNowCount,
-  useWorkspaceSyncState: () => ({ tone: "fresh", label: "Synced 12m ago" }),
+  useGoogleAdvisorCount: () => state.googleAdvisorCount,
+  useWorkspaceSyncState: () => ({
+    tone: "fresh",
+    label: "Synced 12m ago",
+    freshnessState: "ready",
+  }),
 }));
 
 vi.mock("@/hooks/use-persistent-date-range", () => ({
@@ -99,6 +108,7 @@ describe("dashboard v2 shell", () => {
     state.selectedBusinessId = "biz_1";
     state.search = "";
     state.actionNowCount = null;
+    state.googleAdvisorCount = null;
     state.push.mockReset();
   });
 
@@ -125,21 +135,45 @@ describe("dashboard v2 shell", () => {
 
     const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
-    expect(html).toContain('data-active="true" data-nav="meta-creative-studio"');
+    expect(html).toContain(
+      'data-active="true" data-nav="meta-creative-studio"',
+    );
     expect(html).toContain('data-active="false" data-nav="meta-pulse"');
-    expect(html).toContain('data-active="false" data-family="true" data-platform="meta"');
+    expect(html).toContain(
+      'data-active="false" data-family="true" data-platform="meta"',
+    );
   });
 
-  it("preserves the selected Meta business and ad account across menu transitions", () => {
-    state.pathname = "/platforms/meta";
-
-    const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
-
-    expect(html).toContain("/platforms/meta/creatives?businessId=biz_1");
-    expect(html).toContain("/platforms/meta/automation?businessId=biz_1");
+  it("retains actual providerAccountId query values across Meta and Google rail transitions", () => {
+    expect(
+      buildRailScopedHref({
+        href: "/platforms/meta/creatives",
+        pathname: "/app/meta/decisions",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    ).toBe(
+      "/app/creative/performance?businessId=biz_1&providerAccountId=act_1",
+    );
+    expect(
+      buildRailScopedHref({
+        href: "/platforms/google/advisor",
+        pathname: "/c/biz_1/google/overview",
+        businessId: "biz_1",
+        providerAccountId: "google_1",
+      }),
+    ).toBe("/c/biz_1/google/advisor?providerAccountId=google_1");
+    expect(
+      buildRailScopedHref({
+        href: "/platforms/google/advisor",
+        pathname: "/app/meta/decisions",
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      }),
+    ).toBe("/app/google/advisor");
   });
 
-  it("shows the Action Now count only when a snapshot is cached", () => {
+  it("shows the two design-defined rail counts only when real snapshots are cached", () => {
     state.pathname = "/platforms/meta";
 
     expect(
@@ -147,9 +181,20 @@ describe("dashboard v2 shell", () => {
     ).not.toContain("adv-rail-count");
 
     state.actionNowCount = 4;
-    const withCount = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
+    const withCount = renderToStaticMarkup(
+      <AppRail userName="Emrah Bilaloglu" />,
+    );
     expect(withCount).toContain("adv-rail-count");
     expect(withCount).toContain(">4<");
+
+    state.pathname = "/platforms/google/advisor";
+    state.actionNowCount = null;
+    state.googleAdvisorCount = 3;
+    const withAdvisorCount = renderToStaticMarkup(
+      <AppRail userName="Emrah Bilaloglu" />,
+    );
+    expect(withAdvisorCount).toContain('data-nav="google-google-advisor"');
+    expect(withAdvisorCount).toContain(">3<");
   });
 
   it("hides plan-lock indicators for demo businesses", () => {
@@ -163,7 +208,7 @@ describe("dashboard v2 shell", () => {
     expect(html).not.toContain("Upgrade to Pro");
   });
 
-  it("renders plan trails for gated entries on a starter workspace", () => {
+  it("preserves plan gating without adding a badge absent from the reference", () => {
     state.pathname = "/overview";
     state.selectedBusinessId = "biz_1";
     state.plan = "starter";
@@ -171,7 +216,7 @@ describe("dashboard v2 shell", () => {
     const html = renderToStaticMarkup(<AppRail userName="Emrah Bilaloglu" />);
 
     expect(html).toContain("Upgrade to Pro to unlock");
-    expect(html).toContain("adv-rail-badge");
+    expect(html).not.toContain("data-plan-entitlement-class");
   });
 
   it("uses the same shell on Overview as on platform routes", () => {
@@ -189,6 +234,27 @@ describe("dashboard v2 shell", () => {
       expect(html).toContain("adv-topbar");
       expect(html).toContain(`${pathname} body`);
     }
+  });
+
+  it("renders the design's static freshness pill and binary comparison toggle", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <DashboardFrame userName="Shopify App Reviewer">
+          <div>Overview body</div>
+        </DashboardFrame>
+      </QueryClientProvider>,
+    );
+
+    expect(html.match(/class="adv-pill"/g)).toHaveLength(1);
+    expect(html).toContain('<span class="adv-pill"');
+    expect(html).toContain('data-freshness-state="ready"');
+    expect(html).not.toContain("Refresh data —");
+    expect(html).toContain(
+      'title="Toggle comparison with the previous period"',
+    );
+    expect(html).toContain(">vs previous period</span>");
+    expect(html).not.toContain("vs previous year");
+    expect(html).not.toContain('aria-label="Account"');
   });
 
   it("renders compact mobile shell hooks and leaves Meta Decisions mobile composition to the page", () => {
@@ -230,6 +296,33 @@ describe("dashboard v2 shell", () => {
       expect(html).not.toContain(mobileNote);
       expect(html).toContain(`${pathname} body`);
       expect(html).not.toContain("Meta evidence mobile read-only");
+    }
+  });
+
+  it("leaves every exact Google Overview and Advisor mobile surface to the route", () => {
+    for (const pathname of [
+      "/platforms/google",
+      "/platforms/google/advisor",
+      "/app/google/overview",
+      "/app/google/advisor",
+      "/c/biz_1/google/overview",
+      "/c/biz_1/google/advisor",
+    ]) {
+      state.pathname = pathname;
+      state.selectedBusinessId = "biz_1";
+
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} responsive body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
+      );
+
+      expect(html).toContain('data-mobile-surface="none"');
+      expect(html).toContain(`${pathname} responsive body`);
+      expect(html).not.toContain("ad-console-mobile-readonly");
+      expect(html).not.toContain("Adsecute · mobile read-only");
     }
   });
 

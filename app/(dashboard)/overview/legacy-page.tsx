@@ -1,63 +1,43 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { usePathname, useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { FreshnessChip } from "@/components/states/FreshnessChip";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { compareModeForPreset } from "@/lib/comparison-preset-contract";
-import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
 import { AttributionCard } from "@/components/overview/v2/attribution-card";
-import {
-  HeroMetricCard,
-  HeroTile,
-  StatTile,
-} from "@/components/overview/v2/metric-band";
+import { HeroMetricCard, HeroTile, StatTile } from "@/components/overview/v2/metric-band";
 import { PlatformMiniDashboard } from "@/components/overview/v2/platform-card";
 import { ShareSnapshotButton } from "@/components/overview/v2/share-snapshot-button";
-import {
-  getPresetDatesForReferenceDate,
-  getTodayIsoForTimeZone,
-} from "@/components/date-range/DateRangePicker";
+import { getPresetDatesForReferenceDate, getTodayIsoForTimeZone } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { usePreferencesHydrated } from "@/hooks/persistent-date-range-support";
-import {
-  buildOverviewMetricCatalog,
-  DEFAULT_PINNED_METRICS,
-} from "@/lib/overview-metric-catalog";
-import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { currencySymbolFor } from "@/lib/metric-format";
-import { cn } from "@/lib/utils";
-import { usePreferencesStore } from "@/store/preferences-store";
+import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
 import { useAppStore } from "@/store/app-store";
-import {
-  buildDefaultProviderDomains,
-  deriveProviderViewState,
-} from "@/store/integrations-support";
-import { useIntegrationsStore } from "@/store/integrations-store";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
-import { resolveProviderSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   getOverviewSummary,
   getOverviewSparklines,
   getLatestAiInsight,
   generateAiInsight,
-  upsertBusinessCostModel,
   type SparklineBundle,
 } from "@/src/services";
 import type {
   BusinessCostModelData,
+  OverviewAttributionRow,
   OverviewMetricCardData,
-  OverviewMetricCatalogEntry,
+  OverviewMetricUnit,
+  OverviewPlatformSection,
   OverviewSummaryData,
 } from "@/src/types/models";
 
-type CurrencyCode = string;
 type CompareMode = "none" | "previous_period";
 
 async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
@@ -69,16 +49,13 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(
-      (payload as { message?: string } | null)?.message ??
-        `Meta status request failed (${response.status})`
+      (payload as { message?: string } | null)?.message ?? `Meta status request failed (${response.status})`
     );
   }
   return payload as MetaStatusResponse;
 }
 
-async function fetchGoogleAdsStatus(
-  businessId: string
-): Promise<GoogleAdsStatusResponse> {
+async function fetchGoogleAdsStatus(businessId: string): Promise<GoogleAdsStatusResponse> {
   const params = new URLSearchParams({ businessId });
   const response = await fetch(`/api/google-ads/status?${params.toString()}`, {
     cache: "no-store",
@@ -87,8 +64,7 @@ async function fetchGoogleAdsStatus(
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(
-      (payload as { message?: string } | null)?.message ??
-        `Google Ads status request failed (${response.status})`
+      (payload as { message?: string } | null)?.message ?? `Google Ads status request failed (${response.status})`
     );
   }
   return payload as GoogleAdsStatusResponse;
@@ -108,57 +84,172 @@ function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   return false;
 }
 
-const PLATFORM_TITLE_META: Record<
-  string,
-  { label: string; logo: string }
-> = {
-  ga4: { label: "GA4", logo: "/platform-logos/GA4.svg" },
-  meta: { label: "Meta Ads", logo: "/platform-logos/Meta.png" },
-  google: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
-  google_ads: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
-  tiktok: { label: "TikTok Ads", logo: "/platform-logos/tiktok.svg" },
-  tiktok_ads: { label: "TikTok Ads", logo: "/platform-logos/tiktok.svg" },
+type FixedMetricSpec = {
+  id: string;
+  title: string;
+  unit: OverviewMetricUnit;
+  icon?: string;
 };
 
+const HEADLINE_SPECS: FixedMetricSpec[] = [
+  {
+    id: "pins-revenue",
+    title: "Revenue",
+    unit: "currency",
+    icon: "badge-dollar-sign",
+  },
+  { id: "pins-spend", title: "Ad Spend", unit: "currency", icon: "receipt" },
+  {
+    id: "pins-blended-roas",
+    title: "Blended ROAS · target —",
+    unit: "ratio",
+    icon: "target",
+  },
+  { id: "pins-orders", title: "Orders", unit: "count", icon: "shopping-cart" },
+  {
+    id: "pins-conversion-rate",
+    title: "Conv Rate · GA4",
+    unit: "percent",
+    icon: "percent",
+  },
+];
+
+const STORE_SPECS: FixedMetricSpec[] = [
+  { id: "store-aov", title: "AOV", unit: "currency" },
+  { id: "store-new-customers", title: "New customers", unit: "count" },
+  { id: "ltv-repeat-rate", title: "Repeat rate", unit: "percent" },
+  { id: "ltv-cac", title: "LTV : CAC", unit: "ratio" },
+];
+
+const WEB_SPECS: FixedMetricSpec[] = [
+  { id: "web-sessions", title: "Sessions", unit: "count" },
+  { id: "web-engagement-rate", title: "Engagement", unit: "percent" },
+  {
+    id: "web-session-duration",
+    title: "Avg session",
+    unit: "duration_seconds",
+  },
+  { id: "web-conversion-rate", title: "Conv rate", unit: "percent" },
+];
+
+const PLATFORM_SPECS = [
+  { provider: "meta", title: "Meta Ads" },
+  { provider: "google", title: "Google Ads" },
+] as const;
+
+const PLATFORM_METRIC_SPECS: Array<Omit<FixedMetricSpec, "id"> & { suffix: string }> = [
+  { suffix: "spend", title: "Spend", unit: "currency" },
+  { suffix: "revenue", title: "Revenue", unit: "currency" },
+  { suffix: "roas", title: "ROAS", unit: "ratio" },
+  { suffix: "purchases", title: "Purchases", unit: "count" },
+  { suffix: "cpa", title: "CPA", unit: "currency" },
+];
+
+function unavailableMetric(spec: FixedMetricSpec): OverviewMetricCardData {
+  return {
+    id: spec.id,
+    title: spec.title,
+    value: null,
+    previousValue: null,
+    changePct: null,
+    sparklineData: [],
+    previousSparklineData: [],
+    trendDirection: "neutral",
+    trendSentiment: "neutral",
+    dataSource: { key: "unavailable", label: "Unavailable" },
+    status: "unavailable",
+    helperText: "No verified data for this window",
+    unit: spec.unit,
+    icon: spec.icon,
+  };
+}
+
+function fixedMetrics(sources: OverviewMetricCardData[] | undefined, specs: FixedMetricSpec[]) {
+  return specs.map((spec) => {
+    const metric = sources?.find((candidate) => candidate.id === spec.id);
+    if (!metric) return unavailableMetric(spec);
+    return {
+      ...metric,
+      title: spec.id === "pins-blended-roas" && metric.title.startsWith("Blended ROAS") ? metric.title : spec.title,
+      unit: spec.unit,
+      icon: spec.icon ?? metric.icon,
+    };
+  });
+}
+
+function emptyAttributionRow(channel: string, source: string): OverviewAttributionRow {
+  return {
+    channel,
+    spend: null,
+    spendShare: null,
+    revenue: null,
+    roas: null,
+    conversions: null,
+    clicks: null,
+    ctr: null,
+    cpa: null,
+    aov: null,
+    source,
+  };
+}
+
+function fixedAttributionRows(rows: OverviewAttributionRow[] | undefined) {
+  const find = (pattern: RegExp) => rows?.find((row) => pattern.test(row.channel));
+  return [
+    find(/meta/i) ?? emptyAttributionRow("Meta Ads", "No synced provider attribution data"),
+    find(/google/i) ?? emptyAttributionRow("Google Ads", "No synced provider attribution data"),
+    find(/klaviyo/i) ?? emptyAttributionRow("Klaviyo", "No verified Klaviyo attribution contract"),
+    find(/organic|ga4/i) ?? emptyAttributionRow("Organic · GA4", "GA4"),
+  ];
+}
+
+function fixedPlatformSections(sections: OverviewPlatformSection[] | undefined) {
+  return PLATFORM_SPECS.map(({ provider, title }) => {
+    const source = sections?.find((section) => {
+      const normalized = section.provider === "google_ads" ? "google" : section.provider;
+      return normalized === provider;
+    });
+    const metrics = PLATFORM_METRIC_SPECS.map((spec) => {
+      const id = `${provider}-${spec.suffix}`;
+      const metric = source?.metrics.find(
+        (candidate) =>
+          candidate.id === id ||
+          candidate.id.endsWith(`-${spec.suffix}`) ||
+          candidate.title.toLowerCase() === spec.title.toLowerCase()
+      );
+      return metric
+        ? { ...metric, id, title: spec.title, unit: spec.unit }
+        : unavailableMetric({ id, title: spec.title, unit: spec.unit });
+    });
+    return {
+      id: provider,
+      provider,
+      title,
+      metrics,
+    } satisfies OverviewPlatformSection;
+  });
+}
+
 export default function OverviewPage() {
+  const pathname = usePathname();
+  const router = useRouter();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const businessId = selectedBusinessId ?? "";
-  const domains = useIntegrationsStore((state) =>
-    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
-  );
   const activeBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
     [businesses, selectedBusinessId]
   );
-  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const ga4View = deriveProviderViewState(
-    "ga4",
-    domains?.ga4 ?? buildDefaultProviderDomains().ga4
-  );
-  const ga4Connected = ga4View.isConnected || isDemoBusiness;
 
-  const [dateRange, setDateRange] = usePersistentDateRange();
+  const [dateRange] = usePersistentDateRange();
   // The summary fan-out is expensive, so it waits for the stored range to
   // settle instead of firing once for the default window and again for it.
   const dateRangeReady = usePreferencesHydrated();
-  const currency: CurrencyCode = (activeBusiness?.currency as CurrencyCode) ?? "USD";
+  const currency = activeBusiness?.currency?.trim() || null;
   const workspaceTimeZone = activeBusiness?.timezone ?? "UTC";
-  const workspaceReferenceDate = useMemo(
-    () => getTodayIsoForTimeZone(workspaceTimeZone),
-    [workspaceTimeZone]
-  );
-  const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
+  const workspaceReferenceDate = useMemo(() => getTodayIsoForTimeZone(workspaceTimeZone), [workspaceTimeZone]);
   const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);
   const [aiBriefActionError, setAiBriefActionError] = useState<string | null>(null);
-
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-
-  useEffect(() => {
-    if (!selectedBusinessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
 
   const { start: startDate, end: endDate } =
     dateRange.rangePreset === "custom"
@@ -179,9 +270,7 @@ export default function OverviewPage() {
   // previous-period delta; an unrecognised preset (a saved view, a hand-edited
   // URL) now shows no comparison instead of a confident wrong one.
   const compareMode: CompareMode =
-    compareModeForPreset(dateRange.comparisonPreset) === "previous_period"
-      ? "previous_period"
-      : "none";
+    compareModeForPreset(dateRange.comparisonPreset) === "previous_period" ? "previous_period" : "none";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -210,11 +299,7 @@ export default function OverviewPage() {
   const compEndDate = query.data?.comparison.endDate ?? null;
   const comparisonSparklineQuery = useQuery({
     queryKey: ["overview-comparison-sparklines", businessId, compStartDate, compEndDate],
-    enabled:
-      dateRangeReady &&
-      compareMode !== "none" &&
-      Boolean(compStartDate) &&
-      Boolean(compEndDate),
+    enabled: dateRangeReady && compareMode !== "none" && Boolean(compStartDate) && Boolean(compEndDate),
     queryFn: () =>
       getOverviewSparklines(businessId, {
         startDate: compStartDate!,
@@ -234,8 +319,7 @@ export default function OverviewPage() {
     queryKey: ["meta-status", businessId],
     enabled: Boolean(selectedBusinessId) && dateRangeReady,
     staleTime: 30 * 1000,
-    refetchInterval: (query) =>
-      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
+    refetchInterval: (query) => getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
   const googleAdsStatusQuery = useQuery({
@@ -243,29 +327,9 @@ export default function OverviewPage() {
     enabled: Boolean(selectedBusinessId) && dateRangeReady,
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
-      getGoogleAdsStatusRefetchInterval(
-        query.state.data as GoogleAdsStatusResponse | undefined
-      ),
+      getGoogleAdsStatusRefetchInterval(query.state.data as GoogleAdsStatusResponse | undefined),
     queryFn: () => fetchGoogleAdsStatus(businessId),
   });
-  const platformSyncPills = useMemo(
-    () => ({
-      meta: resolveProviderSyncStatusPill({
-        provider: "meta",
-        metaStatus: metaStatusQuery.data,
-      }),
-      google: resolveProviderSyncStatusPill({
-        provider: "google",
-        googleAdsStatus: googleAdsStatusQuery.data,
-      }),
-      google_ads: resolveProviderSyncStatusPill({
-        provider: "google_ads",
-        googleAdsStatus: googleAdsStatusQuery.data,
-      }),
-    }),
-    [googleAdsStatusQuery.data, metaStatusQuery.data]
-  );
-
   const handleRegenerateAiBrief = async () => {
     if (!businessId || aiBriefRegenerating) return;
     setAiBriefActionError(null);
@@ -274,9 +338,7 @@ export default function OverviewPage() {
       await generateAiInsight(businessId);
       await aiBriefQuery.refetch();
     } catch (error: unknown) {
-      setAiBriefActionError(
-        error instanceof Error ? error.message : "Could not regenerate AI brief."
-      );
+      setAiBriefActionError(error instanceof Error ? error.message : "Could not regenerate AI brief.");
     } finally {
       setAiBriefRegenerating(false);
     }
@@ -287,9 +349,7 @@ export default function OverviewPage() {
   // so ROAS and MER values are identical.
   const effectiveSummary = useMemo(() => {
     if (!query.data) return undefined;
-    const withCurrent = sparklineQuery.data
-      ? patchSummarySparklines(query.data, sparklineQuery.data)
-      : query.data;
+    const withCurrent = sparklineQuery.data ? patchSummarySparklines(query.data, sparklineQuery.data) : query.data;
     return comparisonSparklineQuery.data
       ? patchSummaryComparisonSparklines(withCurrent, comparisonSparklineQuery.data)
       : withCurrent;
@@ -336,88 +396,26 @@ export default function OverviewPage() {
     },
   });
 
-  // Charts show a pulsing skeleton while sparklines are loading.
-  const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
-
   const symbol = currencySymbolFor(currency);
-  // All render data reads from effectiveSummary so sparklines are reflected
-  // as soon as the secondary query resolves.
-  const metricCatalog = useMemo(
-    () => buildOverviewMetricCatalog(effectiveSummary),
-    [effectiveSummary]
-  );
-  const pinContextKey = `${workspaceOwnerId ?? "anonymous"}:${businessId}`;
-  const storeMetrics = useMemo(
-    () => filterVisibleMetrics(effectiveSummary?.storeMetrics ?? []),
-    [effectiveSummary?.storeMetrics]
-  );
-  const ltvMetrics = useMemo(
-    () => filterVisibleMetrics(effectiveSummary?.ltv ?? []),
-    [effectiveSummary?.ltv]
-  );
-  const customMetrics = useMemo(
-    () => filterVisibleMetrics(effectiveSummary?.customMetrics ?? []),
-    [effectiveSummary?.customMetrics]
+  const headlineMetrics = useMemo(() => fixedMetrics(effectiveSummary?.pins, HEADLINE_SPECS), [effectiveSummary?.pins]);
+  const storeAndCustomerMetrics = useMemo(
+    () => fixedMetrics([...(effectiveSummary?.storeMetrics ?? []), ...(effectiveSummary?.ltv ?? [])], STORE_SPECS),
+    [effectiveSummary?.ltv, effectiveSummary?.storeMetrics]
   );
   const webAnalyticsMetrics = useMemo(
-    () => filterVisibleMetrics(effectiveSummary?.webAnalytics ?? []),
+    () => fixedMetrics(effectiveSummary?.webAnalytics, WEB_SPECS),
     [effectiveSummary?.webAnalytics]
   );
+  const attributionRows = useMemo(
+    () => fixedAttributionRows(effectiveSummary?.attribution),
+    [effectiveSummary?.attribution]
+  );
   const platformSections = useMemo(
-    () =>
-      (effectiveSummary?.platforms ?? [])
-        .map((platform) => ({
-          ...platform,
-          metrics: filterVisibleMetrics(platform.metrics),
-        }))
-        .filter((platform) => platform.metrics.length > 0),
+    () => fixedPlatformSections(effectiveSummary?.platforms),
     [effectiveSummary?.platforms]
   );
-
-  // Design decision D6: the six-card pin wall becomes one hero KPI plus four
-  // supporting tiles. The pin order still decides which metrics appear, so the
-  // pin picker keeps driving the band instead of being replaced by it.
-  const pinnedByContext = usePreferencesStore((state) => state.overviewPinsByContext);
-  const setOverviewPins = usePreferencesStore((state) => state.setOverviewPins);
-  const storedPins = pinnedByContext[pinContextKey];
-
-  useEffect(() => {
-    if (metricCatalog.length === 0) return;
-    const legacyDashboardPins = [
-      "revenue",
-      "spend",
-      "mer",
-      "blended_roas",
-      "conversion_rate",
-      "orders",
-    ];
-    const isLegacyDefault =
-      storedPins?.length === legacyDashboardPins.length &&
-      legacyDashboardPins.every((key, index) => storedPins[index] === key);
-    if ((storedPins ?? []).length > 0 && !isLegacyDefault) return;
-    const defaults = DEFAULT_PINNED_METRICS.filter((key) =>
-      metricCatalog.some((entry) => entry.key === key)
-    );
-    if (defaults.length > 0) setOverviewPins(pinContextKey, defaults);
-  }, [metricCatalog, pinContextKey, setOverviewPins, storedPins]);
-
-  const pinnedKeys = useMemo(
-    () => (storedPins ?? []).filter((key) => metricCatalog.some((entry) => entry.key === key)),
-    [metricCatalog, storedPins]
-  );
-  const pinnedMetrics = useMemo(
-    () =>
-      pinnedKeys
-        .map((key) => metricCatalog.find((entry) => entry.key === key)?.metric)
-        .filter((metric): metric is OverviewMetricCardData => Boolean(metric)),
-    [metricCatalog, pinnedKeys]
-  );
-  const heroMetric = pinnedMetrics[0] ?? null;
-  const heroTiles = pinnedMetrics.slice(1, 5);
-  const storeAndCustomerMetrics = useMemo(
-    () => [...storeMetrics, ...ltvMetrics],
-    [ltvMetrics, storeMetrics]
-  );
+  const heroMetric = headlineMetrics[0]!;
+  const heroTiles = headlineMetrics.slice(1);
   const windowDayCount = useMemo(() => {
     if (!startDate || !endDate) return null;
     const start = Date.parse(`${startDate}T00:00:00Z`);
@@ -428,55 +426,37 @@ export default function OverviewPage() {
 
   // Report definitions only accept 7/30/90; snap the live window to the nearest.
   const snapshotRangePreset: "7" | "30" | "90" =
-    windowDayCount === null || windowDayCount <= 14
-      ? "7"
-      : windowDayCount <= 60
-        ? "30"
-        : "90";
+    windowDayCount === null || windowDayCount <= 14 ? "7" : windowDayCount <= 60 ? "30" : "90";
 
-  // Both guards sit below every hook on purpose. Returning above the useMemo
-  // block changes the hook count between renders and React tears the tree down
-  // with "Rendered fewer hooks than expected" the moment a business is picked
-  // or a request fails.
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   if (query.isError) {
-    const errorMessage =
-      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
+    const errorMessage = query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
     return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
   }
 
   return (
-    <section className="flex flex-col gap-5">
-      <div className="adv-page-head">
+    <section data-screen-label="Overview" className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="adv-eyebrow">Home</p>
+          <p className="adv-eyebrow" style={{ fontSize: 11 }}>
+            Home
+          </p>
           <h1 className="adv-h1">Overview</h1>
           <p className="adv-sub">
-            {activeBusiness?.name ?? "Workspace"} · {currency} · All figures for the
-            selected {windowDayCount === null ? "" : `${windowDayCount}-day `}window.
+            {activeBusiness?.name?.trim() || "—"} · {currency ?? "—"} · All figures for the selected{" "}
+            {windowDayCount === null ? "" : `${windowDayCount}-day `}window.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Overview gave no cue at all about how old these numbers were, so a
-              tab left open since morning looked identical to a fresh load. The
-              chip states the age of the data itself and offers a refetch — not
-              a page reload, which would throw away every other query on screen. */}
-          <FreshnessChip
-            asOf={dataAsOf}
-            onRefresh={() => void query.refetch()}
-            refreshing={query.isFetching}
-            surface="overview"
-            businessId={businessId || null}
-          />
+        <div className="flex gap-2">
           <button
             type="button"
             className="adv-btn"
-            onClick={() => setCostModelSheetOpen(true)}
+            style={{ padding: "0 14px" }}
+            onClick={() => router.push(dashboardHrefForRouteFamily("/commercial-truth", pathname))}
           >
-            {effectiveSummary?.costModel.configured ? "Edit cost model" : "Set cost model"}
+            Edit cost model
           </button>
-          {/* Design's primary Overview CTA — always last in the action cluster. */}
           <ShareSnapshotButton
             businessId={businessId}
             businessName={activeBusiness?.name ?? null}
@@ -486,107 +466,64 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-        {query.isLoading ? (
-          Array.from({ length: 5 }).map((_, index) => (
-            <div
-              key={index}
-              className={cn(
-                "adv-card animate-pulse",
-                index === 0 ? "sm:col-span-2" : "",
-              )}
-              style={{ minHeight: 170 }}
-            />
-          ))
-        ) : heroMetric ? (
-          <>
-            <HeroMetricCard metric={heroMetric} currencySymbol={symbol} />
-            {heroTiles.map((metric, index) => (
-              <HeroTile
-                key={metric.id}
-                metric={metric}
-                currencySymbol={symbol}
-                index={index}
-              />
-            ))}
-          </>
-        ) : (
-          <article className="adv-card p-4 sm:col-span-2">
-            <p className="adv-label">Headline metrics</p>
-            <p className="mt-2 text-[13px] text-[var(--adv-ink-2)]">
-              No pinned metric is available for this window yet.
-            </p>
-          </article>
-        )}
+      <div
+        data-overview-section="headline"
+        className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
+      >
+        <HeroMetricCard metric={heroMetric} currencySymbol={symbol} />
+        {heroTiles.map((metric, index) => (
+          <HeroTile key={metric.id} metric={metric} currencySymbol={symbol} index={index} />
+        ))}
       </div>
 
-      {/* Anchor for the "view breakdown" jump; kept out of the grid flow so it
-          does not consume a column. */}
-      <span id="attribution" className="sr-only" aria-hidden="true" />
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
-        <AttributionCard
-          rows={effectiveSummary?.attribution ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-        />
+      <div
+        data-overview-section="attribution-and-brief"
+        className="grid grid-cols-1 items-start gap-3 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]"
+      >
+        <AttributionCard rows={attributionRows} currencySymbol={symbol} />
         <AiBriefCard
           insight={aiBriefQuery.data}
           loading={aiBriefQuery.isLoading}
-          error={
-            aiBriefActionError ??
-            (aiBriefQuery.error instanceof Error ? aiBriefQuery.error.message : null)
-          }
+          error={aiBriefActionError ?? (aiBriefQuery.error instanceof Error ? aiBriefQuery.error.message : null)}
           onRegenerate={handleRegenerateAiBrief}
           regenerating={aiBriefRegenerating}
         />
       </div>
 
-      {platformSections.length > 0 ? (
-        <div className="grid items-stretch gap-3 md:grid-cols-2">
-          {platformSections.map((platform, index) => (
-            <PlatformMiniDashboard
-              key={`${platform.id}-${platform.provider}-${index}`}
-              provider={platform.provider}
-              title={platform.title}
-              metrics={platform.metrics}
-              currencySymbol={symbol}
-              syncPill={
-                platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null
-              }
-            />
-          ))}
-        </div>
-      ) : null}
+      <div data-overview-section="platforms" className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
+        {platformSections.map((platform) => (
+          <PlatformMiniDashboard
+            key={platform.provider}
+            provider={platform.provider}
+            title={platform.title}
+            metrics={platform.metrics}
+            currencySymbol={symbol}
+            latestSync={
+              platform.provider === "meta" ? metaStatusQuery.data?.latestSync : googleAdsStatusQuery.data?.latestSync
+            }
+          />
+        ))}
+      </div>
 
-      {/* The design closes Overview on exactly two cards. Cost-model economics
-          live on Commercial Truth, not here. */}
-      <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
+      <div
+        data-overview-section="store-and-web"
+        className="grid grid-cols-1 items-start gap-3 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]"
+      >
         <TileCard
           title="Store &amp; customer value"
           metrics={storeAndCustomerMetrics}
           currencySymbol={symbol}
-          emptyNote="No store metrics for this window yet."
+          line="#0E9F6E"
+          fill="rgba(14,159,110,0.08)"
         />
         <TileCard
           title="Web analytics · GA4"
           metrics={webAnalyticsMetrics}
           currencySymbol={symbol}
-          emptyNote="Connect Google Analytics 4 to fill this card."
+          line="#B45309"
+          fill="rgba(180,83,9,0.07)"
         />
       </div>
-
-      <CostModelSheet
-        open={costModelSheetOpen}
-        onOpenChange={setCostModelSheetOpen}
-        initialValue={effectiveSummary?.costModel.values ?? null}
-        onSave={async (input) => {
-          await upsertBusinessCostModel({
-            businessId,
-            ...input,
-          });
-          await query.refetch();
-        }}
-      />
     </section>
   );
 }
@@ -596,34 +533,26 @@ function TileCard({
   title,
   metrics,
   currencySymbol,
-  emptyNote,
+  line,
+  fill,
 }: {
   title: string;
   metrics: OverviewMetricCardData[];
   currencySymbol: string;
-  emptyNote: string;
+  line: string;
+  fill: string;
 }) {
   return (
-    <article className="adv-card p-4">
+    <article className="adv-card p-4" data-overview-tile-group={title}>
       <h2 className="adv-card-title mb-3">{title}</h2>
-      {metrics.length === 0 ? (
-        <p className="m-0 text-[12.5px] leading-[1.55] text-[var(--adv-ink-3)]">{emptyNote}</p>
-      ) : (
-        <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
-          {metrics.map((metric) => (
-            <StatTile key={metric.id} metric={metric} currencySymbol={currencySymbol} />
-          ))}
-        </div>
-      )}
+      <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
+        {metrics.map((metric) => (
+          <StatTile key={metric.id} metric={metric} currencySymbol={currencySymbol} line={line} fill={fill} />
+        ))}
+      </div>
     </article>
   );
 }
-
-function filterVisibleMetrics(metrics: OverviewMetricCardData[]) {
-  return metrics.filter((metric) => metric.status !== "unavailable");
-}
-
-
 
 // ---------------------------------------------------------------------------
 // Sparkline patching — runs client-side once the secondary query resolves.
@@ -644,9 +573,18 @@ function buildSparklineMap(
 ): Record<string, SparklinePoint[]> {
   const { combined, providerTrends, ga4Daily } = bundle;
 
-  const spendSeries = combined.map((p) => ({ date: p.date, value: rv(p.spend) }));
-  const revenueSeries = combined.map((p) => ({ date: p.date, value: rv(p.revenue) }));
-  const purchaseSeries = combined.map((p) => ({ date: p.date, value: rv(p.purchases) }));
+  const spendSeries = combined.map((p) => ({
+    date: p.date,
+    value: rv(p.spend),
+  }));
+  const revenueSeries = combined.map((p) => ({
+    date: p.date,
+    value: rv(p.revenue),
+  }));
+  const purchaseSeries = combined.map((p) => ({
+    date: p.date,
+    value: rv(p.purchases),
+  }));
   const merSeries = combined.map((p) => ({
     date: p.date,
     value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
@@ -665,7 +603,10 @@ function buildSparklineMap(
     date: p.date,
     value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100, 4) : 0,
   }));
-  const ga4NewCustomersSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.firstTimePurchasers) }));
+  const ga4NewCustomersSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: rv(p.firstTimePurchasers),
+  }));
   const ga4ReturningCustomersSeries = ga4Daily.map((p) => ({
     date: p.date,
     value: rv(Math.max(p.totalPurchasers - p.firstTimePurchasers, 0)),
@@ -681,7 +622,10 @@ function buildSparklineMap(
         ? rv((Math.max(p.totalPurchasers - p.firstTimePurchasers, 0) / p.totalPurchasers) * 100, 4)
         : 0,
   }));
-  const ga4SessionsSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.sessions) }));
+  const ga4SessionsSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: rv(p.sessions),
+  }));
   const ga4EngagementSeries = ga4Daily.map((p) => ({
     date: p.date,
     value: rv(p.engagementRate * 100, 4),
@@ -691,18 +635,17 @@ function buildSparklineMap(
     value: rv(p.avgSessionDuration),
   }));
 
-  const aovSeries = ga4AovSeries.length > 0
-    ? ga4AovSeries
-    : combined.map((p) => ({
-        date: p.date,
-        value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
-      }));
+  const aovSeries =
+    ga4AovSeries.length > 0
+      ? ga4AovSeries
+      : combined.map((p) => ({
+          date: p.date,
+          value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
+        }));
 
   const ltvCacSeries = ga4RevenuePerCustomerSeries.map((point, i) => ({
     date: point.date,
-    value: blendedCpaSeries[i] && blendedCpaSeries[i].value > 0
-      ? rv(point.value / blendedCpaSeries[i].value)
-      : 0,
+    value: blendedCpaSeries[i] && blendedCpaSeries[i].value > 0 ? rv(point.value / blendedCpaSeries[i].value) : 0,
   }));
 
   // Cost-model dependent sparklines
@@ -733,8 +676,7 @@ function buildSparklineMap(
   const contributionMarginSeries: SparklinePoint[] = cm
     ? revenueSeries.map((point, i) => {
         const spendVal = spendSeries[i]?.value ?? 0;
-        const varCost =
-          spendVal + point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent);
+        const varCost = spendVal + point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent);
         return {
           date: point.date,
           value: point.value > 0 ? rv(((point.value - varCost) / point.value) * 100) : 0,
@@ -746,8 +688,14 @@ function buildSparklineMap(
   const providerSparklines: Record<string, SparklinePoint[]> = {};
   for (const [provider, trends] of Object.entries(providerTrends)) {
     if (!trends) continue;
-    providerSparklines[`${provider}-spend`] = trends.map((p) => ({ date: p.date, value: rv(p.spend) }));
-    providerSparklines[`${provider}-revenue`] = trends.map((p) => ({ date: p.date, value: rv(p.revenue) }));
+    providerSparklines[`${provider}-spend`] = trends.map((p) => ({
+      date: p.date,
+      value: rv(p.spend),
+    }));
+    providerSparklines[`${provider}-revenue`] = trends.map((p) => ({
+      date: p.date,
+      value: rv(p.revenue),
+    }));
     providerSparklines[`${provider}-roas`] = trends.map((p) => ({
       date: p.date,
       value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
@@ -787,14 +735,12 @@ function buildSparklineMap(
     "web-sessions": ga4SessionsSeries,
     "web-session-duration": ga4SessionDurationSeries,
     "web-engagement-rate": ga4EngagementSeries,
+    "web-conversion-rate": ga4ConvRateSeries,
     ...providerSparklines,
   };
 }
 
-function patchCard(
-  card: OverviewMetricCardData,
-  sparkMap: Record<string, SparklinePoint[]>
-): OverviewMetricCardData {
+function patchCard(card: OverviewMetricCardData, sparkMap: Record<string, SparklinePoint[]>): OverviewMetricCardData {
   const patches = sparkMap[card.id];
   if (!patches || patches.length === 0) return card;
   return { ...card, sparklineData: patches };
@@ -809,10 +755,7 @@ function patchCardComparison(
   return { ...card, previousSparklineData: patches };
 }
 
-function patchSummarySparklines(
-  summary: OverviewSummaryData,
-  bundle: SparklineBundle
-): OverviewSummaryData {
+function patchSummarySparklines(summary: OverviewSummaryData, bundle: SparklineBundle): OverviewSummaryData {
   const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
   return {
     ...summary,
@@ -829,10 +772,7 @@ function patchSummarySparklines(
   };
 }
 
-function patchSummaryComparisonSparklines(
-  summary: OverviewSummaryData,
-  bundle: SparklineBundle
-): OverviewSummaryData {
+function patchSummaryComparisonSparklines(summary: OverviewSummaryData, bundle: SparklineBundle): OverviewSummaryData {
   const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
   return {
     ...summary,

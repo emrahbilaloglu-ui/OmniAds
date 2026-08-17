@@ -23,6 +23,8 @@ interface ManifestRow {
   token_expires_at?: string | null;
   refresh_token?: string | null;
   has_refresh_token?: boolean | null;
+  /** Granted OAuth scopes; Search Console's capability depends on Google's. */
+  scopes?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -119,6 +121,11 @@ export function useBusinessIntegrationsBootstrap(
             token_expires_at: row.token_expires_at,
             refresh_token: row.refresh_token,
             has_refresh_token: row.has_refresh_token,
+            // The two facts the effective-capability predicate needs, and the
+            // two the store used to drop: whether Google's grant carries the
+            // Search Console scope, and which property/site was selected.
+            scopes: row.scopes,
+            metadata: row.metadata,
           }))
         );
         logClientAuthEvent("integration_manifest_loaded", {

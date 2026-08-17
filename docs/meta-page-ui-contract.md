@@ -31,41 +31,34 @@ Core rule, inherited from the Decision Center non-negotiables:
 
 Page shell:
 
-- `app/(dashboard)/platforms/meta/page.tsx` — resolves the selected business
-  from the app store, renders `<MetaPlatformPage businessId businessName currency />`,
-  or `BusinessEmptyState` when no business is selected.
-- `components/meta/redesign/MetaPlatformPage.tsx` — the entire page: topbar
-  (with the right-aligned `MetaAsOfCluster`), queue-scope note, banners, lane
-  tabs, filter bar, then a `[MetaScopeRail | queue column | inspector]` content
-  row where the queue column carries the inline `FinalMetaPulse` strip, inline
-  `MetaWorkspacePostureBanners`, and the lane content + bulk bar; plus
-  modals/drawers/overlays.
+- `app/(dashboard)/platforms/meta/legacy-page.tsx` and the authorized
+  `/c/[businessId]/meta/decisions` page resolve the real business envelope and
+  pass it into `MetaPlatformPage`; the scoped route does not delegate business
+  authority back to the client store.
+- `components/meta/redesign/MetaPlatformPage.tsx` owns queries, real-data
+  adaptation, exceptional source/readiness banners, guarded snapshot refresh,
+  route-family navigation, mobile read-only presentation, and evidence
+  callbacks.
+- `components/meta/decision-center/meta-decision-center-exact-adapter.ts`
+  losslessly maps the served workspace/OS contracts to the presentation model;
+  it does not compute buyer actions, lanes, confidence, or write authority.
+- `components/meta/decision-center/MetaDecisionCenterExact.tsx` is the exact
+  desktop presentation: source header, five KPIs, two scopes, five lanes,
+  creative posture/cards, and the default inline evidence inspector.
 
-Components (all under `components/meta/redesign/`):
+Supporting components under `components/meta/redesign/`:
 
-- `MetaActionCard.tsx` — the lean decision **row** (and anomaly row). A calm
-  horizontal row: entity name + level, up to three descriptor chips (capped,
-  `+N` overflow), the server decision label, a money-at-stake line (spend +
-  ROAS vs the pulse `targetRoas`, from structured `rec.metrics` only — never a
-  projection, missing renders as an em dash), one qualitative confidence band
-  pill with no numeric confidence on the card, one honest primary (server
-  `actionKind` verb), and an
-  overflow menu (Let cook 24h, Compare, Copy entity ID, and Ads Manager only
-  when a real permalink is supplied). Secondary metrics and the full evidence
-  live in the inspector, not the row. Clicking the row opens the inspector.
-- `MetaDrillDrawer.tsx` — decision/informational/anomaly drilldown drawer.
 - `MetaLaunchpadOverlay.tsx` — confirm overlay for rebuild/duplicate/apply_bid,
   wraps the shared `LaunchpadOverlay`.
-- `MetaHealthyRow.tsx`, `MetaUpperFunnelInformationalCard.tsx`,
-  `MetaCampaignLabelsSection.tsx` (label modal body), chip components.
+- `MetaCampaignLabelsSection.tsx` is the label-modal body;
+  `MetaCreativeEvidenceDrawer.tsx` displays canonical creative evidence.
 - `meta-card-utils.ts` — verbatim consumption of server presentation fields.
 - `types.ts` — shared client payload contracts (`MetaPulsePayload`,
   `MetaLanePayload`, `MetaWatchingSegment`, `MetaHealthyEntity`,
   `MetaArchivedEntity`, `MetaDrillItem`, `MetaLaunchMode`).
 
-Shared briefing primitives (`components/common/briefing/`): `CompareDrawer`,
-`TrackingConfirmModal`, `DeferChip`/`useDeferState`, `HtmlDateRangePicker`,
-`EvidencePopover`, `DecisionLabelChip`, `ConfidencePill`.
+Shared briefing primitives still used by non-canonical/guarded flows include
+`CompareDrawer`, `TrackingConfirmModal`, and `DeferChip`/`useDeferState`.
 
 Read routes used by the page:
 
@@ -90,35 +83,35 @@ action log, and verify-after-write boundary.
 
 ## Page anatomy
 
-Top-to-bottom order in `MetaPlatformPage.tsx`: topbar → queue-scope note →
-full-width banners → lane tabs → filter bar → the
-`[MetaScopeRail | queue column | inspector]` content row.
+The desktop happy path is rendered by `MetaDecisionCenterExact`: source-aware
+header → five KPI cards → scope and snapshot note → five lane controls plus
+sort/search → the selected lane workspace with its inline evidence inspector.
+Exceptional account, source, readiness, tracking, and read-only banners stay
+outside that canonical block and render only when their server state requires
+them.
 
 ### Topbar
 
 - Crumbs + title ("Meta · Decision Center").
-- `HtmlDateRangePicker` — window keys `7d | 14d | 28d | 90d | custom`
-  (`MetaWindowKey`, `types.ts:6`); custom carries explicit `startDate`/`endDate`.
-- Status filter group — `active | active_plus_recent_paused | all`
-  (`lib/meta/briefing-filter.ts`), threaded into both pulse and lane queries as
-  `status_filter`.
-- **`MetaAsOfCluster`** (right-aligned, `data-testid="meta-asof-cluster"`) —
-  a quiet mono cluster surfacing the divergent as-of contract in the header:
-  `synced {shortRelativeTime(lastSyncAt)}` (or literal "sync unknown" when
-  null), `snapshot {laneSnapshotDate}` (the served lane snapshot date, em dash
-  when null), and `engine {engineVersion} · {engineLastRun as HH:MM UTC}`.
-  Every value is real payload truth or an honest em dash — never a fabricated
-  "now". There is no track-record chip: no outcome/hit-rate data exists in
-  these payloads, so none is shown.
+- The visible window control has exactly `7d | 14d | 28d | 90d`. A custom
+  range can still arrive through the existing URL contract, but no fifth
+  control is invented; in that state none of the four fixed keys is selected.
+- The mono source line (`data-meta-exact-source-identity`) binds sync age to
+  `pulse.lastSyncAt`, snapshot identity to the canonical decision source with
+  lane/OS fallbacks, and engine/time to server source metadata. Missing values
+  render as an em dash; client render time is never presented as source time.
+- Status filtering remains in the request contract, but the exact desktop
+  design does not add the old visible filter group.
 - "Run snapshot" button → `POST /api/meta/snapshot/run-now` (cooldown-aware,
   see write surfaces).
-- "+ New campaign" link → `/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate`.
+- "+ New campaign" preserves the current legacy, `/app`, or `/c/:businessId`
+  route family and carries the explicit assigned provider account into
+  Launchpad.
 
-Directly under the topbar, a **queue-scope note**
-(`data-testid="meta-queue-scope-note"`) reads "queue reflects snapshot
-`{laneSnapshotDate}` — the date range scopes metrics, not decisions" (falls
-back to "the latest snapshot" when the lane snapshot date is null), making the
-snapshot-vs-range distinction explicit.
+Directly beside the two scope controls, the queue note
+(`data-meta-exact-queue-snapshot`) reads "queue reflects snapshot
+`{snapshotAsOf}` — the date range scopes metrics, not decisions". The adapter
+uses the real canonical/lane/OS snapshot identity or an em dash.
 
 URL state: `window`, `startDate`/`endDate` (custom only), `status_filter`,
 `lane`, and `entity` (the open inspector's rec id) are all URL params; defaults
@@ -248,27 +241,16 @@ over structured server truth, missing-metric rows always sorted last) and a
 name, campaign, adset, and decision label). Sort/search narrow the rendered
 rows in the rec lanes; lane tab counts stay lane totals.
 
-### Evidence inspector (`MetaDrillDrawer.tsx`)
+### Evidence inspector (`MetaDecisionCenterExact.tsx`)
 
-Three modes (`MetaDrillItem`, `types.ts:173-176`): `decision`, `informational`
-(upper-funnel KPI grid), `anomaly` (diagnostic ladder). The `decision` mode
-renders spec-ordered sections: decision contract → engine reasoning → money
-impact & metrics-vs-target (with a blue→emerald gradient ROAS spark and a
-dashed target baseline when a `roas_history` series exists) → confidence + cap
-· automation readiness → blockers → ad set depth → evidence accordion →
-provenance + collapsed raw decision JSON. KPI numbers prefer structured
-`rec.metrics` (currency-aware) and fall back to evidence strings only for
-payloads predating the metrics contract.
-
-Presentation: at ≥1440px the inspector is an **in-flow right push panel**
-(`variant="push"`, docked beside the queue column); below 1440px it is a fixed
-overlay drawer with a scrim. Both share focus management: focus moves into the
-panel on open, Tab is trapped within it, Escape closes, and focus is restored to
-the previously focused row on close. Drawer-local controls (raw-JSON toggle)
-never mutate the page URL. The window switcher was removed — the window is a
-page-level control (topbar `HtmlDateRangePicker`) and the inspector no longer
-re-scopes it. The open entity is deep-linked via the `entity` URL param
-(`?entity=<recId>`), restored on load and cleared on close.
+The Action Now workspace always reserves the canonical in-flow inspector
+column at desktop widths. It renders the selected server recommendation (or
+the first real action row) as: decision contract → server reasoning →
+money/target evidence → confidence and readiness → blockers → evidence rows →
+provenance. Missing fields stay as em dashes. Selecting a row updates the
+existing `entity` deep link; the page no longer adds the old sub-1440 overlay
+drawer on top of the canonical inspector. Mobile keeps its separate read-only
+evidence screen.
 
 ### Compare drawer
 
@@ -398,29 +380,28 @@ to its tab count; they are `MetaAnomaly` objects, not recommendations, and are
 
 ### Two source models on one page — unified as-of contract
 
-The pulse strip is a **live/warehouse aggregate** view (fresh up to
+The pulse payload is a **live/warehouse aggregate** view (fresh up to
 `lastSyncAt`); the lanes are a **persisted decision snapshot** view. They can
 legitimately diverge. Each source carries its OWN as-of in its payload. The
-header `MetaAsOfCluster` (`data-testid="meta-asof-cluster"`) surfaces the same
-divergence compactly (synced · snapshot · engine), and the Snapshot cell
-renders all of them together:
+exact header source line (`data-meta-exact-source-identity`) surfaces the
+divergence compactly (synced · snapshot · engine · computed time); the Snapshot
+KPI separately reports the server snapshot-health state:
 
 - **Ingest (pulse):** `lastSyncAt` = real `MAX(updated_at)` from
   `meta_campaign_daily`, null-honest ("sync unknown"). Never fabricated.
 - **Decision engine (pulse):** `snapshotHealth` (26h SLA, engine-version
   check) + `engineLastRun`/`engineVersion`. NOTE: this is the GLOBALLY
   latest engine run, not range-bounded.
-- **Lanes (lane-classify):** `snapshotDate` is the TRUE `snapshot_date` of
+- **Lanes/workspace:** `snapshotDate` is the TRUE `snapshot_date` of
   the served rows (the newest in-range snapshot — on historical ranges this
   can be older than the requested end; the payload used to echo the range
-  end, which overstated freshness and mis-scoped deferral events).
-  `snapshotCreatedAt` is the engine write time of those rows. Rendered in
-  the Snapshot cell micro line as `lanes {snapshotDate}` from the lane
-  payload itself, so a pulse-vs-lane divergence is visible, not silent.
-- **Anomalies:** feed-level `snapshotDate` (newest anomaly snapshot at or
-  before the range end), rendered above the anomaly cards in Action Now
-  (`data-testid="meta-anomaly-asof"`); per-item `detectedAt` renders in the
-  drill drawer.
+  end, which overstated freshness and mis-scoped deferral events). It is a
+  fallback for the source snapshot identity and is repeated in the exact queue
+  note (`data-meta-exact-queue-snapshot`).
+- **Anomalies:** feed-level `snapshotDate` remains request-scoped at or before
+  the range end, and per-item `detectedAt` remains evidence metadata. The exact
+  desktop reference has no separate anomaly-as-of strip, so the page does not
+  fabricate one or reintroduce the removed chrome.
 - **Copies (separate page):** `meta.generatedAt` is response-generation
   time — a cache-age stamp, NOT an ingest-freshness claim; the two
   semantics are deliberately distinct.
@@ -580,7 +561,7 @@ Real, current limitations — kept explicit on purpose:
   but does not reconcile them. The pulse `snapshotHealth` is globally latest
   while the lane `snapshotDate` is range-bounded — on historical ranges the
   pulse can say "fresh" while the lanes serve an older in-range snapshot;
-  the rendered `lanes {snapshotDate}` makes that visible.
+  the source identity and queue snapshot note make that visible.
 - **Anomalies route is not presentation-annotated.** `MetaAnomaly` objects
   bypass `rec-presentation`; their CTA is hardcoded "Open diagnostic".
   Status filtering is coarse by design: it uses the write-time observed

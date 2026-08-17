@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import {
+  deriveProviderViewState,
+  normalizeBusinessProviderDomains,
+} from "@/store/integrations-support";
 
 type OnboardingStepTone = "done" | "active" | "waiting" | "blocked";
 
@@ -89,9 +93,31 @@ export function AuthOnboardingArc({ compact = false }: { compact?: boolean }) {
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
     [businesses, selectedBusinessId],
   );
-  const metaView = useIntegrationsStore((state) =>
-    selectedBusinessId ? state.getProviderViewState(selectedBusinessId, "meta") : null,
+  // These three read STORED references, not derived ones. `getProviderViewState`
+  // builds a fresh object on every call, and zustand 5 hands the selector
+  // straight to `useSyncExternalStore`, which compares snapshots by identity --
+  // so calling it inside a selector makes every render see a "changed" store and
+  // loops until React throws "Maximum update depth exceeded". Every other
+  // `useIntegrationsStore` selector in this codebase already returns a stored
+  // slice; this was the one that derived inside the selector.
+  const providerDomains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined,
   );
+  const providerIntegrations = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.byBusinessId[selectedBusinessId] : undefined,
+  );
+  const assignedAccounts = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.assignedAccountsByBusiness[selectedBusinessId] : undefined,
+  );
+  const metaView = useMemo(() => {
+    if (!selectedBusinessId) return null;
+    const domains = normalizeBusinessProviderDomains(
+      providerDomains,
+      providerIntegrations,
+      assignedAccounts,
+    );
+    return deriveProviderViewState("meta", domains.meta);
+  }, [selectedBusinessId, providerDomains, providerIntegrations, assignedAccounts]);
 
   const steps = buildAuthOnboardingSteps({
     hasBusiness: Boolean(selectedBusiness),

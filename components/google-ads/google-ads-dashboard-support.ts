@@ -2,6 +2,7 @@ import { getCurrencySymbol } from "@/hooks/use-currency";
 import type { RangePreset } from "@/components/date-range/DateRangePicker";
 import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 import type { BudgetRec } from "@/components/google-ads/BudgetScalingTab";
+import type { GoogleAdsReadCompletenessMeta } from "@/lib/google-ads/read-completeness";
 
 export type ActionState = "scale" | "optimize" | "test" | "reduce";
 export type TrendLabelMode = "day" | "month";
@@ -43,6 +44,7 @@ export interface Campaign {
 export interface CampaignsResponse {
   rows: Campaign[];
   summary: { accountAvgRoas: number };
+  meta?: GoogleAdsReadCompletenessMeta;
 }
 
 export interface SearchTheme {
@@ -88,6 +90,25 @@ export interface AudienceRow {
   cpa?: number;
   roas: number;
   conversions: number;
+  /**
+   * The user list behind this audience criterion, when it targets one.
+   * `ad_group_criterion.user_list.user_list` names the list and `user_list`
+   * serves its name and the two membership sizes. A non-list audience type —
+   * affinity, in-market, life events — carries none of these and every field
+   * below stays null; so does a row synced before the list read existed.
+   */
+  userListId?: string | null;
+  listName?: string | null;
+  /** `user_list.size_for_display`, exactly as Google served it. */
+  listSizeForDisplay?: number | null;
+  /** `user_list.size_for_search`, exactly as Google served it. */
+  listSizeForSearch?: number | null;
+  /**
+   * The size the design's single `Size` column prints, resolved from the two
+   * above by `resolveGoogleAdsUserListSize` — Display first, Search when
+   * Display is not served. Never a sum and never an estimate.
+   */
+  listSize?: number | null;
 }
 
 export interface AudiencesResponse {
@@ -102,7 +123,20 @@ export interface AssetRow {
   assetGroupName?: string | null;
   assetName?: string | null;
   type: string;
+  /**
+   * This product's own verdict, derived from a ROAS / CTR / interaction-rate
+   * comparison against the account average. It is a real measurement, and it is
+   * not Google's.
+   */
   performanceLabel?: "top" | "average" | "underperforming";
+  /**
+   * Google's own `asset_group_asset.performance_label`
+   * (Best | Good | Low | Learning | Pending), or null/absent when the provider
+   * served no verdict — including on warehouse rows synced before the field was
+   * read. This is the only label the design's "Google-served" caption may sit
+   * above.
+   */
+  servedPerformanceLabel?: string | null;
   impressions?: number;
   spend: number;
   conversions: number;
@@ -128,10 +162,49 @@ export interface ProductRow {
   conversions: number;
   statusLabel?: "scale" | "stable" | "test" | "reduce";
   contributionState?: "positive" | "neutral" | "negative";
+  /**
+   * Server-assigned product classification from the shopping report
+   * (`analyzeProducts`): scale_product | hidden_winner |
+   * underperforming_product | stable_product.
+   */
+  classification?: string;
+  /**
+   * Merchant Center item state, present only when a Merchant Center read has
+   * landed for this item. An absent key means "no Merchant Center row", which
+   * the Feed status column renders as the em dash — it never means "serving".
+   */
+  feedState?: "serving" | "limited" | "disapproved" | "unknown";
+  /** The provider's own words for the chip, or null when it gave none. */
+  feedStatusLabel?: string | null;
+  feedAvailability?: string | null;
+  feedIssues?: Array<{
+    code: string | null;
+    severity: string | null;
+    attribute: string | null;
+    description: string | null;
+  }>;
+  merchantCenterId?: string | null;
+}
+
+/**
+ * The Merchant Center block the feed-health tiles print.
+ *
+ * Null means the read did not happen; a number means it did. The two are never
+ * collapsed, because "we have not looked" and "there are none" are different
+ * sentences and only the second one may be tinted.
+ */
+export interface ProductFeedSummary {
+  totalItemsInFeed: number | null;
+  servingItemCount: number | null;
+  limitedItemCount: number | null;
+  disapprovedItemCount: number | null;
+  syncedAt: string | null;
+  merchantCenterIds?: string[];
 }
 
 export interface ProductsResponse {
   rows: ProductRow[];
+  feed?: ProductFeedSummary | null;
 }
 
 export interface SearchIntelligenceRow {
@@ -215,7 +288,12 @@ export interface GoogleAdsTrendsResponse {
   rows: Array<{
     date: string;
     rows: GoogleAdsTrendCampaignRow[];
+    complete: boolean;
   }>;
+  meta: {
+    complete: boolean;
+    incompleteDates: string[];
+  };
 }
 
 export const ACTION_CONFIG: Record<
@@ -253,7 +331,7 @@ export type AssetViewKey = "groups" | "assets" | "audiences";
 
 export const ASSET_VIEWS: Array<{ key: AssetViewKey; label: string }> = [
   { key: "groups", label: "Asset groups" },
-  { key: "assets", label: "Assets" },
+  { key: "assets", label: "Text & image assets" },
   { key: "audiences", label: "Audiences" },
 ];
 

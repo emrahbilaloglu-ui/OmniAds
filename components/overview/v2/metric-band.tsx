@@ -1,19 +1,9 @@
 "use client";
 
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  BadgeDollarSign,
-  Minus,
-  Receipt,
-  ShoppingCart,
-  Target,
-  Wallet,
-  type LucideIcon,
-} from "lucide-react";
-import { EXACT_METRIC_FORMAT, formatMetricValue } from "@/lib/metric-format";
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import type { OverviewMetricCardData } from "@/src/types/models";
 import { AdvSparkline } from "./adv-sparkline";
+import { formatOverviewDelta, formatOverviewMetricValue, formatOverviewSparklineValue } from "./metric-format";
 
 /**
  * Design decision D6: one primary KPI band replaces the six-equal-card wall —
@@ -21,32 +11,75 @@ import { AdvSparkline } from "./adv-sparkline";
  */
 
 const TILE_TONES = [
-  { bg: "var(--adv-rail)", line: "#0B1020", fill: "rgba(11,16,32,0.07)" },
-  { bg: "var(--adc-pos-fg)", line: "#0E9F6E", fill: "rgba(14,159,110,0.09)" },
-  { bg: "var(--adc-auto-fg)", line: "#6C41BE", fill: "rgba(108,65,190,0.08)" },
-  { bg: "var(--adc-caution-fg)", line: "#B45309", fill: "rgba(180,83,9,0.08)" },
+  {
+    bg: "#0B1020",
+    line: "#0B1020",
+    fill: "rgba(11,16,32,0.07)",
+    delta: "info",
+  },
+  {
+    bg: "#0E9F6E",
+    line: "#0E9F6E",
+    fill: "rgba(14,159,110,0.09)",
+    delta: "pos",
+  },
+  {
+    bg: "#6C41BE",
+    line: "#6C41BE",
+    fill: "rgba(108,65,190,0.08)",
+    delta: "pos",
+  },
+  { bg: "#B45309", line: "#B45309", fill: "rgba(180,83,9,0.08)", delta: "neg" },
 ] as const;
 
-const TILE_ICONS: LucideIcon[] = [Receipt, Target, ShoppingCart, Wallet];
+const TILE_ICON_PATHS = [
+  "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z M8 7h8 M8 11h8 M8 15h5",
+  "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  "M8 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M19 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12",
+  "M19 5L5 19 M6.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17.5 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+] as const;
+
+type DeltaTone = "pos" | "neg" | "info" | "neutral";
+
+const DELTA_COLORS: Record<DeltaTone, { background: string; color: string }> = {
+  pos: { background: "#E7F6F0", color: "#0E9F6E" },
+  neg: { background: "#FDECF0", color: "#E11D48" },
+  info: { background: "#EAF0FF", color: "#2F6BFF" },
+  neutral: { background: "#F1F4F9", color: "#7A869E" },
+};
 
 export function DeltaChip({
   metric,
   tone = "solid",
+  colorTone,
 }: {
   metric: OverviewMetricCardData;
   tone?: "solid" | "hero";
+  colorTone?: DeltaTone;
 }) {
   if (metric.changePct === null || !Number.isFinite(metric.changePct)) {
+    if (tone === "hero") {
+      return (
+        <span
+          className="inline-flex items-center rounded-full px-[9px] py-[3px] text-[12px] font-semibold tabular-nums"
+          style={{ background: "rgba(255,255,255,0.16)" }}
+        >
+          —
+        </span>
+      );
+    }
     return (
-      <span className="adv-chip" data-tone={tone === "hero" ? undefined : "neutral"}>
+      <span
+        className="inline-flex items-center gap-[3px] rounded-full px-2 py-0.5 text-[11.5px] font-semibold tabular-nums"
+        style={DELTA_COLORS.neutral}
+      >
         —
       </span>
     );
   }
   const direction = metric.trendDirection;
-  const Icon =
-    direction === "up" ? ArrowUpRight : direction === "down" ? ArrowDownRight : Minus;
-  const label = `${metric.changePct > 0 ? "+" : ""}${metric.changePct.toFixed(1)}%`;
+  const Icon = direction === "up" ? ArrowUpRight : direction === "down" ? ArrowDownRight : Minus;
+  const label = formatOverviewDelta(metric.changePct);
 
   if (tone === "hero") {
     return (
@@ -60,35 +93,30 @@ export function DeltaChip({
     );
   }
 
+  const resolvedTone =
+    colorTone ??
+    (metric.trendSentiment === "positive" ? "pos" : metric.trendSentiment === "negative" ? "neg" : "neutral");
+
   return (
     <span
-      className="adv-chip"
-      data-tone={direction === "up" ? "pos" : direction === "down" ? "neg" : undefined}
+      className="inline-flex items-center gap-[3px] rounded-full px-2 py-0.5 text-[11.5px] font-semibold tabular-nums"
+      style={DELTA_COLORS[resolvedTone]}
     >
       {label}
     </span>
   );
 }
 
-/**
- * The band prints the short metric name only — the catalog's subtitle is a
- * sentence-length description, and inlining it blows the design's one-line
- * label out to two or three wrapped lines. It stays available as the tooltip.
- */
+/** The canonical band prints only the short metric name. */
 function metricLabel(metric: OverviewMetricCardData) {
   return metric.title;
 }
 
-export function HeroMetricCard({
-  metric,
-  currencySymbol,
-}: {
-  metric: OverviewMetricCardData;
-  currencySymbol: string;
-}) {
-  const format = (value: number) => formatMetricValue(value, metric.unit, currencySymbol, EXACT_METRIC_FORMAT);
+export function HeroMetricCard({ metric, currencySymbol }: { metric: OverviewMetricCardData; currencySymbol: string }) {
+  const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
   return (
     <article
+      data-overview-metric-id={metric.id}
       className="flex min-w-0 flex-col justify-between rounded-[var(--adv-r-card)] p-5 text-white sm:col-span-2"
       style={{ background: "var(--adv-accent)", minHeight: 170 }}
     >
@@ -96,7 +124,6 @@ export function HeroMetricCard({
         <p
           className="adv-mono m-0 truncate text-[10.5px] uppercase tracking-[0.12em]"
           style={{ color: "rgba(255,255,255,0.75)" }}
-          title={metric.subtitle}
         >
           {metricLabel(metric)}
         </p>
@@ -104,23 +131,26 @@ export function HeroMetricCard({
       </div>
       <p
         className="m-0 mt-2.5 text-[42px] font-bold leading-none tabular-nums"
-        style={{ fontFamily: "var(--adv-font-display)", letterSpacing: "-0.03em" }}
+        style={{
+          fontFamily: "var(--adv-font-display)",
+          letterSpacing: "-0.03em",
+        }}
       >
-        {metric.value === null ? "—" : format(metric.value)}
+        {formatOverviewMetricValue(metric, metric.value, currencySymbol)}
       </p>
-      <div className="mt-3">
-        <AdvSparkline
-          points={metric.sparklineData}
-          previousPoints={metric.previousSparklineData}
-          line="#ffffff"
-          fill="rgba(255,255,255,0.14)"
-          height={44}
-          strokeWidth={1.6}
-          tone="light"
-          format={format}
-          ariaLabel={`${metric.title} trend`}
-        />
-      </div>
+      <AdvSparkline
+        points={metric.sparklineData}
+        previousPoints={metric.previousSparklineData}
+        line="#ffffff"
+        fill="rgba(255,255,255,0.14)"
+        height={44}
+        strokeWidth={1.6}
+        tone="light"
+        variant="hero"
+        format={format}
+        ariaLabel={`${metric.title} trend`}
+        marginTop={12}
+      />
     </article>
   );
 }
@@ -135,45 +165,48 @@ export function HeroTile({
   index: number;
 }) {
   const tone = TILE_TONES[index % TILE_TONES.length]!;
-  const Icon = TILE_ICONS[index % TILE_ICONS.length] ?? BadgeDollarSign;
-  const format = (value: number) => formatMetricValue(value, metric.unit, currencySymbol, EXACT_METRIC_FORMAT);
+  const iconPath = TILE_ICON_PATHS[index % TILE_ICON_PATHS.length] ?? TILE_ICON_PATHS[0];
+  const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
 
   return (
-    <article className="adv-card flex min-w-0 flex-col justify-between p-4">
+    <article data-overview-metric-id={metric.id} className="adv-card flex min-w-0 flex-col justify-between p-4">
       <div className="flex items-center justify-between gap-2">
         <span
           className="grid h-[30px] w-[30px] place-items-center rounded-[9px] text-white"
           style={{ background: tone.bg }}
         >
-          <Icon className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden="true" />
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-[15px] w-[15px]"
+          >
+            <path d={iconPath} />
+          </svg>
         </span>
-        <DeltaChip metric={metric} />
+        <DeltaChip metric={metric} colorTone={tone.delta} />
       </div>
       <div className="mt-3.5">
-        <p
-          className="adv-num m-0 text-[26px] font-bold leading-none"
-          style={{ fontFamily: "var(--adv-font-display)" }}
-        >
-          {metric.value === null ? "—" : format(metric.value)}
+        <p className="adv-num m-0 text-[26px] font-bold leading-none" style={{ fontFamily: "var(--adv-font-display)" }}>
+          {formatOverviewMetricValue(metric, metric.value, currencySymbol)}
         </p>
-        <p
-          className="m-0 mt-1.5 truncate text-[12px] font-medium text-[var(--adv-ink-3)]"
-          title={metric.subtitle}
-        >
-          {metricLabel(metric)}
-        </p>
+        <p className="m-0 mt-1.5 truncate text-[12px] font-medium text-[var(--adv-ink-3)]">{metricLabel(metric)}</p>
       </div>
-      <div className="mt-3">
-        <AdvSparkline
-          points={metric.sparklineData}
-          previousPoints={metric.previousSparklineData}
-          line={tone.line}
-          fill={tone.fill}
-          height={38}
-          format={format}
-          ariaLabel={`${metric.title} trend`}
-        />
-      </div>
+      <AdvSparkline
+        points={metric.sparklineData}
+        previousPoints={metric.previousSparklineData}
+        line={tone.line}
+        fill={tone.fill}
+        height={38}
+        variant="tile"
+        format={format}
+        ariaLabel={`${metric.title} trend`}
+        marginTop={12}
+      />
     </article>
   );
 }
@@ -182,53 +215,48 @@ export function HeroTile({
 export function StatTile({
   metric,
   currencySymbol,
+  line = "#2F6BFF",
+  fill = "rgba(47,107,255,0.08)",
 }: {
   metric: OverviewMetricCardData;
   currencySymbol: string;
+  line?: string;
+  fill?: string;
 }) {
-  const format = (value: number) => formatMetricValue(value, metric.unit, currencySymbol, EXACT_METRIC_FORMAT);
-  const direction = metric.trendDirection;
+  const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
   const deltaColor =
-    direction === "up"
-      ? "var(--adc-pos-fg)"
-      : direction === "down"
-        ? "var(--adc-danger-fg)"
-        : "var(--adv-ink-3)";
+    metric.trendSentiment === "positive" ? "#0E9F6E" : metric.trendSentiment === "negative" ? "#E11D48" : "#7A869E";
   return (
-    <div className="adv-tile">
-      <p className="adv-label truncate" title={metric.subtitle}>
+    <div className="adv-tile" data-overview-metric-id={metric.id}>
+      <p
+        className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#7A869E]"
+        style={{ fontFamily: "var(--adv-font-mono)" }}
+      >
         {metricLabel(metric)}
       </p>
       <p
-        className="adv-num m-0 mt-1.5 whitespace-nowrap text-[19px] font-semibold"
-        style={{ fontFamily: "var(--adv-font-display)" }}
+        className="m-0 mt-1.5 whitespace-nowrap text-[19px] font-semibold tabular-nums text-[#0E1526]"
+        style={{
+          fontFamily: "var(--adv-font-display)",
+          letterSpacing: "normal",
+        }}
       >
-        {metric.value === null ? "—" : format(metric.value)}
+        {formatOverviewMetricValue(metric, metric.value, currencySymbol)}
       </p>
       <p className="m-0 mt-1 text-[11px] font-semibold" style={{ color: deltaColor }}>
-        {metric.changePct === null || !Number.isFinite(metric.changePct)
-          ? "—"
-          : `${metric.changePct > 0 ? "+" : ""}${metric.changePct.toFixed(1)}%`}
+        {metric.changePct === null || !Number.isFinite(metric.changePct) ? "—" : formatOverviewDelta(metric.changePct)}
       </p>
-      <div className="mt-2">
-        <AdvSparkline
-          points={metric.sparklineData}
-          previousPoints={metric.previousSparklineData}
-          line={
-            direction === "down" ? "#E11D48" : direction === "up" ? "#0E9F6E" : "#2F6BFF"
-          }
-          fill={
-            direction === "down"
-              ? "rgba(225,29,72,0.08)"
-              : direction === "up"
-                ? "rgba(14,159,110,0.09)"
-                : "rgba(47,107,255,0.08)"
-          }
-          height={26}
-          format={format}
-          ariaLabel={`${metric.title} trend`}
-        />
-      </div>
+      <AdvSparkline
+        points={metric.sparklineData}
+        previousPoints={metric.previousSparklineData}
+        line={line}
+        fill={fill}
+        height={26}
+        variant="compact"
+        format={format}
+        ariaLabel={`${metric.title} trend`}
+        marginTop={8}
+      />
     </div>
   );
 }

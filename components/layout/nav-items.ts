@@ -5,7 +5,6 @@ import {
   Home,
   Layers,
   Lightbulb,
-  Megaphone,
   Package,
   PieChart,
   Plug,
@@ -14,7 +13,6 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  Target,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -67,6 +65,9 @@ export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
     accent: "blue",
     logoSrc: "/platform-logos/Meta.png",
   },
+  // Registry metadata only — the design's BETA badge and logo. Whether Klaviyo
+  // appears in the rail at all is decided by `getRailModel`'s `showKlaviyo`,
+  // which the shell drives from the stored connection (design 3284).
   klaviyo: {
     id: "klaviyo",
     name: "Klaviyo",
@@ -189,32 +190,10 @@ export function getPlatformLayer2Items(
         },
       ];
     case "klaviyo":
-      return [
-        {
-          id: "flows",
-          label: t.flows,
-          href: "/platforms/klaviyo/flows",
-          icon: Activity,
-        },
-        {
-          id: "campaigns",
-          label: t.campaigns,
-          href: "/platforms/klaviyo/campaigns",
-          icon: Megaphone,
-        },
-        {
-          id: "templates",
-          label: t.templates,
-          href: "/platforms/klaviyo/templates",
-          icon: Layers,
-        },
-        {
-          id: "segments",
-          label: t.segments,
-          href: "/platforms/klaviyo/segments",
-          icon: Target,
-        },
-      ];
+      // One screen, no Layer-2. The design's four Klaviyo pills are decoration
+      // inside the single Lifecycle screen — they carry no handler and no route,
+      // so there is nothing here to navigate to.
+      return [];
     case "google":
       // Google Ads is a routed workspace in v2: the design gives each analysis
       // surface its own screen and rail entry, mirroring the Meta platform block.

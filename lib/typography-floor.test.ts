@@ -319,6 +319,34 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     ],
   },
   {
+    name: "Google Assets/Plan",
+    file: "components/google-ads/GoogleAssetsPlanExact.module.css",
+    start:
+      "/* dashboard-v2-google-assets-plan-exact-reference-type:start */",
+    end:
+      "/* dashboard-v2-google-assets-plan-exact-reference-type:end */",
+    pinsBelowFloorOnly: true,
+    stripsCommentsFromSelector: false,
+    pins: [
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".guardCopy, .cardSubtitle", size: 10.5 },
+      { selector: ".table th, .activityTable th", size: 10 },
+      { selector: ".roasChip", size: 11.5 },
+      { selector: ".strengthChip", size: 11 },
+      { selector: ".typeChip", size: 10.5 },
+      { selector: ".assetKind", size: 9 },
+      { selector: ".assetImpressions", size: 10.5 },
+      { selector: ".performanceChip", size: 11 },
+      { selector: ".imageShare", size: 10 },
+      { selector: ".imageNote, .stepNote, .retentionLine", size: 11.5 },
+      { selector: ".stepSource", size: 10 },
+      { selector: ".queueCount", size: 10.5 },
+      { selector: ".stepNumber", size: 11 },
+      { selector: ".applyButton, .stepButton", size: 11.5 },
+      { selector: ".footnote", size: 11 },
+    ],
+  },
+  {
     name: "Integrations",
     file: "components/integrations/IntegrationsExact.module.css",
     start:

@@ -13,7 +13,13 @@ const routeMocks = vi.hoisted(() => ({
   }),
   workspace: vi.fn(
     (_props: {
-      panel: "summary" | "insights" | "search" | "products";
+      panel:
+        | "summary"
+        | "insights"
+        | "search"
+        | "products"
+        | "assets"
+        | "plan";
       title: string;
       authorizedScope: GoogleAuthorizedScope;
     }) => null,
@@ -52,6 +58,12 @@ const GoogleSearchPage = (
 ).default;
 const GoogleProductsPage = (
   await import("@/app/c/[businessId]/google/products/page")
+).default;
+const GoogleAssetsPage = (
+  await import("@/app/c/[businessId]/google/assets-audiences/page")
+).default;
+const GooglePlanPage = (
+  await import("@/app/c/[businessId]/google/plan/page")
 ).default;
 const auth = await import("@/lib/auth");
 const access = await import("@/lib/access");
@@ -114,7 +126,9 @@ async function renderRoute(
     | typeof GoogleOverviewPage
     | typeof GoogleAdvisorPage
     | typeof GoogleSearchPage
-    | typeof GoogleProductsPage,
+    | typeof GoogleProductsPage
+    | typeof GoogleAssetsPage
+    | typeof GooglePlanPage,
   searchParams: Record<string, string | string[] | undefined> = {},
 ) {
   const element = await route({
@@ -145,6 +159,8 @@ describe("Google canonical route authority", () => {
     ["Advisor", GoogleAdvisorPage, "insights"],
     ["Search intelligence", GoogleSearchPage, "search"],
     ["Products & feed", GoogleProductsPage, "products"],
+    ["Assets & Audiences", GoogleAssetsPage, "assets"],
+    ["Plan & activity", GooglePlanPage, "plan"],
   ] as const)(
     "passes immutable business/account metadata into %s",
     async (title, route, panel) => {
@@ -209,6 +225,8 @@ describe("Google canonical route authority", () => {
   it.each([
     ["Search", GoogleSearchPage],
     ["Products", GoogleProductsPage],
+    ["Assets & Audiences", GoogleAssetsPage],
+    ["Plan & activity", GooglePlanPage],
   ] as const)(
     "refuses a foreign account on %s rather than reading another scope",
     async (_label, route) => {
@@ -225,6 +243,8 @@ describe("Google canonical route authority", () => {
   it.each([
     ["Search", GoogleSearchPage],
     ["Products", GoogleProductsPage],
+    ["Assets & Audiences", GoogleAssetsPage],
+    ["Plan & activity", GooglePlanPage],
   ] as const)(
     "redirects %s before any provider scope read when there is no session",
     async (_label, route) => {
@@ -247,6 +267,24 @@ describe("Google canonical route authority", () => {
     expect(routeMocks.workspace.mock.calls[0]?.[0].authorizedScope).toMatchObject({
       viewerReadOnly: true,
       demo: true,
+    });
+  });
+
+  // Plan is the only Google surface that can drive a provider write, so the
+  // read-only downgrade has to reach it, not just the advisor.
+  it.each([
+    ["a reviewer or demo session", { reviewerReadOnly: true, demo: true }],
+    ["a guest reader", { role: "guest" as const }],
+  ])("hands Plan a read-only scope for %s", async (_label, context) => {
+    vi.mocked(pageAccess.requireBusinessPageContext).mockResolvedValueOnce(
+      authorizedContext(context) as never,
+    );
+
+    await renderRoute(GooglePlanPage);
+
+    expect(routeMocks.workspace.mock.calls[0]?.[0]).toMatchObject({
+      panel: "plan",
+      authorizedScope: { viewerReadOnly: true },
     });
   });
 

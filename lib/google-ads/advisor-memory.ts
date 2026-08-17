@@ -1416,7 +1416,22 @@ export interface GoogleAdsActivityEntry {
   mutateActionType: string;
   status: string;
   accountId: string;
+  /**
+   * The write's own receipt. `applySingleMutateInternal` and its batch and
+   * cluster siblings stamp `transactionId` into the logged response (and, on
+   * the pending row, into the payload), so the receipt the Plan screen shows is
+   * the one the execution boundary issued rather than a rendered id.
+   */
+  receiptId: string | null;
   detail: string | null;
+}
+
+function readTransactionId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as Record<string, unknown>).transactionId;
+  return typeof candidate === "string" && candidate.trim() !== ""
+    ? candidate.trim()
+    : null;
 }
 
 /**
@@ -1433,7 +1448,8 @@ export async function listAdvisorExecutionEvents(input: {
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);
   const sql = getDb();
   const rows = (await sql`
-    SELECT id, created_at, account_id, mutate_action_type, operation, status, error_message
+    SELECT id, created_at, account_id, mutate_action_type, operation, status,
+           error_message, payload_json, response_json
     FROM google_ads_advisor_execution_logs
     WHERE business_id = ${input.businessId}
       AND (${input.accountId ?? null}::text IS NULL OR account_id = ${input.accountId ?? null})
@@ -1447,6 +1463,8 @@ export async function listAdvisorExecutionEvents(input: {
     operation: string;
     status: string;
     error_message: string | null;
+    payload_json: unknown;
+    response_json: unknown;
   }>;
 
   return rows.map((row) => ({
@@ -1456,6 +1474,8 @@ export async function listAdvisorExecutionEvents(input: {
     mutateActionType: row.mutate_action_type,
     status: row.status,
     accountId: row.account_id,
+    receiptId:
+      readTransactionId(row.response_json) ?? readTransactionId(row.payload_json),
     detail: row.error_message,
   }));
 }

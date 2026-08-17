@@ -29,6 +29,7 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
 }));
 
 const {
+  listAdvisorExecutionEvents,
   logAdvisorExecutionEvent,
   updateAdvisorExecutionState,
   updateAdvisorMemoryAction,
@@ -109,5 +110,73 @@ describe("google ads advisor memory writes", () => {
     ).resolves.toMatchObject({ matched: false });
 
     expect(sql).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The Plan screen's Activity feed reads this. The receipt it prints is the
+ * `transactionId` the execution boundary stamps into the logged response (and,
+ * on the pending row, the payload) — never a rendered id.
+ */
+describe("google ads advisor execution log reads", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.DATABASE_URL = "postgres://example";
+  });
+
+  it("selects the payload and response so the receipt can be read", async () => {
+    sql.mockResolvedValue([]);
+    await listAdvisorExecutionEvents({ businessId: "biz-1", accountId: "acct-1" });
+    const text = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    expect(text).toContain("payload_json");
+    expect(text).toContain("response_json");
+    expect(text).toContain("google_ads_advisor_execution_logs");
+  });
+
+  it("reads the receipt from the response, then the payload, else null", async () => {
+    sql.mockResolvedValue([
+      {
+        id: "1",
+        created_at: "2026-08-15T09:12:00.000Z",
+        account_id: "acct-1",
+        mutate_action_type: "adjust_portfolio_target",
+        operation: "apply",
+        status: "applied",
+        error_message: null,
+        payload_json: { transactionId: "payload-receipt" },
+        response_json: { transactionId: "response-receipt" },
+      },
+      {
+        id: "2",
+        created_at: "2026-08-15T09:11:00.000Z",
+        account_id: "acct-1",
+        mutate_action_type: "adjust_portfolio_target",
+        operation: "apply",
+        status: "pending",
+        error_message: null,
+        payload_json: { transactionId: "payload-receipt" },
+        response_json: null,
+      },
+      {
+        id: "3",
+        created_at: "2026-08-15T09:10:00.000Z",
+        account_id: "acct-1",
+        mutate_action_type: "adjust_portfolio_target",
+        operation: "apply",
+        status: "failed",
+        error_message: "Quiet hours",
+        payload_json: null,
+        response_json: null,
+      },
+    ]);
+
+    const rows = await listAdvisorExecutionEvents({ businessId: "biz-1" });
+
+    expect(rows.map((row) => row.receiptId)).toEqual([
+      "response-receipt",
+      "payload-receipt",
+      null,
+    ]);
+    expect(rows[2]?.detail).toBe("Quiet hours");
   });
 });

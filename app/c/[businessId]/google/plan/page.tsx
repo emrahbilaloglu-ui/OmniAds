@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 
+import { GoogleWorkspaceScreen } from "@/components/google-ads/GoogleWorkspaceScreen";
+import { listUserBusinesses } from "@/lib/access";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
-import { GooglePlanClient } from "@/components/zero-base/google/plan-client";
 import {
   readProviderScopeCatalog,
   resolveProviderAccountId,
@@ -30,30 +31,44 @@ export default async function GooglePlanPage({
   const requestedProviderAccountId = Array.isArray(raw.providerAccountId)
     ? raw.providerAccountId[0]?.trim() || null
     : raw.providerAccountId?.trim() || null;
-  const catalog = await readProviderScopeCatalog(businessId, "google");
+  const [catalog, businesses] = await Promise.all([
+    readProviderScopeCatalog(businessId, "google"),
+    listUserBusinesses(access.context.session.user.id),
+  ]);
   const providerAccountId = await resolveProviderAccountId({
     businessId,
     provider: "google",
     requestedAccountId: requestedProviderAccountId,
     catalog,
   });
+
+  // Plan is the one Google surface that can drive a provider write, so a
+  // URL-selected account that is not assigned is refused outright rather than
+  // silently replaced by the first assigned account.
   if (requestedProviderAccountId && !providerAccountId) notFound();
+
   const account =
-    catalog.accounts.find((candidate) => candidate.id === providerAccountId) ?? null;
+    catalog.accounts.find((candidate) => candidate.id === providerAccountId) ??
+    null;
+  const business = businesses.find((candidate) => candidate.id === businessId) ?? null;
 
   return (
-    <GooglePlanClient
-      businessId={businessId}
-      authorizedAccount={
-        account
-          ? {
-              id: account.id,
-              name: account.label,
-              currency: account.currency,
-              timezone: account.timezone,
-            }
-          : null
-      }
+    <GoogleWorkspaceScreen
+      panel="plan"
+      title="Plan & activity"
+      authorizedScope={{
+        businessId,
+        businessName: business?.name ?? null,
+        providerAccountId,
+        accountLabel: account?.label ?? null,
+        currency: account?.currency ?? null,
+        timezone: account?.timezone ?? null,
+        viewerReadOnly:
+          access.context.role === "guest" ||
+          access.context.reviewerReadOnly ||
+          access.context.demo,
+        demo: access.context.demo,
+      }}
     />
   );
 }

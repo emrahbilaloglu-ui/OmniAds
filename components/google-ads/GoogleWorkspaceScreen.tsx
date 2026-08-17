@@ -68,7 +68,10 @@ export function GoogleWorkspaceScreen({
     panel === "summary" ||
     panel === "insights" ||
     panel === "search" ||
-    panel === "products";
+    panel === "products" ||
+    panel === "assets" ||
+    panel === "assetGroupAudience" ||
+    panel === "plan";
 
   // The page frame owns the gutters, so these surfaces carry no padding of
   // their own and no nested scroll container.

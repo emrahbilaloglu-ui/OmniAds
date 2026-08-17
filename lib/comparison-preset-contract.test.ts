@@ -172,7 +172,17 @@ describe("no surface offers a comparison it does not read", () => {
       // These surfaces rendered an active-looking Compare chip and read
       // nothing from it: the operator could pick "Previous year", watch the
       // chip light up and print year-ago dates, and change nothing at all.
-      expect(page).toContain("showComparisonTrigger={false}");
+      if (file.includes("platforms/meta/landing-pages")) {
+        // Dashboard v2 removed the page-local date/comparison control from
+        // Creative Studio entirely. The shell owns the date window, while
+        // Landing Pages still consumes no comparison baseline.
+        expect(page).toContain("<CreativeStudioExact");
+        expect(page).not.toContain("<DateRangePicker");
+        expect(page).not.toContain("<CreativesTopSection");
+        expect(page).not.toContain("showComparisonTrigger");
+      } else {
+        expect(page).toContain("showComparisonTrigger={false}");
+      }
       expect(page).not.toMatch(/compareMode|comparisonMode/);
     });
   }

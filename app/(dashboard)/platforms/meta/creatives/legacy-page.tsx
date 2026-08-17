@@ -3,113 +3,190 @@
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, ImageIcon, X } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
-import { CreativeBriefPanel } from "@/components/creatives/CreativeBriefPanel";
-import {
-  StudioOsView,
-  type StudioOsDatePreset,
-  type StudioOsDecisionsData,
-  type StudioOsTab,
-} from "@/components/creatives/StudioOsView";
+import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
+import type {
+  CreativeStudioAssetRow,
+  CreativeStudioAssetsModel,
+  CreativeStudioDataState,
+  CreativeStudioTabId,
+  CreativeStudioTone,
+} from "@/components/creatives/creative-studio-exact-types";
 import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/CreativesTopSection";
-import type {
-  CreativeGroupBy,
-  CreativeDatePreset,
-  CreativeDateRangeValue,
-} from "@/components/creatives/CreativesTopSection";
 import { resolveCreativeDateRange } from "@/components/creatives/CreativesTopSection";
-import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
+import { resolveCreativeCurrency } from "@/components/creatives/money";
+import {
+  calculateCreativeAverageOrderValue,
+  calculateCreativeClickToAddToCartRate,
+  calculateCreativeClickToPurchaseRate,
+  calculateCreativeLinkCtr,
+} from "@/components/creatives/creative-truth";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import type {
-  BriefingCreativeCard,
-  CreativesBriefingResponse,
-} from "@/components/creatives/briefing/types";
+import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
 import { PlanGate } from "@/components/pricing/PlanGate";
-import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useAppStore } from "@/store/app-store";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
-import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
-import { getTodayIsoForTimeZone } from "@/components/date-range/DateRangePicker";
 import {
-  creativeDateRangeToStandard,
-  standardDateRangeToCreative,
-} from "@/components/creatives/creatives-top-section-support";
-import type {
-  MetaCreativeBrief,
-  MetaCreativeBriefCapability,
-} from "@/lib/meta/creative-brief-contract";
-import type {
-  CreativeShareLedgerEntry,
-  CreativeShareLedgerCapability,
-  ShareAudience,
-} from "@/components/creatives/shareCreativeTypes";
+  getPresetDatesForReferenceDate,
+  getTodayIsoForTimeZone,
+} from "@/components/date-range/DateRangePicker";
+import { standardDateRangeToCreative } from "@/components/creatives/creatives-top-section-support";
+import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 import {
   fetchMetaCreatives,
-  hasRenderablePreview,
   mapApiRowToUiRow,
+  toCsv,
   toCreatorTier0SharedCreative,
   toSharedCreative,
 } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
+import { resolveCreativeStudioSharePolicy } from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
 import {
-  findCreativeStudioCard,
-  flattenCreativeStudioBriefingCards,
-  indexCreativeStudioBriefingCards,
-  qualifyCurrentWinner,
-  resolveCreativeStudioSharePolicy,
-  resolveServerDecisionBadge,
-} from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
-
-const DECISIONS_HREF = "/platforms/meta";
-const LAUNCHPAD_HREF = "/platforms/meta/launchpad";
-const AUTOMATION_HREF = "/platforms/meta/automation";
-
-const DATE_PRESETS: Array<{ key: CreativeDatePreset; label: string; lastDays: number }> = [
-  { key: "last7Days", label: "Last 7 days", lastDays: 7 },
-  { key: "last14Days", label: "Last 14 days", lastDays: 14 },
-  { key: "last30Days", label: "Last 30 days", lastDays: 30 },
-  { key: "lastMonth", label: "Last month", lastDays: 30 },
-  { key: "last365Days", label: "Last 365 days", lastDays: 365 },
-];
-
-function creativeGroupByToApi(value: CreativeGroupBy): "adName" | "ad" | "creative" | "adSet" {
-  if (value === "adName" || value === "creative" || value === "adSet") return value;
-  return "creative";
-}
-
-function studioTabFromQuery(value: string | null | undefined): StudioOsTab {
-  if (value === "winners" || value === "briefs" || value === "shares") {
-    return value;
-  }
-  return "assets";
-}
+  BUYER_ACKNOWLEDGEMENT_VALUE,
+  BUYER_FINANCIAL_WARNING,
+} from "@/lib/zero-base/creative/share-acknowledgement";
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function formatNumber(value: number | null | undefined, digits = 0) {
-  const numeric = finite(value);
-  return numeric === null ? "--" : numeric.toLocaleString(undefined, { maximumFractionDigits: digits });
+function statusTone(status: string | null): CreativeStudioTone {
+  switch (status?.trim().toUpperCase()) {
+    case "ACTIVE":
+      return "positive";
+    case "PAUSED":
+    case "ARCHIVED":
+      return "neutral";
+    case "DISAPPROVED":
+    case "WITH_ISSUES":
+      return "warning";
+    default:
+      return "neutral";
+  }
 }
 
-function formatRoas(value: number | null | undefined) {
-  const numeric = finite(value);
-  return numeric === null ? "--" : `${numeric.toFixed(2)}x`;
-}
-
-function briefingCardAccountId(card: BriefingCreativeCard): string {
+function assetImageUrl(row: MetaCreativeRow): string | null {
   return (
-    card.providerAccountId?.trim() ||
-    card.accountId?.trim() ||
-    card.metaAccountId?.trim() ||
-    ""
+    row.tableThumbnailUrl ??
+    row.cachedThumbnailUrl ??
+    row.thumbnailUrl ??
+    row.imageUrl ??
+    row.preview.poster_url ??
+    row.preview.image_url ??
+    row.cardPreviewUrl ??
+    row.previewUrl ??
+    null
   );
+}
+
+/**
+ * Presentation-only projection for the exact Assets surface.
+ *
+ * It does not read decision fields. A row whose metric payload is unavailable
+ * withholds every numeric cell, even though the legacy row shape contains zero
+ * placeholders. Hold intentionally stays absent until Meta serves a dedicated
+ * hold metric; video completion is not a substitute.
+ */
+export function toCreativeStudioAssetRows(
+  rows: readonly MetaCreativeRow[],
+  defaultCurrency: string | null,
+): CreativeStudioAssetRow[] {
+  return rows.map((row) => {
+    const metricsAvailable = row.metricsAvailability === "available";
+    const metrics: CreativeStudioAssetRow["metrics"] = metricsAvailable
+      ? {
+          spend: finite(row.spend),
+          impressions: finite(row.impressions),
+          clicks: finite(row.clicks),
+          purchases: finite(row.purchases),
+          roas: finite(row.roas),
+          cpa: finite(row.cpa),
+          cpm: finite(row.cpm),
+          aov: finite(calculateCreativeAverageOrderValue(row)),
+          ctr: finite(calculateCreativeLinkCtr(row)),
+          thumbstop: finite(row.thumbstop),
+          hold: null,
+          frequency: finite(row.frequency),
+          atcRate: finite(calculateCreativeClickToAddToCartRate(row)),
+          cvr: finite(calculateCreativeClickToPurchaseRate(row)),
+        }
+      : {
+          spend: null,
+          impressions: null,
+          clicks: null,
+          purchases: null,
+          roas: null,
+          cpa: null,
+          cpm: null,
+          aov: null,
+          ctr: null,
+          thumbstop: null,
+          hold: null,
+          frequency: null,
+          atcRate: null,
+          cvr: null,
+        };
+    const effectiveStatus = row.effectiveStatus?.trim() || null;
+    const marketingAngle =
+      row.aiTags.messagingAngle?.map((value) => value.trim()).filter(Boolean).join(", ") || null;
+
+    return {
+      id: row.id,
+      name: row.name,
+      kind: row.creativePrimaryLabel ?? row.creativeTypeLabel ?? row.format,
+      imageUrl: assetImageUrl(row),
+      status: effectiveStatus,
+      statusTone: statusTone(effectiveStatus),
+      marketingAngle,
+      currency: resolveCreativeCurrency(row.currency ?? null, defaultCurrency),
+      metrics,
+    };
+  });
+}
+
+export function buildCreativeStudioTabHrefs(input: {
+  pathname: string | null;
+  businessId: string;
+  providerAccountId: string;
+  start: string;
+  end: string;
+}): Record<CreativeStudioTabId, string> {
+  const inBusinessRoute = Boolean(input.pathname?.startsWith("/c/"));
+  const inSessionRoute = Boolean(input.pathname?.startsWith("/app/"));
+  const prefix = inBusinessRoute
+    ? `/c/${encodeURIComponent(input.businessId)}/creative`
+    : inSessionRoute
+      ? "/app/creative"
+      : null;
+  const paths: Record<CreativeStudioTabId, string> = prefix
+    ? {
+        assets: `${prefix}/performance`,
+        copies: `${prefix}/copies`,
+        "landing-pages": `${prefix}/landing-pages`,
+        inbox: `${prefix}/inbox`,
+        audiences: `${prefix}/audiences`,
+      }
+    : {
+        assets: "/platforms/meta/creatives",
+        copies: "/platforms/meta/copies",
+        "landing-pages": "/platforms/meta/landing-pages",
+        inbox: "/platforms/meta/creative-inbox",
+        audiences: "/platforms/meta/audiences",
+      };
+  const params = new URLSearchParams();
+  if (!prefix && input.businessId) params.set("businessId", input.businessId);
+  if (input.providerAccountId) params.set("providerAccountId", input.providerAccountId);
+  if (input.start) params.set("start", input.start);
+  if (input.end) params.set("end", input.end);
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+
+  return Object.fromEntries(
+    Object.entries(paths).map(([key, href]) => [key, `${href}${suffix}`]),
+  ) as Record<CreativeStudioTabId, string>;
 }
 
 async function fetchCreativeStudioBriefing(input: {
@@ -139,130 +216,67 @@ async function fetchCreativeStudioBriefing(input: {
   return payload;
 }
 
-async function fetchStudioWriteAuthority(input: {
-  businessId: string;
-  providerAccountId: string;
-}): Promise<StudioOsDecisionsData> {
-  const query = new URLSearchParams({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    summary: "1",
-  });
-  const response = await fetch(`/api/meta/automation?${query.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | (StudioOsDecisionsData & { error?: string; message?: string })
-    | null;
-  if (!response.ok || !payload || !payload.system) {
-    throw new Error(payload?.message ?? payload?.error ?? `Write authority could not load (${response.status}).`);
-  }
-  return payload;
+interface MetaCreativeStudioPageProps {
+  businessId?: string;
+  providerAccountId?: string | null;
 }
 
-async function fetchCreativeBriefs(input: {
-  businessId: string;
-  providerAccountId: string;
-}): Promise<{
-  briefs: MetaCreativeBrief[];
-  capability: MetaCreativeBriefCapability;
-}> {
-  const query = new URLSearchParams({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-  });
-  const response = await fetch(`/api/meta/creative-briefs?${query.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        briefs?: MetaCreativeBrief[];
-        capability?: MetaCreativeBriefCapability;
-        message?: string;
-        error?: { message?: string };
-      }
-    | null;
-  if (!response.ok || !Array.isArray(payload?.briefs) || !payload.capability) {
-    throw new Error(
-      payload?.error?.message ??
-        payload?.message ??
-        `Creative briefs could not load (${response.status}).`,
-    );
-  }
-  return { briefs: payload.briefs, capability: payload.capability };
-}
-
-async function fetchCreativeShareLedger(input: {
-  businessId: string;
-  providerAccountId: string;
-}): Promise<{
-  grants: CreativeShareLedgerEntry[];
-  capability: CreativeShareLedgerCapability;
-}> {
-  const query = new URLSearchParams(input);
-  const response = await fetch(`/api/creatives/share?${query.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        grants?: CreativeShareLedgerEntry[];
-        capability?: CreativeShareLedgerCapability;
-        message?: string;
-      }
-    | null;
-  if (!response.ok || !Array.isArray(payload?.grants) || !payload.capability) {
-    throw new Error(payload?.message ?? `Creator share ledger could not load (${response.status}).`);
-  }
-  return { grants: payload.grants, capability: payload.capability };
-}
-
-export default function MetaCreativeStudioPage() {
-  const queryClient = useQueryClient();
+export default function MetaCreativeStudioPage({
+  businessId: authorizedBusinessId,
+  providerAccountId: authorizedProviderAccountId,
+}: MetaCreativeStudioPageProps = {}) {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? "";
+  const hasServerAuthorizedScope = authorizedBusinessId !== undefined;
+  const businessId = hasServerAuthorizedScope
+    ? authorizedBusinessId?.trim() ?? ""
+    : selectedBusinessId ?? "";
 
-  const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
-  const [groupBy, setGroupBy] = useState<CreativeGroupBy>("creative");
-  const [topMetricIds] = useState<string[]>(DEFAULT_TOP_METRIC_IDS);
+  const [dashboardDateRange] = usePersistentDateRange();
+  const topMetricIds = DEFAULT_TOP_METRIC_IDS;
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
-  const [detailRowId, setDetailRowId] = useState<string | null>(null);
-  const [briefEditorBriefId, setBriefEditorBriefId] = useState<string | null | undefined>(undefined);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
-  const [shareMutationToken, setShareMutationToken] = useState<string | null>(null);
-  const [shareMutationError, setShareMutationError] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareAudience, setShareAudience] = useState<ShareAudience>("buyer");
+  const [buyerAcknowledged, setBuyerAcknowledged] = useState(false);
   const [anonymize, setAnonymize] = useState(true);
   const [allowCsv, setAllowCsv] = useState(true);
-  const requestedProviderAccountId = searchParams?.get("providerAccountId")?.trim() ?? "";
-  const requestedCreativeId = searchParams?.get("creativeId")?.trim() ?? "";
-  const activeStudioTab = studioTabFromQuery(searchParams?.get("tab"));
-  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(requestedProviderAccountId);
-
-  const apiGroupBy = creativeGroupByToApi(groupBy);
+  const requestedProviderAccountId = hasServerAuthorizedScope
+    ? ""
+    : searchParams?.get("providerAccountId")?.trim() ?? "";
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(() =>
+    hasServerAuthorizedScope
+      ? authorizedProviderAccountId?.trim() ?? ""
+      : requestedProviderAccountId,
+  );
 
   const providerAccountsQuery = useQuery({
     queryKey: ["meta-provider-accounts", businessId],
-    enabled: Boolean(selectedBusinessId),
+    enabled: Boolean(businessId),
     queryFn: () => fetchMetaHistoryAccounts({ businessId }),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
   const providerAccounts = providerAccountsQuery.data ?? [];
-  const providerAccountId =
-    (selectedProviderAccountId &&
-    providerAccounts.some((account) => account.id === selectedProviderAccountId)
-      ? selectedProviderAccountId
-      : "") ||
-    (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+  const providerAccountId = hasServerAuthorizedScope
+    ? authorizedProviderAccountId?.trim() ?? ""
+    : (selectedProviderAccountId &&
+        providerAccounts.some((account) => account.id === selectedProviderAccountId)
+        ? selectedProviderAccountId
+        : "") || (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
+  const scopeLoading =
+    !hasServerAuthorizedScope && providerAccountsQuery.isLoading;
+  const scopeError =
+    !hasServerAuthorizedScope && providerAccountsQuery.isError;
 
   useEffect(() => {
+    if (hasServerAuthorizedScope) {
+      setSelectedProviderAccountId(authorizedProviderAccountId?.trim() ?? "");
+      return;
+    }
     setSelectedProviderAccountId((current) => {
       if (current && providerAccounts.some((account) => account.id === current)) {
         return current;
@@ -275,7 +289,13 @@ export default function MetaCreativeStudioPage() {
       }
       return "";
     });
-  }, [businessId, providerAccounts, requestedProviderAccountId]);
+  }, [
+    authorizedProviderAccountId,
+    businessId,
+    hasServerAuthorizedScope,
+    providerAccounts,
+    requestedProviderAccountId,
+  ]);
 
   const selectedProviderAccount = useMemo<MetaHistoryAccount | null>(
     () => providerAccounts.find((account) => account.id === providerAccountId) ?? null,
@@ -283,15 +303,26 @@ export default function MetaCreativeStudioPage() {
   );
   const accountTimeZone = selectedProviderAccount?.timezone || "UTC";
   const accountReferenceDate = getTodayIsoForTimeZone(accountTimeZone);
+  const dashboardWindow = getPresetDatesForReferenceDate(
+    dashboardDateRange.rangePreset,
+    accountReferenceDate,
+    dashboardDateRange.customStart,
+    dashboardDateRange.customEnd,
+  );
+  const dateRangeValue = standardDateRangeToCreative({
+    ...dashboardDateRange,
+    customStart: dashboardWindow.start,
+    customEnd: dashboardWindow.end,
+  });
   const { start: drStart, end: drEnd } = resolveCreativeDateRange(
     dateRangeValue,
     accountReferenceDate,
   );
   const accountCurrency = selectedProviderAccount?.currency ?? null;
-  const hasExplicitAccountScope = Boolean(selectedBusinessId && providerAccountId);
+  const hasExplicitAccountScope = Boolean(businessId && providerAccountId);
 
   const creativesQuery = useQuery({
-    queryKey: ["meta-creative-studio", businessId, providerAccountId, drStart, drEnd, apiGroupBy],
+    queryKey: ["meta-creative-studio", businessId, providerAccountId, drStart, drEnd, "creative"],
     enabled: hasExplicitAccountScope,
     queryFn: () =>
       fetchMetaCreatives({
@@ -299,7 +330,7 @@ export default function MetaCreativeStudioPage() {
         providerAccountId,
         start: drStart,
         end: drEnd,
-        groupBy: apiGroupBy,
+        groupBy: "creative",
         format: "all",
         sort: "spend",
         mediaMode: "full",
@@ -327,43 +358,18 @@ export default function MetaCreativeStudioPage() {
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
-  const decisionsWorkspaceQuery = useQuery({
-    queryKey: ["meta-studio-write-authority", businessId, providerAccountId],
-    enabled: hasExplicitAccountScope,
-    queryFn: () => fetchStudioWriteAuthority({ businessId, providerAccountId }),
-    staleTime: 60 * 1000,
-    gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
-
-  const creativeBriefsQueryKey = ["meta-creative-briefs", businessId, providerAccountId] as const;
-  const creativeBriefsQuery = useQuery({
-    queryKey: creativeBriefsQueryKey,
-    enabled: hasExplicitAccountScope,
-    queryFn: () => fetchCreativeBriefs({ businessId, providerAccountId }),
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-  });
-  const creativeShareLedgerQueryKey = ["creative-share-ledger", businessId, providerAccountId] as const;
-  const creativeShareLedgerQuery = useQuery({
-    queryKey: creativeShareLedgerQueryKey,
-    enabled: hasExplicitAccountScope,
-    queryFn: () => fetchCreativeShareLedger({ businessId, providerAccountId }),
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-  });
 
   // One freshness contract across every Tier-0 surface. Derived from the
   // query state this surface already has, so it cannot drift from what is
   // actually on screen.
   useTierZeroFreshness({
     surface: "creative_studio",
-    isLoading: creativesQuery.isLoading,
-    isFetching: creativesQuery.isFetching,
-    error: creativesQuery.error,
-    // Briefs failing leaves a workspace that looks complete but is not.
+    isLoading: scopeLoading || creativesQuery.isLoading,
+    isFetching: providerAccountsQuery.isFetching || creativesQuery.isFetching,
+    error: creativesQuery.error ?? (scopeError ? providerAccountsQuery.error : null),
+    // Decision context failing leaves a workspace that looks complete but is not.
     partialReason: briefingQuery.error
-      ? "Creative briefs could not be read; this view is incomplete"
+      ? "Creative decision context could not be read; this view is incomplete"
       : null,
     // When the snapshot rows were computed. Not `source.asOf` (the client's
     // own request parameter echoed back) and not `asOfDate` (the calendar day
@@ -375,6 +381,7 @@ export default function MetaCreativeStudioPage() {
     ),
     businessId,
     onRetry: () => {
+      if (scopeError) void providerAccountsQuery.refetch();
       void creativesQuery.refetch();
       if (briefingQuery.isError) void briefingQuery.refetch();
     },
@@ -388,40 +395,6 @@ export default function MetaCreativeStudioPage() {
     [creativesQuery.data?.rows, providerAccountId],
   );
 
-  const loadUsageRows = (creativeId: string) =>
-    queryClient.fetchQuery({
-      queryKey: [
-        "meta-creative-studio-usages",
-        businessId,
-        providerAccountId,
-        creativeId,
-        drStart,
-        drEnd,
-      ],
-      queryFn: async () => {
-        const payload = await fetchMetaCreatives({
-          businessId,
-          providerAccountId,
-          creativeId,
-          start: drStart,
-          end: drEnd,
-          groupBy: "ad",
-          format: "all",
-          sort: "spend",
-          mediaMode: "metadata",
-        });
-        return payload.rows
-          .map(mapApiRowToUiRow)
-          .filter(
-            (row) =>
-              row.accountId === providerAccountId &&
-              row.creativeId === creativeId &&
-              Boolean(row.realAdId?.trim()),
-          );
-      },
-      staleTime: 5 * 60 * 1000,
-    });
-
   useEffect(() => {
     setSelectedRowIds((previous) => {
       const visibleIds = new Set(allRows.map((row) => row.id));
@@ -430,109 +403,28 @@ export default function MetaCreativeStudioPage() {
     });
   }, [allRows]);
 
-  useEffect(() => {
-    if (!requestedCreativeId || detailRowId) return;
-    const requestedRow = allRows.find(
-      (row) => row.creativeId === requestedCreativeId || row.id === requestedCreativeId,
-    );
-    if (requestedRow) setDetailRowId(requestedRow.id);
-  }, [allRows, detailRowId, requestedCreativeId]);
-
-  const activeDetailRow = useMemo(
-    () => allRows.find((row) => row.id === detailRowId) ?? null,
-    [detailRowId, allRows],
-  );
-  const briefingCards = useMemo(
-    () =>
-      flattenCreativeStudioBriefingCards(briefingQuery.data).filter(
-        (card) => briefingCardAccountId(card) === providerAccountId,
-      ),
-    [briefingQuery.data, providerAccountId],
-  );
-  const briefingCardIndex = useMemo(
-    () => indexCreativeStudioBriefingCards(briefingCards),
-    [briefingCards],
-  );
-  const activeDecisionCard = useMemo(
-    () => (activeDetailRow ? findCreativeStudioCard(activeDetailRow, briefingCardIndex) : null),
-    [activeDetailRow, briefingCardIndex],
-  );
-  const activeCreativeBrief = useMemo(() => {
-    const creativeId = activeDetailRow?.creativeId || activeDetailRow?.id;
-    if (!creativeId) return null;
-    if (briefEditorBriefId === null) return null;
-    if (typeof briefEditorBriefId === "string") {
-      return creativeBriefsQuery.data?.briefs.find((brief) => brief.id === briefEditorBriefId) ?? null;
-    }
-    const activeSnapshotId = activeDecisionCard?.sourceDecisionSnapshotId ?? null;
-    if (!activeSnapshotId) return null;
-    return (
-      creativeBriefsQuery.data?.briefs.find(
-        (brief) =>
-          brief.sourceDecision.creativeId === creativeId &&
-          brief.sourceDecision.snapshotId === activeSnapshotId,
-      ) ?? null
-    );
-  }, [activeDecisionCard, activeDetailRow, briefEditorBriefId, creativeBriefsQuery.data]);
-
-  const handleCreativeBriefChanged = (brief: MetaCreativeBrief) => {
-    queryClient.setQueryData<{
-      briefs: MetaCreativeBrief[];
-      capability: MetaCreativeBriefCapability;
-    }>(creativeBriefsQueryKey, (current) =>
-      current
-        ? {
-            ...current,
-            briefs: [brief, ...current.briefs.filter((item) => item.id !== brief.id)],
-          }
-        : current,
-    );
-    setBriefEditorBriefId(brief.id);
-  };
-
-  const openBriefCard = (card: BriefingCreativeCard) => {
-    const creativeId = card.creativeId?.trim() || card.id;
-    const row = allRows.find(
-      (candidate) => candidate.creativeId === creativeId || candidate.id === creativeId,
-    );
-    if (!row) return;
-    setBriefEditorBriefId(null);
-    setDetailRowId(row.id);
-  };
-
-  const editCreativeBrief = (brief: MetaCreativeBrief) => {
-    const row = allRows.find(
-      (candidate) =>
-        candidate.creativeId === brief.sourceDecision.creativeId ||
-        candidate.id === brief.sourceDecision.creativeId,
-    );
-    if (!row) return;
-    setBriefEditorBriefId(brief.id);
-    setDetailRowId(row.id);
-  };
-
   const selectedRows = useMemo(
     () => allRows.filter((row) => selectedRowIds.includes(row.id)),
     [allRows, selectedRowIds],
   );
-
-  const toggleRowSelection = (rowId: string) => {
-    setSelectedRowIds((previous) =>
-      previous.includes(rowId) ? previous.filter((id) => id !== rowId) : [...previous, rowId],
-    );
-  };
 
   // The Studio Share action mints an audience-aware, frozen snapshot link. The
   // POST carries only backend-supported ShareLinkConfig fields — no fabricated
   // config, and Tier-0 audiences structurally remove financial fields.
   const openShareModal = () => {
     setShareError(null);
+    setShareUrl(null);
     setShareAudience("creative_team");
+    setBuyerAcknowledged(false);
     setShareModalOpen(true);
   };
 
   const submitShare = async (): Promise<string | null> => {
     setShareError(null);
+    if (shareAudience === "buyer" && !buyerAcknowledged) {
+      setShareError("A buyer share requires the financial-limitation acknowledgement.");
+      return null;
+    }
     setShareLoading(true);
     try {
       const rows = selectedRows;
@@ -557,6 +449,9 @@ export default function MetaCreativeStudioPage() {
           metrics: sharePolicy.metrics,
           includeNotes: false,
           audience: shareAudience,
+          ...(shareAudience === "buyer"
+            ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
+            : {}),
           presetId: "creative-studio",
           presetLabel: "Creative Studio",
           includeCampaignNames: sharePolicy.includeCampaignNames,
@@ -576,41 +471,12 @@ export default function MetaCreativeStudioPage() {
         throw new Error(payload?.message ?? "Share link could not be created.");
       }
       setShareUrl(payload.url);
-      await queryClient.invalidateQueries({ queryKey: creativeShareLedgerQueryKey });
       return payload.url;
     } catch (error) {
       setShareError(error instanceof Error ? error.message : "Share link could not be created.");
       return null;
     } finally {
       setShareLoading(false);
-    }
-  };
-
-  const mutateShareGrant = async (token: string, action: "revoke" | "rotate") => {
-    setShareMutationToken(token);
-    setShareMutationError(null);
-    try {
-      const response = await fetch(`/api/creatives/share/${encodeURIComponent(token)}`, {
-        method: action === "revoke" ? "DELETE" : "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(
-          action === "revoke"
-            ? { businessId }
-            : { businessId, action: "rotate" },
-        ),
-      });
-      const payload = (await response.json().catch(() => null)) as
-        | { token?: string; url?: string; message?: string }
-        | null;
-      if (!response.ok) throw new Error(payload?.message ?? `Share ${action} failed (${response.status}).`);
-      await queryClient.invalidateQueries({ queryKey: creativeShareLedgerQueryKey });
-      if (action === "rotate" && payload?.url) setShareUrl(payload.url);
-      return action === "rotate" ? payload?.token ?? null : null;
-    } catch (error) {
-      setShareMutationError(error instanceof Error ? error.message : `Share ${action} failed.`);
-      return null;
-    } finally {
-      setShareMutationToken(null);
     }
   };
 
@@ -621,46 +487,80 @@ export default function MetaCreativeStudioPage() {
     }
   };
 
-  const datePresets = useMemo<StudioOsDatePreset[]>(
+  const handleCsvExport = () => {
+    if (typeof window === "undefined" || allRows.length === 0) return;
+    const blob = new Blob(["\ufeff" + toCsv(allRows)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `creative-studio-assets-${drEnd}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const assetsState: CreativeStudioDataState = scopeLoading
+    ? "loading"
+    : scopeError
+      ? "error"
+      : !providerAccountId
+        ? "account_required"
+        : creativesQuery.isError
+          ? "error"
+          : creativesQuery.isLoading
+            ? "loading"
+            : allRows.length === 0
+              ? "empty"
+              : "ready";
+  const assetsMessage =
+    assetsState === "loading"
+      ? scopeLoading
+        ? "Loading assigned Meta account scope."
+        : "Loading creative assets."
+      : assetsState === "account_required"
+      ? "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit."
+      : assetsState === "error"
+        ? providerAccountsQuery.error instanceof Error && scopeError
+          ? providerAccountsQuery.error.message
+          : creativesQuery.error instanceof Error
+            ? creativesQuery.error.message
+            : "Creative assets could not be read."
+        : assetsState === "empty"
+          ? "No creative assets were served for this window."
+          : null;
+  const assetRows = useMemo(
+    () => toCreativeStudioAssetRows(allRows, accountCurrency),
+    [accountCurrency, allRows],
+  );
+  const assetsModel = useMemo<CreativeStudioAssetsModel>(
+    () => ({
+      state: assetsState,
+      message: assetsMessage,
+      syncedCount:
+        assetsState === "ready" || assetsState === "empty" ? allRows.length : null,
+      rows: assetRows,
+      persistenceKey: `creative-studio:assets:v1:${businessId}:${providerAccountId || "account-required"}`,
+      onPinnedIdsChange: (ids) => {
+        const visibleIds = new Set(allRows.map((row) => row.id));
+        setSelectedRowIds(ids.filter((id) => visibleIds.has(id)));
+      },
+    }),
+    [assetRows, assetsMessage, assetsState, allRows, businessId, providerAccountId],
+  );
+  const tabHrefs = useMemo(
     () =>
-      DATE_PRESETS.map((preset) => ({
-        key: preset.key,
-        label: preset.label,
-        value: {
-          preset: preset.key,
-          customStart: "",
-          customEnd: "",
-          lastDays: preset.lastDays,
-          sinceDate: "",
-        } satisfies CreativeDateRangeValue,
-      })),
-    [],
+      buildCreativeStudioTabHrefs({
+        pathname,
+        businessId,
+        providerAccountId,
+        start: drStart,
+        end: drEnd,
+      }),
+    [businessId, drEnd, drStart, pathname, providerAccountId],
   );
 
-  const account = providerAccountId
-    ? {
-        name: selectedProviderAccount?.name ?? providerAccountId,
-        id: providerAccountId,
-        currency: accountCurrency,
-      }
-    : null;
-
-  const asOf = briefingQuery.data?.source?.asOf ?? null;
-  const freshnessLabel = asOf ? `as of ${asOf}` : "as of —";
-  const engineVersion =
-    briefingQuery.data?.pulse?.engineVersion ??
-    briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest?.engineVersion ??
-    null;
-  const dataSource = briefingQuery.data?.source?.dataSource ?? null;
-
-  const rowsState: "loading" | "error" | "ready" = creativesQuery.isError
-    ? "error"
-    : creativesQuery.isLoading
-      ? "loading"
-      : "ready";
-  const rowsError = creativesQuery.error instanceof Error ? creativesQuery.error.message : null;
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
+  if (!businessId) return <BusinessEmptyState />;
 
   return (
     <PlanGate requiredPlan="growth">
@@ -668,147 +568,22 @@ export default function MetaCreativeStudioPage() {
         data-testid="creative-studio-page"
         data-creatives-query-status={creativesQuery.status}
         data-creatives-fetch-status={creativesQuery.fetchStatus}
+        data-responsive-studio="true"
+        data-provider-writes="none"
       >
-        <StudioOsView
-          businessId={businessId}
-          allRows={allRows}
-          briefingCards={briefingCards}
-          creativeBriefs={creativeBriefsQuery.data?.briefs ?? []}
-          creativeBriefsState={
-            creativeBriefsQuery.isError
-              ? "error"
-              : creativeBriefsQuery.data?.capability.status === "migration_required"
-                ? "migration_required"
-                : creativeBriefsQuery.data
-                  ? "ready"
-                  : "loading"
-          }
-          shareGrants={creativeShareLedgerQuery.data?.grants ?? []}
-          shareGrantsCapability={creativeShareLedgerQuery.data?.capability ?? null}
-          shareGrantsState={
-            creativeShareLedgerQuery.isError
-              ? "error"
-              : creativeShareLedgerQuery.data
-                ? "ready"
-                : "loading"
-          }
-          shareMutationToken={shareMutationToken}
-          shareMutationError={shareMutationError}
-          defaultCurrency={accountCurrency}
-          account={account}
-          providerAccounts={providerAccounts.map((entry) => ({
-            id: entry.id,
-            name: entry.name,
-            currency: entry.currency,
-          }))}
-          providerAccountId={providerAccountId}
-          accountsLoading={providerAccountsQuery.isLoading}
-          onSelectAccount={(nextProviderAccountId) => {
-            if (typeof window !== "undefined") {
-              const url = new URL(window.location.href);
-              url.searchParams.set("providerAccountId", nextProviderAccountId);
-              url.searchParams.delete("creativeId");
-              window.history.replaceState(null, "", url);
-            }
-            setSelectedProviderAccountId(nextProviderAccountId);
-            setSelectedRowIds([]);
-            setDetailRowId(null);
-            setBriefEditorBriefId(undefined);
-            setShareUrl(null);
-            setShareError(null);
-          }}
-          dateRangeLabel={`${drStart} → ${drEnd}`}
-          dateStart={drStart}
-          dateEnd={drEnd}
-          windowLabel={`window ${drStart} to ${drEnd}`}
-          freshnessLabel={freshnessLabel}
-          engineVersion={engineVersion}
-          dataSource={dataSource}
-          groupBy={groupBy}
-          onGroupByChange={setGroupBy}
-          datePresets={datePresets}
-          currentDatePresetKey={dateRangeValue.preset}
-          onDatePreset={setDateRangeValue}
-          dateRangePickerValue={creativeDateRangeToStandard(
-            dateRangeValue,
-            accountReferenceDate,
-          )}
-          onDateRangePickerChange={(next) =>
-            setDateRangeValue(standardDateRangeToCreative(next))
-          }
-          dateReferenceDate={accountReferenceDate}
-          dateTimeZoneLabel={accountTimeZone}
-          activeTab={activeStudioTab}
-          selectedRowIds={selectedRowIds}
-          onToggleRow={toggleRowSelection}
-          onClearSelection={() => setSelectedRowIds([])}
-          loadUsageRows={loadUsageRows}
-          rowsState={rowsState}
-          rowsError={rowsError}
-          briefingState={
-            briefingQuery.isError ? "error" : briefingQuery.data ? "ready" : "loading"
-          }
-          briefingError={
-            briefingQuery.error instanceof Error ? briefingQuery.error.message : null
-          }
-          decisionsHref={buildMetaScopedHref(DECISIONS_HREF, {
-            businessId,
-            providerAccountId,
-          })}
-          launchpadHref={buildMetaScopedHref(LAUNCHPAD_HREF, {
-            businessId,
-            providerAccountId,
-          })}
-          automationHref={buildMetaScopedHref(AUTOMATION_HREF, {
-            businessId,
-            providerAccountId,
-          })}
-          onEditBrief={editCreativeBrief}
-          onNewBrief={
-            creativeBriefsQuery.data?.capability.canWrite && briefingCards.length > 0
-              ? () => openBriefCard(briefingCards[0]!)
-              : null
-          }
-          onOpenGrant={openShareModal}
-          onRevokeShare={async (token) => {
-            await mutateShareGrant(token, "revoke");
-          }}
-          onRotateShare={(token) => mutateShareGrant(token, "rotate")}
-          decisions={decisionsWorkspaceQuery.data ?? null}
-          decisionsState={
-            decisionsWorkspaceQuery.isError ? "error" : decisionsWorkspaceQuery.data ? "ready" : "loading"
-          }
-        />
-
-        <ReadOnlyCreativeDrawer
-          businessId={businessId}
-          providerAccountId={providerAccountId}
-          row={activeDetailRow}
-          decisionCard={activeDecisionCard}
-          creativeBrief={activeCreativeBrief}
-          creativeBriefState={
-            creativeBriefsQuery.isError
-              ? "error"
-              : creativeBriefsQuery.data?.capability.status === "migration_required"
-                ? "migration_required"
-                : creativeBriefsQuery.data
-                  ? "ready"
-                  : "loading"
-          }
-          creativeBriefError={
-            creativeBriefsQuery.error instanceof Error ? creativeBriefsQuery.error.message : null
-          }
-          defaultCurrency={accountCurrency}
-          onCreativeBriefChanged={handleCreativeBriefChanged}
-          onClose={() => {
-            setDetailRowId(null);
-            setBriefEditorBriefId(undefined);
-          }}
+        <CreativeStudioExact
+          activeTab="assets"
+          tabHrefs={tabHrefs}
+          counts={{ assets: assetsModel.syncedCount }}
+          onExport={handleCsvExport}
+          onShare={openShareModal}
+          assets={assetsModel}
         />
 
         {shareModalOpen ? (
           <ShareSnapshotModal
             audience={shareAudience}
+            buyerAcknowledged={buyerAcknowledged}
             anonymize={anonymize}
             allowCsv={allowCsv}
             decisionLanguageAvailable={false}
@@ -816,7 +591,11 @@ export default function MetaCreativeStudioPage() {
             shareError={shareError}
             shareUrl={shareUrl}
             selectedCount={selectedRows.length}
-            onAudienceChange={setShareAudience}
+            onAudienceChange={(nextAudience) => {
+              setShareAudience(nextAudience);
+              if (nextAudience !== "buyer") setBuyerAcknowledged(false);
+            }}
+            onBuyerAcknowledgedChange={setBuyerAcknowledged}
             onAnonymizeChange={setAnonymize}
             onAllowCsvChange={setAllowCsv}
             onCopyLink={handleShareCopyLink}
@@ -826,174 +605,6 @@ export default function MetaCreativeStudioPage() {
         ) : null}
       </div>
     </PlanGate>
-  );
-}
-
-function ReadOnlyCreativeDrawer({
-  businessId,
-  providerAccountId,
-  row,
-  decisionCard,
-  creativeBrief,
-  creativeBriefState,
-  creativeBriefError,
-  defaultCurrency,
-  onCreativeBriefChanged,
-  onClose,
-}: {
-  businessId: string;
-  providerAccountId: string;
-  row: MetaCreativeRow | null;
-  decisionCard: BriefingCreativeCard | null;
-  creativeBrief: MetaCreativeBrief | null;
-  creativeBriefState: "loading" | "error" | "migration_required" | "ready";
-  creativeBriefError: string | null;
-  defaultCurrency: string | null;
-  onCreativeBriefChanged: (brief: MetaCreativeBrief) => void;
-  onClose: () => void;
-}) {
-  if (!row) return null;
-  const decisionBadge = resolveServerDecisionBadge(decisionCard);
-  const winnerQualification = qualifyCurrentWinner(decisionCard);
-  const currency = resolveCreativeCurrency(row.currency ?? null, defaultCurrency);
-  const metrics = [
-    ["Spend", formatMoney(row.spend, currency, defaultCurrency)],
-    ["ROAS", formatRoas(row.roas)],
-    ["CPA", formatMoney(row.cpa, currency, defaultCurrency)],
-    ["Purchases", formatNumber(row.purchases)],
-    ["Impressions", formatNumber(row.impressions)],
-    ["Link clicks", formatNumber(row.linkClicks)],
-  ];
-  const decisionHref = `${DECISIONS_HREF}?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}&creativeId=${encodeURIComponent(row.creativeId || row.id)}`;
-
-  return (
-    <div className="fixed inset-0 z-[90]">
-      <button
-        type="button"
-        aria-label="Close creative detail"
-        className="absolute inset-0 cursor-default bg-[rgba(16,18,22,0.4)]"
-        onClick={onClose}
-      />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[520px] flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-lg)]">
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-              Read-only detail
-            </p>
-            <h2 className="mt-1 truncate text-[16px] font-semibold text-[var(--ink)]">{row.name}</h2>
-            <p className="mt-1 text-[12px] text-[var(--muted)]">
-              Creative Studio shows analysis only. Execution decisions live in Decisions.
-            </p>
-          </div>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} aria-label="Close">
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          <div className="overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface-2)]">
-            <CreativeRenderSurface
-              id={row.id}
-              name={row.name}
-              preview={row.preview}
-              size="large"
-              mode="asset"
-              assetState={hasRenderablePreview(row) ? "ready" : "missing"}
-              assetFallbacks={[
-                row.cardPreviewUrl,
-                row.imageUrl,
-                row.cachedThumbnailUrl,
-                row.thumbnailUrl,
-                row.previewUrl,
-              ]}
-              className="aspect-[4/5] w-full"
-            />
-          </div>
-          <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-[13px] font-semibold text-[var(--ink)]">Server decision context</h3>
-                <p className="mt-1 text-[11px] text-[var(--muted)]">
-                  {decisionCard?.engineVersion ?? "Engine era unavailable"} · {decisionCard?.sourceAsOf ?? "as-of unavailable"}
-                </p>
-              </div>
-              {decisionBadge ? (
-                <span className="chip chip--info" data-decision-source="server">{decisionBadge.label}</span>
-              ) : (
-                <span className="chip chip--ghost">No server badge</span>
-              )}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-[var(--muted)]">
-              <span className="chip chip--ghost">truth {decisionCard?.truthSource ?? "unavailable"}</span>
-              <span className="chip chip--ghost">threshold {decisionCard?.thresholdQuality ?? "unavailable"}</span>
-              <span className="chip chip--ghost">source {decisionCard?.sourceDataSource ?? "unavailable"}</span>
-            </div>
-            {winnerQualification.candidate && !winnerQualification.qualified ? (
-              <p className="mt-2 rounded-[var(--r-sm)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-2.5 py-2 text-[11px] leading-4 text-[var(--warn)]">
-                {winnerQualification.explanation}
-              </p>
-            ) : null}
-          </section>
-          <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
-            <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[var(--ink)]">
-              <ImageIcon className="h-4 w-4 text-[var(--muted)]" />
-              Performance
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {metrics.map(([label, value]) => (
-                <div key={label} className="rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
-                  <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--ink)]">{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3">
-            <h3 className="text-[13px] font-semibold text-[var(--ink)]">Creative context</h3>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {[row.format, row.creativePrimaryLabel, row.creativeSecondaryLabel, row.launchDate]
-                .filter(Boolean)
-                .map((value) => (
-                  <span key={String(value)} className="chip chip--ghost">
-                    {String(value)}
-                  </span>
-                ))}
-            </div>
-            {row.copyText ? (
-              <p className="mt-3 whitespace-pre-wrap rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2 text-[12px] leading-5 text-[var(--ink-2)]">
-                {row.copyText}
-              </p>
-            ) : null}
-          </section>
-          {creativeBriefState === "ready" ? (
-            <CreativeBriefPanel
-              businessId={businessId}
-              providerAccountId={providerAccountId}
-              creativeId={row.creativeId || row.id}
-              decisionCard={decisionCard}
-              existingBrief={creativeBrief}
-              onBriefChanged={onCreativeBriefChanged}
-            />
-          ) : (
-            <section className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--surface)] p-3 text-[11px] leading-4 text-[var(--muted)]">
-              <h3 className="text-[13px] font-semibold text-[var(--ink)]">Creative Brief</h3>
-              <p className="mt-1">
-                {creativeBriefState === "error"
-                  ? creativeBriefError ?? "Creative briefs are unavailable; editing is withheld."
-                  : creativeBriefState === "migration_required"
-                    ? "Creative Brief storage needs the pending database migration. Analysis remains available; creating and editing briefs is disabled."
-                    : "Loading account-scoped creative briefs..."}
-              </p>
-            </section>
-          )}
-        </div>
-        <footer className="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-          <Link className="btn btn--primary w-full" href={decisionHref}>
-            Open in Decisions
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </footer>
-      </aside>
-    </div>
   );
 }
 
@@ -1017,6 +628,7 @@ const SHARE_AUDIENCES: Array<{ value: ShareAudience; label: string; note: string
 
 function ShareSnapshotModal({
   audience,
+  buyerAcknowledged,
   anonymize,
   allowCsv,
   decisionLanguageAvailable,
@@ -1025,6 +637,7 @@ function ShareSnapshotModal({
   shareUrl,
   selectedCount,
   onAudienceChange,
+  onBuyerAcknowledgedChange,
   onAnonymizeChange,
   onAllowCsvChange,
   onCopyLink,
@@ -1032,6 +645,7 @@ function ShareSnapshotModal({
   onClose,
 }: {
   audience: ShareAudience;
+  buyerAcknowledged: boolean;
   anonymize: boolean;
   allowCsv: boolean;
   decisionLanguageAvailable: boolean;
@@ -1040,6 +654,7 @@ function ShareSnapshotModal({
   shareUrl: string | null;
   selectedCount: number;
   onAudienceChange: (value: ShareAudience) => void;
+  onBuyerAcknowledgedChange: (value: boolean) => void;
   onAnonymizeChange: (value: boolean) => void;
   onAllowCsvChange: (value: boolean) => void;
   onCopyLink: () => void;
@@ -1054,6 +669,8 @@ function ShareSnapshotModal({
         ? "carried from server evidence"
         : "not included from Studio"
       : "structurally removed";
+  const submissionBlocked =
+    shareLoading || selectedCount === 0 || (audience === "buyer" && !buyerAcknowledged);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(16,18,22,0.4)]">
@@ -1105,6 +722,18 @@ function ShareSnapshotModal({
           {activeNote}
         </div>
 
+        {audience === "buyer" ? (
+          <label className="flex items-start gap-2 rounded-[8px] border border-[var(--adc-caution-bd,#ead7ae)] bg-[var(--adc-caution-bg,#fff8e7)] px-3 py-2.5 text-[11.5px] leading-[1.5] text-[var(--adc-caution-fg,#86590a)]">
+            <input
+              type="checkbox"
+              checked={buyerAcknowledged}
+              onChange={(event) => onBuyerAcknowledgedChange(event.target.checked)}
+              className="mt-0.5 accent-[var(--adc-ink,#1a1c1f)]"
+            />
+            <span>{BUYER_FINANCIAL_WARNING}</span>
+          </label>
+        ) : null}
+
         <label className="flex items-center gap-2 text-[12px] text-[var(--adc-ink,#1a1c1f)]">
           <input
             type="checkbox"
@@ -1145,7 +774,7 @@ function ShareSnapshotModal({
           <button
             type="button"
             onClick={onPreview}
-            disabled={shareLoading}
+            disabled={submissionBlocked}
             className="rounded-[6px] border border-[var(--adc-b2,#cdcdc7)] bg-transparent px-3 py-1.5 text-[12px] text-[var(--adc-ink,#1a1c1f)] disabled:opacity-50"
           >
             Preview page
@@ -1153,7 +782,7 @@ function ShareSnapshotModal({
           <button
             type="button"
             onClick={onCopyLink}
-            disabled={shareLoading}
+            disabled={submissionBlocked}
             className="rounded-[6px] border border-[var(--adc-ink,#1a1c1f)] bg-[var(--adc-ink,#1a1c1f)] px-3 py-1.5 text-[12px] font-medium text-[var(--adc-s2,#fff)] disabled:opacity-60"
           >
             {shareLoading ? "Creating…" : "Copy link"}

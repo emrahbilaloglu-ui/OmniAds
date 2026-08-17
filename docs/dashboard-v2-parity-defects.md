@@ -9,21 +9,23 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **137 EXTRA**, **181
-WRONG**, **86 GEOMETRY**, and **64 MISSING**.
+px/weight/hex value differs → match it. Current totals are **138 EXTRA**, **188
+WRONG**, **87 GEOMETRY**, and **66 MISSING**.
 
-**468 verified divergences, 143 of them high severity.** The original audit
+**479 verified divergences, 150 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
 (`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
 findings (`OVERVIEW-28`–`OVERVIEW-56`). The Batch 3 full-source re-read added 10
-Meta Decision Center findings (`META-35`–`META-44`).
+Meta Decision Center findings (`META-35`–`META-44`). The Batch 4 full-source and
+route-contract re-read added 11 Creative Studio findings
+(`CREATIVE-39`–`CREATIVE-49`).
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
 | Shell chrome (left rail + top bar)            |       20 |    0 |
 | Overview                                      |       56 |   10 |
 | Meta Decision Center                          |       44 |   16 |
-| Creative Studio                               |       38 |   16 |
+| Creative Studio                               |       49 |   23 |
 | Launchpad + Automation                        |       23 |    4 |
 | Google Ads Overview + Advisor                 |       35 |   13 |
 | Google Ads Search + Products                  |       26 |   11 |
@@ -950,6 +952,81 @@ pixel claim is made here.
 
 ## Creative Studio
 
+### Batch 4 implementation status
+
+Canonical source read in full for this batch: Creative Studio markup lines
+**642–1015**, initial screen state around **3176**, and the Creative Studio
+models/interactions through **4462** of `Adsecute Dashboard v2.dc.html` at
+SHA-256 `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+The shared implementation is `CreativeStudioExact.tsx` plus its CSS module;
+every legacy, `/c/[businessId]/creative/**`, and `/app/creative/**` entry point
+now reaches that same presentation body with server-authorized account scope.
+
+`CLOSED` below means the source-level DOM/geometry/data-contract divergence is
+removed and covered by the named component, adapter, page, or route tests. It
+does **not** mean a zero-RGBA pixel diff has been proved. The production
+component still has no legitimate canonical-fixture injection seam, so the
+strict reference/current/diff pixel gate remains unresolved and no zero-pixel
+claim is made.
+
+| ID          | Status | Current proof |
+| ----------- | ------ | ------------- |
+| CREATIVE-01 | CLOSED | Audiences renders only the canonical summary, breakdown and matrix shapes; the readiness ledger and both invented asides are gone. |
+| CREATIVE-02 | CLOSED | The shared header is eyebrow, `Creative Studio`, `Export CSV`, and `Share with client`; account/freshness/status/STOP chrome is absent. |
+| CREATIVE-03 | CLOSED | Assets has no action-filter chip strip or overflow action menu. |
+| CREATIVE-04 | CLOSED | Assets exposes only the canonical sort and search controls; date and context filters remain shell-owned. |
+| CREATIVE-05 | CLOSED | Copies begins at the shared header/tabs and angle cards; the two-layer comparison/mode/export card is deleted. |
+| CREATIVE-06 | CLOSED | Copies contains angle cards, coverage, the exact table and footnote; `CreativesTopSection` and its heat footer are not mounted. |
+| CREATIVE-07 | CLOSED | Four summary slots, five fixed breakdown cards, and the matrix shell are always present; unavailable values render `—`. |
+| CREATIVE-08 | CLOSED | Inbox always renders Requested, In production, Delivered and Live columns in the canonical board. |
+| CREATIVE-09 | CLOSED | The exact Decisions routing strip and dashed upload dropzone are present. |
+| CREATIVE-10 | CLOSED | Landing Pages includes `What’s missing`, `What to try`, and `Destination history` in their canonical hierarchy. |
+| CREATIVE-11 | CLOSED | Copies always preserves four messaging-angle card slots; missing account data stays `—`, never prototype seed copy. |
+| CREATIVE-12 | CLOSED | The Assets table has separate Status and Marketing angle columns. |
+| CREATIVE-13 | CLOSED | Both canonical header buttons exist on every tab and invoke only an explicitly supplied callback. |
+| CREATIVE-14 | CLOSED | Landing Pages uses the nine Meta-only destination columns; GA4/session-funnel fields are absent. |
+| CREATIVE-15 | CLOSED | Copies uses the exact nine-column order from Copy through ROAS. |
+| CREATIVE-16 | CLOSED | Assets has Performance, Engagement, Funnel and Custom pills plus the canonical metric picker. |
+| CREATIVE-17 | CLOSED | The extra `Analyzing …` strip is absent. |
+| CREATIVE-18 | CLOSED | The Assets table has no card frame, pagination receipt, row-count menu or selection footer. |
+| CREATIVE-19 | CLOSED | Metric headers contain one label/direction line and no `Meta-attr.` eyebrow. |
+| CREATIVE-20 | CLOSED | Only the five canonical tabs render; Winners, Briefs, Shares and the More menu are absent. |
+| CREATIVE-21 | CLOSED | Inbox has no crumbs, selector, read-only/count chips, description, or per-card decision metric chrome. |
+| CREATIVE-22 | CLOSED | The color map is the fixed canonical rank heat rule; there is no color-mode control. |
+| CREATIVE-23 | CLOSED | Asset metric cells render only the canonical tinted value chip and no volume bar. |
+| CREATIVE-24 | CLOSED | `All creatives` renders only the synced count, Columns label, metric pills and picker trigger. |
+| CREATIVE-25 | CLOSED | The exact module restores `#45526B`, `#7A869E`, and `#98A4BA` to their distinct source roles. |
+| CREATIVE-26 | CLOSED | Tabs render the canonical count badge only when a real nonzero count is supplied; unknown is never invented. |
+| CREATIVE-27 | CLOSED | Both exact Assets captions are present. |
+| CREATIVE-28 | CLOSED | The view renders only `angleGaps`; the source adapter no longer relabels already-covered angles as untested, and unsupported gap evidence remains empty. |
+| CREATIVE-29 | CLOSED | The second tab is `Copies`. |
+| CREATIVE-30 | CLOSED | Every tab uses the same shared title-first, tabs-second DOM order. |
+| CREATIVE-31 | CLOSED | Every tab keeps `Creative Studio` as the single h1. |
+| CREATIVE-32 | CLOSED | Assets sorting is the three-option select; table headers are non-interactive. |
+| CREATIVE-33 | CLOSED | Comparison board heading/count remain in both states; populated state has only `Clear board`, with no grid-KPI control. |
+| CREATIVE-34 | CLOSED | Pinned cards always render Spend, ROAS, Thumbstop and Hold. Missing Hold 15s is `—`, not a video-completion proxy. |
+| CREATIVE-35 | CLOSED | Landing Pages has no KPI grid, local date picker or path search. |
+| CREATIVE-36 | CLOSED | Landing Pages and Audiences use the unframed shared Studio header. |
+| CREATIVE-37 | CLOSED | The exact stylesheet pins the source tab, eyebrow, table, header, thumbnail, search and caption values; the exception is locked by `typography-floor.test.ts`. |
+| CREATIVE-38 | CLOSED | Assets restores the dedicated 32px selection column; the Creative cell begins at the thumbnail. |
+| CREATIVE-39 | CLOSED | Legacy and canonical route families now import the same five exact legacy bodies and forward the authorized business/account pair. |
+| CREATIVE-40 | CLOSED | `/c/[businessId]/creative/audiences` exists and follows the same auth, membership and assigned-account resolution contract as the other four tabs. |
+| CREATIVE-41 | CLOSED | `/app/creative/audiences` has an explicit dispatcher entry and cannot fall through to the dynamic creative-detail route. |
+| CREATIVE-42 | CLOSED | An Assets row performs only the canonical pin toggle; the old asset usage/evidence drawer path is not mounted from this screen. |
+| CREATIVE-43 | CLOSED | Copies shows Ads only when the response explicitly marks the associated-Ad count available; absence renders `—`. |
+| CREATIVE-44 | CLOSED | The typed copies response has no See more or Engage measures, so both remain `—`; no proxy metric is substituted. |
+| CREATIVE-45 | CLOSED | Briefing cards lacking workflow state, owner and due date are not guessed into Requested; Inbox keeps four empty source-shaped lanes with an explanatory state. |
+| CREATIVE-46 | CLOSED | No trusted account-scoped audience producer exists, so the four summaries, five breakdowns and four matrix-column slots render `—` without demo audiences. |
+| CREATIVE-47 | CLOSED | Loading/empty/error states retain fixed canonical card/table geometry instead of collapsing each tab to a replacement panel. |
+| CREATIVE-48 | CLOSED | Assets, Copies and Landing Pages read the shared dashboard date preference; tab hrefs preserve the same window without reintroducing page-local date chrome. |
+| CREATIVE-49 | CLOSED | Unsupported Share/upload actions stay disabled and callback-only; production exposes no fake success or provider write, while narrow viewports wrap controls and keep wide boards/tables scrollable. |
+
+Executable evidence: `CreativeStudioExact.test.tsx`,
+`creative-studio-exact-adapters.test.ts`, the tab route/page tests under
+`app/(dashboard)/platforms/meta/**`, `creative-pages.test.tsx`,
+`creative-route-dispatch.test.tsx`, `compatibility-shims.route.test.tsx`, and
+the marker-locked `typography-floor.test.ts` / `studio-contrast-floor.test.ts`.
+
 ### CREATIVE-01 · HIGH · EXTRA — Audiences tab invents a "Readiness ledger" table, a "Current safe routes" aside and a "Contract needed" section
 
 - **Design:** 02-creative-studio.html L308-373: the csAudiences block contains no ledger, no Contract/State/Evidence table, no navigation aside and no "Contract needed" panel.
@@ -1177,6 +1254,72 @@ pixel claim is made here.
 - **Design:** 02-creative-studio.html L106 the first "<th>" is a dedicated 32px column, and L118 the first "<td>" holds only the 17px selection box (radius 5px, 1.5px border). The Creative cell (L119-122) starts at the thumbnail.
 - **Code:** components/creatives/StudioOsView.tsx:2296-2306 the thead's first cell is the "Creative" th itself; :2396-2430 the row's first "<td>" is a sticky 300px-min Creative cell whose inner flex row begins with a 16px selection button before the thumbnail.
 - **Fix:** Split the 32px selection column back out as the table's first column and start the Creative cell at the 34×34 thumbnail.
+
+### CREATIVE-39 · HIGH · WRONG — Legacy and canonical route families rendered different Creative Studio bodies
+
+- **Design:** Lines 642–1015 define one Creative Studio screen whose five tabs replace only the inner tab body; header, tab row, geometry and state contract are shared.
+- **Code before:** `/platforms/meta/**` rendered the legacy Studio routes, while `/c/[businessId]/creative/copies`, `/landing-pages` and `/inbox` mounted separate zero-base clients; `/creative/performance` wrapped the legacy body in `LegacyInteriorBridge` and discarded the resolved provider account. The same tab therefore changed DOM and scope behavior by URL family or `ZERO_BASE_UI_MODE`.
+- **Fix:** All five `/c/**` pages now import the same exact legacy bodies as `/platforms/**`, pass the server-authorized `businessId` and `providerAccountId`, and `/app/**` dispatches to those same pages. `creative-pages.test.tsx` locks the shared-body and authorization contract.
+
+### CREATIVE-40 · HIGH · MISSING — Canonical Creative Studio had no Audiences route
+
+- **Design:** Lines 653–656 include Audiences as the fifth canonical tab and lines 949–1014 define its full surface.
+- **Code before:** `app/c/[businessId]/creative/` had performance, copies, landing-pages and inbox pages but no `audiences/page.tsx`; the legacy tab therefore had no canonical route-family destination.
+- **Fix:** Add `/c/[businessId]/creative/audiences` with the same session, membership, requested-account resolution and authorized-prop forwarding as the other four tabs.
+
+### CREATIVE-41 · MEDIUM · MISSING — `/app/creative/audiences` fell through to creative detail
+
+- **Design:** Audiences is a fixed Studio tab, not a creative ID.
+- **Code before:** `app/app/[[...path]]/page.tsx` had no `creative/audiences` dispatcher entry, while the generic two-segment Creative branch treated the second segment as `[creativeId]`.
+- **Fix:** Register `creative/audiences` before the dynamic detail fallback. `creative-route-dispatch.test.tsx` proves the fixed route dispatches to Audiences and a real creative ID still reaches detail.
+
+### CREATIVE-42 · MEDIUM · EXTRA — Clicking an Assets row opened an asset usage/evidence surface instead of only pinning it
+
+- **Design:** The Assets row's sole handler is `r.toggle` at line 758; the dedicated checkbox and full row both represent the pin state. The only Studio drawer trigger is the Copies row handler at line 813.
+- **Code before:** The old Assets controller loaded usage data and mounted Studio asset evidence/detail behavior in addition to selection, introducing a screen/state the canonical Assets tab does not define.
+- **Fix:** `CreativeStudioExact` binds each Assets row only to `togglePin`; the page supplies pin-state persistence but no Assets `onOpenRow` or usage drawer. The exact interaction test asserts row click creates a comparison card and nothing else.
+
+### CREATIVE-43 · HIGH · WRONG — Copies could present an Ads count without explicit availability proof
+
+- **Design:** `Ads` is a distinct source column at lines 802 and 819; it is not derivable from spend, impressions, or the number of copy bundles.
+- **Code before:** The old copies presentation did not have the canonical column and its source contract did not distinguish a real associated-Ad count from a zero/default placeholder.
+- **Fix:** The adapter emits `row.associatedAdsCount` only when `associatedAdsCountAvailable` is true; otherwise the exact table renders `—`. Adapter/page tests cover both paths.
+
+### CREATIVE-44 · HIGH · WRONG — Unsupported See more and Engage values had no honest production binding
+
+- **Design:** Lines 804 and 807 define separate `See more` and `Engage` columns, with the closing note at lines 837–839 defining their exact meanings.
+- **Code before:** The typed `/api/meta/copies` response carries neither truncated-primary expansion counts nor reactions/comments/shares per impression. Substituting link CTR, generic engagement, or video metrics would fabricate those values.
+- **Fix:** The production adapter explicitly returns `seeMore: null` and `engagement: null`; the designed cells remain present and render `—` until a typed producer exists.
+
+### CREATIVE-45 · HIGH · WRONG — Briefing cards were treated as Inbox workflow cards without workflow evidence
+
+- **Design:** Lines 918–937 require one of four workflow states plus source, owner, due date and optional CTA for every Inbox card.
+- **Code before:** The available briefing payload has decision cards but no authoritative workflow status, owner or due date. Assigning those rows to Requested would invent an operational state and ownership contract.
+- **Fix:** The route still performs the account-scoped read to distinguish empty/error/partial states, but places no briefing row into a workflow lane. All four columns remain visible with zero counts and the state explains which fields are missing.
+
+### CREATIVE-46 · HIGH · WRONG — Audience cards and matrix had no trusted account-scoped data source
+
+- **Design:** Lines 949–1014 define four audience summaries, five breakdown types and a four-column Creative × audience matrix.
+- **Code before:** No account-scoped endpoint in the current server contract owns audience spend share, audience ROAS, frequency breakdowns or creative-audience pairing ROAS. Prototype labels/numbers or the old readiness ledger could not satisfy those fields.
+- **Fix:** The route supplies no demo values. The exact component preserves four summary slots, five named breakdown shells and four anonymous `—` matrix columns, with every unsupported metric rendered `—`.
+
+### CREATIVE-47 · MEDIUM · GEOMETRY — Empty/partial data collapsed repeated canonical geometry
+
+- **Design:** The source pins four copy-angle cards, four Inbox columns, four audience summaries, five breakdown cards and a four-audience matrix. Those repeated shapes determine the layout even before production values are available.
+- **Code before:** Array-driven rendering emitted zero cards/columns when a producer returned no rows, replacing the source geometry with a generic empty panel or a narrower table.
+- **Fix:** `CreativeStudioExact` reserves the fixed slot counts and writes `—` into unavailable fields. `CreativeStudioExact.test.tsx` locks the four Copy slots, four Inbox lanes, four summaries, five breakdown cards and five-column matrix shell without prototype strings.
+
+### CREATIVE-48 · MEDIUM · WRONG — Studio date state diverged from the shared shell window across tabs
+
+- **Design:** The Studio has no page-local date picker; inline source captions consistently describe the active evidence window while date control belongs to the dashboard shell.
+- **Code before:** Assets, Copies and Landing Pages kept independent route/local date controls, and switching route families could reset or reinterpret the requested window.
+- **Fix:** The three data-backed tabs read `usePersistentDateRange`, convert it through the existing Creative range resolver and build all tab hrefs with the same start/end scope. Inbox/Audiences add no local picker; their unsupported/read-only state does not fabricate a dated measurement.
+
+### CREATIVE-49 · HIGH · WRONG — Unsupported Studio actions could imply a successful upload/share or provider write
+
+- **Design:** Lines 648–650 and 939–945 visibly reserve Export, Share and Browse controls, but the production plan requires server contracts rather than simulated success.
+- **Code before:** Several routes either omitted the controls or coupled screen-local controls to prototype/read-only behavior, leaving no uniform fail-closed rule for an unsupported backend action.
+- **Fix:** Header actions and Inbox Browse are callback-only and disabled when no real contract is supplied. Assets retains its guarded share endpoint and source-backed CSV; Copies/Landing export only real rows; Inbox/Audiences do not invent success. The Assets root declares zero provider writes, and responsive CSS wraps controls while keeping wide boards/tables horizontally scrollable on narrow viewports.
 
 ---
 

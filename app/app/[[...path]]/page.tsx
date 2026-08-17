@@ -27,6 +27,7 @@ const pages = {
   "creative/inbox": () => import("@/app/c/[businessId]/creative/inbox/page"),
   "creative/copies": () => import("@/app/c/[businessId]/creative/copies/page"),
   "creative/landing-pages": () => import("@/app/c/[businessId]/creative/landing-pages/page"),
+  "creative/audiences": () => import("@/app/c/[businessId]/creative/audiences/page"),
   "creative/shares": () => import("@/app/c/[businessId]/creative/shares/page"),
   "google/overview": () => import("@/app/c/[businessId]/google/overview/page"),
   "google/advisor": () => import("@/app/c/[businessId]/google/advisor/page"),

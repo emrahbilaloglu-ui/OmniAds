@@ -120,4 +120,25 @@ describe("copies page mapApiRowToCopyRow", () => {
   it("keeps the phantom see-more metric out of the copies default metric list", () => {
     expect(DEFAULT_COPY_TOP_METRIC_IDS).not.toContain("seeMoreRate");
   });
+
+  it("maps only a real server messaging angle and does not invent one", () => {
+    const tagged = mapApiRowToCopyRow(
+      {
+        ...buildCopyApiRow(),
+        ai_tags: { messagingAngle: ["", "Social Proof"] },
+      } as MetaCopyApiRow & {
+        ai_tags: { messagingAngle: string[] };
+      },
+    );
+    const untagged = mapApiRowToCopyRow(buildCopyApiRow());
+
+    expect(tagged.copyAngle).toBe("Social Proof");
+    expect(untagged.copyAngle).toBeNull();
+  });
+
+  it("keeps Ads unavailable because the copies contract has no aggregate ad count", () => {
+    const row = mapApiRowToCopyRow(buildCopyApiRow());
+
+    expect(row.associatedAdsCountAvailable).toBe(false);
+  });
 });

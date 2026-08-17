@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 /**
  * The plan's typography floor, enforced so it cannot quietly regress.
  *
- * Essential data and body text must be at least 12px. The sole CSS exception
- * in this batch is the marker-bounded shell fragment copied from the canonical
- * Dashboard v2 reference. Its five selector/value pairs are asserted exactly,
- * so the marker cannot become a general exemption.
+ * Essential data and body text must be at least 12px. Marker-bounded fragments
+ * copied from the canonical Dashboard v2 reference are the only exceptions.
+ * Their selector/value pairs are asserted exactly, so a marker cannot become a
+ * general exemption.
  *
  * SCOPE, stated honestly: this checks `.css` files only. It does not see
  * Tailwind arbitrary values in TSX (`text-[11.5px]`), and that is where most of
@@ -48,18 +48,24 @@ const EXACT_META_TYPE_START =
   "/* dashboard-v2-meta-exact-reference-type:start */";
 const EXACT_META_TYPE_END =
   "/* dashboard-v2-meta-exact-reference-type:end */";
+const EXACT_CREATIVE_TYPE_FILE =
+  "components/creatives/CreativeStudioExact.module.css";
+const EXACT_CREATIVE_TYPE_START =
+  "/* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
-  const markers =
+  const markers: readonly [string, string | null] | null =
     file === EXACT_SHELL_TYPE_FILE
       ? [EXACT_SHELL_TYPE_START, EXACT_SHELL_TYPE_END]
       : file === EXACT_META_TYPE_FILE
         ? [EXACT_META_TYPE_START, EXACT_META_TYPE_END]
+        : file === EXACT_CREATIVE_TYPE_FILE
+          ? [EXACT_CREATIVE_TYPE_START, null]
         : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
   const markerStart = source.indexOf(startMarker);
-  const markerEnd = source.indexOf(endMarker);
+  const markerEnd = endMarker === null ? source.length : source.indexOf(endMarker);
   if (markerStart < 0 || markerEnd <= markerStart) return null;
   return {
     start: markerStart + startMarker.length,
@@ -140,6 +146,90 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".archiveTable th, .provenance", size: 10 },
       { selector: ".creativeKind", size: 8 },
       { selector: ".creativeSparkLabel", size: 8.5 },
+    ]);
+  });
+
+  it("keeps the canonical Creative Studio type exception exact", () => {
+    const source = readFileSync(EXACT_CREATIVE_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_CREATIVE_TYPE_START)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_CREATIVE_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactCreative = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactCreative.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    )
+      .map((match) => ({
+        selector: match[1]!
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    expect(declarations).toEqual([
+      { selector: ".pageEyebrow", size: 11 },
+      { selector: ".tabCount, .tabCountActive", size: 10 },
+      { selector: ".mutedMono", size: 10.5 },
+      { selector: ".unpinButton", size: 11 },
+      { selector: ".kindBadge", size: 10 },
+      { selector: ".statusBadge", size: 10.5 },
+      {
+        selector:
+          ".boardMetric > span:first-child, .summaryMetric > span:first-child",
+        size: 8.5,
+      },
+      { selector: ".columnsLabel", size: 9.5 },
+      { selector: ".metricPickerHeader > span", size: 10 },
+      { selector: ".metricCategory", size: 9 },
+      { selector: ".metricCheckbox, .metricCheckboxSelected", size: 9 },
+      { selector: ".metricDirection", size: 10 },
+      { selector: ".heatLegend", size: 10 },
+      { selector: ".assetTable th", size: 10 },
+      { selector: ".rowCheckbox, .rowCheckboxSelected", size: 10 },
+      { selector: ".creativeIdentityText > span:last-child", size: 10 },
+      { selector: ".tableStatus", size: 10.5 },
+      { selector: ".emptyTableCell", size: 11 },
+      { selector: ".closingNote", size: 11 },
+      { selector: ".angleCardHeader > span", size: 10 },
+      { selector: ".angleBestLine", size: 11.5 },
+      { selector: ".angleUsage", size: 10 },
+      { selector: ".angleCoverage > span:first-child", size: 9.5 },
+      { selector: ".angleGap", size: 11 },
+      {
+        selector: ".articleHeader > span:not(.insightPill, .heatRamp)",
+        size: 10.5,
+      },
+      { selector: ".insightPill", size: 11 },
+      { selector: ".copyTable th, .landingTable th, .matrixTable th", size: 10 },
+      { selector: ".copyCell > span:last-child", size: 10 },
+      { selector: ".anglePill", size: 10.5 },
+      { selector: ".roasPill", size: 11.5 },
+      { selector: ".emptyPanel", size: 11 },
+      { selector: ".signalPill", size: 11 },
+      { selector: ".readKind", size: 9 },
+      { selector: ".testEstimate", size: 9 },
+      {
+        selector: ".readEmpty, .historyEmpty, .breakdownEmpty, .inboxEmpty",
+        size: 11,
+      },
+      { selector: ".historyHeader span, .audienceSectionHeading span", size: 10.5 },
+      { selector: ".historyRow > span:first-child", size: 10.5 },
+      { selector: ".historyRow > span:last-child", size: 11 },
+      { selector: ".inboxColumnHeader", size: 10 },
+      { selector: ".inboxSource", size: 9 },
+      { selector: ".inboxCardNote", size: 11.5 },
+      { selector: ".avatar", size: 9 },
+      { selector: ".inboxDue", size: 10 },
+      { selector: ".inboxAction", size: 11 },
+      { selector: ".audienceNote", size: 11.5 },
+      { selector: ".breakdownHeader span", size: 8.5 },
+      { selector: ".breakdownRow > span:first-child", size: 10.5 },
+      { selector: ".breakdownRow > span:nth-child(3)", size: 10.5 },
+      { selector: ".breakdownNote", size: 11 },
     ]);
   });
 

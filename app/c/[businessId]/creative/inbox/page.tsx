@@ -3,9 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
-import { CreativeInboxClient } from "@/components/zero-base/creative/studio-clients";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
+import LegacyCreativeInboxPage from "@/app/(dashboard)/platforms/meta/creative-inbox/legacy-page";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +28,9 @@ export default async function CreativeInboxPage({
   const providerAccountId = await resolveProviderAccountId({ businessId, provider: "meta", requestedAccountId: scope.providerAccountId });
 
   return (
-    <CreativeInboxClient
+    <LegacyCreativeInboxPage
       businessId={businessId}
       providerAccountId={providerAccountId}
-      start={scope.start}
-      end={scope.end}
     />
   );
 }

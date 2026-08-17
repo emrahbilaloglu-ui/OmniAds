@@ -41,6 +41,22 @@ function normalizeCopyIdentity(value: unknown): string | null {
   return normalized;
 }
 
+function resolveCopyAngle(row: MetaCopyApiRow): string | null {
+  const payload = row as MetaCopyApiRow & {
+    copy_angle?: unknown;
+    ai_tags?: { messagingAngle?: unknown } | null;
+  };
+  const direct = normalizeCopyIdentity(payload.copy_angle);
+  if (direct) return direct;
+  const messagingAngles = payload.ai_tags?.messagingAngle;
+  if (!Array.isArray(messagingAngles)) return null;
+  for (const candidate of messagingAngles) {
+    const normalized = normalizeCopyIdentity(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function excerptCopyText(value: string, max = 220): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max).trim()}...`;
@@ -85,6 +101,9 @@ export function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     postId: row.post_id ?? null,
     name: displayName,
     associatedAdsCount: 1,
+    // The copies response does not expose the aggregate ad count. Keep the
+    // placeholder value unavailable so the exact table renders an em dash.
+    associatedAdsCountAvailable: false,
     accountId: row.account_id ?? null,
     accountName: row.account_name ?? null,
     campaignId: row.campaign_id,
@@ -149,12 +168,9 @@ export function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     copyAssetType: row.copy_asset_type ?? null,
     normalizedCopyKey: row.normalized_copy_key ?? null,
     unresolvedReason: row.unresolved_reason ?? null,
-    // Populated once the engine's angle tagging ships; null until then.
-    copyAngle:
-      (row as { copy_angle?: string | null; ai_tags?: { angle?: string | null } | null })
-        .copy_angle ??
-      (row as { ai_tags?: { angle?: string | null } | null }).ai_tags?.angle ??
-      null,
+    // Only a real server-supplied copy angle or the creative taxonomy's
+    // messagingAngle may populate this field. No client inference is allowed.
+    copyAngle: resolveCopyAngle(row),
     usedInCampaigns: row.campaign_name ? [row.campaign_name] : [],
     usedInAds: row.name ? [row.name] : [],
   };

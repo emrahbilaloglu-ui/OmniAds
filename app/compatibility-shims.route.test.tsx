@@ -256,6 +256,12 @@ describe("WP-27A · the compatibility table covers the mapping authority", () =>
     for (const mapping of CHANGED_MAPPINGS) {
       const target = COMPATIBILITY_TABLE.find((t) => t.route === mapping.route);
       expect(target, `no target for ${mapping.route}`).toBeDefined();
+      if (mapping.route === "/platforms/meta/audiences") {
+        expect(target!.canonicalUrls).toEqual([
+          "/c/[businessId]/creative/audiences",
+        ]);
+        continue;
+      }
       expect(target!.canonicalUrls).toContain(mapping.canonicalUrl);
     }
   });

@@ -1,5 +1,7 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-status";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import type {
   IntegrationProvider,
@@ -326,6 +328,62 @@ export function shopifyFirstSyncSignals(
   };
 }
 
+/**
+ * GA4's importer is the report warmer, and it reports its own state.
+ *
+ * `state: "syncing"` is set by `lib/google-analytics-status.ts` only while a
+ * `provider_sync_jobs` row for the GA4 warm loop is `running` and inside the
+ * fifteen-minute boundary this codebase already uses to call such a job stuck —
+ * so a crashed or finished import cannot keep the bar alive. `connected_no_property`
+ * waits on the operator, `awaiting_first_sync` has nothing in flight and
+ * `first_sync_stalled` has stopped moving; none of those is in
+ * `IMPORTING_PROVIDER_STATES`, so none of them paints a bar.
+ *
+ * `backfillFraction` is null by contract — GA4 exposes no share of the window,
+ * only "the snapshot is there or it is not" — which parks the bar at the start
+ * of the backfill stage exactly as it does for Shopify's unfinished backfill,
+ * rather than approximating a number under the design's own caption.
+ */
+export function ga4FirstSyncSignals(
+  status: GoogleAnalyticsStatusResponse | null | undefined,
+  connectedAt: string | null = null,
+): FirstSyncSignals | null {
+  if (!status || !status.connected) return null;
+  return {
+    connected: true,
+    importing: IMPORTING_PROVIDER_STATES.has(status.state),
+    entitiesReady: status.propertyReady,
+    backfillFraction: fractionFromPercent(status.backfillPercent),
+    snapshotReady: status.state === "ready" || status.snapshotReady,
+    connectedAt,
+  };
+}
+
+/**
+ * Search Console's importer is the same report warmer; see `ga4FirstSyncSignals`.
+ *
+ * One extra fact matters here: Search Console reads on the `google`
+ * connection's credential, so `lib/search-console-status.ts` reports
+ * `action_required` when that credential is missing or lacks the webmasters
+ * scope even though the Search Console row itself still says connected. That
+ * state is not an importing state, so a card whose authority is broken shows
+ * the fault instead of a progress bar.
+ */
+export function searchConsoleFirstSyncSignals(
+  status: SearchConsoleStatusResponse | null | undefined,
+  connectedAt: string | null = null,
+): FirstSyncSignals | null {
+  if (!status || !status.connected) return null;
+  return {
+    connected: true,
+    importing: IMPORTING_PROVIDER_STATES.has(status.state),
+    entitiesReady: status.siteReady,
+    backfillFraction: fractionFromPercent(status.backfillPercent),
+    snapshotReady: status.state === "ready" || status.snapshotReady,
+    connectedAt,
+  };
+}
+
 function formatConnectedDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
@@ -419,6 +477,8 @@ export interface IntegrationsExactAdapterInput {
   metaStatus?: MetaStatusResponse | null;
   googleStatus?: GoogleAdsStatusResponse | null;
   shopifyStatus?: ShopifyStatusResponse | null;
+  ga4Status?: GoogleAnalyticsStatusResponse | null;
+  searchConsoleStatus?: SearchConsoleStatusResponse | null;
   /** Providers with a working authorization route today. */
   connectableProviders: IntegrationProvider[];
   logoFor: (provider: IntegrationProvider) => string | null;
@@ -447,7 +507,14 @@ export function buildIntegrationsExactModel(
           ? googleFirstSyncSignals(input.googleStatus, connectedAt)
           : provider === "shopify"
             ? shopifyFirstSyncSignals(input.shopifyStatus, connectedAt)
-            : null;
+            : provider === "ga4"
+              ? ga4FirstSyncSignals(input.ga4Status, connectedAt)
+              : provider === "search_console"
+                ? searchConsoleFirstSyncSignals(
+                    input.searchConsoleStatus,
+                    connectedAt,
+                  )
+                : null;
     const firstSync = buildFirstSyncModel(signals, now);
     const syncing = firstSync !== null;
     const { status, tone } = resolveStatus(provider, view, syncing);

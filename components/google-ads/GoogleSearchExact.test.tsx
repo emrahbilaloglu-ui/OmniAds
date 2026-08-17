@@ -217,4 +217,15 @@ describe("GoogleSearchExact geometry", () => {
   it("keeps both footnotes in the reference mono face", () => {
     expect(stylesheet).toMatch(/\.footnote \{[^}]*font-family: "IBM Plex Mono"/);
   });
+
+  it("separates the served neutral ink from the unserved ink", () => {
+    // The reference puts both on the same neu[0] fill and changes only the ink:
+    // neu[1] #45526B for a served in-band ROAS, #7A869E for the rows that
+    // print the em dash.
+    expect(stylesheet).toMatch(/\.toneNeutral \{[^}]*color: #45526b;/);
+    expect(stylesheet).toMatch(/\.toneUnserved \{[^}]*background: #f1f4f9;/);
+    expect(stylesheet).toMatch(/\.toneUnserved \{[^}]*color: #7a869e;/);
+    // The blanket override that painted every neutral ROAS chip grey is gone.
+    expect(stylesheet).not.toContain(".roasChip.toneNeutral");
+  });
 });

@@ -38,13 +38,16 @@ function tileValueClass(
   }
 }
 
+/** A fact the read did not serve, in the design's own geometry. */
+const DASH = "—";
+
 /**
  * The canonical `Google Ads · Products` screen.
  *
  * Presentation only. The Allocation read card is an unconditional second child
- * of the two-column grid: when the advisor has scoped no Shopping & Products
- * finding, the card keeps its head and closing copy rather than collapsing and
- * leaving the design's right-hand track empty.
+ * of the two-column grid, and its four labelled buckets are equally
+ * unconditional: a bucket with no product behind it renders the em dash in the
+ * chip row rather than vanishing and shortening the card.
  */
 export function GoogleProductsExact({
   model,
@@ -147,14 +150,21 @@ export function GoogleProductsExact({
           </div>
           <div className={styles.allocationBody}>
             {model.allocation.map((block) => (
-              <div key={block.key}>
+              <div key={block.key} data-google-allocation-bucket={block.key}>
                 <p className={styles.allocationLabel}>{block.label}</p>
                 <div className={styles.allocationItems}>
-                  {block.items.map((item, index) => (
-                    <span className={styles.allocationChip} key={`${block.key}-${index}`}>
-                      {item}
-                    </span>
-                  ))}
+                  {block.items.length > 0 ? (
+                    block.items.map((item, index) => (
+                      <span
+                        className={styles.allocationChip}
+                        key={`${block.key}-${index}`}
+                      >
+                        {item}
+                      </span>
+                    ))
+                  ) : (
+                    <span className={styles.allocationChip}>{DASH}</span>
+                  )}
                 </div>
               </div>
             ))}

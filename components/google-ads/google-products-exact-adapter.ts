@@ -1,5 +1,4 @@
 import type { ProductRow } from "@/components/google-ads/google-ads-dashboard-support";
-import type { GoogleRecommendation } from "@/lib/google-ads/growth-advisor-types";
 
 import {
   googleSearchRoasTone,
@@ -48,9 +47,16 @@ export interface GoogleProductsExactRowViewModel {
   issueTone: GoogleSearchExactChipTone;
 }
 
+export type GoogleProductsExactAllocationKey =
+  | "isolate"
+  | "scale"
+  | "reduce"
+  | "hidden";
+
 export interface GoogleProductsExactAllocationViewModel {
-  key: string;
+  key: GoogleProductsExactAllocationKey;
   label: string;
+  /** Product names. Empty means the bucket has no product behind it. */
   items: string[];
 }
 
@@ -66,7 +72,6 @@ export interface GoogleProductsExactInput {
   identity?: GoogleProductsExactIdentity;
   /** Null means the shopping report has not been read, not that it is empty. */
   products: ProductRow[] | null;
-  advisorRecommendations: GoogleRecommendation[] | null;
   roasTarget: number | null;
   /** The pack's break-even ROAS, the design's second boundary. */
   roasBreakEven?: number | null;
@@ -82,9 +87,34 @@ export interface GoogleProductsExactInput {
   } | null;
 }
 
-const ALLOCATION_LAYER: GoogleRecommendation["strategyLayer"] =
-  "Shopping & Products";
-const ALLOCATION_LIMIT = 4;
+/**
+ * The design's four allocation buckets, in its own order (model line 3846).
+ *
+ * The card reads product allocation, so its chips are product names and its
+ * labels are these four fixed bucket titles. Three of them are the product
+ * classifications the server already assigns in `analyzeProducts`
+ * (lib/google-ads/tab-analysis.ts:143-149 — `scale_product`, `hidden_winner`,
+ * `underperforming_product`, `stable_product`).
+ *
+ * Nothing the shopping report serves names a hero-isolation candidate:
+ * `stable_product` is the residual bucket and answers a different question.
+ * That bucket therefore keeps its shell and prints the em dash rather than
+ * being filled with an advisor sentence, which is a different content model.
+ */
+const ALLOCATION_BUCKETS: ReadonlyArray<{
+  key: GoogleProductsExactAllocationKey;
+  label: string;
+  classification: string | null;
+}> = [
+  {
+    key: "isolate",
+    label: "Isolate into a hero campaign",
+    classification: null,
+  },
+  { key: "scale", label: "Scale", classification: "scale_product" },
+  { key: "reduce", label: "Reduce", classification: "underperforming_product" },
+  { key: "hidden", label: "Hidden winners", classification: "hidden_winner" },
+];
 
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -144,6 +174,17 @@ export function googleProductFeedStatus(row: ProductRow): {
     return { label: "Serving", tone: "positive" };
   }
   return { label: DASH, tone: "neutral" };
+}
+
+/**
+ * A product's own served identity, never a substituted one: the shopping
+ * report's title, else its item id, else the em dash.
+ */
+function productLabel(row: ProductRow): string {
+  const title = row.title?.trim();
+  if (title) return title;
+  const itemId = row.itemId?.trim();
+  return itemId ? itemId : DASH;
 }
 
 function eyebrowText(identity: GoogleProductsExactIdentity) {
@@ -220,21 +261,23 @@ export function buildGoogleProductsExactViewModel(
     };
   });
 
-  const allocation: GoogleProductsExactAllocationViewModel[] = (
-    input.advisorRecommendations ?? []
-  )
-    .filter((item) => item.strategyLayer === ALLOCATION_LAYER)
-    .sort((left, right) => (right.rankScore ?? 0) - (left.rankScore ?? 0))
-    .slice(0, ALLOCATION_LIMIT)
-    .map((item) => ({
-      key: item.id,
-      label: clean(item.title),
+  // The bucket list is fixed at four. A bucket with no product behind it keeps
+  // its shell and renders empty, which the card prints as the em dash; it is
+  // never dropped and never refilled from a different source. Served rows are
+  // not capped, so a bucket names every product the classification covers.
+  const allocation: GoogleProductsExactAllocationViewModel[] =
+    ALLOCATION_BUCKETS.map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
       items:
-        item.reasonCodes.length > 0
-          ? item.reasonCodes
-          : [item.recommendedAction || item.summary].filter(
-              (value): value is string => Boolean(value && value.trim()),
-            ),
+        bucket.classification === null
+          ? []
+          : products
+              .filter(
+                (row) =>
+                  String(row.classification ?? "") === bucket.classification,
+              )
+              .map(productLabel),
     }));
 
   return {

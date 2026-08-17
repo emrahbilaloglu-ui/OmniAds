@@ -1995,7 +1995,8 @@ tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned
 reference/current/diff matrix has been run, so strict pixel parity remains
 explicitly unclaimed. The numbered 01–26 blocks below preserve the original
 pre-resolution audit evidence; findings 27–34 are new and were found by this
-batch's own read.
+batch's own read; findings 35–37 were found by an adversarial re-read of this
+batch's own output and are closed against the same reference lines.
 
 | ID | Status | Current proof |
 | --- | ------ | ------------- |
@@ -2008,7 +2009,7 @@ batch's own read.
 | GOOGLE-SEARCH-PRODUCTS-07 | CLOSED | The tiles are Products serving / Limited / Disapproved / Feed synced. Products serving is a real count of items that took impressions; the three Merchant Center facts render `—` (see BLOCKED contract under finding 07 below). |
 | GOOGLE-SEARCH-PRODUCTS-08 | CLOSED | Stats are wasted spend on zero-conversion terms (`#D64550`), converting-terms-not-yet-keywords count (`#6C41BE`) and high-performing count (`#0E9F6E`), with the design's wording and the window label. |
 | GOOGLE-SEARCH-PRODUCTS-09 | CLOSED | Pills read All terms / Wasteful / KW opportunity / High performing, the fourth backed by converting rows at or above the operator's target. |
-| GOOGLE-SEARCH-PRODUCTS-10 | CLOSED | `googleSearchRoasTone` spreads positive/neutral/warning/negative around the target-pack ROAS and its break-even, and returns neutral — never amber — when no target exists. |
+| GOOGLE-SEARCH-PRODUCTS-10 | CLOSED | `googleSearchRoasTone` spreads positive/neutral/warning/negative around the target-pack ROAS and its break-even, and returns neutral — never amber — when no target exists. The unserved case is its own tone (finding 37). |
 | GOOGLE-SEARCH-PRODUCTS-11 | CLOSED | `googleSearchTermTags` produces one tag set that feeds both the pill count and the visible rows, with no `slice`; a pill reading 12 opens on 12 rows. |
 | GOOGLE-SEARCH-PRODUCTS-12 | CLOSED | Active tab and filter pills are `#0B1020` / `#ffffff` / `#0B1020`; inactive `#ffffff` / `#45526B` / `#E4E8F0`. No `--adv-accent` token is referenced. |
 | GOOGLE-SEARCH-PRODUCTS-13 | CLOSED | The three pills carry the design's wording and `#B45309` / `#2F6BFF` / `#6C41BE`, fed by the server tallies the keywords route now serves. |
@@ -2024,7 +2025,7 @@ batch's own read.
 | GOOGLE-SEARCH-PRODUCTS-23 | CLOSED | Both screen roots are `display:flex;flex-direction:column;gap:16px`. |
 | GOOGLE-SEARCH-PRODUCTS-24 | CLOSED | Terms table `min-width:860px`, keywords table `880px`, products table `640px`. |
 | GOOGLE-SEARCH-PRODUCTS-25 | CLOSED | Both exact eyebrows are 11px; the shared legacy workspace eyebrow was corrected to 11px as well. |
-| GOOGLE-SEARCH-PRODUCTS-26 | CLOSED | The Allocation read card is an unconditional second child of the grid and keeps its head and closing copy with no findings scoped. |
+| GOOGLE-SEARCH-PRODUCTS-26 | CLOSED | The Allocation read card is an unconditional second child of the grid and keeps its head, its four buckets and its closing copy with nothing served (see findings 35 and 36). |
 | GOOGLE-SEARCH-PRODUCTS-27 | CLOSED | Keyword CTR is printed from the already-percent served value; a served `5.8` renders `5.8%`, not `580.0%`. |
 | GOOGLE-SEARCH-PRODUCTS-28 | CLOSED | `getGoogleAdsKeywordsReport` now returns the three tallies from the shared predicate module, so the warehouse-served route supplies what the pills print. |
 | GOOGLE-SEARCH-PRODUCTS-29 | CLOSED | `/c/[businessId]/google/{search,products}` resolve membership and assigned account server-side and mount `GoogleWorkspaceScreen`; `/app/google/{search,products}` inherit them. |
@@ -2033,6 +2034,9 @@ batch's own read.
 | GOOGLE-SEARCH-PRODUCTS-32 | CLOSED | The screen reads the served search-term report directly; served terms are no longer dropped by an intersection with the campaign table's current filter. |
 | GOOGLE-SEARCH-PRODUCTS-33 | CLOSED | `google_copy_used`, `google_csv_used` and `google_deep_link_used` left the instrumentation vocabulary with the controls that emitted them; the database CHECK still accepts already-recorded rows. |
 | GOOGLE-SEARCH-PRODUCTS-34 | BLOCKED | Merchant Center item state. See the contract below. |
+| GOOGLE-SEARCH-PRODUCTS-35 | CLOSED | The Allocation read is built from `ProductRow.classification`: four fixed bucket labels over product-name chips. The advisor recommendation list is no longer an input to the adapter, so a sentence cannot reach the 9.5px mono label slot. |
+| GOOGLE-SEARCH-PRODUCTS-36 | CLOSED | The card always renders four `data-google-allocation-bucket` blocks; a bucket with no product behind it prints `—` in its chip row rather than disappearing. |
+| GOOGLE-SEARCH-PRODUCTS-37 | CLOSED | `"neutral"` (`#45526B`) is a served in-band ROAS and `"unserved"` (`#7A869E`) is an em-dashed one; the blanket `.roasChip.toneNeutral` grey override is deleted. |
 
 **BLOCKED — GOOGLE-SEARCH-PRODUCTS-34, Merchant Center feed evidence.** The
 design's `Limited`, `Disapproved` and `Feed synced` tiles, the `of N in feed`
@@ -2108,6 +2112,23 @@ Executable evidence: `google-search-exact-adapter.test.ts`,
 - **Code:** `lib/product-instrumentation.ts` declared `google_copy_used`, `google_csv_used` and `google_deep_link_used`, whose only emitter was the deleted Escape hatch. Leaving them in the vocabulary would let a future caller record a "use" of a control that does not exist.
 - **Fix:** Remove the three names from the vocabulary and from the emitter map. The database CHECK keeps them so already-recorded rows stay valid.
 
+### GOOGLE-SEARCH-PRODUCTS-35 · HIGH · WRONG — The Allocation read card rendered a different content model from the design's
+
+- **Design:** Markup lines 1506–1512 with model `gAllocation` (3846–3851) draw four short bucket labels — `Isolate into a hero campaign`, `Scale`, `Reduce`, `Hidden winners` — in the 9.5px uppercase mono `.allocationLabel`, each over chips that are **product names** (`Aurora Tote — Sand`, `Waterproof Hiking Pack`, `Canvas Weekender`, `Compact Travel Pack`). The card head names what it reads: `advisor · product allocation`.
+- **Code:** `components/google-ads/google-products-exact-adapter.ts:223-238` took the advisor recommendation list, filtered it to `strategyLayer === "Shopping & Products"`, ranked it and emitted `label: clean(item.title)` — full sentences such as "PMax is carrying catalog demand alone; a Shopping control lane would add useful control" (`lib/google-ads/growth-advisor.ts:2132`, and its two siblings on the same layer at :2346 and :2662) — into the 9.5px uppercase mono label slot, with `item.reasonCodes` (`PMAX_SCALING_PROPOSED`, `FAMILY_PMAX_SCALING`, `DIAGNOSTIC_*`; growth-advisor.ts:1099-1111) as the chips. Every element was in the design's geometry and none of it was the design's content: a wrapped sentence where a two-word bucket belongs, and machine reason codes where product names belong.
+- **Fix:** The bucket list is now a fixed four-entry constant in the design's own order, and the chips are product names read from `ProductRow.classification` — the server-assigned classification `analyzeProducts` writes (`lib/google-ads/tab-analysis.ts:142-149`) and which the Feed status chip on the same screen already reads. `Scale` ← `scale_product`, `Reduce` ← `underperforming_product`, `Hidden winners` ← `hidden_winner`. Nothing served names a hero-isolation candidate — `stable_product` is the residual bucket and answers a different question — so `Isolate into a hero campaign` keeps its shell and prints the em dash rather than being refilled from the advisor. Buckets are uncapped, so a bucket names every product its classification covers (consistent with finding 31). `advisorRecommendations` is gone from the adapter's input, so the wrong source can no longer be passed at all.
+
+### GOOGLE-SEARCH-PRODUCTS-36 · MEDIUM · MISSING — The four allocation blocks vanished instead of rendering the em dash
+
+- **Design:** The `sc-for` over `gAllocation` (markup 1506) is fed a four-entry list; the card is head → four labelled blocks → closing note.
+- **Code:** `components/google-ads/GoogleProductsExact.tsx:143-166` mapped `model.allocation` straight through. With no Shopping & Products recommendation the array was empty, so the card rendered its head and its closing note with zero blocks between them — the card kept its border and lost its body, which is a different shape from the design at every width.
+- **Fix:** The adapter always emits exactly four buckets and the component always renders four `data-google-allocation-bucket` blocks. A bucket with no product behind it keeps its label and its chip row and prints `—` in the chip, so the card's height and rhythm are the design's whether or not the classification found anything.
+
+### GOOGLE-SEARCH-PRODUCTS-37 · MEDIUM · WRONG — A served in-band ROAS was painted in the unserved em-dash ink
+
+- **Design:** The reference draws two greys on the same `neu[0]` (`#F1F4F9`) chip fill and separates them by ink. A served ROAS sitting in the neutral band takes `neu[1]` = `#45526B` (model line 3820: `best travel tote 2026`, `roas '3.17'`, `rFg: neu[1]`; `neu` defined at line 3671, and the same pairing on `gProductRows`' `Travel Kit — Slate` at 3.34 and `gKeywordRows`' `“work tote”` at 3.71). `#7A869E` appears only on the rows whose ROAS is the em dash (lines 3821-3823, 3831, 3838).
+- **Code:** `components/google-ads/GoogleSearchProductsExact.module.css:602-604` carried a blanket `.roasChip.toneNeutral { color: #7a869e }`, because `googleSearchRoasTone` returned `"neutral"` both for "in the neutral band" and for "no ROAS served". A real, measured 3.17 therefore rendered in the ink the design reserves for an absence — the exact confusion finding GOOGLE-OVERVIEW-ADVISOR-39 removed from the Overview KPIs, re-introduced as a tint.
+- **Fix:** `googleSearchRoasTone` now returns a distinct `"unserved"` tone for `value === null || value <= 0` — the same condition under which the cell prints the em dash — and `"neutral"` only for a served value. `chipToneClass` maps it to a new `.toneUnserved` (`#F1F4F9` / `#7A869E`); `.toneNeutral` keeps `#45526B` and the blanket `.roasChip.toneNeutral` override is deleted. Both tables and the products table share the split.
 
 ### GOOGLE-SEARCH-PRODUCTS-01 · HIGH · EXTRA — Search screen carries an "Escape hatch" card with Copy negatives / Download CSV buttons and a Google Ads deep link
 

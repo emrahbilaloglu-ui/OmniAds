@@ -593,13 +593,19 @@
   color: #e11d48;
 }
 
+/* A served value inside the neutral band: the reference's own `neu` pair. */
 .toneNeutral {
   background: #f1f4f9;
   color: #45526b;
 }
 
-/* An unserved ROAS is grey ink on the neutral fill, not a verdict. */
-.roasChip.toneNeutral {
+/*
+ * No value served at all. The reference keeps the same `neu[0]` fill and drops
+ * the ink to #7A869E only for the rows that print the em dash, so a measured
+ * in-band number never renders as an absence.
+ */
+.toneUnserved {
+  background: #f1f4f9;
   color: #7a869e;
 }
 

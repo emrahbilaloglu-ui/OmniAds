@@ -1592,7 +1592,6 @@ export function GoogleAdsIntelligenceDashboard({
       syncLabel: exactFreshness.label,
     },
     products: productsData?.rows ? productRows : null,
-    advisorRecommendations: advisorCurrent?.recommendations ?? null,
     roasTarget: commercialTargetRoas,
     roasBreakEven: commercialBreakEvenRoas,
     // Merchant Center item state has no reader in this product; the tiles keep

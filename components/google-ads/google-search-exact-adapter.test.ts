@@ -224,12 +224,50 @@ describe("google search exact ROAS tint", () => {
   it("stays neutral rather than warning when no target exists", () => {
     expect(googleSearchRoasTone(4.2, null)).toBe("neutral");
     expect(googleSearchRoasTone(0.4, null)).toBe("neutral");
-    expect(googleSearchRoasTone(null, 3.8)).toBe("neutral");
   });
 
   it("falls back to 80% of target when the pack declares no break-even", () => {
     expect(googleSearchRoasTone(3.2, 3.8)).toBe("neutral");
     expect(googleSearchRoasTone(2.99, 3.8)).toBe("warning");
+  });
+
+  it("separates a served in-band ROAS from a row that served none", () => {
+    // The reference draws two greys: neu[1] #45526B for the measured 3.17, and
+    // the lighter #7A869E only where the ROAS cell prints the em dash.
+    expect(googleSearchRoasTone(3.17, 3.8, 3)).toBe("neutral");
+    expect(googleSearchRoasTone(null, 3.8)).toBe("unserved");
+    expect(googleSearchRoasTone(0, 3.8)).toBe("unserved");
+    expect(googleSearchRoasTone(null, null)).toBe("unserved");
+  });
+
+  it("gives every em-dashed ROAS cell the unserved tone and every printed one an ink tone", () => {
+    const model = buildGoogleSearchExactViewModel(
+      input({
+        terms: [
+          term({ key: "band", conversions: 9, roas: 3.17, revenue: 688, spend: 217 }),
+          term({ key: "none", conversions: 0, roas: 0, revenue: 0, spend: 212 }),
+        ],
+      }),
+    );
+    expect(model.termRows[0]!.roas).toBe("3.17");
+    expect(model.termRows[0]!.roasTone).toBe("neutral");
+    expect(model.termRows[1]!.roas).toBe(DASH);
+    expect(model.termRows[1]!.roasTone).toBe("unserved");
+  });
+
+  it("applies the same split to the keywords table", () => {
+    const model = buildGoogleSearchExactViewModel(
+      input({
+        tab: "keywords",
+        keywords: [
+          keyword({ criterionId: "band", roas: 3.17, conversions: 44, spend: 980 }),
+          keyword({ criterionId: "none", roas: 0, conversions: 0, spend: 310 }),
+        ],
+      }),
+    );
+    expect(model.keywordRows[0]!.roasTone).toBe("neutral");
+    expect(model.keywordRows[1]!.roas).toBe(DASH);
+    expect(model.keywordRows[1]!.roasTone).toBe("unserved");
   });
 });
 

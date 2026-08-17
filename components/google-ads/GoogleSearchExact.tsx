@@ -33,6 +33,8 @@ export function chipToneClass(tone: GoogleSearchExactChipTone) {
       return styles.toneWarning;
     case "negative":
       return styles.toneNegative;
+    case "unserved":
+      return styles.toneUnserved;
     default:
       return styles.toneNeutral;
   }

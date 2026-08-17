@@ -25,7 +25,10 @@ export type GoogleSearchExactChipTone =
   | "auto"
   | "warning"
   | "negative"
-  | "neutral";
+  /** A served value inside the neutral band: `neu[1]` ink on `neu[0]`. */
+  | "neutral"
+  /** No value was served at all: the design's lighter `#7A869E` ink. */
+  | "unserved";
 
 export type GoogleSearchExactStatTone = "waste" | "opportunity" | "high";
 
@@ -209,13 +212,19 @@ function roasText(value: number | null): string {
  * Break-even is the second boundary the design draws; when the pack has not
  * declared one, 80% of target stands in for "within reach of target". Below a
  * ROAS of 1 the media has not returned its own cost, which is the design's red.
+ *
+ * The design separates the two grey cases on the same `neu[0]` fill: a served
+ * ROAS sitting in the neutral band carries `neu[1]` (`#45526B`, model line
+ * 3820), while the lighter `#7A869E` is reserved for the rows that served no
+ * ROAS at all and print the em dash (model lines 3821-3823). A real 3.17 is a
+ * measurement, not an absence, so it never takes the unserved ink.
  */
 export function googleSearchRoasTone(
   value: number | null,
   target: number | null,
   breakEven: number | null = null,
 ): GoogleSearchExactChipTone {
-  if (value === null || value <= 0) return "neutral";
+  if (value === null || value <= 0) return "unserved";
   if (target === null || target <= 0) return "neutral";
   const floor = breakEven !== null && breakEven > 0 ? breakEven : target * 0.8;
   if (value >= target) return "positive";

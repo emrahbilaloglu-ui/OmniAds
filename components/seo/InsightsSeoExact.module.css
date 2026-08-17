@@ -693,6 +693,17 @@
   color: #b45309;
 }
 
+/*
+ * The design paints C.pos green on exactly one chip in this list: Passed
+ * (script L4027). `Opportunity` is a severity the provider serves that the
+ * design has no chip for, so it takes C.info rather than a second green that
+ * would read as a pass.
+ */
+.findingSeverity[data-tone="info"] {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
 .findingSeverity[data-tone="positive"] {
   background: #e7f6f0;
   color: #0e9f6e;

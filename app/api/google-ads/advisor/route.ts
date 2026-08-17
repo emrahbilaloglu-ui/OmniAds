@@ -13,6 +13,10 @@ import {
   getGoogleAdsAdvisorReport,
   getGoogleAdsCampaignsReport,
 } from "@/lib/google-ads/serving";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
 
 export async function GET(request: NextRequest) {
   const { businessId, accountId, dateRange, customStart, customEnd, debug } = parseGoogleAdsRequestParams(
@@ -37,6 +41,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoGoogleAdsAdvisor());
   }
 
+  if (accountId && accountId !== "all") {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId, accountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
+  }
+
   const payload = debug
     ? await getGoogleAdsAdvisorReport({
         businessId,
@@ -59,20 +75,25 @@ export async function GET(request: NextRequest) {
     accountId: accountId ?? "all",
     recommendations: payload.recommendations as GoogleRecommendation[],
   });
-  const recommendationsById = new Map(
-    hydratedRecommendations.map((recommendation) => [recommendation.id, recommendation] as const)
+  const activeRecommendations = hydratedRecommendations.filter(
+    (recommendation) =>
+      recommendation.currentStatus !== "suppressed" &&
+      recommendation.userAction !== "dismissed",
   );
-  payload.recommendations = hydratedRecommendations;
+  const recommendationsById = new Map(
+    activeRecommendations.map((recommendation) => [recommendation.id, recommendation] as const)
+  );
+  payload.recommendations = activeRecommendations;
   payload.sections = payload.sections.map((section) => ({
     ...section,
-    recommendations: section.recommendations.map(
-      (recommendation) => recommendationsById.get(recommendation.id) ?? recommendation
-    ),
+    recommendations: section.recommendations
+      .map((recommendation) => recommendationsById.get(recommendation.id) ?? null)
+      .filter((recommendation): recommendation is GoogleRecommendation => recommendation !== null),
   }));
   payload.clusters = buildActionClusters({
-    recommendations: hydratedRecommendations as GoogleRecommendation[],
+    recommendations: activeRecommendations as GoogleRecommendation[],
   });
-  payload.summary.watchouts = hydratedRecommendations
+  payload.summary.watchouts = activeRecommendations
     .filter(
       (recommendation) =>
         recommendation.doBucket === "do_later" ||

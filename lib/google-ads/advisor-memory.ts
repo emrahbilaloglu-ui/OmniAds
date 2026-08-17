@@ -886,7 +886,7 @@ export async function updateAdvisorMemoryAction(input: {
         input.action === "applied"
           ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
           : row.outcome_check_at;
-      scope.set(input.recommendationFingerprint, {
+      const nextRow: RecommendationMemoryRow = {
         ...row,
         user_action: input.action === "unsuppress" ? null : input.action,
         dismiss_reason: input.action === "dismissed" ? (input.dismissReason ?? null) : null,
@@ -912,13 +912,25 @@ export async function updateAdvisorMemoryAction(input: {
         outcome_confidence: input.action === "applied" ? "low" : row.outcome_confidence,
         applied_snapshot:
           input.action === "applied" ? (row.recommendation_snapshot ?? null) : row.applied_snapshot,
-      });
+      };
+      scope.set(input.recommendationFingerprint, nextRow);
+      return {
+        matched: true as const,
+        recommendationFingerprint: nextRow.recommendation_fingerprint,
+        currentStatus: nextRow.current_status,
+        userAction: nextRow.user_action,
+        suppressUntil: nextRow.suppress_until,
+      };
     }
-    return;
+    return {
+      matched: false as const,
+      recommendationFingerprint: null,
+      currentStatus: null,
+      userAction: null,
+      suppressUntil: null,
+    };
   }
   await assertAdvisorMemoryTablesReady("google_advisor_memory_action");
-  const { businessRefId, providerAccountRefId } =
-    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   const nextStatus =
     input.action === "dismissed"
@@ -936,15 +948,26 @@ export async function updateAdvisorMemoryAction(input: {
       AND recommendation_fingerprint = ${input.recommendationFingerprint}
     LIMIT 1
   `) as Array<{ recommendation_type: string }>;
+  if (!existing[0]) {
+    return {
+      matched: false as const,
+      recommendationFingerprint: null,
+      currentStatus: null,
+      userAction: null,
+      suppressUntil: null,
+    };
+  }
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const windowDays = outcomeWindowDaysForRecommendationType(
-    (existing[0]?.recommendation_type as GoogleRecommendation["type"]) ?? "budget_reallocation"
+    existing[0].recommendation_type as GoogleRecommendation["type"]
   );
   const outcomeCheckAt =
     input.action === "applied"
       ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-  await sql`
+  const updated = (await sql`
     UPDATE google_ads_advisor_memory
     SET
       business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
@@ -995,7 +1018,33 @@ export async function updateAdvisorMemoryAction(input: {
     WHERE business_id = ${input.businessId}
       AND account_id = ${input.accountId}
       AND recommendation_fingerprint = ${input.recommendationFingerprint}
-  `;
+    RETURNING
+      recommendation_fingerprint,
+      current_status,
+      user_action,
+      suppress_until
+  `) as Array<{
+    recommendation_fingerprint: string;
+    current_status: GoogleRecommendationMemoryStatus | null;
+    user_action: "dismissed" | "ignored" | "applied" | null;
+    suppress_until: string | null;
+  }>;
+  const row = updated[0];
+  return row
+    ? {
+        matched: true as const,
+        recommendationFingerprint: row.recommendation_fingerprint,
+        currentStatus: row.current_status,
+        userAction: row.user_action,
+        suppressUntil: row.suppress_until,
+      }
+    : {
+        matched: false as const,
+        recommendationFingerprint: null,
+        currentStatus: null,
+        userAction: null,
+        suppressUntil: null,
+      };
 }
 
 export async function updateAdvisorExecutionState(input: {

@@ -34,6 +34,8 @@ import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 interface Props {
   businessId: string;
+  /** Presence is server-authoritative; null means no account may be guessed. */
+  authorizedAccount?: GoogleAccount | null;
 }
 
 /**
@@ -42,11 +44,16 @@ interface Props {
  * The Google report endpoints serve report bodies, not account identity, so
  * scope comes from its own authorized route rather than being invented here.
  */
-function useGoogleScope(businessId: string): GoogleScope {
+function useGoogleScope(
+  businessId: string,
+  authorizedAccount: GoogleAccount | null | undefined,
+): GoogleScope {
   const [accounts, setAccounts] = useState<GoogleAccount[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const hasAuthorizedScope = authorizedAccount !== undefined;
 
   useEffect(() => {
+    if (hasAuthorizedScope) return;
     let cancelled = false;
     (async () => {
       try {
@@ -71,7 +78,16 @@ function useGoogleScope(businessId: string): GoogleScope {
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, hasAuthorizedScope]);
+
+  if (hasAuthorizedScope) {
+    return authorizedAccount
+      ? resolveGoogleScope([authorizedAccount])
+      : {
+          kind: "none",
+          reason: "Select one assigned Google Ads account before reading this surface.",
+        };
+  }
 
   if (failed) return { kind: "none", reason: failed };
   if (!accounts) return { kind: "none", reason: "Reading account scope…" };
@@ -89,6 +105,7 @@ function useGoogleReport<T>(
   businessId: string,
   label: string,
   adapt: (raw: unknown) => { ok: true; value: T } | { ok: false; reason: string },
+  authorizedAccountId?: string | null,
 ) {
   const [value, setValue] = useState<T | null>(null);
   const [source, setSource] = useState<GoogleSourceState>({
@@ -96,14 +113,25 @@ function useGoogleReport<T>(
     reason: `${label} has not been read yet.`,
   });
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label });
+  const hasAuthorizedScope = authorizedAccountId !== undefined;
+  const canRead = !hasAuthorizedScope || Boolean(authorizedAccountId);
 
   useEffect(() => {
+    if (!canRead) {
+      setValue(null);
+      setSource({
+        kind: "unavailable",
+        reason: "Select one assigned Google Ads account before reading this surface.",
+      });
+      setSurface({ kind: "ready" });
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${path}?businessId=${encodeURIComponent(businessId)}`, {
-          cache: "no-store",
-        });
+        const params = new URLSearchParams({ businessId });
+        if (authorizedAccountId) params.set("accountId", authorizedAccountId);
+        const response = await fetch(`${path}?${params.toString()}`, { cache: "no-store" });
         if (response.status === 429) {
           const retry = Number(response.headers.get("retry-after"));
           if (!cancelled) {
@@ -146,18 +174,19 @@ function useGoogleReport<T>(
     return () => {
       cancelled = true;
     };
-  }, [path, businessId, label, adapt]);
+  }, [path, businessId, label, adapt, authorizedAccountId, canRead]);
 
   return { value, source, setSource, surface };
 }
 
-export function GoogleOverviewClient({ businessId }: Props) {
-  const scope = useGoogleScope(businessId);
+export function GoogleOverviewClient({ businessId, authorizedAccount }: Props) {
+  const scope = useGoogleScope(businessId, authorizedAccount);
   const { value, source, setSource, surface } = useGoogleReport(
     "/api/google-ads/overview",
     businessId,
     "Google overview",
     adaptOverview,
+    authorizedAccount === undefined ? undefined : authorizedAccount?.id ?? null,
   );
 
   useEffect(() => {
@@ -186,13 +215,14 @@ export function GoogleOverviewClient({ businessId }: Props) {
   );
 }
 
-export function GoogleAdvisorClient({ businessId }: Props) {
-  const scope = useGoogleScope(businessId);
+export function GoogleAdvisorClient({ businessId, authorizedAccount }: Props) {
+  const scope = useGoogleScope(businessId, authorizedAccount);
   const { value, source, surface } = useGoogleReport(
     "/api/google-ads/advisor",
     businessId,
     "Google advisor",
     adaptRecommendations,
+    authorizedAccount === undefined ? undefined : authorizedAccount?.id ?? null,
   );
 
   return (
@@ -215,9 +245,15 @@ export function GoogleAdvisorClient({ businessId }: Props) {
 
 function collection(path: string, title: string, rowKeys: string[], columns: { id: string; header: string; numeric?: boolean }[]) {
   const adapt = (raw: unknown) => adaptCollection(raw, rowKeys);
-  return function GoogleCollectionClient({ businessId }: Props) {
-    const scope = useGoogleScope(businessId);
-    const { value, source, setSource, surface } = useGoogleReport(path, businessId, title, adapt);
+  return function GoogleCollectionClient({ businessId, authorizedAccount }: Props) {
+    const scope = useGoogleScope(businessId, authorizedAccount);
+    const { value, source, setSource, surface } = useGoogleReport(
+      path,
+      businessId,
+      title,
+      adapt,
+      authorizedAccount === undefined ? undefined : authorizedAccount?.id ?? null,
+    );
 
     useEffect(() => {
       if (value) setSource(sourceStateFromMeta(value.meta));

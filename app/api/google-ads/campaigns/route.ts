@@ -4,6 +4,10 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsCampaigns } from "@/lib/demo-business";
 import { getGoogleAdsCampaignsReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
 
 export async function GET(request: NextRequest) {
   const {
@@ -27,6 +31,18 @@ export async function GET(request: NextRequest) {
 
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsCampaigns());
+  }
+
+  if (accountId && accountId !== "all") {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId, accountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
   }
 
   const report = await getGoogleAdsCampaignsReport({

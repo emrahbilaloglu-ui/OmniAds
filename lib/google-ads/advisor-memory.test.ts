@@ -28,9 +28,11 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
   }),
 }));
 
-const { logAdvisorExecutionEvent, updateAdvisorExecutionState } = await import(
-  "@/lib/google-ads/advisor-memory"
-);
+const {
+  logAdvisorExecutionEvent,
+  updateAdvisorExecutionState,
+  updateAdvisorMemoryAction,
+} = await import("@/lib/google-ads/advisor-memory");
 
 describe("google ads advisor memory writes", () => {
   beforeEach(() => {
@@ -64,5 +66,48 @@ describe("google ads advisor memory writes", () => {
 
     expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain("business_ref_id = COALESCE");
     expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain("provider_account_ref_id = COALESCE");
+  });
+
+  it("returns the exact affected dismissal row as the memory receipt", async () => {
+    sql
+      .mockResolvedValueOnce([{ recommendation_type: "budget_reallocation" }])
+      .mockResolvedValueOnce([
+        {
+          recommendation_fingerprint: "fingerprint-1",
+          current_status: "suppressed",
+          user_action: "dismissed",
+          suppress_until: "2026-08-24T00:00:00.000Z",
+        },
+      ]);
+
+    await expect(
+      updateAdvisorMemoryAction({
+        businessId: "biz-1",
+        accountId: "acct-1",
+        recommendationFingerprint: "fingerprint-1",
+        action: "dismissed",
+      }),
+    ).resolves.toEqual({
+      matched: true,
+      recommendationFingerprint: "fingerprint-1",
+      currentStatus: "suppressed",
+      userAction: "dismissed",
+      suppressUntil: "2026-08-24T00:00:00.000Z",
+    });
+  });
+
+  it("does not perform an update when the fingerprint has no account-scoped row", async () => {
+    sql.mockResolvedValueOnce([]);
+
+    await expect(
+      updateAdvisorMemoryAction({
+        businessId: "biz-1",
+        accountId: "acct-1",
+        recommendationFingerprint: "stale-fingerprint",
+        action: "dismissed",
+      }),
+    ).resolves.toMatchObject({ matched: false });
+
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 });

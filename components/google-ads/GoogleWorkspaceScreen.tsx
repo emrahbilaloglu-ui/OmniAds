@@ -11,6 +11,7 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { GoogleAdsIntelligenceDashboard } from "@/components/google-ads/GoogleAdsIntelligenceDashboard";
+import type { GoogleAuthorizedScope } from "@/components/google-ads/google-authorized-scope";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import type { PanelKey } from "@/components/google-ads/google-ads-dashboard-support";
 
@@ -22,45 +23,53 @@ import type { PanelKey } from "@/components/google-ads/google-ads-dashboard-supp
 export function GoogleWorkspaceScreen({
   panel,
   title,
+  authorizedScope,
 }: {
   panel: PanelKey;
   title: string;
+  /** Server-owned on `/c` and `/app`; absent only on preserved legacy routes. */
+  authorizedScope?: GoogleAuthorizedScope;
 }) {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businessId = authorizedScope?.businessId ?? selectedBusinessId;
   const domains = useIntegrationsStore((state) =>
-    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined,
+    businessId ? state.domainsByBusinessId[businessId] : undefined,
   );
   const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
-    selectedBusinessId ?? null,
+    businessId ?? null,
   );
 
-  if (!selectedBusinessId) return <BusinessEmptyState />;
+  if (!businessId) return <BusinessEmptyState />;
 
-  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const isDemoBusiness =
+    authorizedScope?.demo ?? isDemoBusinessSelected(businessId, businesses);
   const googleView = deriveProviderViewState(
     "google",
     domains?.google ?? buildDefaultProviderDomains().google,
   );
   const hasGoogleAccess =
+    Boolean(authorizedScope) ||
     isDemoBusiness ||
     googleView.isConnected ||
     googleView.status === "action_required" ||
     googleView.status === "degraded" ||
     googleView.status === "needs_assignment";
   const showBootstrapGuard =
+    !authorizedScope &&
     !isDemoBusiness &&
     (isBootstrapping ||
       googleView.status === "loading_data" ||
       (bootstrapStatus !== "ready" && !hasGoogleAccess));
+  const ownsExactState = panel === "summary" || panel === "insights";
 
   // The page frame owns the gutters, so these surfaces carry no padding of
   // their own and no nested scroll container.
-  if (showBootstrapGuard) {
+  if (showBootstrapGuard && !ownsExactState) {
     return <LoadingSkeleton rows={4} />;
   }
 
-  if (!hasGoogleAccess) {
+  if (!hasGoogleAccess && !ownsExactState) {
     return (
       <div>
         <IntegrationEmptyState
@@ -76,9 +85,10 @@ export function GoogleWorkspaceScreen({
   return (
     <div>
       <GoogleAdsIntelligenceDashboard
-        businessId={selectedBusinessId}
+        businessId={businessId}
         panel={panel}
         screenTitle={title}
+        authorizedScope={authorizedScope}
       />
     </div>
   );

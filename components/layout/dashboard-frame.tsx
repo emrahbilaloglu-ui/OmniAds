@@ -31,6 +31,13 @@ const ROUTE_OWNED_META_SURFACES = new Set([
   "/platforms/meta/audiences",
 ]);
 
+const ROUTE_OWNED_GOOGLE_SURFACES = new Set([
+  "/platforms/google",
+  "/platforms/google/advisor",
+  "/app/google/overview",
+  "/app/google/advisor",
+]);
+
 function publicDashboardPath(pathname: string | null) {
   if (!pathname) return null;
   return pathname.replace(/^\/c\/[^/]+(?=\/|$)/, "/app");
@@ -46,10 +53,19 @@ function hasRouteOwnedMetaSurface(pathname: string | null) {
   );
 }
 
+function hasRouteOwnedGoogleSurface(pathname: string | null) {
+  const route = publicDashboardPath(pathname);
+  return Boolean(route && ROUTE_OWNED_GOOGLE_SURFACES.has(route));
+}
+
+function hasRouteOwnedMobileSurface(pathname: string | null) {
+  return hasRouteOwnedMetaSurface(pathname) || hasRouteOwnedGoogleSurface(pathname);
+}
+
 function mobileSurfaceForPath(pathname: string | null) {
   // Pages with route-owned mobile read-only surfaces need their real payloads.
   // The shell keeps only the generic note for those routes.
-  if (hasRouteOwnedMetaSurface(pathname)) {
+  if (hasRouteOwnedMobileSurface(pathname)) {
     return null;
   }
   const route = publicDashboardPath(pathname);
@@ -163,7 +179,7 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mobileSurface = mobileSurfaceForPath(pathname);
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
-  const routeOwnsMobileSurface = hasRouteOwnedMetaSurface(pathname);
+  const routeOwnsMobileSurface = hasRouteOwnedMobileSurface(pathname);
   // Which routes claim mobile read-only is a capability decision, not a shell
   // opinion — it comes from the same module the write paths consult. Settings
   // and Integrations render working write controls at phone width, so the

@@ -9,10 +9,10 @@ rejected at that stage and are not listed here.
 Categories: **EXTRA** = the app renders something the design never defines →
 delete. **MISSING** = the design defines it and the app has nothing → build it.
 **WRONG** = present in both but diverging → correct it. **GEOMETRY** = a pinned
-px/weight/hex value differs → match it. Current totals are **138 EXTRA**, **194
-WRONG**, **87 GEOMETRY**, and **70 MISSING**.
+px/weight/hex value differs → match it. Current totals are **139 EXTRA**, **206
+WRONG**, **88 GEOMETRY**, and **70 MISSING**.
 
-**489 verified divergences, 159 of them high severity.** The original audit
+**503 verified divergences, 168 of them high severity.** The original audit
 found 418; the Batch 1 full-source re-read added 11 shell findings
 (`SHELL-10`–`SHELL-20`), and the Batch 2 full-source re-read added 29 Overview
 findings (`OVERVIEW-28`–`OVERVIEW-56`). The Batch 3 full-source re-read added 10
@@ -20,7 +20,9 @@ Meta Decision Center findings (`META-35`–`META-44`). The Batch 4 full-source a
 route-contract re-read added 11 Creative Studio findings
 (`CREATIVE-39`–`CREATIVE-49`). The Batch 5 full-source, route, authority and
 data-contract re-read added 10 Launchpad + Automation findings
-(`LAUNCHPAD-AUTOMATION-24`–`LAUNCHPAD-AUTOMATION-33`).
+(`LAUNCHPAD-AUTOMATION-24`–`LAUNCHPAD-AUTOMATION-33`). The Batch 6 full-source,
+route-family, account-authority and truth-contract re-read added 14 Google Ads
+Overview + Advisor findings (`GOOGLE-OVERVIEW-ADVISOR-36`–`GOOGLE-OVERVIEW-ADVISOR-49`).
 
 | Screen                                        | Findings | High |
 | --------------------------------------------- | -------: | ---: |
@@ -29,7 +31,7 @@ data-contract re-read added 10 Launchpad + Automation findings
 | Meta Decision Center                          |       44 |   16 |
 | Creative Studio                               |       49 |   23 |
 | Launchpad + Automation                        |       33 |   13 |
-| Google Ads Overview + Advisor                 |       35 |   13 |
+| Google Ads Overview + Advisor                 |       49 |   22 |
 | Google Ads Search + Products                  |       26 |   11 |
 | Google Ads Assets & Audiences + Plan          |       21 |    4 |
 | Klaviyo + Integrations                        |       23 |    3 |
@@ -1578,6 +1580,86 @@ marker-locked `typography-floor.test.ts`.
 
 ## Google Ads Overview + Advisor
 
+### Batch 6 implementation status
+
+Canonical source read in full for this batch: Google Ads Overview + Advisor
+markup lines **1202–1355** and their complete model bindings at lines
+**3708–3794** of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`.
+`GoogleOverviewExact` and `GoogleAdvisorExact` are the shared presentation
+surfaces reached by the legacy, `/c/[businessId]/google/**`, and
+`/app/google/**` route families. The controller supplies server-authorized
+identity, account, currency, window and freshness evidence; the pure adapters
+preserve the fixed canonical shapes and emit `—` for unsupported facts.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render tests.
+It does **not** mean a zero-RGBA pixel diff has been proved. No pinned-Chromium
+reference/current/diff matrix has yet established zero different pixels at
+1024, 1280, 1440 and 1728 widths, so strict pixel parity remains explicitly
+unclaimed. The detailed 01–35 blocks below preserve the original pre-resolution
+audit evidence; this table is the current implementation status.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| GOOGLE-OVERVIEW-ADVISOR-01 | CLOSED | Overview returns `GoogleOverviewExact` and ends after the canonical Budget & scaling article; no Advisor tiles, cards or tail are mounted there. |
+| GOOGLE-OVERVIEW-ADVISOR-02 | CLOSED | Advisor begins with its exact header and four tiles; the old Account decisions and Decision Snapshot band is absent. |
+| GOOGLE-OVERVIEW-ADVISOR-03 | CLOSED | Active recommendations render as flat sibling articles with bucket chips; no lane wrapper, heading or per-lane empty state exists. |
+| GOOGLE-OVERVIEW-ADVISOR-04 | CLOSED | Lifecycle, validation and outcomes workflow chrome is not part of `GoogleAdvisorExact`. |
+| GOOGLE-OVERVIEW-ADVISOR-05 | CLOSED | Manual Action Packs and cluster workflow chrome are absent from the exact surface. |
+| GOOGLE-OVERVIEW-ADVISOR-06 | CLOSED | Advisor cards contain only the canonical header, action/scope, one changes box, four detail cells and confidence/action footer. |
+| GOOGLE-OVERVIEW-ADVISOR-07 | CLOSED | Overview has no page-local filter, dropdown, comparison, date-picker or snapshot toolbar; window/comparison remain shell-owned. |
+| GOOGLE-OVERVIEW-ADVISOR-08 | CLOSED | Core/coverage/Advisor status cards are absent; the exact head freshness pill is the only visible sync state. |
+| GOOGLE-OVERVIEW-ADVISOR-09 | CLOSED | Advisor always preserves the four Do now, Do next, Blocked and Applied · 30d tile shells. |
+| GOOGLE-OVERVIEW-ADVISOR-10 | CLOSED | Plan-capable cards expose `Apply (guarded)` as account-preserving navigation and the canonical Dismiss control; Dismiss enables only with server-authorized mutation authority. |
+| GOOGLE-OVERVIEW-ADVISOR-11 | CLOSED | The adapter consumes the complete active recommendation collection rather than excluding recommendation families through a screen-specific type filter. |
+| GOOGLE-OVERVIEW-ADVISOR-12 | CLOSED | Hero order/count is fixed to Spend, Conv value, ROAS and Conversions in the canonical auto-fit grid. |
+| GOOGLE-OVERVIEW-ADVISOR-13 | CLOSED | The secondary strip is exactly CPA, CPC, CTR, Conv rate, Impressions and Clicks. |
+| GOOGLE-OVERVIEW-ADVISOR-14 | CLOSED | No account selector or blended-scope receipt renders in the exact body; account scope is resolved before presentation. |
+| GOOGLE-OVERVIEW-ADVISOR-15 | CLOSED | Each card retains its mono confidence footer slot and the closing slot remains source-shaped; unsupported provider-write prose is `—`. |
+| GOOGLE-OVERVIEW-ADVISOR-16 | CLOSED | Tile labels and sub-lines match the four canonical literals. |
+| GOOGLE-OVERVIEW-ADVISOR-17 | CLOSED | Card headers render bucket, type, evidence-backed mode and money-at-stake in canonical order. |
+| GOOGLE-OVERVIEW-ADVISOR-18 | CLOSED | Scope is a mono line and Expected effect, Why this now, Validation and Rollback/Unblock path share one unbordered four-cell grid. |
+| GOOGLE-OVERVIEW-ADVISOR-19 | CLOSED | The provider contract has no explicit compatible severity vocabulary, so the fixed severity slot remains `—`; decision family and blockers are not relabelled client-side. |
+| GOOGLE-OVERVIEW-ADVISOR-20 | CLOSED | Where-to-look cards use the served recommendation collection and route only to Products, Search, Advisor or Keywords when the type supports it. |
+| GOOGLE-OVERVIEW-ADVISOR-21 | CLOSED | Budget KPI captions are fixed to Ready to scale, Budget-limited, Low-efficiency spend and Suggested net shift. |
+| GOOGLE-OVERVIEW-ADVISOR-22 | CLOSED | Exact eyebrows contain bare account identity, currency and window segments; unavailable segments remain `—`. |
+| GOOGLE-OVERVIEW-ADVISOR-23 | CLOSED | Campaign type tones are Performance Max info, Shopping auto/violet and Search/other neutral. |
+| GOOGLE-OVERVIEW-ADVISOR-24 | CLOSED | All hero cards remain white with neutral ink; ROAS never changes the card ground. |
+| GOOGLE-OVERVIEW-ADVISOR-25 | CLOSED | Exact changes render inside one bordered box with fixed label columns and wrapping value chips. |
+| GOOGLE-OVERVIEW-ADVISOR-26 | CLOSED | Advisor tiles, cards and closing slot are direct children of the 16px screen stack with no outer card wrapper. |
+| GOOGLE-OVERVIEW-ADVISOR-27 | CLOSED | Reconnect/access state is carried by the exact freshness pill; the old standalone banner is absent. |
+| GOOGLE-OVERVIEW-ADVISOR-28 | CLOSED | Both exact eyebrows use the canonical 11px mono declaration. |
+| GOOGLE-OVERVIEW-ADVISOR-29 | CLOSED | Hero grid gap is 12px and hero charts retain the canonical 56px geometry. |
+| GOOGLE-OVERVIEW-ADVISOR-30 | CLOSED | The exact screen root owns one uniform 16px vertical rhythm with no metric-band margin override. |
+| GOOGLE-OVERVIEW-ADVISOR-31 | CLOSED | Budget KPI sub-lines use 11px; amount and reason text use 11.5px in the marker-locked exact stylesheet. |
+| GOOGLE-OVERVIEW-ADVISOR-32 | CLOSED | Campaign header/body first and last cells use the canonical 16px horizontal padding; middle cells use 12px. |
+| GOOGLE-OVERVIEW-ADVISOR-33 | CLOSED | Campaign summary says `vs target`, and Spend keeps the active-window suffix. |
+| GOOGLE-OVERVIEW-ADVISOR-34 | CLOSED | ROAS cells are bare two-decimal values and every supported budget delta retains `/day`. |
+| GOOGLE-OVERVIEW-ADVISOR-35 | CLOSED | The canonical subtitle slot is preserved, but the compound net-zero/provider-apply claim is never partially rewritten; without complete typed capability it renders `—`. |
+| GOOGLE-OVERVIEW-ADVISOR-36 | CLOSED | Legacy, `/c`, and `/app` Overview/Advisor entries converge on the same exact components through `GoogleWorkspaceScreen` and the shared dashboard controller. |
+| GOOGLE-OVERVIEW-ADVISOR-37 | CLOSED | `/c` resolves membership and assigned account server-side; legacy exact routes accept only a URL account present in the assigned catalog, auto-select only one assigned account, and keep unresolved multi-account scope null. |
+| GOOGLE-OVERVIEW-ADVISOR-38 | CLOSED | Overview, campaigns, trends, budget, Advisor and status read boundaries verify a requested account against business assignment before reading it. |
+| GOOGLE-OVERVIEW-ADVISOR-39 | CLOSED | Loading, unread, empty and partial evidence preserve fixed shells with `—`; complete provenance with a measured zero still renders `0`. |
+| GOOGLE-OVERVIEW-ADVISOR-40 | CLOSED | Status/freshness is queried and computed for the same resolved provider account as every exact metric read. |
+| GOOGLE-OVERVIEW-ADVISOR-41 | CLOSED | Served campaign `spendShare` is treated as percentage points; a served `46` renders a 46% label and 46% bar. |
+| GOOGLE-OVERVIEW-ADVISOR-42 | CLOSED | Budget cards accept only a native bounded-preview action contract with exact current amounts and `netDelta === 0`; heuristic, compatibility-derived, partial or nonzero-net input stays `—`. |
+| GOOGLE-OVERVIEW-ADVISOR-43 | CLOSED | Dismiss requires authorized non-demo desktop scope and a fingerprint, validates the account/fingerprint/suppressed receipt, then requires an Advisor readback with the card absent before reporting success. |
+| GOOGLE-OVERVIEW-ADVISOR-44 | CLOSED | Overview and Advisor CTAs preserve the resolved provider account and current legacy, `/c`, or `/app` route family; no target is built from browser-selected foreign scope. |
+| GOOGLE-OVERVIEW-ADVISOR-45 | CLOSED | Overview/Advisor own their loading, empty, partial and account-unavailable states, so legacy integration/bootstrap gates no longer replace the exact R3 body. |
+| GOOGLE-OVERVIEW-ADVISOR-46 | CLOSED | DashboardFrame recognises route-owned Google Overview/Advisor mobile surfaces and suppresses the duplicate generic mobile-read-only banner. |
+| GOOGLE-OVERVIEW-ADVISOR-47 | CLOSED | Unsupported Plan/provider-apply capability claims render `—`; a preview read never implies a guarded write exists. |
+| GOOGLE-OVERVIEW-ADVISOR-48 | CLOSED | Campaign active count is derived from the full response while the visible table remains bounded to four rows. |
+| GOOGLE-OVERVIEW-ADVISOR-49 | CLOSED | Every secondary metric and budget KPI cell, including the final child, retains the canonical right border. |
+
+Executable evidence: `GoogleOverviewExact.test.tsx`,
+`google-overview-exact-adapter.test.ts`, `GoogleAdvisorExact.test.tsx`,
+`google-advisor-exact-adapter.test.ts`,
+`GoogleAdsIntelligenceDashboard.test.tsx`, `GoogleWorkspaceScreen.test.tsx`,
+`google-routes.test.tsx`, `google-route-dispatch.test.tsx`, the Google read/API
+authority tests, `shell-redesign.test.tsx`, and the marker-locked
+`typography-floor.test.ts`.
+
 ### GOOGLE-OVERVIEW-ADVISOR-01 · HIGH · EXTRA — Overview renders an entire Advisor section (tiles + advisor panel + Advisor's closing paragraph) the Overview design never defines
 
 - **Design:** 05-google-ads-overview.html: 91 lines read end to end. Last element is the "Budget & scaling" <article> (71-90), then "</section>" (91). No advisor tile grid, no advisor card list, and the 'Apply executes through the guarded write boundary…' paragraph exists only in 06-google-ads-advisor.html:59.
@@ -1787,6 +1869,90 @@ marker-locked `typography-floor.test.ts`.
 - **Design:** 05-google-ads-overview.html:72 "suggested shifts are advisor previews — net $0 added, applied as guarded writes from the Plan page".
 - **Code:** components/google-ads/GoogleBudgetScalingCard.tsx:84 — "suggested shifts are advisor previews — applied as guarded writes from the Plan page".
 - **Fix:** Restore the full sentence including 'net $0 added, '.
+
+### GOOGLE-OVERVIEW-ADVISOR-36 · HIGH · WRONG — Route families could render different Overview/Advisor bodies
+
+- **Design:** Markup lines 1202–1355 define one Overview body and one Advisor body. There is no alternate legacy, business-scoped or compatibility composition.
+- **Code before:** Legacy `/platforms/google/**`, canonical `/c/[businessId]/google/**` and `/app/google/**` could enter different wrappers or controller branches, so a route change could change the rendered hierarchy rather than only the URL/account authority.
+- **Current resolution:** All three families converge on `GoogleWorkspaceScreen` → `GoogleAdsIntelligenceDashboard`, whose summary/insights branches return `GoogleOverviewExact` or `GoogleAdvisorExact`. Route tests prove `/app` dispatches to the same `/c` pages and the legacy pages mount the same exact bodies.
+
+### GOOGLE-OVERVIEW-ADVISOR-37 · HIGH · WRONG — Browser account state could override or silently replace route-owned account authority
+
+- **Design:** Both source eyebrows bind one Google account identity (lines 1205 and 1299), and every metric/card beneath it belongs to that same account.
+- **Code before:** A URL/store-selected account or implicit first-account fallback could replace an explicit unresolved route scope, while an exact multi-account legacy entry could accidentally blend or select a different account.
+- **Current resolution:** `/c` pages authenticate, require membership, read the assigned Google catalog and resolve the requested account server-side; an unassigned requested id is `notFound` and explicit null remains null. Legacy exact routes accept a URL id only when it is assigned, auto-select only a single assigned account, and issue zero exact reads when a multi-account scope is unresolved.
+
+### GOOGLE-OVERVIEW-ADVISOR-38 · HIGH · WRONG — Exact Google read APIs trusted a requested account without a business-assignment proof
+
+- **Design:** Overview and Advisor are internally account-coherent surfaces: account identity, KPIs, campaigns, trends, budget evidence and recommendations cannot come from different ownership scopes.
+- **Code before:** Checking business membership alone did not prove that an arbitrary `accountId` query value was one of that business's assigned Google accounts.
+- **Current resolution:** Overview, campaigns, trends, budget, Advisor and status routes call the shared Google read-account authority resolver and reject an unassigned account before serving. Controller query keys and URLs carry only the resolved provider account id; focused API/authority tests cover refusal and normalized-id acceptance.
+
+### GOOGLE-OVERVIEW-ADVISOR-39 · HIGH · WRONG — Missing, loading, empty and partial evidence could be presented as measured zero
+
+- **Design:** Markup fixes the four hero and six secondary shells (lines 1210–1228), while the prototype numbers in model lines 3708–3720 are examples rather than permission to invent production measurements.
+- **Code before:** Defaulting absent aggregates or zero-denominator daily CPA/CPC/CTR to `0` made unread/partial state visually indistinguishable from a real measured zero and could draw false zero chart points.
+- **Current resolution:** The Overview adapter requires ready, non-partial summary provenance plus a real read row/account before binding KPIs. Empty, unread and partial inputs render `—`; a complete row whose measured values are genuinely zero renders `0`. Daily CPA, CPC, CTR and conversion-rate points remain null when their required denominator is unavailable. Advisor loading/error/unavailable states keep the same fixed shells and `—` values.
+
+### GOOGLE-OVERVIEW-ADVISOR-40 · HIGH · WRONG — Freshness could describe a different account scope from the visible metrics
+
+- **Design:** The freshness pill is part of the same account-specific page head as the account id (lines 1205–1208 and 1299–1302), so its claim applies to the visible account.
+- **Code before:** A business-wide status request could report a fresh assigned account while the Overview/Advisor reads were scoped to another account.
+- **Current resolution:** The status query key and request include the exact resolved provider account. The status API verifies assignment and scopes coverage/freshness reads to that account, and the same id is used by Overview, campaigns, trends, budget and Advisor reads. Unavailable evidence yields `Synced —`/an unavailable tone rather than a fresh claim.
+
+### GOOGLE-OVERVIEW-ADVISOR-41 · MEDIUM · WRONG — Campaign spend share was reinterpreted instead of preserving its served percentage-point unit
+
+- **Design:** The Share column prints a percentage label and a width directly tied to the row's share contract (markup line 1260; model lines 3728–3732).
+- **Code before:** Dividing each share by the largest visible share made a served `46%` value fill 100% of the track, while treating sub-one values as ratios could turn `0.46%` into `46%`.
+- **Current resolution:** The exact adapter treats served `spendShare` as percentage points, clamps only to the visual 0–100 range and does no cross-row normalization. Tests lock `46` → `46%` label/46% width and preserve `0.46` as a 0.46% width.
+
+### GOOGLE-OVERVIEW-ADVISOR-42 · HIGH · WRONG — Heuristic or nonzero-net budget suggestions could populate the canonical zero-net preview
+
+- **Design:** Budget copy and model rows explicitly describe money moved rather than added (markup line 1273; model lines 3734–3743), and the Advisor budget card uses a bounded preview with exact source/destination amounts (lines 3763–3768).
+- **Code before:** Direction/reason heuristics, compatibility-derived cards, partial amounts or a merely near-zero delta could be promoted into the exact recommendation/KPI slots and presented as a current safe reallocation.
+- **Current resolution:** The adapter accepts only a native `budget_reallocation` action contract in `bounded_preview` mode, with non-empty source/destination sets, all exact amounts present and `netDelta === 0`. Every other input leaves the three rec shells and dependent KPI values `—`; source-spend aggregation also fails closed if any required campaign amount is missing.
+
+### GOOGLE-OVERVIEW-ADVISOR-43 · HIGH · WRONG — Dismiss could appear successful without mutation authority, a verified receipt and readback
+
+- **Design:** Each Advisor card visibly reserves Dismiss beside its primary action (line 1348), but the prototype supplies no production authorization or success semantics.
+- **Code before:** Enabling the control from presentation state alone or accepting a 2xx response would allow read-only/demo/mobile/unscoped operators to imply a durable suppression without proving the exact recommendation changed.
+- **Current resolution:** Dismiss enables only for an authorized, non-demo, non-read-only desktop scope with a resolved account and recommendation fingerprint. The controller verifies the returned action, account, fingerprint and suppressed state, then reads Advisor again and reports success only when the matching fingerprint is absent. Pending, error and failed-readback states remain fail-closed and tested.
+
+### GOOGLE-OVERVIEW-ADVISOR-44 · HIGH · WRONG — Overview/Advisor CTAs could lose account scope or jump into the wrong route family
+
+- **Design:** The Where-to-look and Advisor buttons navigate to related Google surfaces from the same account context (markup lines 1235, 1347 and model routes 3722–3726, 3755–3793).
+- **Code before:** Hard-coded legacy hrefs could drop the provider account or escape a `/c`/`/app` session, allowing the destination to resolve a different account.
+- **Current resolution:** CTA targets are first mapped to their supported Google surface, then passed through the route-family registry and `withGoogleAccount`. The resolved provider id is preserved for legacy and `/c` navigation; `/app` keeps its compatibility family, and unsupported targets expose no active callback.
+
+### GOOGLE-OVERVIEW-ADVISOR-45 · MEDIUM · WRONG — Legacy bootstrap/connection gates replaced the exact R3 shape
+
+- **Design:** Overview and Advisor always preserve their full fixed hierarchy from header through final article/paragraph (markup lines 1202–1355); no whole-page loading or disconnected replacement exists in the source.
+- **Code before:** `GoogleWorkspaceScreen` could return a loading skeleton, business empty state or integration empty card before the exact summary/insights body, collapsing the canonical shells in ordinary legacy loading/disconnected states.
+- **Current resolution:** Summary and insights declare ownership of their exact state. Bootstrap and integration replacement gates apply only to the other preserved Google panels; Overview/Advisor always reach their exact components, where unresolved/loading/error/empty values are represented inside the fixed shape with `—` and reads remain disabled when scope is absent.
+
+### GOOGLE-OVERVIEW-ADVISOR-46 · MEDIUM · EXTRA — The generic mobile read-only banner duplicated Google’s route-owned mobile surface
+
+- **Design/contract:** Pixel equality is scoped to desktop ≥1024, while the retained sub-1024 contract requires one usable, non-writing mobile surface rather than stacked shell and page warnings.
+- **Code before:** DashboardFrame could prepend `Adsecute · mobile read-only` while `GoogleOverviewExact`/`GoogleAdvisorExact` also rendered their own responsive read-only composition.
+- **Current resolution:** DashboardFrame recognises legacy, `/c` and `/app` Google Overview/Advisor routes as route-owned mobile surfaces, suppresses the generic banner/stage and leaves the exact component's single sub-1024 read-only body in control. Shell and Google component tests lock the absence of the duplicate banner and of mobile mutation controls.
+
+### GOOGLE-OVERVIEW-ADVISOR-47 · HIGH · WRONG — Read-only previews claimed a guarded provider-apply capability the current contract does not prove
+
+- **Design:** The prototype asserts that budget shifts apply as guarded writes from Plan (line 1273) and that Advisor Apply returns receipts/rollback (line 1354).
+- **Code before:** Rendering those literals beside a read-only bounded preview implied that the current route had a typed safe provider-write/apply capability even when only recommendation evidence existed.
+- **Current resolution:** Claim-bearing subtitle/closing slots remain in the canonical geometry but render `—` unless a typed capability can prove the statement. Overview budget values may bind only the native exact zero-net preview; Apply stays account-preserving navigation to Plan, never a provider mutation from Overview/Advisor.
+
+### GOOGLE-OVERVIEW-ADVISOR-48 · LOW · WRONG — Campaign active count was derived from the four visible rows
+
+- **Design:** The Campaigns subtitle is an account summary, while `hint-placeholder-count="4"` bounds the rendered row shell (markup lines 1240 and 1255); the two counts are not the same contract.
+- **Code before:** Slicing the campaign list to four before counting made every populated account appear to have at most four active campaigns.
+- **Current resolution:** The table remains bounded to four rows, but the active count filters the full campaign response for active/enabled status. A five-active fixture is locked as `5 active` with only four rendered rows.
+
+### GOOGLE-OVERVIEW-ADVISOR-49 · LOW · GEOMETRY — Final secondary and budget KPI cells lost the canonical right border
+
+- **Design:** Every secondary child and every Budget KPI child carries `border-right:1px solid #F3F5F9`, including the final/wrapped child (markup lines 1222 and 1276); there is no `:last-child` exception.
+- **Code before:** Last-child overrides removed the right border, changing the edge/wrap geometry at the reference widths.
+- **Current resolution:** The exact stylesheet gives every `.secondaryMetric` and `.budgetKpi` the same right border and contains no last-child removal. A source-level CSS regression test locks both the declaration and the absence of the override.
 
 ---
 

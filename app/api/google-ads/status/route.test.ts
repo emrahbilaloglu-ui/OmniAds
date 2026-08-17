@@ -2068,6 +2068,85 @@ describe("GET /api/google-ads/status", () => {
       expect(String(call[0].startDate) <= String(call[0].endDate)).toBe(true);
     });
 
+    it("scopes sync health, checkpoints, coverage and freshness to the requested assigned account", async () => {
+      connectGoogle();
+      vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+        id: "asg_google",
+        business_id: "biz",
+        provider: "google",
+        account_ids: ["acc_1", "acc_2"],
+        created_at: "",
+        updated_at: "",
+      });
+      vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+        accounts: [
+          { id: "acc_1", name: "Main", timezone: "UTC" },
+          { id: "acc_2", name: "Secondary", timezone: "Europe/Berlin" },
+        ],
+        meta: {
+          source: "snapshot",
+          sourceHealth: "healthy_cached",
+          fetchedAt: null,
+          stale: false,
+          refreshFailed: false,
+          failureClass: null,
+          lastError: null,
+          lastKnownGoodAvailable: true,
+          refreshRequestedAt: null,
+          lastRefreshAttemptAt: null,
+          nextRefreshAfter: null,
+          retryAfterAt: null,
+          refreshInProgress: false,
+          sourceReason: null,
+        },
+      });
+
+      const response = await GET(
+        new NextRequest(
+          "http://localhost/api/google-ads/status?businessId=biz&accountId=acc_2&startDate=2026-03-01&endDate=2026-03-30",
+        ),
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.assignedAccountIds).toEqual(["acc_2"]);
+      expect(warehouse.getLatestGoogleAdsSyncHealth).toHaveBeenCalledWith({
+        businessId: "biz",
+        providerAccountId: "acc_2",
+      });
+      expect(warehouse.getGoogleAdsCheckpointHealth).toHaveBeenCalledWith({
+        businessId: "biz",
+        providerAccountId: "acc_2",
+      });
+      expect(
+        vi.mocked(warehouse.getGoogleAdsDailyCoverage).mock.calls.every(
+          ([input]) => input.providerAccountId === "acc_2",
+        ),
+      ).toBe(true);
+      expect(freshnessRead.readGoogleAdsFreshness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          businessId: "biz",
+          providerAccountIds: ["acc_2"],
+        }),
+      );
+    });
+
+    it("refuses an unassigned status account before any warehouse status read", async () => {
+      connectGoogle();
+
+      const response = await GET(
+        new NextRequest(
+          "http://localhost/api/google-ads/status?businessId=biz&accountId=foreign_account",
+        ),
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.code).toBe("google_account_not_selected");
+      expect(warehouse.getLatestGoogleAdsSyncHealth).not.toHaveBeenCalled();
+      expect(freshnessRead.readGoogleAdsFreshness).not.toHaveBeenCalled();
+    });
+
     it("never tells a user a Google Ads date is final or immutable", async () => {
       connectGoogle();
       vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(

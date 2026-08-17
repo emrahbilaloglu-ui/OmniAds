@@ -7,6 +7,14 @@ import {
 } from "@/lib/demo-business";
 import { getGoogleAdsCampaignsReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
+import {
+  isGoogleAdsReadComplete,
+  type GoogleAdsReadCompletenessMeta,
+} from "@/lib/google-ads/read-completeness";
 
 interface GoogleAdsTrendCampaignRow {
   id: string;
@@ -25,6 +33,7 @@ interface GoogleAdsTrendCampaignRow {
 interface GoogleAdsTrendPoint {
   date: string;
   rows: GoogleAdsTrendCampaignRow[];
+  complete: boolean;
 }
 
 function enumerateDates(startDate: string, endDate: string) {
@@ -44,6 +53,7 @@ function buildDemoTrendRows(): GoogleAdsTrendPoint[] {
   const googleTrend = getDemoSparklines().providerTrends.google ?? [];
   return googleTrend.map((point) => ({
     date: point.date,
+    complete: true,
     rows: campaigns.map((campaign) => {
       const spendShare = Number(campaign.spendShare ?? 0) / 100;
       const revenueShare = Number(campaign.revenueShare ?? 0) / 100;
@@ -87,7 +97,22 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   if (await isDemoBusiness(businessId)) {
-    return NextResponse.json({ rows: buildDemoTrendRows() });
+    return NextResponse.json({
+      rows: buildDemoTrendRows(),
+      meta: { dateRange, customStart, customEnd, complete: true, incompleteDates: [] },
+    });
+  }
+
+  if (accountId && accountId !== "all") {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId, accountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
   }
 
   if (!customStart || !customEnd) {
@@ -109,10 +134,14 @@ export async function GET(request: NextRequest) {
         debug,
         source: "google_ads_daily_trends_route",
       });
+      const complete = isGoogleAdsReadComplete(
+        report.meta as GoogleAdsReadCompletenessMeta,
+      );
 
       return {
         date,
-        rows: report.rows.map((row) => ({
+        complete,
+        rows: complete ? report.rows.map((row) => ({
           id: String(row.id),
           name: String(row.name),
           status: String(row.status ?? "paused"),
@@ -126,11 +155,23 @@ export async function GET(request: NextRequest) {
             typeof row.impressionShare === "number" ? row.impressionShare : null,
           lostIsBudget:
             typeof row.lostIsBudget === "number" ? row.lostIsBudget : null,
-        })),
+        })) : [],
       };
     })
   );
 
-  const payload = { rows, meta: { dateRange, customStart, customEnd } };
+  const incompleteDates = rows
+    .filter((point) => !point.complete)
+    .map((point) => point.date);
+  const payload = {
+    rows,
+    meta: {
+      dateRange,
+      customStart,
+      customEnd,
+      complete: incompleteDates.length === 0,
+      incompleteDates,
+    },
+  };
   return NextResponse.json(payload);
 }

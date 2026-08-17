@@ -121,6 +121,11 @@ import type {
   GoogleAdsStatusResponse,
   GoogleAdsStatusDomainSummary,
 } from "@/lib/google-ads/status-types";
+import {
+  googleAdsReadAccountAuthorityFailure,
+  normalizeGoogleCustomerId,
+  resolveGoogleAdsReadAccountAuthority,
+} from "@/lib/google-ads/account-authority";
 
 function isGeneralReopenEnabled() {
   const raw = process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase();
@@ -603,11 +608,24 @@ export async function GET(request: NextRequest) {
   const automationConfig = getGoogleAdsAutomationConfig();
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
+  const requestedAccountId = url.searchParams.get("accountId")?.trim() || null;
   const selectedStartDate = url.searchParams.get("startDate");
   const selectedEndDate = url.searchParams.get("endDate");
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (requestedAccountId) {
+    const refusal = googleAdsReadAccountAuthorityFailure(
+      await resolveGoogleAdsReadAccountAuthority(businessId!, requestedAccountId),
+    );
+    if (refusal) {
+      return NextResponse.json(
+        { error: refusal.message, code: refusal.code },
+        { status: refusal.httpStatus },
+      );
+    }
+  }
 
   const sql = getDb();
   const currentRuntimeBuildId = getCurrentRuntimeBuildId();
@@ -713,12 +731,18 @@ export async function GET(request: NextRequest) {
     ),
     captureOptional(
       "latest_sync_health",
-      getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }),
+      getLatestGoogleAdsSyncHealth({
+        businessId: businessId!,
+        providerAccountId: requestedAccountId,
+      }),
       null
     ),
     captureOptional(
       "checkpoint_health",
-      getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }),
+      getGoogleAdsCheckpointHealth({
+        businessId: businessId!,
+        providerAccountId: requestedAccountId,
+      }),
       null
     ),
     captureOptional(
@@ -841,7 +865,15 @@ export async function GET(request: NextRequest) {
       ? String(workerSchedulingState.workerMeta.consumeReason)
       : null;
 
-  const accountIds = assignments?.account_ids ?? [];
+  const assignedAccountIds = assignments?.account_ids ?? [];
+  const scopedAccountId = requestedAccountId
+    ? assignedAccountIds.find(
+        (accountId) =>
+          normalizeGoogleCustomerId(accountId) ===
+          normalizeGoogleCustomerId(requestedAccountId),
+      ) ?? requestedAccountId
+    : null;
+  const accountIds = scopedAccountId ? [scopedAccountId] : assignedAccountIds;
   const connected = Boolean(integration?.status === "connected");
 
   const [warehouseStatsRows] = (await Promise.all([
@@ -929,7 +961,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "account_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
@@ -937,7 +969,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
@@ -994,7 +1026,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1002,7 +1034,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "product_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1010,7 +1042,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "asset_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1018,7 +1050,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "asset_group_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1026,7 +1058,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "geo_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1034,7 +1066,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "device_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1042,7 +1074,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "audience_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
             timeoutMs: 30_000,
@@ -1110,7 +1142,7 @@ export async function GET(request: NextRequest) {
             coverage: await readGoogleAdsStatusCoverage({
               scope,
               businessId: businessId!,
-              providerAccountId: null,
+              providerAccountId: scopedAccountId,
               startDate: initialBackfillStart,
               endDate: initialBackfillEnd,
               timeoutMs: 30_000,
@@ -1125,7 +1157,7 @@ export async function GET(request: NextRequest) {
       ? await readGoogleAdsStatusCoverage({
           scope: "campaign_daily",
           businessId: businessId!,
-          providerAccountId: null,
+          providerAccountId: scopedAccountId,
           startDate: selectedStartDate,
           endDate: selectedEndDate,
           timeoutMs: 30_000,
@@ -1345,7 +1377,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
@@ -1353,7 +1385,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
@@ -1361,7 +1393,7 @@ export async function GET(request: NextRequest) {
           readGoogleAdsStatusCoverage({
             scope: "product_daily",
             businessId: businessId!,
-            providerAccountId: null,
+            providerAccountId: scopedAccountId,
             startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,

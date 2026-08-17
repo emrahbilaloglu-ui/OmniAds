@@ -299,6 +299,33 @@ describe("dashboard v2 shell", () => {
     }
   });
 
+  it("leaves every exact Google Overview and Advisor mobile surface to the route", () => {
+    for (const pathname of [
+      "/platforms/google",
+      "/platforms/google/advisor",
+      "/app/google/overview",
+      "/app/google/advisor",
+      "/c/biz_1/google/overview",
+      "/c/biz_1/google/advisor",
+    ]) {
+      state.pathname = pathname;
+      state.selectedBusinessId = "biz_1";
+
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} responsive body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
+      );
+
+      expect(html).toContain('data-mobile-surface="none"');
+      expect(html).toContain(`${pathname} responsive body`);
+      expect(html).not.toContain("ad-console-mobile-readonly");
+      expect(html).not.toContain("Adsecute · mobile read-only");
+    }
+  });
+
   it("keeps every Studio and History mobile route on its real responsive surface", () => {
     for (const pathname of [
       "/platforms/meta/history",

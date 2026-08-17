@@ -47,6 +47,27 @@ describe("provider scope server", () => {
     ).toBeNull();
   });
 
+  it("reuses the route catalog so identity and selection share one authority snapshot", async () => {
+    const catalog = {
+      provider: "google" as const,
+      accounts: [
+        { id: "4931182201", label: "Primary", currency: "USD", timezone: "UTC" },
+      ],
+    };
+
+    await expect(
+      resolveProviderAccountId({
+        businessId: "b1",
+        provider: "google",
+        requestedAccountId: "4931182201",
+        catalog,
+      }),
+    ).resolves.toBe("4931182201");
+
+    expect(getProviderAccountAssignments).not.toHaveBeenCalled();
+    expect(readProviderAccountSnapshot).not.toHaveBeenCalled();
+  });
+
   it("uses snapshot names only for assigned ids", async () => {
     getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1"] });
     readProviderAccountSnapshot.mockResolvedValue({

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isGoogleAdsAccountAuthorityError } from "@/lib/google-ads/account-authority";
+import {
+  assertGoogleAdsAccountAuthority,
+  isGoogleAdsAccountAuthorityError,
+} from "@/lib/google-ads/account-authority";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
   executeActionCluster,
@@ -616,6 +619,15 @@ export async function POST(request: NextRequest) {
   if ("error" in access) return access.error;
 
   if (await isDemoBusiness(businessId)) {
+    if (body?.action) {
+      return NextResponse.json(
+        {
+          error: "Advisor memory is read-only for demo businesses.",
+          code: "demo_read_only",
+        },
+        { status: 403 },
+      );
+    }
     return NextResponse.json({ ok: true, demo: true });
   }
 
@@ -1068,19 +1080,71 @@ export async function POST(request: NextRequest) {
   if (!body?.action) {
     return NextResponse.json({ error: "action or executionAction is required" }, { status: 400 });
   }
+  if (!["dismissed", "ignored", "applied", "unsuppress"].includes(body.action)) {
+    return NextResponse.json({ error: "Unsupported advisor memory action." }, { status: 400 });
+  }
 
-  await updateAdvisorMemoryAction({
+  if (!body.accountId || body.accountId === "all") {
+    return NextResponse.json(
+      {
+        error: "A selected Google Ads account is required for advisor memory actions.",
+        code: "google_ads_account_scope_required",
+      },
+      { status: 400 },
+    );
+  }
+  try {
+    await assertGoogleAdsAccountAuthority({
+      businessId,
+      accountId: body.accountId,
+    });
+  } catch (error) {
+    if (isGoogleAdsAccountAuthorityError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.httpStatus },
+      );
+    }
+    throw error;
+  }
+
+  const memoryUpdate = await updateAdvisorMemoryAction({
     businessId,
-    accountId: topLevelAccountId,
+    accountId: body.accountId,
     recommendationFingerprint: body.recommendationFingerprint,
     action: body.action,
     dismissReason: body.dismissReason ?? null,
     suppressUntil: body.suppressUntil ?? null,
   });
+  if (
+    !memoryUpdate.matched ||
+    memoryUpdate.recommendationFingerprint !== body.recommendationFingerprint
+  ) {
+    return NextResponse.json(
+      {
+        error: "The recommendation is no longer present in this account.",
+        code: "advisor_recommendation_not_found",
+      },
+      { status: 404 },
+    );
+  }
+  if (
+    body.action === "dismissed" &&
+    (memoryUpdate.currentStatus !== "suppressed" ||
+      memoryUpdate.userAction !== "dismissed")
+  ) {
+    return NextResponse.json(
+      {
+        error: "The dismissal could not be verified after the memory write.",
+        code: "advisor_memory_write_unverified",
+      },
+      { status: 409 },
+    );
+  }
   if (body.action === "applied" || body.action === "dismissed" || body.action === "unsuppress") {
     await appendGoogleAdsDecisionActionOutcomeLog({
       businessId,
-      providerAccountId: topLevelAccountId === "all" ? null : topLevelAccountId,
+      providerAccountId: body.accountId,
       recommendationFingerprint: body.recommendationFingerprint,
       decisionFamily: null,
       actionType: "plan",
@@ -1104,7 +1168,14 @@ export async function POST(request: NextRequest) {
     }).catch(() => null);
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    action: body.action,
+    accountId: body.accountId,
+    recommendationFingerprint: memoryUpdate.recommendationFingerprint,
+    currentStatus: memoryUpdate.currentStatus,
+    suppressUntil: memoryUpdate.suppressUntil,
+  });
 }
 
 export async function GET(request: NextRequest) {

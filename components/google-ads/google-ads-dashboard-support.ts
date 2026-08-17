@@ -2,6 +2,7 @@ import { getCurrencySymbol } from "@/hooks/use-currency";
 import type { RangePreset } from "@/components/date-range/DateRangePicker";
 import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 import type { BudgetRec } from "@/components/google-ads/BudgetScalingTab";
+import type { GoogleAdsReadCompletenessMeta } from "@/lib/google-ads/read-completeness";
 
 export type ActionState = "scale" | "optimize" | "test" | "reduce";
 export type TrendLabelMode = "day" | "month";
@@ -43,6 +44,7 @@ export interface Campaign {
 export interface CampaignsResponse {
   rows: Campaign[];
   summary: { accountAvgRoas: number };
+  meta?: GoogleAdsReadCompletenessMeta;
 }
 
 export interface SearchTheme {
@@ -215,7 +217,12 @@ export interface GoogleAdsTrendsResponse {
   rows: Array<{
     date: string;
     rows: GoogleAdsTrendCampaignRow[];
+    complete: boolean;
   }>;
+  meta: {
+    complete: boolean;
+    incompleteDates: string[];
+  };
 }
 
 export const ACTION_CONFIG: Record<

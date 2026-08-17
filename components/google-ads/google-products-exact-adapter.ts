@@ -76,15 +76,24 @@ export interface GoogleProductsExactInput {
   /** The pack's break-even ROAS, the design's second boundary. */
   roasBreakEven?: number | null;
   /**
-   * Merchant Center feed evidence. Left null until a Merchant Center read
-   * exists; the tiles keep their shells and print `—`.
+   * Merchant Center feed evidence. Null when no Merchant Center read has landed
+   * for this account; the tiles keep their shells and print `—`.
    */
   feed?: {
     totalItemsInFeed?: number | null;
+    servingItemCount?: number | null;
     limitedItemCount?: number | null;
     disapprovedItemCount?: number | null;
+    /** Pre-formatted label. Wins over `syncedAt` when both are supplied. */
     syncedLabel?: string | null;
+    /** ISO timestamp of the newest Merchant Center observation. */
+    syncedAt?: string | null;
   } | null;
+  /**
+   * Clock for the `Feed synced` tile's relative label, so the mapping stays a
+   * pure function of its inputs under test.
+   */
+  nowMs?: number;
 }
 
 /**
@@ -155,18 +164,59 @@ function count(value: number | null): string {
 }
 
 /**
- * The Feed status chip, restricted to what the account actually reports.
+ * The `Feed synced` tile's relative label.
  *
- * `Hidden winner` is a server-assigned classification on the shopping report,
- * so it is served. `Serving` is the observable fact that the item took
- * impressions in the window. `Missing GTIN` and `Disapproved` are Merchant
- * Center item states this read cannot see, so an item that did not serve is
- * `—` rather than a guess at why.
+ * Deliberately the same shape the design prints — `26m ago` — and deliberately
+ * coarse: the tile answers "is this read recent enough to act on", and a
+ * seconds-accurate answer would only invite the reader to trust a snapshot more
+ * precisely than a six-hourly refresh deserves.
+ */
+function relativeSyncedLabel(syncedAt: string, nowMs: number): string {
+  const observedMs = Date.parse(syncedAt);
+  if (!Number.isFinite(observedMs)) return DASH;
+  const elapsedMinutes = Math.floor((nowMs - observedMs) / 60_000);
+  if (elapsedMinutes < 0) return DASH;
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+  return `${Math.floor(elapsedHours / 24)}d ago`;
+}
+
+/**
+ * The Feed status chip.
+ *
+ * Merchant Center state, when a Merchant Center read supplied it, IS the answer
+ * to this column — it is what the design's `Missing GTIN` and `Disapproved`
+ * chips are, and the screen's own footnote says the fix for a disapproval lives
+ * there. It therefore outranks the performance proxies below it: an item that
+ * took impressions yesterday and is disapproved today is disapproved, and
+ * saying `Serving` because the metrics agree with last week would be the one
+ * lie this column can tell.
+ *
+ * Below that, unchanged: `Hidden winner` is the shopping report's own
+ * classification and `Serving` is the observable fact that the item took
+ * impressions in the window. An item with no Merchant Center row and no
+ * impressions is `—`, never a guess at why.
  */
 export function googleProductFeedStatus(row: ProductRow): {
   label: string;
   tone: GoogleSearchExactChipTone;
 } {
+  switch (row.feedState) {
+    case "disapproved":
+      return { label: "Disapproved", tone: "negative" };
+    case "limited":
+      return {
+        // The provider's own words when it gave them, its state when it did not.
+        label: row.feedStatusLabel?.trim() || "Limited",
+        tone: "warning",
+      };
+    case "serving":
+      return { label: "Serving", tone: "positive" };
+    default:
+      break;
+  }
   if (String(row.classification ?? "") === "hidden_winner") {
     return { label: "Hidden winner", tone: "auto" };
   }
@@ -201,16 +251,30 @@ export function buildGoogleProductsExactViewModel(
   const products = input.products ?? [];
   const feed = input.feed ?? null;
 
-  const servingCount =
-    input.products === null
-      ? null
-      : products.filter(
-          (row) => numeric(row.impressions) > 0 || numeric(row.clicks) > 0,
-        ).length;
   const feedTotal = finite(feed?.totalItemsInFeed);
+  const feedServing = finite(feed?.servingItemCount);
   const limited = finite(feed?.limitedItemCount);
   const disapproved = finite(feed?.disapprovedItemCount);
-  const syncedLabel = feed?.syncedLabel?.trim() || null;
+
+  // "Products serving · of N in feed" is one sentence about the feed, so once a
+  // Merchant Center read supplies it, the numerator is its serving tally. With
+  // no such read the tile falls back to the only serving fact this product has
+  // — items that took traffic in the window — and its sub-line stays the em
+  // dash, so the number is never read as a fraction of a denominator nobody
+  // supplied.
+  const servingCount =
+    feedServing !== null
+      ? feedServing
+      : input.products === null
+        ? null
+        : products.filter(
+            (row) => numeric(row.impressions) > 0 || numeric(row.clicks) > 0,
+          ).length;
+
+  const syncedAt = feed?.syncedAt?.trim() || null;
+  const syncedLabel =
+    feed?.syncedLabel?.trim() ||
+    (syncedAt ? relativeSyncedLabel(syncedAt, input.nowMs ?? Date.now()) : null);
 
   const tiles: GoogleProductsExactTileViewModel[] = [
     {

@@ -32,3 +32,42 @@ describe("buildCampaignCoreBasicQuery", () => {
     expect(query).toContain("LIMIT 1234");
   });
 });
+
+describe("buildMerchantCenterItemStateQuery", () => {
+  it("selects the item-state fields the shopping report cannot serve", async () => {
+    const { buildMerchantCenterItemStateQuery } = await import(
+      "@/lib/google-ads/query-builders"
+    );
+
+    const named = buildMerchantCenterItemStateQuery();
+
+    expect(named.resource).toBe("shopping_product");
+    expect(named.query).toContain("shopping_product.merchant_center_id");
+    expect(named.query).toContain("shopping_product.item_id");
+    expect(named.query).toContain("shopping_product.status");
+    expect(named.query).toContain("shopping_product.issues");
+    expect(named.query).toContain("shopping_product.availability");
+    expect(named.query).toContain("FROM shopping_product");
+  });
+
+  it("is dateless and metric-free, because item state is not a daily fact", async () => {
+    const { buildMerchantCenterItemStateQuery } = await import(
+      "@/lib/google-ads/query-builders"
+    );
+
+    const named = buildMerchantCenterItemStateQuery();
+
+    expect(named.metrics).toEqual([]);
+    expect(named.query).not.toContain("segments.date");
+    expect(named.query).not.toContain("metrics.");
+  });
+
+  it("caps the read", async () => {
+    const { buildMerchantCenterItemStateQuery } = await import(
+      "@/lib/google-ads/query-builders"
+    );
+
+    expect(buildMerchantCenterItemStateQuery().query).toContain("LIMIT 5000");
+    expect(buildMerchantCenterItemStateQuery(120).query).toContain("LIMIT 120");
+  });
+});

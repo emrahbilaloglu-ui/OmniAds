@@ -2033,36 +2033,71 @@ batch's own output and are closed against the same reference lines.
 | GOOGLE-SEARCH-PRODUCTS-31 | CLOSED | The Products table renders every served row with no 50-row cap and no "Showing the top 50" notice. |
 | GOOGLE-SEARCH-PRODUCTS-32 | CLOSED | The screen reads the served search-term report directly; served terms are no longer dropped by an intersection with the campaign table's current filter. |
 | GOOGLE-SEARCH-PRODUCTS-33 | CLOSED | `google_copy_used`, `google_csv_used` and `google_deep_link_used` left the instrumentation vocabulary with the controls that emitted them; the database CHECK still accepts already-recorded rows. |
-| GOOGLE-SEARCH-PRODUCTS-34 | BLOCKED | Merchant Center item state. See the contract below. |
+| GOOGLE-SEARCH-PRODUCTS-34 | CLOSED | `buildMerchantCenterItemStateQuery` reads `shopping_product` (merchant_center_id, status, issues, availability) under the already-granted `adwords` scope into `google_merchant_center_item_state`; `/api/google-ads/products` serves `feed: { totalItemsInFeed, servingItemCount, limitedItemCount, disapprovedItemCount, syncedAt, merchantCenterIds }` plus per-row `feedState`/`feedStatusLabel`, and an item with no Merchant Center row still prints `—`. |
 | GOOGLE-SEARCH-PRODUCTS-35 | CLOSED | The Allocation read is built from `ProductRow.classification`: four fixed bucket labels over product-name chips. The advisor recommendation list is no longer an input to the adapter, so a sentence cannot reach the 9.5px mono label slot. |
 | GOOGLE-SEARCH-PRODUCTS-36 | CLOSED | The card always renders four `data-google-allocation-bucket` blocks; a bucket with no product behind it prints `—` in its chip row rather than disappearing. |
 | GOOGLE-SEARCH-PRODUCTS-37 | CLOSED | `"neutral"` (`#45526B`) is a served in-band ROAS and `"unserved"` (`#7A869E`) is an em-dashed one; the blanket `.roasChip.toneNeutral` grey override is deleted. |
 
-**BLOCKED — GOOGLE-SEARCH-PRODUCTS-34, Merchant Center feed evidence.** The
+**CLOSED — GOOGLE-SEARCH-PRODUCTS-34, Merchant Center feed evidence.** The
 design's `Limited`, `Disapproved` and `Feed synced` tiles, the `of N in feed`
 sub-line, and the `Missing GTIN` / `Disapproved` feed-status chips all describe
-Merchant Center state. The only product resource this account reads is
-`shopping_performance_view` (`buildProductPerformanceQuery`), which selects
+Merchant Center state, and until now nothing in the repo could answer them:
+`buildProductPerformanceQuery` reads `shopping_performance_view`, which selects
 `segments.product_item_id`, `segments.product_title` and five metrics and no
-approval, availability or item-issue field; `google_ads_product_dimensions`
-therefore stores `normalized_status = NULL` for every row. There is no Merchant
-Center integration, credential or sync anywhere in the repo. The elements keep
-their exact geometry and print `—`.
+approval, availability or item-issue field.
 
-Contract required to close it: a Merchant Center read (Content API
-`productstatuses.list`, or the Google Ads `product_status`/`shopping_product`
-resources on an account where they are available) persisted per item and
-exposed by `/api/google-ads/products` as
-`feed: { totalItemsInFeed, limitedItemCount, disapprovedItemCount, syncedAt }`
-plus a per-row `feedStatus: "serving" | "limited" | "disapproved"` with its
-issue list. `buildGoogleProductsExactViewModel` already accepts exactly that
-shape through its `feed` input and tints the counts as soon as they are real —
-`google-products-exact-adapter.test.ts` covers both the unread and the served
-case — so closing this is a data contract, not a presentation change.
+**Why no re-consent was needed.** The obvious source, the Content API's
+`productstatuses.list`, requires `https://www.googleapis.com/auth/content`,
+which `lib/oauth/google-config.ts` does not request — closing it that way would
+have forced every connected business to re-authorise. The Google Ads API's
+`shopping_product` resource carries the same facts (`merchant_center_id`,
+`status`, `issues[]`, `availability`) under
+`https://www.googleapis.com/auth/adwords`, which is already granted, so the read
+reuses the existing OAuth client, developer token, `executeGaqlQuery` and
+customer id. No new credential, no second OAuth, no new route.
+
+**The linkage.** `merchantCenterId` on
+`lib/google-ads/intelligence-model.ts:145` was a dead optional field: nothing in
+the repo ever assigned it, and `lib/google-ads/warehouse.ts` only passed it
+through the `product_daily` payload projection. It was never authoritative. The
+authoritative linkage is `shopping_product.merchant_center_id`, returned per
+item by the provider and stored per row — a Google Ads account can be linked to
+more than one Merchant Center account, so collapsing them to one id per business
+would have been an invention.
+
+**Shape.** Additive table `google_merchant_center_item_state`, keyed
+`UNIQUE (business_id, provider_account_id, item_id)` and deliberately not
+partitioned by date, because an approval has no yesterday; `observed_at` is the
+only date it carries and is what the `Feed synced` tile prints. The state
+machine is `serving | limited | disapproved | unknown`, derived in
+`deriveMerchantCenterFeedState` and re-derived on every read so a change to the
+rules does not wait for a re-sync. It only ever moves a verdict in the
+pessimistic direction — a `DISAPPROVED` issue overrides an eligible status — and
+never promotes `unknown` to `serving` on the strength of an empty issue list.
+
+`/api/google-ads/products` serves
+`feed: { totalItemsInFeed, servingItemCount, limitedItemCount, disapprovedItemCount, syncedAt, merchantCenterIds }`
+plus per-row `feedState`, `feedStatusLabel`, `feedAvailability`, `feedIssues`
+and `merchantCenterId`, through the same `requireBusinessAccess({ minRole: "guest" })`
+its siblings use. An item the Merchant Center read did not return keeps NO feed
+key at all — not `feedState: "unknown"` — so the Feed status column prints `—`
+rather than claiming a lookup that never happened. When no read has landed for
+the account the whole `feed` block is `null`, every Merchant Center tile prints
+`—` untinted, and `meta.warnings` names the absence for the Diagnostics tab.
+
+**What stays em-dashed and why.** An account with no Merchant Center link
+returns no `shopping_product` rows; nothing is stored and the tiles keep their
+shells. That is the honest state, not a defect.
 
 Executable evidence: `google-search-exact-adapter.test.ts`,
 `google-products-exact-adapter.test.ts`, `GoogleSearchExact.test.tsx`,
 `GoogleProductsExact.test.tsx`, `google-search-products-wiring.test.tsx`,
+`lib/google-ads/merchant-center-item-state.test.ts` (the state machine and the
+join), `lib/google-ads/merchant-center-warehouse.test.ts` (staleness and the
+fail-to-null read), `lib/google-ads/merchant-center-sync.test.ts` (the
+`google_sync` lane guard, the read-only SELECT, the refresh interval),
+`app/api/google-ads/products/route.test.ts` (the authorization boundary),
+`lib/google-ads/query-builders.test.ts`, `lib/migrations.test.ts`,
 `lib/google-ads/keyword-insights.test.ts`, `GoogleWorkspaceScreen.test.tsx`,
 `app/c/[businessId]/google/google-routes.test.tsx`,
 `app/app/google-route-dispatch.test.tsx`,

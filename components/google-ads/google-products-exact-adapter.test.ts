@@ -264,3 +264,119 @@ describe("google products exact allocation read", () => {
     expect(model.allocation[2]!.items).toHaveLength(7);
   });
 });
+
+describe("google products exact merchant center state", () => {
+  it("prints the provider's own reason for a limited item", () => {
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "limited", feedStatusLabel: "Missing GTIN" }),
+      ),
+    ).toEqual({ label: "Missing GTIN", tone: "warning" });
+  });
+
+  it("falls back to the state when the provider named no reason", () => {
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "limited", feedStatusLabel: null }),
+      ),
+    ).toEqual({ label: "Limited", tone: "warning" });
+  });
+
+  it("prints a disapproval even for an item that took traffic in the window", () => {
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "disapproved", impressions: 51_000, clicks: 4210 }),
+      ),
+    ).toEqual({ label: "Disapproved", tone: "negative" });
+  });
+
+  it("lets a disapproval outrank the hidden-winner classification", () => {
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "disapproved", classification: "hidden_winner" }),
+      ),
+    ).toEqual({ label: "Disapproved", tone: "negative" });
+  });
+
+  it("does not let an unknown Merchant Center state overwrite the served facts", () => {
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "unknown", classification: "hidden_winner" }),
+      ),
+    ).toEqual({ label: "Hidden winner", tone: "auto" });
+    expect(
+      googleProductFeedStatus(
+        product({ feedState: "unknown", impressions: 0, clicks: 0 }),
+      ),
+    ).toEqual({ label: DASH, tone: "neutral" });
+  });
+
+  it("takes the serving numerator from Merchant Center once it is read", () => {
+    const model = buildGoogleProductsExactViewModel(
+      input({
+        // Only one of these two took traffic; the feed says 214 are serving.
+        products: [product(), product({ itemId: "AT-105", impressions: 0, clicks: 0 })],
+        feed: {
+          totalItemsInFeed: 226,
+          servingItemCount: 214,
+          limitedItemCount: 9,
+          disapprovedItemCount: 3,
+          syncedAt: "2026-08-17T11:34:00.000Z",
+        },
+        nowMs: Date.parse("2026-08-17T12:00:00.000Z"),
+      }),
+    );
+    expect(model.tiles.map((tile) => tile.value)).toEqual([
+      "214",
+      "9",
+      "3",
+      "26m ago",
+    ]);
+    expect(model.tiles[0]!.sub).toBe("of 226 in feed");
+  });
+
+  it("tints a real zero and dashes an unread count", () => {
+    const read = buildGoogleProductsExactViewModel(
+      input({
+        feed: {
+          totalItemsInFeed: 226,
+          servingItemCount: 226,
+          limitedItemCount: 0,
+          disapprovedItemCount: 0,
+          syncedAt: "2026-08-17T11:34:00.000Z",
+        },
+        nowMs: Date.parse("2026-08-17T12:00:00.000Z"),
+      }),
+    );
+    expect(read.tiles[1]!.value).toBe("0");
+    expect(read.tiles[1]!.valueTone).toBe("warning");
+    expect(read.tiles[2]!.value).toBe("0");
+    expect(read.tiles[2]!.valueTone).toBe("danger");
+
+    const unread = buildGoogleProductsExactViewModel(input({ feed: null }));
+    expect(unread.tiles[1]!.value).toBe(DASH);
+    expect(unread.tiles[1]!.valueTone).toBe("ink");
+  });
+
+  it("keeps the design's relative shape across the whole age range", () => {
+    const label = (syncedAt: string) =>
+      buildGoogleProductsExactViewModel(
+        input({
+          feed: { syncedAt },
+          nowMs: Date.parse("2026-08-17T12:00:00.000Z"),
+        }),
+      ).tiles[3]!.value;
+
+    expect(label("2026-08-17T11:59:40.000Z")).toBe("just now");
+    expect(label("2026-08-17T11:34:00.000Z")).toBe("26m ago");
+    expect(label("2026-08-17T05:00:00.000Z")).toBe("7h ago");
+    expect(label("2026-08-14T12:00:00.000Z")).toBe("3d ago");
+    expect(label("not-a-timestamp")).toBe(DASH);
+  });
+
+  it("keeps the em dash on every Merchant Center tile when nothing was read", () => {
+    const model = buildGoogleProductsExactViewModel(input({ feed: null }));
+    expect(model.tiles[0]!.sub).toBe(DASH);
+    expect(model.tiles[3]!.value).toBe(DASH);
+  });
+});

@@ -795,3 +795,46 @@ export function buildProductPerformanceLegacyQuery(
     }),
   };
 }
+
+/**
+ * Merchant Center per-item state, read through the Google Ads API.
+ *
+ * `shopping_performance_view` and `shopping_product_view` answer "what did this
+ * item do", and neither carries an approval, availability or item-issue field —
+ * which is why the design's Feed status column had no source. `shopping_product`
+ * answers "what state is this item in", and it does it under the `adwords`
+ * scope the business has already granted, so no Merchant Center re-consent and
+ * no second OAuth client is involved.
+ *
+ * Deliberately dateless. Item state is CURRENT state, not a daily fact: adding
+ * `segments.date` would multiply every item by the window and then force a
+ * "which day is the truth" question the resource has no answer to. `metrics.*`
+ * is likewise absent — the metrics on this screen come from the shopping
+ * report, and asking twice would only let the two disagree.
+ */
+export function buildMerchantCenterItemStateQuery(
+  limit = 5000,
+): GoogleAdsNamedQuery {
+  return {
+    name: "merchant_center_item_state",
+    family: "product_feed_state",
+    resource: "shopping_product",
+    mergeKey: "shopping_product.item_id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "shopping_product.merchant_center_id",
+        "shopping_product.item_id",
+        "shopping_product.title",
+        "shopping_product.feed_label",
+        "shopping_product.language_code",
+        "shopping_product.channel",
+        "shopping_product.availability",
+        "shopping_product.status",
+        "shopping_product.issues",
+      ],
+      from: "shopping_product",
+      limit,
+    }),
+  };
+}

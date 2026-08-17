@@ -51,6 +51,10 @@ export async function GET(request: NextRequest) {
     count: report.rows.length,
     summary: report.summary,
     insights: report.insights,
+    // Merchant Center feed evidence. `null` is the honest answer when no
+    // Merchant Center read has landed for this account; the screen prints the
+    // em dash rather than a zero it cannot stand behind.
+    feed: report.feed,
     meta: report.meta,
   };
   return NextResponse.json(payload);

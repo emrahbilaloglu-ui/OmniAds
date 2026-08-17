@@ -149,10 +149,43 @@ export interface ProductRow {
    * underperforming_product | stable_product.
    */
   classification?: string;
+  /**
+   * Merchant Center item state, present only when a Merchant Center read has
+   * landed for this item. An absent key means "no Merchant Center row", which
+   * the Feed status column renders as the em dash — it never means "serving".
+   */
+  feedState?: "serving" | "limited" | "disapproved" | "unknown";
+  /** The provider's own words for the chip, or null when it gave none. */
+  feedStatusLabel?: string | null;
+  feedAvailability?: string | null;
+  feedIssues?: Array<{
+    code: string | null;
+    severity: string | null;
+    attribute: string | null;
+    description: string | null;
+  }>;
+  merchantCenterId?: string | null;
+}
+
+/**
+ * The Merchant Center block the feed-health tiles print.
+ *
+ * Null means the read did not happen; a number means it did. The two are never
+ * collapsed, because "we have not looked" and "there are none" are different
+ * sentences and only the second one may be tinted.
+ */
+export interface ProductFeedSummary {
+  totalItemsInFeed: number | null;
+  servingItemCount: number | null;
+  limitedItemCount: number | null;
+  disapprovedItemCount: number | null;
+  syncedAt: string | null;
+  merchantCenterIds?: string[];
 }
 
 export interface ProductsResponse {
   rows: ProductRow[];
+  feed?: ProductFeedSummary | null;
 }
 
 export interface SearchIntelligenceRow {

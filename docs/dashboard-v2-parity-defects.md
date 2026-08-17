@@ -2390,6 +2390,87 @@ authority tests, `shell-redesign.test.tsx`, and the marker-locked
 
 ## Insights - outer tabs + Analytics tab
 
+### Batch 10 implementation status
+
+Canonical source read in full for this batch: Insights markup lines
+**1734–1958** (the page head, the outer pill row, the Analytics sub-tab strip
+and all seven sub-tab bodies) and their complete model bindings at lines
+**3902–3971** of `Adsecute Dashboard v2.dc.html` at SHA-256
+`d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193` — the outer
+section order at **3902**, `mkU`/`heat`/`anaTabs` at **3903–3905**, `anaKpis`,
+`nvCards` and `anaCallouts` at **3906–3921**, `prod`/`prodRows` at
+**3922–3929**, `landRows` at **3930–3938**, `chan`/`chanRows` at **3939–3946**,
+`DEMO`/`demoChips`/`demoRows` at **3947–3956**, `retPill`/`cohortRows`/
+`monthRows` at **3957–3959** and `anaOppCards` at **3960–3967**.
+
+`InsightsShellExact` (head + outer pill row) and `InsightsAnalyticsExact` (the
+whole Analytics tab) are the shared presentation surfaces. `InsightsChrome`
+wires the shell to the integration authority and mounts the working range
+picker inside the design's first head chip; `InsightsAnalyticsScreen` reads the
+five GA4 endpoints and hands them to the pure adapter. Every route family that
+reaches the screen mounts the same two components: the preserved
+`/insights/analytics`, the canonical `/c/[businessId]/analytics/ga4-shopify`
+(which is where `/insights/analytics` redirects) and
+`/c/[businessId]/analytics/landing-pages`, plus the `/app/analytics/**` twins
+that dispatch to the same modules. The canonical SEO and AI-visibility leaves
+are wrapped in the same outer chrome without their bodies being touched — those
+bodies belong to the SEO/GEO batch.
+
+`CLOSED` below means the source-level DOM, geometry, route, authority or
+truthfulness divergence is removed and covered by focused source/render/route
+tests. It does **not** mean a zero-RGBA pixel diff has been proved; no pinned-
+Chromium reference/current/diff matrix has been run, so strict pixel parity
+remains explicitly unclaimed. The detailed 01–36 blocks below preserve the
+original pre-resolution audit evidence; this table is the current status.
+Findings 37–43 are new and were raised by this batch's own read.
+
+| ID | Status | Current proof |
+| --- | ------ | ------------- |
+| INSIGHTS-A-01 | CLOSED | `AnalyticsHeader` is deleted with the old page body; `app/(dashboard)/insights/analytics/legacy-page.tsx` is `<InsightsAnalyticsScreen />` and nothing else, asserted by `insights-routes.test.tsx` ("no second header, no wrapper card"). |
+| INSIGHTS-A-02 | CLOSED | The exact root's first child is the sub-tab `role="tablist"`; each tab body is a direct sibling of the strip. No `<section>` wraps the tab content. |
+| INSIGHTS-A-03 | CLOSED | `SectionHeader` is gone. The only `<h2>`s in the screen are the five design card titles (Product funnel, Landing page performance, Traffic source quality, Weekly new vs returning, Monthly acquisition summary); Overview, Demographics and Opportunities open on their own grid/chip row. |
+| INSIGHTS-A-04 | CLOSED | `InsightsShellExact.module.css` `.title` — `font-family: var(--adv-font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.02em`. `WorkspaceSurface` is no longer used by Insights. |
+| INSIGHTS-A-05 | CLOSED | The range control is the first head chip (`.dateChip` restyles the shared v2 trigger to the design's r9 / 1px #e4e8f0 / mono 11.5px pill and orders the resolved dates ahead of the window name); the old bordered controls `<section>` is deleted. The chip prints the window's own preset name ("Last 28 days") where the prototype seeds the abbreviation "28d" — the geometry, position and caret are the design's. |
+| INSIGHTS-A-06 | CLOSED | `segmentMetrics` is a `1fr 1fr 1fr` grid of Sessions / Engagement / Purchase CVR, and the badge sits in a right-aligned header row. Engagement is real: `lib/analytics-overview.ts` now serves `newVsReturning.*.engagementRate` (see INSIGHTS-A-41) and the Audience tab prefers `/api/analytics/audience` segments. |
+| INSIGHTS-A-07 | CLOSED | Both cohort cards carry the design's header band — `.cardHead` (13px 16px, 1px #edf0f6) with a 15px/600 display `<h2>` plus the mono 10.5px hint, asserted in `InsightsAnalyticsExact.test.tsx`. |
+| INSIGHTS-A-08 | CLOSED | The landing table renders exactly Page, Sessions, Engagement, Purchases, Purchase CVR, Signal — asserted against the rendered `<thead>`. Engaged, Avg time and Bounce rate are gone. |
+| INSIGHTS-A-09 | CLOSED | `INSIGHTS_SECTIONS` is `[analytics, seo, geo]` and the rendered tablist reads Analytics / SEO Intelligence / AI Visibility, asserted in both the adapter and render tests. |
+| INSIGHTS-A-10 | CLOSED | `.cohortGrid` is `repeat(auto-fit, minmax(420px, 1fr))` with `align-items: start`, and each table sits in its own r14 card; the render test asserts the grid has exactly two children. |
+| INSIGHTS-A-11 | CLOSED | `.opportunityGrid` is `repeat(auto-fit, minmax(380px, 1fr))` and each card leads with the white mono uppercase chip carrying Opportunity / Strong / Warning. The lucide icons are gone — the render test asserts zero `<svg>` in the tab. |
+| INSIGHTS-A-12 | CLOSED | "Traffic source quality" appears once, inside the table card's header band; the eyebrow and the question sentence are deleted with `AudienceSection`. |
+| INSIGHTS-A-13 | CLOSED | The callout grid is a direct sibling of the new/returning grid; no "Insights" label paragraph exists. |
+| INSIGHTS-A-14 | CLOSED | The Audience tab opens straight into the `nvCards` grid; the "New vs returning" eyebrow is deleted. |
+| INSIGHTS-A-15 | CLOSED | The Cohorts tab opens on the two-column grid; the explanatory lead paragraph is deleted. |
+| INSIGHTS-A-16 | CLOSED | Headers are static `<th>` cells in mono 10px; the render test asserts no `<button>` and no `<svg>` inside any `<thead>`, and rows carry no hover rule. `SortableTable` is no longer reachable from Insights (it survives only for the GEO batch's own tables). |
+| INSIGHTS-A-17 | CLOSED | `QualityBadge` is deleted with `LandingPageSection`; the engagement cell is a bare value and Signal is the row's only chip. |
+| INSIGHTS-A-18 | CLOSED | `InsightsShellExact` renders eyebrow + `<h1>` + chip cluster and no description; the render test asserts the old workspace sentence is absent. |
+| INSIGHTS-A-19 | CLOSED | `.eyebrow` — `font-size: 11px; letter-spacing: 0.12em`, locked by the marker-bounded assertion in `lib/typography-floor.test.ts`. |
+| INSIGHTS-A-20 | CLOSED | `.tab[data-active="true"]` is `background: #0b1020; color: #ffffff; border-color: #0b1020`; inactive is `#ffffff / #45526b / #e4e8f0`. |
+| INSIGHTS-A-21 | CLOSED | `.tab[data-active="true"]` in the analytics module is `border-bottom-color: #0b1020` at `font-weight: 600`, inactive weight 500 on a transparent border — asserted against the stylesheet. |
+| INSIGHTS-A-22 | CLOSED | `.kpiCard` is `border-radius: 14px; padding: 14px 16px`; `.kpiLabel` is mono 9.5px uppercase at 0.1em; `.kpiValue` is display 22px/700 tabular. |
+| INSIGHTS-A-23 | CLOSED | `.th` is `background: #f7f9fc`, mono `10px`/500, `letter-spacing: 0.1em`, colour #7a869e, with 9px 16px on the lead/tail cells and 9px 12px between. |
+| INSIGHTS-A-24 | CLOSED | Wired end to end: `/api/analytics/overview` accepts `compareStartDate`/`compareEndDate`, `getAnalyticsOverviewData` runs exactly one extra summary report and returns `previousKpis`, the screen asks for the previous period, and the adapter renders `+8.2% vs prev 28d` on Sessions and `± N pt` on the two rate cards. With no comparison served the line is `—`, never a fabricated 0. |
+| INSIGHTS-A-25 | CLOSED | Each source chip's first child is a 14×14 `<img>` from `/platform-logos/GA4.svg` and `/platform-logos/searchconsole.svg`, asserted in the render test. |
+| INSIGHTS-A-26 | CLOSED | `analyticsHeat` emits `rgba(14,159,110, 0.05 + 0.3·min(1, v/max))` onto the cell background with the design's own ceilings (0.12 / 0.56 / 0.046 / 0.8 / 0.038); the text stays `#0e1526` at weight 600 and the amber/red text tinting is gone. |
+| INSIGHTS-A-27 | CLOSED | Callouts render the white mono uppercase chip "Positive" / "Warning" / "Info" mapped from the served insight type; `InsightCallout` and its lucide icons are deleted. |
+| INSIGHTS-A-28 | CLOSED | `.calloutText` is `#0e1526`; `.opportunityTitle` is `#0e1526` and `.opportunityText` is `#45526b`. Tone survives only on the chip text and the card border/background. |
+| INSIGHTS-A-29 | CLOSED | `retentionPill` is the design's four steps — `#0E9F6E/#ffffff`, `#BFE5D6/#065F46`, `#F5E1B0/#92400E`, `#F6C6D2/#9F1239` — and the duplicated `rate >= 0.05` tier is gone. |
+| INSIGHTS-A-30 | CLOSED | `ANALYTICS_TABS` caption is "Landing pages". |
+| INSIGHTS-A-31 | CLOSED | `.tableNote` sits inside each table `<article>` with `padding: 10px 16px; border-top: 1px solid #f3f5f9; font-size: 11.5px` in the body font; the Opportunities trailing note is `.trailingNote` at 11.5px/#98a4ba. |
+| INSIGHTS-A-32 | CLOSED | `landingSignal` returns only Healthy / Watch / Leaking, and reproduces the design's own six rows exactly — asserted row by row in the adapter test. |
+| INSIGHTS-A-33 | CLOSED | KPI labels are "Engaged sessions" and "Engagement rate". |
+| INSIGHTS-A-34 | CLOSED | Card labels are "New visitors" / "Returning visitors"; the demographic chip is "Age group". |
+| INSIGHTS-A-35 | CLOSED | Cohort captions are "New purch.", "Return purch.", "New users", "Active users". |
+| INSIGHTS-A-36 | CLOSED | The summary reads `{Dimension} “{value}” has the highest purchase rate at X% (site avg Y%).` and is omitted entirely when the endpoint returned no summary. |
+| INSIGHTS-A-37 | BLOCKED | Revenue still prints a hardcoded `$`. GA4 returns `purchaseRevenue` in the property's own currency and none of the five analytics endpoints expose that currency, so a EUR/TRY property is labelled in dollars. **Contract required:** `/api/analytics/overview`, `/products`, `/audience`, `/demographics` and `/cohorts` must each return the GA4 property's ISO-4217 currency (available from the Admin API property record already resolved by `getGA4TokenAndProperty`), after which the adapter can call `formatMoneyIso` and render `—` when the code is unknown. |
+| INSIGHTS-A-38 | CLOSED | The canonical leaf `/c/[businessId]/analytics/ga4-shopify` — the one `/insights/analytics` actually redirects to — rendered a different surface entirely (`AnalyticsSourceClient`: three source panels and a flat KPI list), so no Insights parity work was reachable in the shipped UI. It now mounts `InsightsChrome` + `InsightsAnalyticsScreen`, asserted in `analytics-routes.test.tsx`. |
+| INSIGHTS-A-39 | CLOSED | `/c/[businessId]/analytics/landing-pages` drew a second, unrelated landing-pages table. The design has no separate landing-pages screen — it is the third Analytics sub-tab — so the route now opens the same exact screen pinned to that tab. |
+| INSIGHTS-A-40 | CLOSED | The canonical SEO and AI-visibility leaves carried no Insights head and no outer pill row at all, leaving the three design sections unreachable from one another. Both are now wrapped in `InsightsChrome`; their bodies are untouched. |
+| INSIGHTS-A-41 | CLOSED | `runNewVsReturningReport` requested `engagementRate` from GA4 and the result was read and discarded, so nothing could truthfully fill the design's Engagement cell. `AnalyticsOverviewResponse.newVsReturning.*.engagementRate` now carries it, and stays **absent** (rendering `—`) when the property refuses the metric — covered by `lib/analytics-overview.test.ts`. |
+| INSIGHTS-A-42 | CLOSED | `pageSignal`'s `bounceRate >= 0.7` branch was unreachable: GA4's bounceRate is `1 − engagementRate`, so every row that could satisfy it had already failed the engagement test above it. The ladder is now three live rules. |
+| INSIGHTS-A-43 | CLOSED | The outer tabs carried `title=` tooltips the design does not define, two of which misdescribed their surface ("Account-wide attribution, cohorts, LTV trends" on a GA4 site-analytics tab; "Organic and paid overlap, keyword surface" on Search Console). They are removed. |
+
+
 ### INSIGHTS-A-01 · HIGH · EXTRA — Analytics tab renders a second page header (h2 + paragraph + property chip) the design does not have
 
 - **Design:** 12-insights.html: the only head is L2–12 (eyebrow "Growth · GA4 + Search Console" + h1 "Insights" + 3 chips). Inside the insAnalytics branch the sub-tab strip at L20 ("<div style="display:flex;gap:2px;border-bottom:1px solid #E4E8F0;overflow-x:auto">") follows the outer pill row at L13–17 directly; re-read L13–L26 — no h2, no paragraph, no property chip between them.
@@ -2605,6 +2686,50 @@ authority tests, `shell-redesign.test.tsx`, and the marker-locked
 - **Design:** data-model.js DEMO: "country: { col: 'Country', sum: 'Country “Germany” has the highest purchase rate at 3.07% (site avg 1.77%).', … }" — every dimension uses "site avg", rendered at 12-insights.html L145.
 - **Code:** components/analytics/DemographicSection.tsx:152-155 "<span className="text-muted-foreground"> (avg {fmt(summary.avgPurchaseCvr, "percent")})</span>" — the rest of the sentence at :146-151 is otherwise word-for-word the design's.
 - **Fix:** Change the parenthetical to "(site avg …)".
+
+---
+
+### INSIGHTS-A-37 · MEDIUM · WRONG — Every revenue figure is labelled in dollars regardless of the GA4 property's currency
+
+- **Design:** `Adsecute Dashboard v2.dc.html` L1808 / L1863 / L1890 / L1930 render `{{ r.rev }}` and L3907 renders `Revenue $326.4K` — a rendered money string whose currency comes from the account, not from the prototype.
+- **Code:** GA4's `purchaseRevenue` is reported in the property's own currency. Neither `lib/analytics-overview.ts` nor `lib/ga4-user-facing-reports.ts` returns that currency, and every analytics surface therefore prints `formatCurrencySmart(value, "$")`. A EUR or TRY property reads as dollars with no marker of the substitution. `lib/metric-format.ts` already refuses this pattern for provider money (`formatMoneyIso` has "deliberately no default currency") — the analytics endpoints simply never carried the code.
+- **Fix:** Return the property's ISO-4217 currency from the five analytics endpoints (it is on the Admin API property record `getGA4TokenAndProperty` already resolves), then format with `formatMoneyIso` and render `—` when the code is absent.
+
+### INSIGHTS-A-38 · HIGH · WRONG — The canonical route the Insights URL redirects to rendered a completely different surface
+
+- **Design:** the Insights screen is one design screen with three outer sections; the contract leaf `L-C-AN-GA` (`lib/zero-base/generated-contracts.ts:897`) declares `/insights/analytics` as `mode: "redirect"` onto `/c/[businessId]/analytics/ga4-shopify`, so that leaf *is* the Analytics tab.
+- **Code:** `app/c/[businessId]/analytics/ga4-shopify/page.tsx` mounted `AnalyticsSourceClient` — three provider "source panels", a flat KPI list and an AI-insight block, none of which the design draws. With the rollout on, every parity fix made to `/insights/analytics` was unreachable in the shipped UI.
+- **Fix:** Mount the same exact screen on both families.
+
+### INSIGHTS-A-39 · MEDIUM · MISSING — The landing-pages leaf drew a second, unrelated landing-pages table
+
+- **Design:** L1816-1835 — landing pages is the third *sub-tab* of Analytics, inside the same screen, with the same head and outer pill row. The design has no standalone landing-pages screen.
+- **Code:** `app/c/[businessId]/analytics/landing-pages/page.tsx` mounted `AnalyticsLandingPagesClient`, a separate `AnalyticsTableView` with its own title, its own source panels and its own column set.
+- **Fix:** Open the same exact screen pinned to the `landing` sub-tab.
+
+### INSIGHTS-A-40 · MEDIUM · MISSING — The canonical SEO and AI-visibility leaves had no Insights head and no outer tab row
+
+- **Design:** L1735-1750 — the head and the three-pill row are drawn once, above whichever section is active, so the sections are reachable from one another.
+- **Code:** `app/c/[businessId]/analytics/seo/page.tsx` and `.../geo/page.tsx` returned their client bodies bare. On the canonical shell an operator on SEO had no way back to Analytics inside the screen.
+- **Fix:** Wrap both in the shared outer chrome without touching their bodies.
+
+### INSIGHTS-A-41 · MEDIUM · MISSING — The overview report asked GA4 for the new/returning engagement rate and threw the answer away
+
+- **Design:** L1774 — the middle cell of both new/returning cards is `Engagement`, and `nvCards` (L3911-3914) supplies `eng: '61.2%'` / `'78.1%'`.
+- **Code:** `runNewVsReturningReport` requested `{ name: "engagementRate" }` as its fourth metric, but the row loop in `getAnalyticsOverviewData` read only `metrics[0]` and `metrics[1]`, so `AnalyticsOverviewResponse.newVsReturning` never carried it. Nothing served on the Overview tab could have filled the design's cell.
+- **Fix:** Read the metric by header index and serve it as an **optional** field, so a property that refuses the metric renders `—` rather than `0.0%`.
+
+### INSIGHTS-A-42 · LOW · EXTRA — The landing-page signal ladder carried an unreachable bounce-rate rule
+
+- **Design:** L1830 — one Signal chip per row, from the three words `Watch` / `Healthy` / `Leaking`.
+- **Code:** `components/analytics/LandingPageSection.tsx:55-57` tested `bounceRate >= 0.7` after `sessions >= 50 && purchases === 0`. GA4 defines `bounceRate` as `1 − engagementRate`, so any row at ≥ 0.7 bounce is at ≤ 0.3 engagement and had already been caught by the engagement rule the design's own rows imply. The branch could never fire.
+- **Fix:** Drop it; keep the three live rules that reproduce the design's six rows exactly.
+
+### INSIGHTS-A-43 · LOW · EXTRA — The outer tabs carried descriptive tooltips, two of them inaccurate
+
+- **Design:** L1748 — the pill's only content is `{{ t.label }}`; there is no `title` attribute and no description anywhere in the row.
+- **Code:** `app/(dashboard)/insights/layout.tsx:24-43` gave each tab a `desc` rendered as `title=`: "Account-wide attribution, cohorts, LTV trends" on a tab that shows GA4 site analytics and computes no LTV, and "Organic and paid overlap, keyword surface" on a Search Console tab that reads no paid data.
+- **Fix:** Remove the tooltips with the rest of the invented chrome.
 
 ---
 

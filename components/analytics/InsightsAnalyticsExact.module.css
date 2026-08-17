@@ -1,0 +1,539 @@
+/*
+ * Insights → Analytics tab — ported literally from
+ * `Adsecute Dashboard v2.dc.html` markup lines 1752-1950. Every number here is
+ * the design's own inline style.
+ */
+
+/* dashboard-v2-insights-analytics-exact-reference-type:start */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--adv-font-body), var(--font-instrument-sans), "Instrument Sans",
+    -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ── sub-tab strip (L1753-1757) ─────────────────────────────────── */
+
+.tabStrip {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.tab {
+  white-space: nowrap;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7a869e;
+  cursor: pointer;
+}
+
+.tab[data-active="true"] {
+  border-bottom-color: #0b1020;
+  color: #0e1526;
+  font-weight: 600;
+}
+
+/* ── KPI cards (L1759-1766) ─────────────────────────────────────── */
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.kpiCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px 16px;
+}
+
+.kpiLabel {
+  margin: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.kpiValue {
+  margin: 7px 0 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.kpiDelta {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.kpiDelta[data-tone="positive"] {
+  color: #0e9f6e;
+}
+
+.kpiDelta[data-tone="warning"] {
+  color: #b45309;
+}
+
+.kpiDelta[data-tone="neutral"] {
+  color: #98a4ba;
+}
+
+/* ── new vs returning cards (L1768-1782) ────────────────────────── */
+
+.segmentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.segmentCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+}
+
+.segmentHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.segmentLabel {
+  margin: 0;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.segmentBadge {
+  border-radius: 9999px;
+  background: #e7f6f0;
+  color: #0e9f6e;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.segmentMetrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.segmentMetricLabel {
+  margin: 0;
+  font-size: 11px;
+  color: #98a4ba;
+}
+
+.segmentMetricValue {
+  margin: 3px 0 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #0e1526;
+}
+
+.segmentMetricValue[data-highlight="true"] {
+  color: #0e9f6e;
+}
+
+/* ── callouts (L1783-1790) ──────────────────────────────────────── */
+
+.calloutGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 10px;
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 12px;
+  padding: 11px 14px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+}
+
+.callout[data-tone="positive"] {
+  border-color: #bfe5d6;
+  background: #e7f6f0;
+}
+
+.callout[data-tone="warning"] {
+  border-color: #ebd6a4;
+  background: #fbf3e1;
+}
+
+.callout[data-tone="info"] {
+  border-color: #cbd9ff;
+  background: #eaf0ff;
+}
+
+.calloutText {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #0e1526;
+}
+
+.kindChip {
+  /* The design's kind chip: a white mono pill, never an icon. */
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 5px;
+  padding: 3px 7px;
+  background: #ffffff;
+  white-space: nowrap;
+  color: #45526b;
+}
+
+.kindChip[data-tone="positive"] {
+  color: #0e9f6e;
+}
+
+.kindChip[data-tone="warning"] {
+  color: #b45309;
+}
+
+.kindChip[data-tone="negative"] {
+  color: #e11d48;
+}
+
+.kindChip[data-tone="info"] {
+  color: #2f6bff;
+}
+
+/* Inside an opportunity card the chip sits on the title baseline (L1943). */
+.kindChipFlat {
+  flex-shrink: 1;
+  margin-top: 0;
+}
+
+/* ── table cards ────────────────────────────────────────────────── */
+
+.tableCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  overflow-x: auto;
+}
+
+.cardHead {
+  padding: 13px 16px;
+  border-bottom: 1px solid #edf0f6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: var(--adv-font-display), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.cardHint {
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: #98a4ba;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tableSmall {
+  font-size: 12.5px;
+}
+
+.minProducts {
+  min-width: 880px;
+}
+
+.minLanding {
+  min-width: 680px;
+}
+
+.minWide {
+  min-width: 720px;
+}
+
+.minCohortWeeks {
+  min-width: 480px;
+}
+
+.minCohortMonths {
+  min-width: 520px;
+}
+
+.th {
+  padding: 9px 12px;
+  text-align: right;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+  background: #f7f9fc;
+}
+
+.thLead {
+  padding: 9px 16px;
+  text-align: left;
+}
+
+.thTail {
+  padding: 9px 16px;
+}
+
+.thLeftAligned {
+  text-align: left;
+}
+
+.row {
+  border-top: 1px solid #edf0f6;
+}
+
+.td {
+  padding: 11px 12px;
+  text-align: right;
+  color: #45526b;
+}
+
+.tdLead {
+  padding: 11px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.tdMono {
+  padding: 11px 16px;
+  text-align: left;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 400;
+  color: #0e1526;
+}
+
+.tdStrong {
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.tdTail {
+  padding: 11px 16px;
+}
+
+.tdSignal {
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.signalChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.signalChip[data-tone="positive"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.signalChip[data-tone="warning"] {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.signalChip[data-tone="negative"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.tableNote {
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #f3f5f9;
+  font-size: 11.5px;
+  color: #98a4ba;
+}
+
+/* ── demographics (L1872-1895) ──────────────────────────────────── */
+
+.demoChips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.demoChip {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ffffff;
+  color: #45526b;
+  border: 1px solid #e4e8f0;
+  white-space: nowrap;
+}
+
+.demoChip[data-active="true"] {
+  background: #0b1020;
+  color: #ffffff;
+  border-color: #0b1020;
+}
+
+.demoSummary {
+  border: 1px solid #e4e8f0;
+  border-radius: 10px;
+  background: #f7f9fc;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: #0e1526;
+}
+
+/* ── cohorts (L1897-1937) ───────────────────────────────────────── */
+
+.cohortGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.tdCohortMono {
+  padding: 9px 16px;
+  text-align: left;
+  font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  color: #0e1526;
+}
+
+.tdCohort {
+  padding: 9px 12px;
+  text-align: right;
+  color: #45526b;
+}
+
+.tdCohortTail {
+  padding: 9px 16px;
+}
+
+.retentionChip {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── opportunities (L1938-1949) ─────────────────────────────────── */
+
+.opportunityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 10px;
+}
+
+.opportunityCard {
+  border-radius: 12px;
+  padding: 13px 15px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+}
+
+.opportunityCard[data-tone="positive"] {
+  border-color: #bfe5d6;
+  background: #e7f6f0;
+}
+
+.opportunityCard[data-tone="warning"] {
+  border-color: #ebd6a4;
+  background: #fbf3e1;
+}
+
+.opportunityCard[data-tone="info"] {
+  border-color: #cbd9ff;
+  background: #eaf0ff;
+}
+
+.opportunityHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  flex-wrap: wrap;
+}
+
+.opportunityTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.opportunityText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #45526b;
+}
+
+.trailingNote {
+  margin: 0;
+  font-size: 11.5px;
+  color: #98a4ba;
+}
+
+/* dashboard-v2-insights-analytics-exact-reference-type:end */

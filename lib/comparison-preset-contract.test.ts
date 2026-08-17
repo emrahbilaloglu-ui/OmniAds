@@ -180,6 +180,18 @@ describe("no surface offers a comparison it does not read", () => {
         expect(page).not.toContain("<DateRangePicker");
         expect(page).not.toContain("<CreativesTopSection");
         expect(page).not.toContain("showComparisonTrigger");
+      } else if (file.includes("insights/analytics")) {
+        // Dashboard v2 moved the Insights range control into the screen's own
+        // head chip, so the tab body mounts no picker at all. The rule is
+        // unchanged and asserted where the control now lives: the head offers
+        // no comparison chip, and the one comparison the screen does read —
+        // the previous period behind the KPI cards' third line — is fixed, not
+        // something the operator can pick and have silently ignored.
+        expect(page).toContain("<InsightsAnalyticsScreen");
+        expect(page).not.toContain("<DateRangePicker");
+        expect(page).not.toContain("showComparisonTrigger");
+        const chrome = await read("components/insights/InsightsChrome.tsx");
+        expect(chrome).toContain("showComparisonTrigger={false}");
       } else {
         expect(page).toContain("showComparisonTrigger={false}");
       }

@@ -14,6 +14,10 @@ export async function GET(request: NextRequest) {
   const startDate =
     request.nextUrl.searchParams.get("startDate") ?? "30daysAgo";
   const endDate = request.nextUrl.searchParams.get("endDate") ?? "yesterday";
+  // The design's KPI cards carry a "vs prev Nd" line. The caller names the
+  // window it wants compared; nothing is inferred here.
+  const compareStartDate = request.nextUrl.searchParams.get("compareStartDate");
+  const compareEndDate = request.nextUrl.searchParams.get("compareEndDate");
 
   if (!businessId) {
     return NextResponse.json({ error: "missing_business_id" }, { status: 400 });
@@ -50,6 +54,8 @@ export async function GET(request: NextRequest) {
           businessId,
           startDate,
           endDate,
+          compareStartDate,
+          compareEndDate,
         }),
     );
     return NextResponse.json(payload);

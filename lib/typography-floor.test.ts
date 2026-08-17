@@ -76,6 +76,18 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_INSIGHTS_SHELL_TYPE_FILE =
+  "components/insights/InsightsShellExact.module.css";
+const EXACT_INSIGHTS_SHELL_TYPE_START =
+  "/* dashboard-v2-insights-shell-exact-reference-type:start */";
+const EXACT_INSIGHTS_SHELL_TYPE_END =
+  "/* dashboard-v2-insights-shell-exact-reference-type:end */";
+const EXACT_INSIGHTS_ANALYTICS_TYPE_FILE =
+  "components/analytics/InsightsAnalyticsExact.module.css";
+const EXACT_INSIGHTS_ANALYTICS_TYPE_START =
+  "/* dashboard-v2-insights-analytics-exact-reference-type:start */";
+const EXACT_INSIGHTS_ANALYTICS_TYPE_END =
+  "/* dashboard-v2-insights-analytics-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +105,16 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_INSIGHTS_SHELL_TYPE_FILE
+                    ? [
+                        EXACT_INSIGHTS_SHELL_TYPE_START,
+                        EXACT_INSIGHTS_SHELL_TYPE_END,
+                      ]
+                    : file === EXACT_INSIGHTS_ANALYTICS_TYPE_FILE
+                      ? [
+                          EXACT_INSIGHTS_ANALYTICS_TYPE_START,
+                          EXACT_INSIGHTS_ANALYTICS_TYPE_END,
+                        ]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
@@ -406,6 +428,64 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Insights chrome values narrow and exact", () => {
+    const source = readFileSync(EXACT_INSIGHTS_SHELL_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_INSIGHTS_SHELL_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_INSIGHTS_SHELL_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_INSIGHTS_SHELL_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactShell = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactShell.matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    expect(declarations).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".dateChip :global(.adv-date-range-trigger)", size: 11.5 },
+      { selector: ".sourceState", size: 10.5 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Insights Analytics values narrow and exact", () => {
+    const source = readFileSync(EXACT_INSIGHTS_ANALYTICS_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_INSIGHTS_ANALYTICS_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_INSIGHTS_ANALYTICS_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_INSIGHTS_ANALYTICS_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactAnalytics = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactAnalytics.matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    expect(declarations).toEqual([
+      { selector: ".kpiLabel", size: 9.5 },
+      { selector: ".kpiDelta", size: 11.5 },
+      { selector: ".segmentLabel", size: 10 },
+      { selector: ".segmentBadge", size: 11 },
+      { selector: ".segmentMetricLabel", size: 11 },
+      { selector: ".kindChip", size: 9 },
+      { selector: ".cardHint", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".signalChip", size: 11 },
+      { selector: ".tableNote", size: 11.5 },
+      { selector: ".tdCohortMono", size: 11.5 },
+      { selector: ".retentionChip", size: 11 },
+      { selector: ".trailingNote", size: 11.5 },
     ]);
   });
 

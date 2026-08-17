@@ -4672,33 +4672,84 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           PRIMARY KEY (business_id, decision_type)
         )`.catch(() => {}),
-        // ── Confirmation queue ────────────────────────────────────────────────
+        // ── Automation rules and the ONE confirmation queue ───────────────────
         //
-        // A proposal is a PROJECTION of one persisted engine decision
-        // (`meta_decision_snapshots_daily`), never an independent judgement:
-        // every descriptive column below is copied from the decision row that
-        // produced it, and the lifecycle columns record only what an operator
-        // did about it. The unique index is the projection's idempotency key —
-        // one proposal per decision per snapshot day — so re-running a snapshot
-        // refreshes a still-pending row instead of duplicating the queue.
+        // There is a single queue table. `meta_automation_proposals` holds both
+        // kinds of row the design's "Needs your confirmation" list shows, and
+        // `origin` is the discriminator:
         //
-        // `proposed_action` and `scope_type` carry the full allowlist the
-        // dispatch contract knows about even though the projection emits only
-        // the subset that has a real guarded endpoint today; widening a CHECK
-        // later would mean rewriting a column, which this file does not do.
-        sql`CREATE TABLE IF NOT EXISTS meta_automation_proposals (
+        //   'engine_decision'  — a PROJECTION of one persisted engine decision
+        //                        (`meta_decision_snapshots_daily`). Its
+        //                        descriptive columns are copied from the
+        //                        decision row; `rec_id` / `rec_type` /
+        //                        `engine_version` / `decision_label` are its
+        //                        lineage and are required.
+        //   'automation_rule'  — raised by a deterministic rule firing. It has
+        //                        no engine decision behind it, so those four
+        //                        lineage columns are NULL rather than filled
+        //                        with a rule id wearing an engine's clothes;
+        //                        `rule_id` and `dedupe_key` are required
+        //                        instead. `snapshot_date` stays required and
+        //                        carries the warehouse day the verdict was
+        //                        computed for, which is the same fact the
+        //                        engine's snapshot day is.
+        //
+        // The lineage CHECK below is what stops either shape from degrading
+        // into the other. A rule NEVER writes to a provider: the only thing it
+        // can produce here is a `pending` row, and only the queue's own approve
+        // path can execute one.
+        //
+        // ORDER IS LOAD-BEARING. Statements inside a batch array start
+        // immediately and are not issued in order, so an FK-dependent CREATE
+        // must run after the table it references. `meta_automation_proposals`
+        // references `meta_automation_rules`, and `meta_automation_rule_firings`
+        // references `meta_automation_proposals`.
+        orderedMigrationSteps([
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rules (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset')),
+          trigger_json JSONB NOT NULL,
+          action_json JSONB NOT NULL,
+          mode TEXT NOT NULL DEFAULT 'confirm'
+            CHECK (mode IN ('confirm', 'suggest', 'enforced')),
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (business_id, name)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rules_business
+          ON meta_automation_rules (business_id, created_at ASC)`.catch(
+              () => {},
+            ),
+          // `proposed_action` and `scope_type` carry the full allowlist the
+          // dispatch contract knows about even though only the subset that has
+          // a real guarded endpoint is ever written; widening a CHECK later
+          // would mean rewriting a column, which this file does not do.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_proposals (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
           provider_account_id TEXT NOT NULL,
+          origin TEXT NOT NULL DEFAULT 'engine_decision'
+            CHECK (origin IN ('engine_decision', 'automation_rule')),
+          rule_id UUID REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          dedupe_key TEXT,
           decision_key TEXT NOT NULL,
           scope_type TEXT NOT NULL
             CHECK (scope_type IN ('campaign', 'adset', 'ad')),
           scope_id TEXT NOT NULL,
-          rec_id TEXT NOT NULL,
-          rec_type TEXT NOT NULL,
+          rec_id TEXT,
+          rec_type TEXT,
           snapshot_date DATE NOT NULL,
-          engine_version TEXT NOT NULL,
-          decision_label TEXT NOT NULL,
+          engine_version TEXT,
+          decision_label TEXT,
           proposed_action TEXT NOT NULL
             CHECK (proposed_action IN ('pause', 'resume', 'bid', 'duplicate')),
           action_label TEXT NOT NULL,
@@ -4717,14 +4768,139 @@ export async function runMigrations(options?: {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_projection
+          // Additive repair for a database that already ran the projection-only
+          // shape of this table. Every statement is idempotent, and none of
+          // them drops anything.
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'engine_decision'`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS rule_id UUID REFERENCES meta_automation_rules(id) ON DELETE CASCADE`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS dedupe_key TEXT`.catch(() => {}),
+          // A rule-raised row has no engine lineage to put here. Relaxing the
+          // four lineage columns is a widening, never a data loss, and the
+          // CHECK below keeps the projection's own rows complete.
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ALTER COLUMN rec_id DROP NOT NULL,
+          ALTER COLUMN rec_type DROP NOT NULL,
+          ALTER COLUMN engine_version DROP NOT NULL,
+          ALTER COLUMN decision_label DROP NOT NULL`.catch(() => {}),
+          () =>
+            sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.conname = 'meta_automation_proposals_origin_check'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_origin_check
+                CHECK (origin IN ('engine_decision', 'automation_rule'));
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.conname = 'meta_automation_proposals_origin_lineage'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_origin_lineage
+                CHECK (
+                  (origin = 'engine_decision'
+                     AND rule_id IS NULL
+                     AND dedupe_key IS NULL
+                     AND rec_id IS NOT NULL
+                     AND rec_type IS NOT NULL
+                     AND engine_version IS NOT NULL
+                     AND decision_label IS NOT NULL)
+                  OR
+                  (origin = 'automation_rule'
+                     AND rule_id IS NOT NULL
+                     AND dedupe_key IS NOT NULL
+                     AND rec_id IS NULL
+                     AND rec_type IS NULL
+                     AND engine_version IS NULL
+                     AND decision_label IS NULL)
+                );
+            END IF;
+          END $$;`.catch(() => {}),
+          // The projection's own idempotency key: one proposal per decision per
+          // snapshot day.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_projection
           ON meta_automation_proposals (business_id, provider_account_id, decision_key, rec_type, snapshot_date)`.catch(
-          () => {},
-        ),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_proposals_queue
+              () => {},
+            ),
+          // The rule intake's idempotency key: one proposal per firing.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_dedupe
+          ON meta_automation_proposals (dedupe_key)
+          WHERE dedupe_key IS NOT NULL`.catch(() => {}),
+          // ONE pending row per entity per action, whatever raised it. This is
+          // what stops a rule firing and an engine projection from queueing the
+          // same pause twice — two rows would be two chances to do the same
+          // thing, and the header count would double-count them.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_pending_slot
+          ON meta_automation_proposals (business_id, provider_account_id, decision_key, proposed_action)
+          WHERE status = 'pending'`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_proposals_queue
           ON meta_automation_proposals (business_id, provider_account_id, status, expires_at DESC)`.catch(
-          () => {},
-        ),
+              () => {},
+            ),
+          // The real events behind "Fired · 28d". One row per rule/entity/day,
+          // so re-running an evaluation over an unchanged warehouse day is a
+          // no-op rather than a second count. `proposal_id` points at the queue
+          // row this firing raised — or joined, when another firing already
+          // holds the entity's pending slot — so the count of firings and the
+          // count of queued proposals stay independent facts.
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_rule_firings (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          rule_id UUID NOT NULL REFERENCES meta_automation_rules(id) ON DELETE CASCADE,
+          provider_account_id TEXT,
+          entity_level TEXT NOT NULL
+            CHECK (entity_level IN ('campaign', 'adset', 'account')),
+          entity_id TEXT NOT NULL,
+          entity_name TEXT,
+          evaluated_for_date DATE NOT NULL,
+          outcome TEXT NOT NULL
+            CHECK (outcome IN ('proposal_raised', 'hard_block_recorded')),
+          reason TEXT NOT NULL,
+          evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          proposal_id UUID REFERENCES meta_automation_proposals(id) ON DELETE SET NULL,
+          fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (rule_id, entity_id, evaluated_for_date)
+        )`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_business_window
+          ON meta_automation_rule_firings (business_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_rule_firings_rule_window
+          ON meta_automation_rule_firings (rule_id, fired_at DESC)`.catch(
+              () => {},
+            ),
+        ]),
         sql`DO $$
           DECLARE
             action_constraint_name TEXT;

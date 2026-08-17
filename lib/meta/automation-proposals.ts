@@ -1,8 +1,18 @@
 /**
- * The confirmation queue's proposal record.
+ * The confirmation queue's proposal record — the ONE queue the design draws.
  *
- * **A proposal is a persisted projection of an existing engine decision, not a
- * new kind of judgement.** The engine already writes one deterministic,
+ * The design's Automation screen has a single "Needs your confirmation" list
+ * and two things that feed it: the decision engine's snapshot, and the
+ * deterministic rules whose own footnote says "rules never write directly —
+ * they raise proposals into the confirmation queue (or hard-block, for
+ * guards)". Both land in this one table, discriminated by {@link
+ * MetaAutomationProposalOrigin}, because the operator sees one list and one
+ * decide path. A second table would be a second read model and a second set of
+ * gates, and only one of them could be right.
+ *
+ * **An engine-origin proposal is a persisted projection of an existing engine
+ * decision, not a new kind of judgement.** The engine already writes one
+ * deterministic,
  * evidence-carrying row per entity per snapshot day into
  * `meta_decision_snapshots_daily`; a second record kind would be a second
  * engine, and anything it added that the decision did not already prove would
@@ -27,13 +37,35 @@
  *    snapshot runs daily, so a proposal outlives its evidence after one
  *    cadence. Past that it is marked `expired` — never deleted — and the next
  *    snapshot re-projects a fresh row if the decision still holds.
+ *
+ * A rule-origin proposal obeys all three, with the rule firing standing in for
+ * the decision row: it carries `ruleId` + `dedupeKey` instead of the engine
+ * lineage columns (which are null — a rule id wearing an engine's clothes would
+ * be forged lineage), it may only name an action that has a real guarded
+ * endpoint, and its expiry is the same one cadence. Whatever raised it, a row
+ * in this table means exactly one thing: an operator may approve it, and
+ * approving calls the existing guarded handler.
  */
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
 
-/** Grains the projection can aim a guarded write at. */
+/** Grains the queue can aim a guarded write at. */
 export type MetaAutomationProposalScope = "campaign" | "adset";
+
+/**
+ * What raised the row.
+ *
+ * The discriminator is stored rather than inferred, because the two shapes
+ * carry different lineage and the database CHECK that keeps each shape complete
+ * has to be able to read it.
+ */
+export const META_AUTOMATION_PROPOSAL_ORIGINS = [
+  "engine_decision",
+  "automation_rule",
+] as const;
+export type MetaAutomationProposalOrigin =
+  (typeof META_AUTOMATION_PROPOSAL_ORIGINS)[number];
 
 export const META_AUTOMATION_PROPOSAL_STATUSES = [
   "pending",
@@ -73,15 +105,22 @@ export interface MetaAutomationProposal {
   id: string;
   businessId: string;
   providerAccountId: string;
+  origin: MetaAutomationProposalOrigin;
+  /** Set only on `automation_rule` rows: the rule whose firing raised this. */
+  ruleId: string | null;
+  /** Set only on `automation_rule` rows: `${ruleId}:${entityId}:${date}`. */
+  dedupeKey: string | null;
   /** `campaign:<id>` / `adset:<id>` — the same key the decision surfaces use. */
   decisionKey: string;
   scopeType: MetaAutomationProposalScope;
   scopeId: string;
-  recId: string;
-  recType: string;
+  /** Engine lineage. Null on `automation_rule` rows, which have none. */
+  recId: string | null;
+  recType: string | null;
+  /** The warehouse day the evidence is about. Required for both origins. */
   snapshotDate: string;
-  engineVersion: string;
-  decisionLabel: string;
+  engineVersion: string | null;
+  decisionLabel: string | null;
   proposedAction: MutationAction;
   /** Row's own action tag, e.g. `Pause ad set`. */
   actionLabel: string;
@@ -265,14 +304,17 @@ interface ProposalDbRow {
   id: string;
   business_id: string;
   provider_account_id: string;
+  origin: string;
+  rule_id: string | null;
+  dedupe_key: string | null;
   decision_key: string;
   scope_type: string;
   scope_id: string;
-  rec_id: string;
-  rec_type: string;
+  rec_id: string | null;
+  rec_type: string | null;
   snapshot_date: string;
-  engine_version: string;
-  decision_label: string;
+  engine_version: string | null;
+  decision_label: string | null;
   proposed_action: string;
   action_label: string;
   primary_caption: string;
@@ -299,6 +341,9 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
     id: row.id,
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
+    origin: row.origin as MetaAutomationProposalOrigin,
+    ruleId: row.rule_id,
+    dedupeKey: row.dedupe_key,
     decisionKey: row.decision_key,
     scopeType: row.scope_type as MetaAutomationProposalScope,
     scopeId: row.scope_id,
@@ -328,7 +373,8 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
 }
 
 const PROPOSAL_COLUMNS = `
-  id, business_id, provider_account_id, decision_key, scope_type, scope_id,
+  id, business_id, provider_account_id, origin, rule_id, dedupe_key,
+  decision_key, scope_type, scope_id,
   rec_id, rec_type, snapshot_date::text AS snapshot_date, engine_version,
   decision_label, proposed_action, action_label, primary_caption, entity_label,
   reason, evidence_label, evidence_ref, expires_at, status, decided_by,
@@ -401,6 +447,12 @@ export interface ProjectMetaAutomationProposalsResult {
  * - The `NOT EXISTS` against a decided row for the same entity and day. Without
  *   it, a different rec type winning the tiebreak on a later run would re-raise
  *   a proposal the operator had already dismissed that same day.
+ * - The `NOT EXISTS` against a *pending* row already occupying this entity's
+ *   action slot — whatever raised it. A rule that has already queued a pause on
+ *   this ad set makes the projection's row redundant: two rows would be two
+ *   chances to do the same thing, and the header count would say `2` for one
+ *   pause. The clause exempts the exact row this statement upserts onto (same
+ *   rec type, same snapshot day), so refresh-in-place still works.
  */
 export async function projectMetaAutomationProposals(input: {
   businessId: string;
@@ -472,16 +524,31 @@ export async function projectMetaAutomationProposals(input: {
               AND decided.snapshot_date = d.snapshot_date
               AND decided.status <> 'pending'
           )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM meta_automation_proposals held
+            WHERE held.business_id = $1::uuid
+              AND held.provider_account_id = dim.provider_account_id
+              AND held.decision_key = d.scope_type || ':' || d.scope_id
+              AND held.proposed_action = 'pause'
+              AND held.status = 'pending'
+              AND NOT (
+                held.origin = 'engine_decision'
+                AND held.rec_type = d.rec_type
+                AND held.snapshot_date = d.snapshot_date
+              )
+          )
         ORDER BY d.scope_type, d.scope_id, d.rec_type
       )
       INSERT INTO meta_automation_proposals (
-        business_id, provider_account_id, decision_key, scope_type, scope_id,
-        rec_id, rec_type, snapshot_date, engine_version, decision_label,
-        proposed_action, action_label, primary_caption, entity_label, reason,
-        evidence_label, evidence_ref, expires_at, status
+        business_id, provider_account_id, origin, decision_key, scope_type,
+        scope_id, rec_id, rec_type, snapshot_date, engine_version,
+        decision_label, proposed_action, action_label, primary_caption,
+        entity_label, reason, evidence_label, evidence_ref, expires_at, status
       )
       SELECT $1::uuid,
              provider_account_id,
+             'engine_decision',
              scope_type || ':' || scope_id,
              scope_type,
              scope_id,
@@ -630,4 +697,143 @@ export async function settleMetaAutomationProposal(input: {
     ],
   )) as ProposalDbRow[];
   return rows[0] ? mapProposalRow(rows[0]) : null;
+}
+
+/**
+ * Actions a rule firing may queue.
+ *
+ * The same rule that governs the engine projection governs rule intake, for the
+ * same reason: every row in this queue carries "Approve & apply" under a footer
+ * that promises "approving executes inside the guardrails above". An action
+ * with no guarded endpoint would be a primary button that can only fail, so it
+ * never becomes a row. Today that is `pause`, at campaign and ad-set grain.
+ */
+export const RULE_RAISABLE_PROPOSAL_ACTIONS = ["pause"] as const;
+export type RuleRaisableProposalAction =
+  (typeof RULE_RAISABLE_PROPOSAL_ACTIONS)[number];
+
+export interface RaiseRuleAutomationProposalInput {
+  businessId: string;
+  providerAccountId: string;
+  ruleId: string;
+  /** `${ruleId}:${entityId}:${evaluatedForDate}` — one proposal per firing. */
+  dedupeKey: string;
+  scopeType: MetaAutomationProposalScope;
+  scopeId: string;
+  proposedAction: RuleRaisableProposalAction;
+  entityLabel: string | null;
+  reason: string;
+  evidenceLabel: string | null;
+  evidenceRef: Record<string, unknown>;
+  /** The warehouse day the verdict was computed for. */
+  evaluatedForDate: string;
+  now?: Date;
+}
+
+export type RaiseRuleAutomationProposalResult =
+  /** This firing put a new row in the queue. */
+  | { status: "inserted"; proposalId: string }
+  /**
+   * The entity's pending slot was already held — by this firing's own earlier
+   * run, by another rule, or by the engine's projection. The firing still
+   * happened and is still counted; it points at the row that represents it.
+   */
+  | { status: "already_queued"; proposalId: string | null }
+  /** No schema to write into. The caller must not report a queued proposal. */
+  | { status: "unavailable"; proposalId: null };
+
+/**
+ * Raise one rule firing into the confirmation queue.
+ *
+ * This is an INSERT of a `pending` row and nothing else. There is no provider
+ * client in this module and no code path from here to one: the row waits for
+ * the queue's own approve action, which is the single place that calls the
+ * guarded handler.
+ *
+ * `ON CONFLICT DO NOTHING` carries no target on purpose. Two different unique
+ * indexes can refuse this row — the firing's own `dedupe_key`, and the
+ * one-pending-row-per-entity-per-action slot — and naming either one would turn
+ * the other into a thrown error inside an evaluation loop.
+ */
+export async function raiseRuleAutomationProposal(
+  input: RaiseRuleAutomationProposalInput,
+): Promise<RaiseRuleAutomationProposalResult> {
+  if (!(await proposalsReady())) {
+    return { status: "unavailable", proposalId: null };
+  }
+  const now = input.now ?? new Date();
+  const expiresAt = proposalExpiryFor(now);
+  const decisionKey = proposalDecisionKey(input.scopeType, input.scopeId);
+
+  const inserted = (await getDb().query<{ id: string }>(
+    `
+      INSERT INTO meta_automation_proposals (
+        business_id, provider_account_id, origin, rule_id, dedupe_key,
+        decision_key, scope_type, scope_id, snapshot_date, proposed_action,
+        action_label, primary_caption, entity_label, reason, evidence_label,
+        evidence_ref, expires_at, status
+      )
+      VALUES (
+        $1::uuid, $2, 'automation_rule', $3::uuid, $4,
+        $5, $6, $7, $8::date, $9,
+        $10, $11, $12, $13, $14,
+        $15::jsonb, $16::timestamptz, 'pending'
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `,
+    [
+      input.businessId,
+      input.providerAccountId,
+      input.ruleId,
+      input.dedupeKey,
+      decisionKey,
+      input.scopeType,
+      input.scopeId,
+      input.evaluatedForDate,
+      input.proposedAction,
+      proposalActionLabel(input.proposedAction, input.scopeType),
+      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+      input.entityLabel?.trim() || null,
+      input.reason,
+      input.evidenceLabel?.trim() || null,
+      JSON.stringify(input.evidenceRef ?? {}),
+      expiresAt,
+    ],
+  )) as Array<{ id: string }>;
+
+  if (inserted[0]) {
+    return { status: "inserted", proposalId: inserted[0].id };
+  }
+
+  // Whoever holds the slot is the queue row this firing is about. Its own
+  // dedupe key wins the lookup when it exists, so a re-run reports the row it
+  // created rather than an unrelated neighbour.
+  const held = (await getDb().query<{ id: string }>(
+    `
+      SELECT id
+      FROM meta_automation_proposals
+      WHERE business_id = $1::uuid
+        AND (
+          dedupe_key = $2
+          OR (
+            provider_account_id = $3
+            AND decision_key = $4
+            AND proposed_action = $5
+            AND status = 'pending'
+          )
+        )
+      ORDER BY (dedupe_key = $2) DESC, created_at ASC
+      LIMIT 1
+    `,
+    [
+      input.businessId,
+      input.dedupeKey,
+      input.providerAccountId,
+      decisionKey,
+      input.proposedAction,
+    ],
+  )) as Array<{ id: string }>;
+
+  return { status: "already_queued", proposalId: held[0]?.id ?? null };
 }

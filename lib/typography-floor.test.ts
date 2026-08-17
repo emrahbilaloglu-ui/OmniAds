@@ -243,6 +243,9 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       { selector: ".ledgerTime", size: 11.5 },
       { selector: ".proposalAction", size: 11.5 },
       { selector: ".proposalEvidence, .proposalExpiry", size: 10 },
+      { selector: ".ruleTrigger, .ruleComposerNote", size: 10 },
+      { selector: ".modeChip", size: 10.5 },
+      { selector: ".ruleFired", size: 11 },
     ],
   },
   {

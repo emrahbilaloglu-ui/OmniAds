@@ -1,3 +1,4 @@
+import type { ProviderConnectionFacts } from "@/lib/provider-read-capability";
 import type {
   AssignedAccountsByBusiness,
   IntegrationAdAccount,
@@ -461,6 +462,22 @@ export function deriveProviderViewState(
       provider === "search_console" ||
       provider === "klaviyo",
     isConnected: domain.connection.status === "connected",
+  };
+}
+
+/**
+ * The connection facts an effective-capability decision reads, lifted off a
+ * domain. `deriveProviderViewState` deliberately stays out of it: its
+ * `isConnected` is the stored row's status and nothing more, which is exactly
+ * the claim the header must stop making on its own.
+ */
+export function providerConnectionFacts(
+  domain: ProviderDomainState | undefined
+): ProviderConnectionFacts {
+  return {
+    status: domain?.connection.status ?? "disconnected",
+    scopes: domain?.connection.scopes ?? null,
+    selectedEntityId: domain?.connection.selectedEntityId ?? null,
   };
 }
 

@@ -15,8 +15,8 @@ const { buildInsightsShellExactModel } = await import("./insights-shell-exact-ad
 function model(pathname = "/insights/analytics") {
   return buildInsightsShellExactModel({
     pathname,
-    ga4: { isConnected: true, status: "connected" },
-    searchConsole: { isConnected: false, status: "not_connected" },
+    ga4: { canRead: true, block: null },
+    searchConsole: { canRead: false, block: "not_connected" },
   });
 }
 

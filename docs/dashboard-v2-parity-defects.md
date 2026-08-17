@@ -5153,10 +5153,10 @@ the evidence that they are now not.
 
 ## Running-app walk (2026-08-17)
 
-Five defects found by opening the running application against the reference,
-rather than by reading it. Every one of them was invisible to `tsc`, to ESLint,
-to the whole Vitest suite and to the production build, because each is about
-what the browser actually renders. They are numbered `E4-F1`–`E4-F5`.
+Defects found by opening the running application against the reference, rather
+than by reading it. Every one of them was invisible to `tsc`, to ESLint, to the
+whole Vitest suite and to the production build, because each is about what the
+browser actually renders. They are numbered `E4-F1`–`E4-F5` and `E5-F1`.
 
 ### E4-F1 · HIGH · WRONG — GA4 revenue was permanently em-dashed on every workspace that already had a property
 
@@ -5333,3 +5333,103 @@ what the browser actually renders. They are numbered `E4-F1`–`E4-F5`.
   a model built with `targetPack: null` renders "Reset ROAS to target" and
   contains neither "target —×" nor "—×" anywhere, while the served model still
   renders "Reset ROAS to target 3.80×".
+
+### E5-F1 · HIGH · WRONG — The Insights header claimed a capability the same screen refused
+
+- **Was it real:** yes, on two of the eleven workspaces, and in two different
+  ways. On BskTR the Insights header rendered the chip "Search Console
+  **connected**" directly above a body that read "Reconnect Search Console to
+  unlock SEO Intelligence — Google integration is required for Search Console.
+  Please reconnect Google." Two indicators of one fact, on one screen,
+  contradicting each other. Read-only against production:
+
+  ```
+  business   provider         status         has_search_console_scope
+  BskTR      ga4              connected      -
+  BskTR      google           disconnected   true
+  BskTR      search_console   connected      -
+  Grandmix   ga4              connected      -
+  Grandmix   google           connected      true
+  Grandmix   search_console   connected      -
+  ```
+
+  The cause is that Search Console has no credential of its own.
+  `resolveSearchConsoleContext` (`lib/search-console.ts:48-72`) refuses unless
+  the `search_console` row is connected **and** a connected `google` row carries
+  `webmasters.readonly` **and** a site is selected; BskTR fails the second gate,
+  so every Search Console read 401s. The chip read the `search_console` row and
+  nothing else.
+
+  GA4 had the same shape of defect from a different direction. On Grandmix the
+  chip read "GA4 connected" while the Analytics tab could not render at all:
+  `resolveGa4AnalyticsContext` (`lib/google-analytics-reporting.ts:315`) throws
+  `no_property_selected` without `metadata.ga4PropertyId`. Nothing in the store
+  could have caught it — `deriveProviderViewState`'s `needs_assignment` branch
+  tests `providerAccountName || providerAccountId`, and the GA4 OAuth callback
+  writes the Google *user* id and name into those columns at handshake time
+  (`app/api/oauth/google-analytics/callback/route.ts:124-167`), so "an account
+  exists" was true from the moment of connection and said nothing about a
+  property. The Search Console callback does the same with the literal
+  placeholder name `"Not selected"`.
+
+  The same lie was rendered a second time on `/integrations`, on the very card
+  an operator would open to fix it: `resolveStatus` captioned both providers
+  "Connected" from `view.status` alone.
+- **Change:** the chips now report the **effective** capability — whether the
+  read the tab is about to make can actually run — instead of one connection
+  row. `lib/provider-read-capability.ts` is a new pure module that mirrors each
+  gate's own refusals in its own order: GA4 wants a connected row and a selected
+  property; Search Console wants a connected row, a connected `google` row
+  carrying the scope, and a selected site. The scope constant now has one
+  definition, which `lib/search-console.ts` (the gate) and
+  `lib/search-console-status.ts` (the server status view) both import, so the
+  display and the gate cannot drift. `readSelectedEntityId` deliberately reads
+  GA4's property only from `metadata.ga4PropertyId`, never falling back to
+  `provider_account_id`, and mirrors Search Console's own
+  `parseMetadataSite(metadata) ?? provider_account_id`.
+
+  Feeding it required two facts the store was dropping on the floor: the granted
+  `scopes` string, and the selected property/site. Both already ride in the
+  `/api/integrations` payload the bootstrap already fetches. `scopes` and the
+  derived `selectedEntityId` are now kept on `ProviderConnectionState` — only
+  the derived id, not the whole metadata blob, because this store persists to
+  localStorage — and neither carries forward across a manifest read, so a
+  capability cannot survive the reconnect that revoked it.
+
+  Wording: the reference draws two chip states, and the app already had a third,
+  "reading status", for an authority not yet read. A blocked-but-connected
+  source gets neither of the two lies available. It may not say "connected",
+  which is the defect. It may not say "not connected" either, which would send
+  the operator to reconnect something already connected. So each blocked state
+  names the next action instead — "reconnect Google", "select property",
+  "select site" — lowercase and one or two words, inside the design's existing
+  10.5px state pill and its chip geometry, with the warning tone the pill
+  already had. The vocabulary is the app's own: the Integrations card already
+  captions these two providers "Select Property" and "Select Site", and the SEO
+  body already says "Please reconnect Google." No CSS changed;
+  `app/globals.css` is untouched.
+
+  `/integrations` takes the same capability: a blocked provider's card reads
+  "Needs setup" when a property or site is missing and "Action required" when
+  the borrowed Google grant is gone, keeps its "Manage" button — that is where
+  the fix is — and shows no first-sync progress bar for an import that cannot
+  start. The input is optional, so a caller that supplies none is unchanged.
+
+  Nothing about authorization moved. No read permits more or less than before;
+  this is a display-truthfulness fix.
+- **Proof:** `components/insights/insights-source-truth.test.tsx` gains the two
+  production states verbatim — a workspace whose `search_console` row is
+  connected while `google` is not, and a workspace whose GA4 is connected with
+  no property selected. Both fail against the pre-fix code with exactly the
+  defect (`expected 'Search Consoleconnected' to contain 'reconnect Google'`,
+  `expected 'GA4connected' to contain 'select property'`), verified by stashing
+  the fix and running the file. The existing "healthy Search Console read" case
+  now connects `google` with the scope beside it, because that is what healthy
+  means. `lib/provider-read-capability.test.ts` (13) pins each gate's order —
+  the borrowed credential is reported before the missing site, the provider's
+  own row before the borrowed one, the scope matches whole tokens rather than
+  substrings, and GA4 refuses to read a property out of `provider_account_id`.
+  `components/insights/insights-shell-exact-adapter.test.ts` pins the three
+  action wordings and their tone. `components/integrations/integrations-exact-adapter.test.ts`
+  and `app/(dashboard)/integrations/page.test.tsx` pin the same two states on
+  the cards, plus the unchanged behaviour when no capability is supplied.

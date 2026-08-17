@@ -542,6 +542,48 @@ describe("buildIntegrationsExactModel", () => {
     }
   });
 
+  it("refuses to caption a card Connected when its reads are blocked", () => {
+    // E5, the same defect the Insights header carried: the row says connected,
+    // the reads refuse. BskTR's Search Console borrows a `google` credential
+    // that is disconnected; Grandmix's GA4 has no property selected.
+    const views = baseViews();
+    views.ga4 = view("ga4", CONNECTED);
+    views.search_console = view("search_console", CONNECTED);
+    const model = buildIntegrationsExactModel({
+      views,
+      capabilities: {
+        ga4: { canRead: false, block: "property_not_selected" },
+        search_console: { canRead: false, block: "google_reconnect_required" },
+      },
+      connectableProviders: CONNECTABLE,
+      logoFor,
+      now: NOW,
+    });
+    const ga4 = model.cards.find((card) => card.provider === "ga4")!;
+    const searchConsole = model.cards.find(
+      (card) => card.provider === "search_console",
+    )!;
+    expect(ga4.status).toBe("Needs setup");
+    expect(searchConsole.status).toBe("Action required");
+    // Still connected, so the button still opens the place that fixes it.
+    expect(ga4.button).toEqual({ caption: "Manage", kind: "manage" });
+    expect(searchConsole.firstSync).toBeNull();
+  });
+
+  it("leaves the cards on the stored rows when no capability is supplied", () => {
+    const views = baseViews();
+    views.ga4 = view("ga4", CONNECTED);
+    const model = buildIntegrationsExactModel({
+      views,
+      connectableProviders: CONNECTABLE,
+      logoFor,
+      now: NOW,
+    });
+    expect(model.cards.find((card) => card.provider === "ga4")!.status).toBe(
+      "Connected",
+    );
+  });
+
   it("renders no button for Klaviyo, which has no authorization route", () => {
     const model = buildIntegrationsExactModel({
       views: baseViews(),

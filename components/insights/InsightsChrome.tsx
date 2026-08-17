@@ -11,12 +11,13 @@ import { InsightsShellExact } from "@/components/insights/InsightsShellExact";
 import { buildInsightsShellExactModel } from "@/components/insights/insights-shell-exact-adapter";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import {
+  resolveGa4ReadCapability,
+  resolveSearchConsoleReadCapability,
+} from "@/lib/provider-read-capability";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
-import {
-  buildDefaultProviderDomains,
-  deriveProviderViewState,
-} from "@/store/integrations-support";
+import { providerConnectionFacts } from "@/store/integrations-support";
 
 /**
  * The Insights outer chrome wired to the real integration authority.
@@ -50,14 +51,17 @@ export function InsightsChrome({
   const domains = useIntegrationsStore((state) =>
     scopeId ? state.domainsByBusinessId[scopeId] : undefined,
   );
-  const defaults = buildDefaultProviderDomains();
 
   const model = buildInsightsShellExactModel({
     pathname,
-    ga4: deriveProviderViewState("ga4", domains?.ga4 ?? defaults.ga4),
-    searchConsole: deriveProviderViewState(
-      "search_console",
-      domains?.search_console ?? defaults.search_console,
+    // The chips report what each source can actually serve, not what its row
+    // says. Search Console reads on the `google` connection's credential, so
+    // the Google domain is one of its inputs — the header would otherwise say
+    // "connected" over a body that says "Please reconnect Google."
+    ga4: resolveGa4ReadCapability(providerConnectionFacts(domains?.ga4)),
+    searchConsole: resolveSearchConsoleReadCapability(
+      providerConnectionFacts(domains?.search_console),
+      providerConnectionFacts(domains?.google),
     ),
     // With no business in scope there is no manifest to read; the unknown
     // state only applies while a scope's own bootstrap is still outstanding.

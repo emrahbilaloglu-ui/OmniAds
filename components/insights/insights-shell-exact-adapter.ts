@@ -3,6 +3,10 @@
  * chrome view model. No React, no fetching — unit-testable on its own.
  */
 import type {
+  ProviderReadBlock,
+  ProviderReadCapability,
+} from "@/lib/provider-read-capability";
+import type {
   InsightsSectionId,
   InsightsSectionTabModel,
   InsightsShellExactModel,
@@ -99,12 +103,6 @@ export function buildInsightsSectionTabs(
   }));
 }
 
-/** Exactly what `deriveProviderViewState` gives us, narrowed to what we read. */
-export interface InsightsProviderState {
-  isConnected: boolean;
-  status: string;
-}
-
 const SOURCE_LABEL: Record<InsightsSourceProvider, string> = {
   ga4: "GA4",
   search_console: "Search Console",
@@ -117,51 +115,66 @@ const SOURCE_ICON: Record<InsightsSourceProvider, string> = {
 };
 
 /**
+ * What each chip says, keyed by why the read cannot run.
+ *
+ * Two rules bound the wording. The chip may not claim "connected" for a source
+ * whose reads the app itself refuses — that is the defect: a header asserting
+ * a capability the body below it then denies. And a blocked-but-connected
+ * source may not collapse into "not connected", which would send the operator
+ * to reconnect something already connected. So each blocked state names the
+ * next action instead, in the app's own vocabulary: the Integrations card
+ * already captions these two providers "Select Property" and "Select Site",
+ * and the SEO body already says "Please reconnect Google."
+ *
+ * Lowercase, one or two words, to sit inside the design's 10.5px state pill.
+ */
+const BLOCK_CHIP: Record<
+  ProviderReadBlock,
+  { stateLabel: string; tone: InsightsSourceChipModel["tone"] }
+> = {
+  not_connected: { stateLabel: "not connected", tone: "neutral" },
+  connection_fault: { stateLabel: "action required", tone: "warning" },
+  google_reconnect_required: { stateLabel: "reconnect Google", tone: "warning" },
+  property_not_selected: { stateLabel: "select property", tone: "warning" },
+  site_not_selected: { stateLabel: "select site", tone: "warning" },
+};
+
+/**
  * WP-21: "not connected" is a claim about the provider, and it may only be made
  * once the integration authority has actually been read. Before that the state
  * is unknown, and the chip says so rather than reporting the source as down.
+ *
+ * E5: "connected" is the stronger claim, and it may only be made once the
+ * provider can actually serve a read. The chip takes an effective capability,
+ * not a connection row.
  */
 export function buildInsightsSourceChip(
   provider: InsightsSourceProvider,
-  state: InsightsProviderState,
+  capability: ProviderReadCapability,
   authorityRead = true,
 ): InsightsSourceChipModel {
-  if (!authorityRead) {
-    return {
-      id: provider,
-      label: SOURCE_LABEL[provider],
-      iconSrc: SOURCE_ICON[provider],
-      stateLabel: "reading status",
-      tone: "neutral",
-    };
-  }
-  const tone: InsightsSourceChipModel["tone"] = state.isConnected
-    ? "positive"
-    : state.status === "action_required" || state.status === "degraded"
-      ? "warning"
-      : "neutral";
-  const stateLabel = state.isConnected
-    ? "connected"
-    : state.status === "action_required"
-      ? "action required"
-      : state.status === "degraded"
-        ? "degraded"
-        : state.status === "loading_data"
-          ? "loading"
-          : "not connected";
-  return {
+  const base = {
     id: provider,
     label: SOURCE_LABEL[provider],
     iconSrc: SOURCE_ICON[provider],
-    stateLabel,
-    tone,
   };
+  if (!authorityRead) {
+    return { ...base, stateLabel: "reading status", tone: "neutral" };
+  }
+  if (capability.canRead) {
+    return { ...base, stateLabel: "connected", tone: "positive" };
+  }
+  // An unread authority is the only unknown; a capability that says it cannot
+  // read always says why, so there is no confident default to fall back to.
+  return { ...base, ...BLOCK_CHIP[capability.block ?? "not_connected"] };
 }
 
 export interface InsightsShellAdapterInput {
   pathname: string;
-  ga4: InsightsProviderState;
-  searchConsole: InsightsProviderState;
+  /** `resolveGa4ReadCapability` — the GA4 read gate's own predicate. */
+  ga4: ProviderReadCapability;
+  /** `resolveSearchConsoleReadCapability` — includes the borrowed Google grant. */
+  searchConsole: ProviderReadCapability;
   /**
    * Whether the integration manifest for this business has been read yet.
    * Defaults to `true` so a caller that never bootstraps is unchanged.

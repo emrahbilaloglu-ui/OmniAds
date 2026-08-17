@@ -8,8 +8,8 @@ import {
   resolveInsightsRouteBase,
 } from "./insights-shell-exact-adapter";
 
-const CONNECTED = { isConnected: true, status: "connected" };
-const OFF = { isConnected: false, status: "not_connected" };
+const CONNECTED = { canRead: true, block: null } as const;
+const OFF = { canRead: false, block: "not_connected" } as const;
 
 describe("insights shell adapter", () => {
   it("orders the outer sections Analytics / SEO Intelligence / AI Visibility", () => {
@@ -73,10 +73,34 @@ describe("insights shell adapter", () => {
     );
     expect(
       buildInsightsSourceChip("search_console", {
-        isConnected: false,
-        status: "action_required",
+        canRead: false,
+        block: "connection_fault",
       }),
     ).toMatchObject({ stateLabel: "action required", tone: "warning" });
+  });
+
+  it("names the setup step instead of claiming connected or not connected", () => {
+    // E5: a source that is connected but cannot serve a read gets neither the
+    // green claim nor the "not connected" one — both would misdirect. Every
+    // blocked state names the operator's actual next move.
+    expect(
+      buildInsightsSourceChip("search_console", {
+        canRead: false,
+        block: "google_reconnect_required",
+      }),
+    ).toMatchObject({ stateLabel: "reconnect Google", tone: "warning" });
+    expect(
+      buildInsightsSourceChip("ga4", {
+        canRead: false,
+        block: "property_not_selected",
+      }),
+    ).toMatchObject({ stateLabel: "select property", tone: "warning" });
+    expect(
+      buildInsightsSourceChip("search_console", {
+        canRead: false,
+        block: "site_not_selected",
+      }),
+    ).toMatchObject({ stateLabel: "select site", tone: "warning" });
   });
 
   it("says the status is unread rather than claiming the source is down", () => {

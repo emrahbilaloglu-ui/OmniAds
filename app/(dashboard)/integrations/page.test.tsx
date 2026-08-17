@@ -88,12 +88,18 @@ const IntegrationsPage = (await import("@/app/(dashboard)/integrations/legacy-pa
   .default;
 const useQueryMock = vi.mocked(useQuery);
 
+/**
+ * A complete connection: the row, plus whatever else its read gate demands.
+ * GA4 needs a selected property and Search Console a selected site, and
+ * Search Console also borrows the `google` grant — so connecting it connects
+ * Google with the webmasters scope, which is the only shape that can import.
+ */
 function connectDomains(
   providers: IntegrationProvider[],
   overrides: { status?: string; connectedAt?: string } = {},
 ) {
   const domains = buildDefaultProviderDomains();
-  for (const provider of providers) {
+  const connect = (provider: IntegrationProvider) => {
     domains[provider] = {
       ...domains[provider],
       connection: {
@@ -102,8 +108,15 @@ function connectDomains(
         lastSyncAt: new Date().toISOString(),
         providerAccountId: "acct_1",
         providerAccountName: "aurora-supply.myshopify.com",
+        selectedEntityId: provider === "ga4" ? "12345678" : "sc-domain:aurora.example",
+        scopes:
+          "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/webmasters.readonly",
       },
     };
+  };
+  for (const provider of providers) {
+    connect(provider);
+    if (provider === "search_console") connect("google");
   }
   return domains;
 }
@@ -165,6 +178,34 @@ describe("/integrations route", () => {
     // no demo-fixtures chip, no toast band.
     expect(screen.queryByText("Aurora Supply Co.")).toBeNull();
     expect(screen.queryByText("demo fixtures")).toBeNull();
+  });
+
+  it("does not call Search Console connected when its borrowed Google grant is gone", () => {
+    // BskTR in production: `search_console` connected with a site chosen,
+    // `google` disconnected. Every Search Console read 401s, so the card that
+    // sends the operator to the fix must not paint the source as working.
+    const domains = connectDomains(["search_console"]);
+    domains.google = buildDefaultProviderDomains().google;
+    integrationsState.domainsByBusinessId = { biz_1: domains };
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="search_console"]')!;
+    expect(card.textContent).toContain("Action required");
+    expect(card.textContent).not.toContain("Connected");
+  });
+
+  it("does not call GA4 connected when no property has been selected", () => {
+    const domains = connectDomains(["ga4"]);
+    domains.ga4 = {
+      ...domains.ga4,
+      connection: { ...domains.ga4.connection, selectedEntityId: null },
+    };
+    integrationsState.domainsByBusinessId = { biz_1: domains };
+
+    const { container } = render(<IntegrationsPage />);
+    const card = container.querySelector('article[data-provider="ga4"]')!;
+    expect(card.textContent).toContain("Needs setup");
+    expect(card.textContent).not.toContain("Connected");
   });
 
   it("gives a connected card one Manage button that opens the assignment drawer", () => {

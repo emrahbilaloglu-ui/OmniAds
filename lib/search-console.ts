@@ -1,7 +1,12 @@
 import { getIntegration, type IntegrationRow } from "@/lib/integrations";
 import { resolveGoogleAccessTokenWithGeneration } from "@/lib/google-token-refresh";
+import { SEARCH_CONSOLE_REQUIRED_GOOGLE_SCOPE } from "@/lib/provider-read-capability";
 
-const SEARCH_CONSOLE_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+/**
+ * Shared with the display layer on purpose: the header chips resolve the same
+ * predicate this gate enforces, so the two cannot drift apart.
+ */
+const SEARCH_CONSOLE_SCOPE = SEARCH_CONSOLE_REQUIRED_GOOGLE_SCOPE;
 
 export interface SearchConsoleContext {
   businessId: string;

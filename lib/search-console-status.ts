@@ -8,6 +8,7 @@ import {
   readLatestProviderReportSyncJob,
   type ProviderReportSyncJob,
 } from "@/lib/provider-report-sync-evidence";
+import { SEARCH_CONSOLE_REQUIRED_GOOGLE_SCOPE } from "@/lib/provider-read-capability";
 
 /**
  * The report type the Search Console warmer stamps on its own job rows.
@@ -17,10 +18,10 @@ export const SEARCH_CONSOLE_WARM_JOB_REPORT_TYPE = "seo_overview";
 
 /**
  * The scope a Google connection must carry before Search Console can read.
- * Mirrors `SEARCH_CONSOLE_SCOPE` in `lib/search-console.ts`.
+ * Re-exported from `lib/provider-read-capability.ts`, which is where the gate
+ * in `lib/search-console.ts` and the header chips both read it from.
  */
-export const SEARCH_CONSOLE_REQUIRED_GOOGLE_SCOPE =
-  "https://www.googleapis.com/auth/webmasters.readonly";
+export { SEARCH_CONSOLE_REQUIRED_GOOGLE_SCOPE };
 
 export type SearchConsoleStatusState =
   /** No stored Search Console connection at all. */

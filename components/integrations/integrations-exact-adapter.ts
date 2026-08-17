@@ -3,6 +3,7 @@ import type { GoogleAnalyticsStatusResponse } from "@/lib/google-analytics-statu
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { SearchConsoleStatusResponse } from "@/lib/search-console-status";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
+import type { ProviderReadCapability } from "@/lib/provider-read-capability";
 import type {
   IntegrationProvider,
   ProviderViewState,
@@ -443,10 +444,38 @@ export function buildConnectedMetaLine(
  * provider must never be described as "Connecting", whatever any in-flight
  * import claims.
  */
+/**
+ * The same lie the Insights header used to tell, on the card the operator would
+ * come here to fix.
+ *
+ * `view.status` is derived from one connection row, so a `search_console` row
+ * whose borrowed `google` credential is gone, or a `ga4` row with no property
+ * selected, both render "Connected" while every read they gate refuses. When a
+ * capability is supplied it outranks the row: the pill names the setup step
+ * (the card's own button already says "Select Property" / "Select Site") or
+ * sends the operator to the Google card, rather than claiming a working source.
+ */
+function statusFromBlockedCapability(
+  capability: ProviderReadCapability | undefined,
+): { status: string; tone: IntegrationsStatusTone } | null {
+  if (!capability || capability.canRead) return null;
+  switch (capability.block) {
+    case "google_reconnect_required":
+      return { status: "Action required", tone: "attention" };
+    case "property_not_selected":
+    case "site_not_selected":
+      return { status: "Needs setup", tone: "connecting" };
+    default:
+      // "not connected" and "connection fault" are already what the row says.
+      return null;
+  }
+}
+
 function resolveStatus(
   provider: IntegrationProvider,
   view: ProviderViewState,
   syncing: boolean,
+  capability?: ProviderReadCapability,
 ): { status: string; tone: IntegrationsStatusTone } {
   if (view.status === "action_required") {
     return { status: "Action required", tone: "attention" };
@@ -454,6 +483,8 @@ function resolveStatus(
   if (view.status === "degraded") {
     return { status: "Degraded", tone: "attention" };
   }
+  const blocked = statusFromBlockedCapability(capability);
+  if (blocked) return blocked;
   // design 4341: while the first import runs the pill reads "Connecting".
   if (syncing) return { status: "Connecting", tone: "connecting" };
   switch (view.status) {
@@ -479,6 +510,11 @@ export interface IntegrationsExactAdapterInput {
   shopifyStatus?: ShopifyStatusResponse | null;
   ga4Status?: GoogleAnalyticsStatusResponse | null;
   searchConsoleStatus?: SearchConsoleStatusResponse | null;
+  /**
+   * Effective read capability per provider, from `lib/provider-read-capability`.
+   * Optional: a caller that supplies none leaves the cards on the stored rows.
+   */
+  capabilities?: Partial<Record<IntegrationProvider, ProviderReadCapability>>;
   /** Providers with a working authorization route today. */
   connectableProviders: IntegrationProvider[];
   logoFor: (provider: IntegrationProvider) => string | null;
@@ -496,10 +532,13 @@ export function buildIntegrationsExactModel(
     const view = input.views[provider];
     if (!view) continue;
 
+    const capability = input.capabilities?.[provider];
+
     // A stored connection that has expired or errored is not a new source
-    // running its first import, whatever its status endpoint still reports.
+    // running its first import, whatever its status endpoint still reports —
+    // and neither is one whose reads the app itself refuses.
     const connectedAt = view.isConnected ? (view.connectedAt ?? null) : null;
-    const signals = !view.isConnected
+    const signals = !view.isConnected || (capability && !capability.canRead)
       ? null
       : provider === "meta"
         ? metaFirstSyncSignals(input.metaStatus, connectedAt)
@@ -517,7 +556,7 @@ export function buildIntegrationsExactModel(
                 : null;
     const firstSync = buildFirstSyncModel(signals, now);
     const syncing = firstSync !== null;
-    const { status, tone } = resolveStatus(provider, view, syncing);
+    const { status, tone } = resolveStatus(provider, view, syncing, capability);
     const connectable = input.connectableProviders.includes(provider);
 
     const meta = syncing

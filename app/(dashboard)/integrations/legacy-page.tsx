@@ -12,7 +12,14 @@ import {
   IntegrationProvider,
   useIntegrationsStore,
 } from "@/store/integrations-store";
-import { deriveProviderViewStates } from "@/store/integrations-support";
+import {
+  deriveProviderViewStates,
+  providerConnectionFacts,
+} from "@/store/integrations-support";
+import {
+  resolveGa4ReadCapability,
+  resolveSearchConsoleReadCapability,
+} from "@/lib/provider-read-capability";
 import {
   IntegrationsExact,
   IntegrationsExactSkeleton,
@@ -600,10 +607,28 @@ export default function IntegrationsPage() {
     return map;
   }, [providerViews]);
 
+  /**
+   * What GA4 and Search Console can actually serve, not what their rows say.
+   * Search Console reads on the `google` connection's credential, so a
+   * disconnected or unscoped Google leaves its card claiming a source that
+   * 401s on every read.
+   */
+  const capabilities = useMemo(
+    () => ({
+      ga4: resolveGa4ReadCapability(providerConnectionFacts(domains?.ga4)),
+      search_console: resolveSearchConsoleReadCapability(
+        providerConnectionFacts(domains?.search_console),
+        providerConnectionFacts(domains?.google),
+      ),
+    }),
+    [domains],
+  );
+
   const model = useMemo(
     () =>
       buildIntegrationsExactModel({
         views: viewsByProvider,
+        capabilities,
         metaStatus: metaStatusQuery.data ?? null,
         googleStatus: googleAdsStatusQuery.data ?? null,
         shopifyStatus: shopifyStatusQuery.data ?? null,
@@ -615,6 +640,7 @@ export default function IntegrationsPage() {
         logoFor: getProviderLogo,
       }),
     [
+      capabilities,
       ga4StatusQuery.data,
       googleAdsStatusQuery.data,
       klaviyoStatusQuery.data,

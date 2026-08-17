@@ -1,10 +1,14 @@
-import { ReportBuilderPage } from "@/components/reports/report-builder-page";
+import ReportsPage from "@/app/(dashboard)/reports/legacy-page";
 
-export default async function ReportEditPage({
+/**
+ * Editing a report is the builder tab of the Reports screen with that report
+ * loaded — the same surface the "Open in builder" row action reaches.
+ */
+export default async function EditReportPage({
   params,
 }: {
   params: Promise<{ reportId: string }>;
 }) {
   const { reportId } = await params;
-  return <ReportBuilderPage mode="edit" reportId={reportId} />;
+  return <ReportsPage initialTab="builder" initialReportId={reportId} />;
 }

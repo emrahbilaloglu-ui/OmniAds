@@ -7,6 +7,15 @@ import {
   resolveChartDomain,
   type ChartDomainMode,
 } from "@/lib/chart-domain";
+import {
+  AiGeometry,
+  BriefGeometry,
+  DonutGeometry,
+  FunnelGeometry,
+  HeatGeometry,
+  KpiRowGeometry,
+} from "@/components/reports/report-block-geometry";
+import { buildDonutGeometry } from "@/components/reports/reports-exact-adapter";
 import { getMetricLabelForKey } from "@/lib/report-metric-catalog";
 
 const COLUMN_LABEL_MAP: Record<string, string> = {
@@ -524,10 +533,13 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
         </div>
       ) : null}
 
-      {(widget.type === "trend" || widget.type === "bar") && widget.points ? (
+      {/* A chart block with no points still renders its chart area, which says
+          so. Gating on `widget.points` instead exported the card as its title
+          and nothing else. */}
+      {widget.type === "trend" || widget.type === "bar" ? (
         <div className="mt-3 -mx-1 flex-1 min-h-0">
           <MiniChart
-            points={widget.points}
+            points={widget.points ?? []}
             series={widget.series}
             tone={widget.type === "bar" ? "bar" : "line"}
             axisMode={widget.type === "bar" ? "zero_based" : widget.axisMode ?? "adaptive"}
@@ -552,15 +564,28 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
                 </tr>
               </thead>
               <tbody>
-                {(widget.rows ?? []).map((row, index) => (
-                  <tr key={index} className="border-t">
-                    {(widget.columns ?? []).map((column) => (
-                      <td key={column} className="px-3 py-2 text-[var(--adv-ink-2)]">
-                        {String(row[column] ?? "-")}
-                      </td>
-                    ))}
+                {(widget.rows ?? []).length === 0 ? (
+                  // A table with no rows still exports as a table, with one em
+                  // dash in it. An empty <table> exports as a blank card.
+                  <tr className="border-t">
+                    <td
+                      colSpan={Math.max((widget.columns ?? []).length, 1)}
+                      className="px-3 py-2 text-[var(--adv-ink-4)]"
+                    >
+                      —
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  (widget.rows ?? []).map((row, index) => (
+                    <tr key={index} className="border-t">
+                      {(widget.columns ?? []).map((column) => (
+                        <td key={column} className="px-3 py-2 text-[var(--adv-ink-2)]">
+                          {String(row[column] ?? "-")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -570,6 +595,61 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       {widget.type === "text" ? (
         <div className="mt-5 whitespace-pre-wrap text-sm leading-6 text-[var(--adv-ink-2)]">
           {widget.text || "Add commentary, summary, or next steps here."}
+        </div>
+      ) : null}
+
+      {/* The v2 block kinds. Each one draws the reference's own inner geometry
+          — the same geometry the builder canvas draws — so a saved report
+          exports as the page it was arranged as. `kpirow` and `donut` carry
+          measured figures from the renderer; `funnel`, `heat`, `ai` and
+          `brief` have no renderer contract yet (REPORTS-37) and show the em
+          dash inside that geometry rather than a blank box. */}
+      {widget.type === "kpirow" ? (
+        <div className="mt-5 shrink-0">
+          <KpiRowGeometry
+            minis={(widget.metrics ?? []).map((metric) => ({
+              k: metric.label,
+              v: metric.value,
+            }))}
+          />
+        </div>
+      ) : null}
+
+      {widget.type === "donut" ? (
+        <div className="mt-5 shrink-0">
+          {(() => {
+            const donut = buildDonutGeometry(widget.slices);
+            return (
+              <DonutGeometry
+                gradient={donut?.gradient ?? null}
+                legend={donut?.legend ?? []}
+              />
+            );
+          })()}
+        </div>
+      ) : null}
+
+      {widget.type === "funnel" ? (
+        <div className="mt-5 shrink-0">
+          <FunnelGeometry steps={[]} />
+        </div>
+      ) : null}
+
+      {widget.type === "heat" ? (
+        <div className="mt-5 shrink-0">
+          <HeatGeometry cells={[]} />
+        </div>
+      ) : null}
+
+      {widget.type === "ai" ? (
+        <div className="mt-5 shrink-0">
+          <AiGeometry body={widget.text} />
+        </div>
+      ) : null}
+
+      {widget.type === "brief" ? (
+        <div className="mt-5 shrink-0">
+          <BriefGeometry />
         </div>
       ) : null}
 

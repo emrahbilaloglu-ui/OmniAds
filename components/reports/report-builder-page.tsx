@@ -2,7 +2,6 @@
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -11,30 +10,9 @@ import { DateRangePicker, DEFAULT_DATE_RANGE, getPresetDates } from "@/component
 import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
-import type { CustomReportRecord, RenderedReportPayload } from "@/lib/custom-reports";
+import type { RenderedReportPayload } from "@/lib/custom-reports";
 import { ReportCanvas } from "@/components/reports/report-canvas";
 import { usePreferencesStore } from "@/store/preferences-store";
-
-const ReportBuilder = dynamic(
-  () => import("@/components/reports/report-builder").then((module) => module.ReportBuilder),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="rounded-lg border border-[var(--adv-border)] bg-white p-8 text-sm text-[var(--adv-ink-3)]">
-        Loading builder...
-      </div>
-    ),
-  }
-);
-
-async function fetchReport(reportId: string) {
-  const response = await fetch(`/api/reports/${reportId}`, { cache: "no-store" });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error((payload as { message?: string } | null)?.message ?? "Failed to load report.");
-  }
-  return (payload as { report: CustomReportRecord }).report;
-}
 
 async function fetchRenderedReport(reportId: string, startDate?: string, endDate?: string) {
   const params = new URLSearchParams();
@@ -52,11 +30,9 @@ async function fetchRenderedReport(reportId: string, startDate?: string, endDate
 export function ReportBuilderPage({
   mode,
   reportId,
-  templateId,
 }: {
-  mode: "new" | "edit" | "view";
+  mode: "view";
   reportId?: string;
-  templateId?: string | null;
 }) {
   const language = usePreferencesStore((state) => state.language);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -80,12 +56,6 @@ export function ReportBuilderPage({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [exportOpen]);
-
-  const reportQuery = useQuery({
-    queryKey: ["custom-report", reportId],
-    enabled: (mode === "edit") && Boolean(reportId),
-    queryFn: () => fetchReport(reportId as string),
-  });
 
   const { start: viewStart, end: viewEnd } = getPresetDates(viewDateRange.rangePreset, viewDateRange.customStart, viewDateRange.customEnd);
 
@@ -279,28 +249,7 @@ export function ReportBuilderPage({
     );
   }
 
-  // ── Edit mode ──────────────────────────────────────────────────────────────
-  if (mode === "edit" && reportQuery.isLoading) {
-    return (
-      <div className="rounded-lg border border-[var(--adv-border)] bg-white p-8 text-sm text-[var(--adv-ink-3)]">
-        {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
-      </div>
-    );
-  }
-
-  if (mode === "edit" && reportQuery.error) {
-    return (
-      <div className="rounded-lg border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] p-8 text-sm text-[var(--adc-danger-fg)]">
-        {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
-      </div>
-    );
-  }
-
-  return (
-    <ReportBuilder
-      businessId={businessId}
-      initialRecord={reportQuery.data ?? null}
-      initialTemplateId={templateId ?? null}
-    />
-  );
+  // Editing lives on the Reports screen's builder tab; this route only renders
+  // a saved report. Anything else reaching here has no report to render.
+  return null;
 }

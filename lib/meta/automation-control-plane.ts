@@ -4,6 +4,22 @@ import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 export type MetaAutomationReadinessControlTier =
   "read_only" | "manual_review" | "backtest_candidate" | "auto_execute";
 
+/**
+ * A persisted quiet-hours window, exactly as an operator committed it.
+ *
+ * `timezone` is the operator's own label (the design renders `00:00–07:00 ET`),
+ * stored and presented verbatim rather than re-derived from a server clock, so
+ * the screen shows the window that was actually agreed rather than one this
+ * process inferred.
+ */
+export interface MetaAutomationQuietHours {
+  /** `HH:MM`, normalised from a persisted `TIME`. */
+  start: string;
+  /** `HH:MM`, normalised from a persisted `TIME`. */
+  end: string;
+  timezone: string;
+}
+
 export interface MetaAutomationGuardrails {
   dailyAutoActionCap: number;
   perActionSpendCeilingMinor: number | null;
@@ -16,6 +32,15 @@ export interface MetaAutomationGuardrails {
   requireLivePreflight: boolean;
   requireRollbackPlan: boolean;
   dryRunOnly: boolean;
+  /**
+   * The ROAS below which automation may propose a pause, as persisted for this
+   * business. `null` when no operator has committed one — the screen then
+   * renders an em dash rather than borrowing the commercial anchor's
+   * break-even, which is a different fact that moves when margins move.
+   */
+  minRoasFloor: number | null;
+  /** `null` until an operator persists a window. */
+  quietHours: MetaAutomationQuietHours | null;
 }
 
 export interface MetaAutomationBusinessControl {
@@ -42,6 +67,43 @@ export interface MetaAutomationPromotionRecord {
   createdAt: string;
 }
 
+export type MetaAutomationActorKind = "operator" | "system";
+
+/**
+ * Who performed the recorded act.
+ *
+ * The user id is the ledger's existing `created_by` foreign key — the row's
+ * author and its actor are the same person at every write site — so this adds
+ * the missing TYPE rather than a second, divergent copy of the same id.
+ * `name` is resolved from `users.name`; when the referenced user is gone the
+ * kind survives and the name renders an em dash.
+ */
+export interface MetaAutomationActivityActor {
+  kind: MetaAutomationActorKind;
+  userId: string | null;
+  name: string | null;
+}
+
+export interface MetaAutomationActivityEntity {
+  /** `business`, `automation_decision_type`, `campaign`, `adset`, `ad`. */
+  type: string;
+  id: string | null;
+  /** Resolved display name when the warehouse knows one; never inferred. */
+  name: string | null;
+}
+
+export type MetaAutomationActivityResultStatus =
+  | "applied"
+  | "blocked"
+  | "failed"
+  | "recorded";
+
+export interface MetaAutomationActivityResult {
+  status: MetaAutomationActivityResultStatus;
+  /** A provider entity id or promotion-record id proving the outcome landed. */
+  receiptId: string | null;
+}
+
 export interface MetaAutomationActivityItem {
   id: string;
   activityType: string;
@@ -50,6 +112,10 @@ export interface MetaAutomationActivityItem {
   payload: Record<string, unknown> | null;
   createdAt: string;
   source: "automation_ledger" | "meta_action_log";
+  /** `null` for rows written before the typed tuple existed. */
+  actor: MetaAutomationActivityActor | null;
+  entity: MetaAutomationActivityEntity | null;
+  result: MetaAutomationActivityResult | null;
 }
 
 export type MetaAutomationDecisionType =
@@ -63,6 +129,31 @@ export interface MetaAutomationDecisionTypeMode {
   updatedAt: string | null;
   updatedBy: string | null;
   source: "persisted" | "default";
+  /**
+   * How many clean approvals this business requires before this action kind may
+   * be promoted out of its current tier.
+   *
+   * Persisted PER BUSINESS AND ACTION KIND rather than read from a shared
+   * constant, deliberately. It is the denominator of an audit statement: a
+   * config constant would let a deploy retroactively rewrite the progress every
+   * business has already been shown and the promotion records already written
+   * under a different rule, and would force one risk appetite onto accounts
+   * whose spend differs by two orders of magnitude. `null` until an operator
+   * commits a number — the ladder then renders an em dash rather than adopting
+   * the prototype's seed values.
+   */
+  cleanApprovalThreshold: number | null;
+  /**
+   * The current clean-approval streak for this action kind, DERIVED (never
+   * stored) from real provider-write outcomes: successful writes of this kind
+   * attributed to a named operator, counted since the later of this tier's
+   * `updatedAt` and the most recent failed write of the same kind — the
+   * ladder's own "any error demotes instantly" rule, applied to the count.
+   *
+   * `null` when the action kind has no provider-write channel at all (see
+   * {@link CLEAN_APPROVAL_ACTION_KINDS}) or when the read could not be proven.
+   */
+  cleanApprovalStreak: number | null;
 }
 
 export const META_AUTOMATION_DECISION_TYPES: MetaAutomationDecisionType[] = [
@@ -101,6 +192,12 @@ export interface MetaAutomationControlPlane {
    */
   readCompleteness?: {
     promotionRecords: "complete" | "unavailable";
+    /**
+     * Omitted by payloads produced before the ladder counted anything. Absent
+     * or `unavailable` means no total may be presented, exactly as for
+     * `promotionRecords`.
+     */
+    cleanApprovalStreaks?: "complete" | "unavailable";
   };
   activityLedger: MetaAutomationActivityItem[];
   /** Per-decision-type standing mode (persisted operator preference, or 'manual'
@@ -130,6 +227,11 @@ type ControlDbRow = {
   guardrails_json: unknown;
   updated_at: string | null;
   updated_by: string | null;
+  /** Absent on a pre-migration schema; then the ladder renders an em dash. */
+  min_roas_floor?: string | number | null;
+  quiet_hours_start?: string | null;
+  quiet_hours_end?: string | null;
+  quiet_hours_timezone?: string | null;
 };
 
 type PromotionDbRow = {
@@ -151,6 +253,15 @@ type ActivityDbRow = {
   message: string;
   payload_json: unknown;
   created_at: string;
+  /** All absent on a pre-migration schema, and on rows written before it. */
+  actor_kind?: string | null;
+  actor_user_id?: string | null;
+  actor_name?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  entity_name?: string | null;
+  result_status?: string | null;
+  result_receipt_id?: string | null;
 };
 
 type ActionLogDbRow = {
@@ -161,6 +272,12 @@ type ActionLogDbRow = {
   error_message: string | null;
   requested_at: string;
   payload_request: unknown;
+  requested_by?: string | null;
+  actor_name?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  entity_name?: string | null;
+  resulting_ad_id?: string | null;
 };
 
 export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
@@ -175,6 +292,28 @@ export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
   requireLivePreflight: true,
   requireRollbackPlan: true,
   dryRunOnly: true,
+  // No seeded guardrail. An unset ROAS floor or quiet-hours window is a fact
+  // about this business, and inventing one under the design's caption would be
+  // worse than the em dash it replaces.
+  minRoasFloor: null,
+  quietHours: null,
+};
+
+/**
+ * Action-log kinds that count as a clean approval for a ladder row.
+ *
+ * `budget`, `bid` and `creative` are absent because no provider-write channel
+ * for them exists: `meta_ads_action_log.action` is constrained to
+ * `pause | resume | duplicate | launch_campaign | launch_adset | launch_ad`,
+ * and budget values are only ever POSTed while CREATING an ad set inside
+ * `lib/meta/launch-write.ts`, never as a standalone change. Counting zero for
+ * those kinds would state "no clean approvals yet" where the truth is "this
+ * product cannot make that kind of change at all", so they stay `null`.
+ */
+export const CLEAN_APPROVAL_ACTION_KINDS: Partial<
+  Record<MetaAutomationDecisionType, readonly string[]>
+> = {
+  pause: ["pause", "resume"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -217,9 +356,59 @@ function toSeverity(value: unknown): MetaAutomationActivityItem["severity"] {
     : "info";
 }
 
-function normalizeGuardrails(value: unknown): MetaAutomationGuardrails {
+function toFiniteNumberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+/** `13:05:00`, `13:05:00+00` or `13:05` → `13:05`; anything else → `null`. */
+export function normalizeQuietHourTime(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?/.exec(value.trim());
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+function toQuietHours(row: ControlDbRow): MetaAutomationQuietHours | null {
+  const start = normalizeQuietHourTime(row.quiet_hours_start);
+  const end = normalizeQuietHourTime(row.quiet_hours_end);
+  const timezone =
+    typeof row.quiet_hours_timezone === "string"
+      ? row.quiet_hours_timezone.trim()
+      : "";
+  // A half-persisted window is not a window. Presenting `00:00–—` under the
+  // design's caption would read as a real guardrail with a rendering bug.
+  if (!start || !end || !timezone) return null;
+  return { start, end, timezone };
+}
+
+function toActorKind(value: unknown): MetaAutomationActorKind | null {
+  return value === "operator" || value === "system" ? value : null;
+}
+
+function toResultStatus(
+  value: unknown,
+): MetaAutomationActivityResultStatus | null {
+  return value === "applied" ||
+    value === "blocked" ||
+    value === "failed" ||
+    value === "recorded"
+    ? value
+    : null;
+}
+
+function trimmedOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeGuardrails(
+  value: unknown,
+  policy: ControlDbRow,
+): MetaAutomationGuardrails {
   const record = isRecord(value) ? value : {};
   return {
+    minRoasFloor: toFiniteNumberOrNull(policy.min_roas_floor),
+    quietHours: toQuietHours(policy),
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,
@@ -297,7 +486,7 @@ function mapControlRow(
     killSwitchReason: row.kill_switch_reason?.trim() || null,
     autoExecutionEnabled: row.auto_execution_enabled === true,
     readinessTier: toReadinessTier(row.readiness_tier),
-    guardrails: normalizeGuardrails(row.guardrails_json),
+    guardrails: normalizeGuardrails(row.guardrails_json, row),
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
     source: "persisted",
@@ -319,6 +508,9 @@ function mapPromotion(row: PromotionDbRow): MetaAutomationPromotionRecord {
 }
 
 function mapActivity(row: ActivityDbRow): MetaAutomationActivityItem {
+  const actorKind = toActorKind(row.actor_kind);
+  const entityType = trimmedOrNull(row.entity_type);
+  const resultStatus = toResultStatus(row.result_status);
   return {
     id: row.id,
     activityType: row.activity_type,
@@ -327,34 +519,102 @@ function mapActivity(row: ActivityDbRow): MetaAutomationActivityItem {
     payload: isRecord(row.payload_json) ? row.payload_json : null,
     createdAt: row.created_at,
     source: "automation_ledger",
+    actor: actorKind
+      ? {
+          kind: actorKind,
+          userId: trimmedOrNull(row.actor_user_id),
+          name: trimmedOrNull(row.actor_name),
+        }
+      : null,
+    entity: entityType
+      ? {
+          type: entityType,
+          id: trimmedOrNull(row.entity_id),
+          name: trimmedOrNull(row.entity_name),
+        }
+      : null,
+    result: resultStatus
+      ? {
+          status: resultStatus,
+          receiptId: trimmedOrNull(row.result_receipt_id),
+        }
+      : null,
   };
 }
 
 function mapActionLog(row: ActionLogDbRow): MetaAutomationActivityItem {
   const failed = row.status === "failure" || row.status === "silent_failure";
+  const blocked = row.error_code === "kill_switch_engaged";
+  const requestedBy = trimmedOrNull(row.requested_by);
+  const entityType = trimmedOrNull(row.entity_type);
   return {
     id: `meta-action-${row.id}`,
     activityType: `meta_${row.action}`,
-    severity:
-      row.error_code === "kill_switch_engaged"
-        ? "warning"
-        : failed
-          ? "danger"
-          : "success",
-    message:
-      row.error_code === "kill_switch_engaged"
-        ? "Meta write blocked by kill switch."
-        : failed
-          ? row.error_message || `Meta ${row.action} failed.`
-          : `Meta ${row.action} completed.`,
+    severity: blocked ? "warning" : failed ? "danger" : "success",
+    message: blocked
+      ? "Meta write blocked by kill switch."
+      : failed
+        ? row.error_message || `Meta ${row.action} failed.`
+        : `Meta ${row.action} completed.`,
     payload: isRecord(row.payload_request) ? row.payload_request : null,
     createdAt: row.requested_at,
     source: "meta_action_log",
+    // A provider write is only attributable when the log names the operator who
+    // requested it. Rows without `requested_by` keep an em-dash actor rather
+    // than being relabelled with the prototype's "System guard" placeholder.
+    actor: requestedBy
+      ? {
+          kind: "operator",
+          userId: requestedBy,
+          name: trimmedOrNull(row.actor_name),
+        }
+      : null,
+    // `ad_id` holds a synthetic placeholder for launch rows
+    // (`launch:<key>:campaign`), so the entity is presented only when a
+    // warehouse dimension in this account actually matches the requested or
+    // resulting id.
+    entity: entityType
+      ? {
+          type: entityType,
+          id: trimmedOrNull(row.entity_id),
+          name: trimmedOrNull(row.entity_name),
+        }
+      : null,
+    result: {
+      status: blocked ? "blocked" : failed ? "failed" : "applied",
+      receiptId: failed ? null : trimmedOrNull(row.resulting_ad_id),
+    },
   };
 }
 
 function isUndefinedTableError(error: unknown) {
   return isRecord(error) && error.code === "42P01";
+}
+
+function isUndefinedColumnError(error: unknown) {
+  return isRecord(error) && error.code === "42703";
+}
+
+/**
+ * Run a statement that names the additive tuple/guardrail columns, and fall back
+ * to the pre-migration column list when they are not there yet.
+ *
+ * Without this the additive columns would be a silent outage rather than an
+ * additive change. Every read here is wrapped in a swallow-all `safeRead`, so a
+ * single `42703` would turn the whole activity ledger — or the whole business
+ * control row — into "unavailable" on an unmigrated database, and the ledger
+ * INSERTs would make the kill switch itself unusable there.
+ */
+async function withAdditiveColumnFallback<T>(
+  modern: () => Promise<T>,
+  legacy: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await modern();
+  } catch (error) {
+    if (!isUndefinedColumnError(error)) throw error;
+    return legacy();
+  }
 }
 
 async function safeRead<T>(reader: () => Promise<T>, fallback: T): Promise<T> {
@@ -379,23 +639,48 @@ async function readWithCompleteness<T>(
 
 async function readBusinessControlState(businessId: string) {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT
-      control.business_id,
-      business.is_demo_business,
-      control.kill_switch_engaged,
-      control.kill_switch_reason,
-      control.auto_execution_enabled,
-      control.readiness_tier,
-      control.guardrails_json,
-      control.updated_at,
-      control.updated_by
-    FROM businesses business
-    LEFT JOIN meta_automation_business_controls control
-      ON control.business_id = business.id
-    WHERE business.id = ${businessId}
-    LIMIT 1
-  `) as ControlDbRow[];
+  const rows = await withAdditiveColumnFallback(
+    async () =>
+      (await sql`
+        SELECT
+          control.business_id,
+          business.is_demo_business,
+          control.kill_switch_engaged,
+          control.kill_switch_reason,
+          control.auto_execution_enabled,
+          control.readiness_tier,
+          control.guardrails_json,
+          control.updated_at,
+          control.updated_by,
+          control.min_roas_floor,
+          control.quiet_hours_start,
+          control.quiet_hours_end,
+          control.quiet_hours_timezone
+        FROM businesses business
+        LEFT JOIN meta_automation_business_controls control
+          ON control.business_id = business.id
+        WHERE business.id = ${businessId}
+        LIMIT 1
+      `) as ControlDbRow[],
+    async () =>
+      (await sql`
+        SELECT
+          control.business_id,
+          business.is_demo_business,
+          control.kill_switch_engaged,
+          control.kill_switch_reason,
+          control.auto_execution_enabled,
+          control.readiness_tier,
+          control.guardrails_json,
+          control.updated_at,
+          control.updated_by
+        FROM businesses business
+        LEFT JOIN meta_automation_business_controls control
+          ON control.business_id = business.id
+        WHERE business.id = ${businessId}
+        LIMIT 1
+      `) as ControlDbRow[],
+  );
   return {
     control: mapControlRow(
       rows[0]?.business_id ? rows[0] : undefined,
@@ -424,13 +709,43 @@ async function readPromotionRecords(businessId: string) {
 
 async function readActivityLedger(businessId: string) {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT id, activity_type, severity, message, payload_json, created_at
-    FROM meta_automation_activity_ledger
-    WHERE business_id = ${businessId}
-    ORDER BY created_at DESC
-    LIMIT 20
-  `) as ActivityDbRow[];
+  const rows = await withAdditiveColumnFallback(
+    async () =>
+      (await sql`
+        SELECT
+          ledger.id,
+          ledger.activity_type,
+          ledger.severity,
+          ledger.message,
+          ledger.payload_json,
+          ledger.created_at,
+          ledger.actor_kind,
+          ledger.created_by AS actor_user_id,
+          actor.name AS actor_name,
+          ledger.entity_type,
+          ledger.entity_id,
+          entity_business.name AS entity_name,
+          ledger.result_status,
+          ledger.result_receipt_id
+        FROM meta_automation_activity_ledger ledger
+        LEFT JOIN users actor
+          ON actor.id = ledger.created_by
+        LEFT JOIN businesses entity_business
+          ON ledger.entity_type = 'business'
+          AND entity_business.id::text = ledger.entity_id
+        WHERE ledger.business_id = ${businessId}
+        ORDER BY ledger.created_at DESC
+        LIMIT 20
+      `) as ActivityDbRow[],
+    async () =>
+      (await sql`
+        SELECT id, activity_type, severity, message, payload_json, created_at
+        FROM meta_automation_activity_ledger
+        WHERE business_id = ${businessId}
+        ORDER BY created_at DESC
+        LIMIT 20
+      `) as ActivityDbRow[],
+  );
   return rows.map(mapActivity);
 }
 
@@ -449,8 +764,57 @@ async function readRecentActionLedger(
         log.error_code,
         log.error_message,
         log.requested_at,
-        log.payload_request
+        log.payload_request,
+        log.requested_by,
+        log.resulting_ad_id,
+        actor.name AS actor_name,
+        entity.entity_type,
+        entity.entity_id,
+        entity.entity_name
       FROM meta_ads_action_log log
+      LEFT JOIN users actor
+        ON actor.id = log.requested_by
+      LEFT JOIN LATERAL (
+        SELECT matched.entity_type, matched.entity_id, matched.entity_name
+        FROM (
+          SELECT
+            'ad'::text AS entity_type,
+            dimension.ad_id AS entity_id,
+            dimension.ad_name_current AS entity_name
+          FROM meta_ad_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.ad_id IN (log.ad_id, log.resulting_ad_id)
+          UNION ALL
+          SELECT
+            'campaign'::text,
+            dimension.campaign_id,
+            dimension.campaign_name_current
+          FROM meta_campaign_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.campaign_id IN (log.ad_id, log.resulting_ad_id)
+          UNION ALL
+          SELECT
+            'adset'::text,
+            dimension.adset_id,
+            dimension.adset_name_current
+          FROM meta_adset_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.adset_id IN (log.ad_id, log.resulting_ad_id)
+        ) matched
+        LIMIT 1
+      ) entity ON TRUE
       WHERE log.business_id = ${businessId}
         AND log.status IN ('success', 'failure', 'silent_failure')
         AND (
@@ -504,8 +868,57 @@ async function readRecentActionLedger(
         log.error_code,
         log.error_message,
         log.requested_at,
-        log.payload_request
+        log.payload_request,
+        log.requested_by,
+        log.resulting_ad_id,
+        actor.name AS actor_name,
+        entity.entity_type,
+        entity.entity_id,
+        entity.entity_name
       FROM meta_ads_action_log log
+      LEFT JOIN users actor
+        ON actor.id = log.requested_by
+      LEFT JOIN LATERAL (
+        SELECT matched.entity_type, matched.entity_id, matched.entity_name
+        FROM (
+          SELECT
+            'ad'::text AS entity_type,
+            dimension.ad_id AS entity_id,
+            dimension.ad_name_current AS entity_name
+          FROM meta_ad_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.ad_id IN (log.ad_id, log.resulting_ad_id)
+          UNION ALL
+          SELECT
+            'campaign'::text,
+            dimension.campaign_id,
+            dimension.campaign_name_current
+          FROM meta_campaign_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.campaign_id IN (log.ad_id, log.resulting_ad_id)
+          UNION ALL
+          SELECT
+            'adset'::text,
+            dimension.adset_id,
+            dimension.adset_name_current
+          FROM meta_adset_dimensions dimension
+          WHERE dimension.business_id::text = ${businessId}
+            AND (
+              ${providerAccountId}::text IS NULL
+              OR dimension.provider_account_id = ${providerAccountId}
+            )
+            AND dimension.adset_id IN (log.ad_id, log.resulting_ad_id)
+        ) matched
+        LIMIT 1
+      ) entity ON TRUE
       WHERE log.business_id = ${businessId}
         AND log.status IN ('success', 'failure', 'silent_failure')
         AND (
@@ -539,10 +952,163 @@ async function readRecentActionLedger(
   return rows.map(mapActionLog);
 }
 
+/**
+ * The clean-approval streak for one action kind.
+ *
+ * Counts successful, operator-attributed provider writes of that kind since the
+ * later of the tier's own start and the most recent failed write of the same
+ * kind, which is the ladder's stated rule ("any error demotes instantly")
+ * expressed as a count rather than as prose.
+ */
+async function readCleanApprovalStreak(input: {
+  businessId: string;
+  decisionType: MetaAutomationDecisionType;
+  tierStartedAt: string;
+}): Promise<number | null> {
+  const actions = CLEAN_APPROVAL_ACTION_KINDS[input.decisionType];
+  if (!actions || actions.length === 0) return null;
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS clean_approvals
+    FROM meta_ads_action_log log
+    WHERE log.business_id = ${input.businessId}
+      AND log.action = ANY(${actions as string[]}::text[])
+      AND log.requested_by IS NOT NULL
+      AND log.status = 'success'
+      AND log.requested_at > COALESCE(
+        (
+          SELECT MAX(failed.requested_at)
+          FROM meta_ads_action_log failed
+          WHERE failed.business_id = log.business_id
+            AND failed.action = ANY(${actions as string[]}::text[])
+            AND failed.requested_by IS NOT NULL
+            AND failed.status IN ('failure', 'silent_failure')
+            AND failed.requested_at >= ${input.tierStartedAt}::timestamptz
+        ),
+        ${input.tierStartedAt}::timestamptz
+      )
+  `) as Array<{ clean_approvals: number | string | null }>;
+  const count = Number(rows[0]?.clean_approvals);
+  return Number.isFinite(count) ? count : null;
+}
+
+/**
+ * Attach the derived streak to every ladder row that can carry one.
+ *
+ * A row only earns a count when its tier is a persisted decision (so the window
+ * has a real start) AND an operator has committed a threshold (so the count has
+ * a denominator). Reading a streak nobody set a target for would put a bare
+ * number under a caption that promises a ratio.
+ */
+async function readCleanApprovalStreaks(
+  businessId: string,
+  modes: MetaAutomationDecisionTypeMode[],
+): Promise<MetaAutomationDecisionTypeMode[]> {
+  return Promise.all(
+    modes.map(async (mode) => {
+      if (
+        mode.source !== "persisted" ||
+        !mode.updatedAt ||
+        mode.cleanApprovalThreshold === null
+      ) {
+        return mode;
+      }
+      return {
+        ...mode,
+        cleanApprovalStreak: await readCleanApprovalStreak({
+          businessId,
+          decisionType: mode.decisionType,
+          tierStartedAt: mode.updatedAt,
+        }),
+      };
+    }),
+  );
+}
+
 function normalizeKillSwitchReason(value: unknown) {
   const reason = typeof value === "string" ? value.trim() : "";
   return (
     reason.slice(0, 500) || "Operator stopped all Meta writes from Automation."
+  );
+}
+
+/**
+ * The single place an automation activity row is written.
+ *
+ * Every caller already knows who acted, what they acted on and how it landed;
+ * before this the ledger threw all three away and kept only a sentence, which
+ * is why three of the screen's five columns had nothing to render. The actor's
+ * user id stays in the existing `created_by` foreign key — one id, one owner —
+ * and `actor_kind` supplies the type that column never carried.
+ */
+async function writeActivityLedgerRow(input: {
+  businessId: string;
+  activityType: string;
+  severity: MetaAutomationActivityItem["severity"];
+  message: string;
+  payload: Record<string, unknown>;
+  userId: string;
+  actorKind?: MetaAutomationActorKind;
+  entityType: string;
+  entityId: string | null;
+  resultStatus: MetaAutomationActivityResultStatus;
+  resultReceiptId: string | null;
+}) {
+  const sql = getDb();
+  const payloadJson = JSON.stringify(input.payload);
+  await withAdditiveColumnFallback(
+    async () => {
+      await sql`
+        INSERT INTO meta_automation_activity_ledger (
+          business_id,
+          activity_type,
+          severity,
+          message,
+          payload_json,
+          created_by,
+          actor_kind,
+          entity_type,
+          entity_id,
+          result_status,
+          result_receipt_id
+        )
+        VALUES (
+          ${input.businessId},
+          ${input.activityType},
+          ${input.severity},
+          ${input.message},
+          ${payloadJson}::jsonb,
+          ${input.userId},
+          ${input.actorKind ?? "operator"},
+          ${input.entityType},
+          ${input.entityId},
+          ${input.resultStatus},
+          ${input.resultReceiptId}
+        )
+      `;
+    },
+    async () => {
+      // Pre-migration schema: keep recording the act. The tuple columns are the
+      // additive part, so their absence must cost the three columns, not the row.
+      await sql`
+        INSERT INTO meta_automation_activity_ledger (
+          business_id,
+          activity_type,
+          severity,
+          message,
+          payload_json,
+          created_by
+        )
+        VALUES (
+          ${input.businessId},
+          ${input.activityType},
+          ${input.severity},
+          ${input.message},
+          ${payloadJson}::jsonb,
+          ${input.userId}
+        )
+      `;
+    },
   );
 }
 
@@ -569,34 +1135,20 @@ export async function engageMetaAutomationKillSwitch(input: {
       kill_switch_reason = EXCLUDED.kill_switch_reason,
       updated_by = EXCLUDED.updated_by,
       updated_at = NOW()
-    RETURNING
-      business_id,
-      kill_switch_engaged,
-      kill_switch_reason,
-      auto_execution_enabled,
-      readiness_tier,
-      guardrails_json,
-      updated_at,
-      updated_by
+    RETURNING *
   `) as ControlDbRow[];
-  await sql`
-    INSERT INTO meta_automation_activity_ledger (
-      business_id,
-      activity_type,
-      severity,
-      message,
-      payload_json,
-      created_by
-    )
-    VALUES (
-      ${businessId},
-      'business_kill_switch_engaged',
-      'danger',
-      'Business kill switch engaged — all Meta writes stopped.',
-      ${JSON.stringify({ reason })}::jsonb,
-      ${input.userId}
-    )
-  `;
+  await writeActivityLedgerRow({
+    businessId,
+    activityType: "business_kill_switch_engaged",
+    severity: "danger",
+    message: "Business kill switch engaged — all Meta writes stopped.",
+    payload: { reason },
+    userId: input.userId,
+    entityType: "business",
+    entityId: businessId,
+    resultStatus: "applied",
+    resultReceiptId: null,
+  });
   return mapControlRow(rows[0], businessId);
 }
 
@@ -628,34 +1180,21 @@ export async function releaseMetaAutomationKillSwitch(input: {
       kill_switch_reason = NULL,
       updated_by = EXCLUDED.updated_by,
       updated_at = NOW()
-    RETURNING
-      business_id,
-      kill_switch_engaged,
-      kill_switch_reason,
-      auto_execution_enabled,
-      readiness_tier,
-      guardrails_json,
-      updated_at,
-      updated_by
+    RETURNING *
   `) as ControlDbRow[];
-  await sql`
-    INSERT INTO meta_automation_activity_ledger (
-      business_id,
-      activity_type,
-      severity,
-      message,
-      payload_json,
-      created_by
-    )
-    VALUES (
-      ${businessId},
-      'business_kill_switch_released',
-      'warning',
-      'Business kill switch released — Meta writes may resume, still subject to the remaining automation gates.',
-      ${JSON.stringify({})}::jsonb,
-      ${input.userId}
-    )
-  `;
+  await writeActivityLedgerRow({
+    businessId,
+    activityType: "business_kill_switch_released",
+    severity: "warning",
+    message:
+      "Business kill switch released — Meta writes may resume, still subject to the remaining automation gates.",
+    payload: {},
+    userId: input.userId,
+    entityType: "business",
+    entityId: businessId,
+    resultStatus: "applied",
+    resultReceiptId: null,
+  });
   return mapControlRow(rows[0], businessId);
 }
 
@@ -665,6 +1204,7 @@ type DecisionTypeModeDbRow = {
   lock_reason: string | null;
   updated_at: string | null;
   updated_by: string | null;
+  clean_approval_threshold?: number | string | null;
 };
 
 function defaultDecisionTypeModes(): MetaAutomationDecisionTypeMode[] {
@@ -675,6 +1215,8 @@ function defaultDecisionTypeModes(): MetaAutomationDecisionTypeMode[] {
     updatedAt: null,
     updatedBy: null,
     source: "default",
+    cleanApprovalThreshold: null,
+    cleanApprovalStreak: null,
   }));
 }
 
@@ -682,11 +1224,26 @@ async function readDecisionTypeModes(
   businessId: string,
 ): Promise<MetaAutomationDecisionTypeMode[]> {
   const sql = getDb();
-  const rows = (await sql`
-    SELECT decision_type, mode, lock_reason, updated_at, updated_by
-    FROM meta_automation_decision_type_modes
-    WHERE business_id = ${businessId}
-  `) as DecisionTypeModeDbRow[];
+  const rows = await withAdditiveColumnFallback(
+    async () =>
+      (await sql`
+        SELECT
+          decision_type,
+          mode,
+          lock_reason,
+          updated_at,
+          updated_by,
+          clean_approval_threshold
+        FROM meta_automation_decision_type_modes
+        WHERE business_id = ${businessId}
+      `) as DecisionTypeModeDbRow[],
+    async () =>
+      (await sql`
+        SELECT decision_type, mode, lock_reason, updated_at, updated_by
+        FROM meta_automation_decision_type_modes
+        WHERE business_id = ${businessId}
+      `) as DecisionTypeModeDbRow[],
+  );
   const byType = new Map(rows.map((row) => [row.decision_type, row]));
   return META_AUTOMATION_DECISION_TYPES.map((decisionType) => {
     const row = byType.get(decisionType);
@@ -698,6 +1255,8 @@ async function readDecisionTypeModes(
         updatedAt: null,
         updatedBy: null,
         source: "default" as const,
+        cleanApprovalThreshold: null,
+        cleanApprovalStreak: null,
       };
     }
     const mode = (META_AUTOMATION_DECISION_MODES as string[]).includes(row.mode)
@@ -710,8 +1269,19 @@ async function readDecisionTypeModes(
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
       source: "persisted" as const,
+      cleanApprovalThreshold: normalizeCleanApprovalThreshold(
+        row.clean_approval_threshold,
+      ),
+      cleanApprovalStreak: null,
     };
   });
+}
+
+/** A threshold is a positive whole number of approvals or it is not a threshold. */
+export function normalizeCleanApprovalThreshold(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const next = Number(value);
+  return Number.isFinite(next) && next >= 1 ? Math.trunc(next) : null;
 }
 
 /**
@@ -726,6 +1296,13 @@ export async function setMetaAutomationDecisionTypeMode(input: {
   mode: MetaAutomationDecisionMode;
   userId: string;
   reason?: unknown;
+  /**
+   * Omit to leave the persisted threshold untouched; pass `null` to clear it.
+   * A cleared threshold returns the ladder row to the em dash rather than to a
+   * default, because "we no longer state a promotion target" and "the target is
+   * 30" are different claims.
+   */
+  cleanApprovalThreshold?: number | null;
 }): Promise<MetaAutomationDecisionTypeMode[]> {
   const businessId = input.businessId.trim();
   const sql = getDb();
@@ -733,43 +1310,161 @@ export async function setMetaAutomationDecisionTypeMode(input: {
     typeof input.reason === "string"
       ? input.reason.trim().slice(0, 500) || null
       : null;
+  const thresholdProvided = input.cleanApprovalThreshold !== undefined;
+  const threshold = thresholdProvided
+    ? normalizeCleanApprovalThreshold(input.cleanApprovalThreshold)
+    : null;
   const priorRows = (await sql`
     SELECT mode FROM meta_automation_decision_type_modes
     WHERE business_id = ${businessId} AND decision_type = ${input.decisionType}
   `) as Array<{ mode: string }>;
   const priorMode = priorRows[0]?.mode ?? "manual";
-  await sql`
-    INSERT INTO meta_automation_decision_type_modes (
-      business_id, decision_type, mode, lock_reason, updated_by, updated_at
-    )
-    VALUES (${businessId}, ${input.decisionType}, ${input.mode}, ${reason}, ${input.userId}, NOW())
-    ON CONFLICT (business_id, decision_type)
-    DO UPDATE SET
-      mode = EXCLUDED.mode,
-      lock_reason = EXCLUDED.lock_reason,
-      updated_by = EXCLUDED.updated_by,
-      updated_at = NOW()
-  `;
-  await sql`
+  await withAdditiveColumnFallback(
+    async () => {
+      await sql`
+        INSERT INTO meta_automation_decision_type_modes (
+          business_id, decision_type, mode, lock_reason, updated_by, updated_at,
+          clean_approval_threshold
+        )
+        VALUES (
+          ${businessId}, ${input.decisionType}, ${input.mode}, ${reason},
+          ${input.userId}, NOW(), ${threshold}
+        )
+        ON CONFLICT (business_id, decision_type)
+        DO UPDATE SET
+          mode = EXCLUDED.mode,
+          lock_reason = EXCLUDED.lock_reason,
+          updated_by = EXCLUDED.updated_by,
+          updated_at = NOW(),
+          clean_approval_threshold = CASE
+            WHEN ${thresholdProvided} THEN EXCLUDED.clean_approval_threshold
+            ELSE meta_automation_decision_type_modes.clean_approval_threshold
+          END
+      `;
+    },
+    async () => {
+      await sql`
+        INSERT INTO meta_automation_decision_type_modes (
+          business_id, decision_type, mode, lock_reason, updated_by, updated_at
+        )
+        VALUES (${businessId}, ${input.decisionType}, ${input.mode}, ${reason}, ${input.userId}, NOW())
+        ON CONFLICT (business_id, decision_type)
+        DO UPDATE SET
+          mode = EXCLUDED.mode,
+          lock_reason = EXCLUDED.lock_reason,
+          updated_by = EXCLUDED.updated_by,
+          updated_at = NOW()
+      `;
+    },
+  );
+  const promotionRows = (await sql`
     INSERT INTO meta_automation_promotion_records (
       business_id, entity_type, entity_id, source_tier, target_tier, status, reason, created_by
     )
     VALUES (${businessId}, 'decision_type_mode', ${input.decisionType}, ${priorMode}, ${input.mode}, 'approved', ${reason}, ${input.userId})
-  `;
-  await sql`
-    INSERT INTO meta_automation_activity_ledger (
-      business_id, activity_type, severity, message, payload_json, created_by
+    RETURNING id
+  `) as Array<{ id: string }>;
+  await writeActivityLedgerRow({
+    businessId,
+    activityType: "decision_type_mode_change",
+    severity: "info",
+    message: `${input.decisionType} standing mode set to ${input.mode}${priorMode !== input.mode ? ` (from ${priorMode})` : ""}.`,
+    payload: {
+      decisionType: input.decisionType,
+      from: priorMode,
+      to: input.mode,
+      ...(thresholdProvided ? { cleanApprovalThreshold: threshold } : {}),
+    },
+    userId: input.userId,
+    entityType: "automation_decision_type",
+    entityId: input.decisionType,
+    // Recording a standing preference is not a provider write, and the receipt
+    // is the promotion record this change is auditable through.
+    resultStatus: "recorded",
+    resultReceiptId: promotionRows[0]?.id ?? null,
+  });
+  return readDecisionTypeModes(businessId);
+}
+
+/**
+ * Persist the business's guardrail policy: the ROAS floor below which a pause
+ * may be proposed, and the quiet-hours window during which provider writes are
+ * refused.
+ *
+ * Kept out of `guardrails_json` on purpose. The JSONB column carries a literal
+ * server-side default, so a value living there cannot be distinguished from one
+ * this process supplied; dedicated nullable columns make "no operator has set a
+ * ROAS floor" a readable state instead of an invisible one.
+ */
+export async function setMetaAutomationGuardrailPolicy(input: {
+  businessId: string;
+  userId: string;
+  minRoasFloor: number | null;
+  quietHours: MetaAutomationQuietHours | null;
+}): Promise<MetaAutomationBusinessControl> {
+  const businessId = input.businessId.trim();
+  const sql = getDb();
+  const minRoasFloor =
+    typeof input.minRoasFloor === "number" &&
+    Number.isFinite(input.minRoasFloor) &&
+    input.minRoasFloor > 0
+      ? input.minRoasFloor
+      : null;
+  const quietHours = input.quietHours
+    ? {
+        start: normalizeQuietHourTime(input.quietHours.start),
+        end: normalizeQuietHourTime(input.quietHours.end),
+        timezone: input.quietHours.timezone.trim().slice(0, 40) || null,
+      }
+    : { start: null, end: null, timezone: null };
+  const quietHoursComplete = Boolean(
+    quietHours.start && quietHours.end && quietHours.timezone,
+  );
+  const rows = (await sql`
+    INSERT INTO meta_automation_business_controls (
+      business_id,
+      min_roas_floor,
+      quiet_hours_start,
+      quiet_hours_end,
+      quiet_hours_timezone,
+      updated_by,
+      updated_at
     )
     VALUES (
       ${businessId},
-      'decision_type_mode_change',
-      'info',
-      ${`${input.decisionType} standing mode set to ${input.mode}${priorMode !== input.mode ? ` (from ${priorMode})` : ""}.`},
-      ${JSON.stringify({ decisionType: input.decisionType, from: priorMode, to: input.mode })}::jsonb,
-      ${input.userId}
+      ${minRoasFloor},
+      ${quietHoursComplete ? quietHours.start : null}::time,
+      ${quietHoursComplete ? quietHours.end : null}::time,
+      ${quietHoursComplete ? quietHours.timezone : null},
+      ${input.userId},
+      NOW()
     )
-  `;
-  return readDecisionTypeModes(businessId);
+    ON CONFLICT (business_id)
+    DO UPDATE SET
+      min_roas_floor = EXCLUDED.min_roas_floor,
+      quiet_hours_start = EXCLUDED.quiet_hours_start,
+      quiet_hours_end = EXCLUDED.quiet_hours_end,
+      quiet_hours_timezone = EXCLUDED.quiet_hours_timezone,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = NOW()
+    RETURNING *
+  `) as ControlDbRow[];
+  await writeActivityLedgerRow({
+    businessId,
+    activityType: "automation_guardrail_policy_updated",
+    severity: "info",
+    message: "Automation guardrail policy updated.",
+    payload: {
+      minRoasFloor,
+      quietHours: quietHoursComplete ? quietHours : null,
+    },
+    userId: input.userId,
+    entityType: "business",
+    entityId: businessId,
+    resultStatus: "applied",
+    resultReceiptId: null,
+  });
+  return mapControlRow(rows[0], businessId);
 }
 
 export async function getMetaAutomationControlPlane(input: {
@@ -802,6 +1497,13 @@ export async function getMetaAutomationControlPlane(input: {
     businessControl.guardrails.dryRunOnly ? "dry_run_only_guardrail" : null,
   ].filter((item): item is string => Boolean(item));
 
+  // Second phase on purpose: a streak window starts at the tier's own
+  // `updatedAt`, which is only known once the modes have been read.
+  const streakRead = await readWithCompleteness(
+    () => readCleanApprovalStreaks(businessId, decisionTypeModes),
+    decisionTypeModes,
+  );
+
   return {
     contractVersion: "meta-automation-control-plane.v1",
     businessId,
@@ -825,6 +1527,7 @@ export async function getMetaAutomationControlPlane(input: {
     promotionRecords: promotionRead.value,
     readCompleteness: {
       promotionRecords: promotionRead.completeness,
+      cleanApprovalStreaks: streakRead.completeness,
     },
     activityLedger: [...automationActivity, ...actionActivity]
       .sort(
@@ -832,7 +1535,7 @@ export async function getMetaAutomationControlPlane(input: {
           Date.parse(right.createdAt) - Date.parse(left.createdAt),
       )
       .slice(0, 30),
-    decisionTypeModes,
+    decisionTypeModes: streakRead.value,
   };
 }
 

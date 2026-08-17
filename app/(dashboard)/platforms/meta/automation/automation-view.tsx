@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import type {
+  MetaAutomationActivityItem,
   MetaAutomationControlPlane,
   MetaAutomationDecisionMode,
   MetaAutomationDecisionType,
@@ -36,7 +37,15 @@ interface AutonomyPresentation {
   tier: string;
   tone: "automation" | "info" | "enabled" | "manual" | "unknown";
   progress: string;
+  /** CSS width for the bar; `0%` whenever the ratio is not fully proven. */
+  progressWidth: string;
+  progressTone: "measured" | "locked";
   next: string;
+}
+
+interface LedgerResultPresentation {
+  label: string;
+  tone: "applied" | "blocked" | "failed" | "recorded" | "unknown";
 }
 
 const UNKNOWN = "—";
@@ -112,10 +121,18 @@ function formatNumber(value: number) {
   );
 }
 
+function formatRoas(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function guardrailsFor(payload: AutomationPayload | null) {
   const guardrails = hasPersistedBusinessControl(payload)
     ? payload!.businessControl.guardrails
     : null;
+  const quietHours = guardrails?.quietHours ?? null;
   return [
     {
       key: "budget-change",
@@ -124,13 +141,26 @@ function guardrailsFor(payload: AutomationPayload | null) {
         ? `+${formatNumber(guardrails.maxBudgetIncreasePct)}% max`
         : UNKNOWN,
     },
-    { key: "roas-floor", label: "Min ROAS floor (pause)", value: UNKNOWN },
+    {
+      key: "roas-floor",
+      label: "Min ROAS floor (pause)",
+      value:
+        typeof guardrails?.minRoasFloor === "number"
+          ? formatRoas(guardrails.minRoasFloor)
+          : UNKNOWN,
+    },
     {
       key: "actions-per-day",
       label: "Max actions / day",
       value: guardrails ? formatNumber(guardrails.dailyAutoActionCap) : UNKNOWN,
     },
-    { key: "quiet-hours", label: "Quiet hours", value: UNKNOWN },
+    {
+      key: "quiet-hours",
+      label: "Quiet hours",
+      value: quietHours
+        ? `${quietHours.start}–${quietHours.end} ${quietHours.timezone}`
+        : UNKNOWN,
+    },
   ] as const;
 }
 
@@ -145,18 +175,32 @@ function autonomyFor(
       .filter((item) => item.source === "persisted")
       .map((item) => [item.decisionType, item]),
   );
+  // The same rule the promotion count already follows: a read this payload
+  // cannot prove is complete may not be turned into a total.
+  const streaksProven =
+    payload?.readCompleteness?.cleanApprovalStreaks === "complete";
 
   const mapped = (
     kind: string,
     decisionType: MetaAutomationDecisionType,
   ): AutonomyPresentation => {
     const item = byType.get(decisionType);
+    const threshold = item?.cleanApprovalThreshold ?? null;
+    const streak = item?.cleanApprovalStreak ?? null;
+    const measured =
+      streaksProven &&
+      typeof threshold === "number" &&
+      typeof streak === "number";
     return {
       kind,
       decisionType,
       tier: item ? MODE_LABELS[item.mode] : UNKNOWN,
       tone: item ? MODE_TONES[item.mode] : "unknown",
-      progress: UNKNOWN,
+      progress: measured ? `${streak} / ${threshold}` : UNKNOWN,
+      progressWidth: measured
+        ? `${Math.max(0, Math.min(100, Math.round((streak! / threshold!) * 100)))}%`
+        : "0%",
+      progressTone: measured ? "measured" : "locked",
       next: item?.lockReason?.trim() || UNKNOWN,
     };
   };
@@ -171,9 +215,52 @@ function autonomyFor(
       tier: "Manual · by design",
       tone: "manual",
       progress: "locked",
+      progressWidth: "0%",
+      progressTone: "locked",
       next: "New spend never automates. Launches stay a deliberate human act, always PAUSED first.",
     },
   ];
+}
+
+const LEDGER_RESULT_LABELS: Record<string, string> = {
+  applied: "Applied",
+  blocked: "Blocked",
+  failed: "Failed",
+  recorded: "Recorded",
+};
+
+/** Design entity captions for the control-plane objects this screen records. */
+const LEDGER_ENTITY_LABELS: Record<string, string> = {
+  pause: "Pause / resume",
+  bid: "Bid",
+  budget: "Budget",
+  creative: "Creative rotation",
+};
+
+function ledgerActorFor(item: MetaAutomationActivityItem) {
+  return item.actor?.name?.trim() || UNKNOWN;
+}
+
+function ledgerEntityFor(item: MetaAutomationActivityItem) {
+  const entity = item.entity;
+  if (!entity) return UNKNOWN;
+  if (entity.name?.trim()) return entity.name.trim();
+  if (entity.type === "automation_decision_type" && entity.id) {
+    return LEDGER_ENTITY_LABELS[entity.id] ?? entity.id;
+  }
+  return entity.id?.trim() || UNKNOWN;
+}
+
+function ledgerResultFor(
+  item: MetaAutomationActivityItem,
+): LedgerResultPresentation {
+  const result = item.result;
+  if (!result) return { label: UNKNOWN, tone: "unknown" };
+  if (result.receiptId) {
+    return { label: `Receipt ${result.receiptId}`, tone: result.status };
+  }
+  const label = LEDGER_RESULT_LABELS[result.status];
+  return label ? { label, tone: result.status } : { label: UNKNOWN, tone: "unknown" };
 }
 
 function formatLedgerTime(value: string) {
@@ -373,7 +460,11 @@ export function MetaAutomationView({
                 </div>
                 <div className={styles.progressRow}>
                   <span className={styles.progressTrack}>
-                    <span className={styles.progressFill} />
+                    <span
+                      className={styles.progressFill}
+                      data-tone={item.progressTone}
+                      style={{ width: item.progressWidth }}
+                    />
                   </span>
                   <span className={styles.progressValue}>{item.progress}</span>
                 </div>
@@ -404,21 +495,32 @@ export function MetaAutomationView({
               </thead>
               <tbody>
                 {ledger.length > 0 ? (
-                  ledger.map((item) => (
-                    <tr data-ledger-id={item.id} key={item.id}>
-                      <td className={styles.ledgerTime}>
-                        {formatLedgerTime(item.createdAt)}
-                      </td>
-                      <td>{UNKNOWN}</td>
-                      <td className={styles.ledgerAction}>
-                        {item.message.trim() || item.activityType}
-                      </td>
-                      <td>{UNKNOWN}</td>
-                      <td>
-                        <span className={styles.ledgerUnknown}>{UNKNOWN}</span>
-                      </td>
-                    </tr>
-                  ))
+                  ledger.map((item) => {
+                    const result = ledgerResultFor(item);
+                    return (
+                      <tr data-ledger-id={item.id} key={item.id}>
+                        <td className={styles.ledgerTime}>
+                          {formatLedgerTime(item.createdAt)}
+                        </td>
+                        <td data-field="ledger-actor">{ledgerActorFor(item)}</td>
+                        <td className={styles.ledgerAction}>
+                          {item.message.trim() || item.activityType}
+                        </td>
+                        <td data-field="ledger-entity">
+                          {ledgerEntityFor(item)}
+                        </td>
+                        <td>
+                          <span
+                            className={styles.ledgerResult}
+                            data-field="ledger-result"
+                            data-tone={result.tone}
+                          >
+                            {result.label}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr className={styles.ledgerEmpty} data-testid="ledger-empty">
                     <td colSpan={5}>{UNKNOWN}</td>

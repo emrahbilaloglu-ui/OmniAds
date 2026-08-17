@@ -14059,6 +14059,72 @@ export async function runMigrations(options?: {
         () => {},
       );
 
+      // ── Automation control-plane tuple + guardrail policy ─────────────────
+      //
+      // Additive and nullable throughout, with no backfill and no default.
+      //
+      // The Automation screen's activity table has Actor / Entity / Result
+      // columns and its autonomy ladder has a ROAS floor, a quiet-hours window
+      // and a per-action promotion target. None of those facts had anywhere to
+      // live, so five of the screen's fields rendered an em dash regardless of
+      // what the operator had actually decided. These columns give them a home.
+      //
+      // A row written before this batch keeps rendering the em dash: that is the
+      // correct answer for it, because nobody recorded the fact. Seeding a value
+      // (the prototype's 2.50 floor, its 30-approval target) would put a number
+      // this system never agreed to under a caption that reads as policy.
+      //
+      // The actor's USER ID is deliberately not a new column: the ledger already
+      // has `created_by UUID REFERENCES users(id)`, filled at every write site,
+      // and the row's author and its actor are the same person. `actor_kind`
+      // adds the type that column never carried; a second uuid would be a second
+      // source of truth for one fact.
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS actor_kind TEXT
+          CHECK (actor_kind IS NULL OR actor_kind IN ('operator', 'system'))`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS entity_type TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS entity_id TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS result_status TEXT
+          CHECK (
+            result_status IS NULL
+            OR result_status IN ('applied', 'blocked', 'failed', 'recorded')
+          )`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_activity_ledger
+          ADD COLUMN IF NOT EXISTS result_receipt_id TEXT`.catch(() => {}),
+        // Guardrail policy lives in real columns rather than in
+        // `guardrails_json`, whose column DEFAULT is a literal JSON document —
+        // a value inside it cannot be told apart from one the server supplied.
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS min_roas_floor NUMERIC(10,4)
+          CHECK (min_roas_floor IS NULL OR min_roas_floor > 0)`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_start TIME`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_end TIME`.catch(() => {}),
+        sql`ALTER TABLE meta_automation_business_controls
+          ADD COLUMN IF NOT EXISTS quiet_hours_timezone TEXT`.catch(() => {}),
+        // Per business AND action kind, not a shared constant: this number is
+        // the denominator of an audit statement, so a deploy must not be able to
+        // rewrite the progress every business has already been shown.
+        sql`ALTER TABLE meta_automation_decision_type_modes
+          ADD COLUMN IF NOT EXISTS clean_approval_threshold INTEGER
+          CHECK (clean_approval_threshold IS NULL OR clean_approval_threshold >= 1)`.catch(
+          () => {},
+        ),
+        // The clean-approval streak is counted from operator-attributed
+        // provider writes of one action kind since the tier started, which is a
+        // keyed scan of the action log this index serves.
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_clean_approvals
+          ON meta_ads_action_log (business_id, action, status, requested_at DESC)
+          WHERE requested_by IS NOT NULL`.catch(() => {}),
+      ]);
+
       // ── Shopify install grants at rest ────────────────────────────────────
       //
       // Deliberately NOT wrapped in `.catch(() => {})`. Every other swallowed

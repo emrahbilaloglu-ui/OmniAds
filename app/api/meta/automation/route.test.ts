@@ -13,9 +13,20 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   engageMetaAutomationKillSwitch: vi.fn(),
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),
+  setMetaAutomationGuardrailPolicy: vi.fn(),
   getMetaAutomationControlPlane: vi.fn(),
   getMetaWriteBlockState: vi.fn(),
   META_AUTOMATION_DECISION_TYPES: ["pause", "bid", "budget", "creative"],
+  normalizeCleanApprovalThreshold: (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const next = Number(value);
+    return Number.isFinite(next) && next >= 1 ? Math.trunc(next) : null;
+  },
+  normalizeQuietHourTime: (value: unknown) => {
+    if (typeof value !== "string") return null;
+    const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?/.exec(value.trim());
+    return match ? `${match[1]}:${match[2]}` : null;
+  },
 }));
 
 const access = await import("@/lib/access");
@@ -74,6 +85,8 @@ describe("GET /api/meta/automation", () => {
           requireLivePreflight: true,
           requireRollbackPlan: true,
           dryRunOnly: true,
+          minRoasFloor: null,
+          quietHours: null,
         },
         updatedAt: null,
         updatedBy: null,
@@ -112,6 +125,8 @@ describe("GET /api/meta/automation", () => {
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        minRoasFloor: null,
+        quietHours: null,
       },
       updatedAt: "2026-07-08T10:00:00.000Z",
       updatedBy: "user_1",
@@ -135,6 +150,8 @@ describe("GET /api/meta/automation", () => {
         requireLivePreflight: true,
         requireRollbackPlan: true,
         dryRunOnly: true,
+        minRoasFloor: null,
+        quietHours: null,
       },
       updatedAt: "2026-07-08T11:00:00.000Z",
       updatedBy: "user_1",
@@ -355,6 +372,138 @@ describe("GET /api/meta/automation", () => {
         mode: "semi_auto",
       }),
     );
+  });
+
+  it("carries an explicit clean-approval threshold into the persisted mode", async () => {
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue(
+      [],
+    );
+
+    const response = await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+        cleanApprovalThreshold: 30,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(controlPlane.setMetaAutomationDecisionTypeMode).toHaveBeenCalledWith(
+      expect.objectContaining({ cleanApprovalThreshold: 30 }),
+    );
+  });
+
+  it("leaves the persisted threshold alone when the field is absent", async () => {
+    vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mockResolvedValue(
+      [],
+    );
+
+    await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+      }),
+    );
+
+    const call = vi.mocked(controlPlane.setMetaAutomationDecisionTypeMode).mock
+      .calls[0]?.[0];
+    expect(call && "cleanApprovalThreshold" in call).toBe(false);
+  });
+
+  it("refuses a fractional or zero clean-approval threshold instead of rounding it", async () => {
+    const response = await POST(
+      postRequest({
+        action: "set_decision_type_mode",
+        decisionType: "pause",
+        mode: "manual",
+        cleanApprovalThreshold: 2.5,
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_clean_approval_threshold");
+    expect(
+      controlPlane.setMetaAutomationDecisionTypeMode,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("persists the guardrail policy behind the stop-release role", async () => {
+    vi.mocked(controlPlane.setMetaAutomationGuardrailPolicy).mockResolvedValue(
+      {} as never,
+    );
+
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: 2.5,
+        quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(access.requireBusinessAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS_ID, minRole: "admin" }),
+    );
+    expect(controlPlane.setMetaAutomationGuardrailPolicy).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      userId: "user_1",
+      minRoasFloor: 2.5,
+      quietHours: { start: "00:00", end: "07:00", timezone: "ET" },
+    });
+  });
+
+  it("refuses a half-specified quiet-hours window", async () => {
+    const response = await POST(
+      postRequest({
+        action: "set_guardrail_policy",
+        minRoasFloor: null,
+        quietHours: { start: "00:00", end: "", timezone: "ET" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_quiet_hours");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-positive ROAS floor", async () => {
+    const response = await POST(
+      postRequest({ action: "set_guardrail_policy", minRoasFloor: 0 }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_min_roas_floor");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects reviewer read-only guardrail changes before persistence", async () => {
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: {
+        user: { id: "reviewer_1", email: "shopify-review@adsecute.com" },
+      },
+      membership: { businessId: BUSINESS_ID },
+    } as never);
+
+    const response = await POST(
+      postRequest({ action: "set_guardrail_policy", minRoasFloor: 2.5 }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("reviewer_read_only");
+    expect(payload.error.action).toBe("automation_guardrail_policy");
+    expect(
+      controlPlane.setMetaAutomationGuardrailPolicy,
+    ).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid decision type or mode without persisting", async () => {

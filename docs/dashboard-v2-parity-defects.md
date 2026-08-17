@@ -1382,8 +1382,8 @@ read-contract gaps. Neither status is a UI workaround.
 | LAUNCHPAD-AUTOMATION-29 | CLOSED | Only terminal intents with a real campaign id/account link render. Time resolves `receipt.completedAt` → `intent.completedAt` → `errorReceipt.recordedAt`, and absent typed actor evidence renders `by —`. |
 | LAUNCHPAD-AUTOMATION-30 | BLOCKED · B1 | No account-scoped proposal/expiry/evidence contract or approve/modify/dismiss server boundary can populate the confirmation queue; its exact shell renders `—`. |
 | LAUNCHPAD-AUTOMATION-31 | BLOCKED · B1 | No typed deterministic-rule definition, fired-count or toggle contract can populate Rules; the five-column shell and disabled `+ New rule` remain honest. |
-| LAUNCHPAD-AUTOMATION-32 | BLOCKED · backend | Current control data lacks min-ROAS, quiet-hours and per-action clean-approval progress/threshold fields. Promotion count renders only when `readCompleteness.promotionRecords === complete`; otherwise it is `—`. |
-| LAUNCHPAD-AUTOMATION-33 | BLOCKED · backend | Activity records lack typed actor, entity and result/receipt tuple fields; real time/action render while those three source columns remain `—`. |
+| LAUNCHPAD-AUTOMATION-32 | CLOSED | `meta_automation_business_controls.min_roas_floor` / `quiet_hours_*` and `meta_automation_decision_type_modes.clean_approval_threshold` are persisted and rendered; the streak is derived from operator-attributed provider writes and obeys the same completeness rule as the promotion count (`readCompleteness.cleanApprovalStreaks`). Proved end to end against a migrated Postgres by `scripts/ephemeral-postgres-automation-control-plane-seam-child.ts`. |
+| LAUNCHPAD-AUTOMATION-33 | CLOSED | `meta_automation_activity_ledger` gained `actor_kind`, `entity_type`, `entity_id`, `result_status`, `result_receipt_id`; every write site fills them and the action-log source resolves actor from `requested_by` and entity from the warehouse dimensions. The same seam check asserts the rendered tuple, including a promotion-record receipt that resolves to a real row. |
 
 #### Backend contracts still required
 
@@ -1564,17 +1564,23 @@ marker-locked `typography-floor.test.ts`.
 - **Backend blocker (B1):** The control-plane payload has no rule definitions, trigger outcomes or guarded create/toggle receipts. Prototype rule rows cannot be promoted into production data.
 - **Current safe state:** The exact five-column table and literal footnote remain visible with `—`; `+ New rule` is present but disabled. Populated and interactive parity remains blocked on B1.
 
-### LAUNCHPAD-AUTOMATION-32 · MEDIUM · MISSING — Guardrail and autonomy payloads are incomplete for the canonical rows
+### LAUNCHPAD-AUTOMATION-32 · MEDIUM · CLOSED — Guardrail and autonomy payloads now carry the canonical rows
 
 - **Design:** Markup lines 1092–1105 and 1157–1173 require four guardrails plus per-action tier, progress and next-unlock copy; model lines 4386–4391 provide the prototype progress examples.
-- **Backend blocker:** The persisted payload currently supports max budget increase, daily action cap, readiness, a promotion-record collection and standing per-type mode, but not min-ROAS, quiet-hours or per-action clean-approval numerator/threshold policy. An empty promotion array is meaningful only when `readCompleteness.promotionRecords === "complete"`.
-- **Current safe state:** Supported values and persisted modes render; promotion count renders only for a complete read. Unsupported count/guardrail/progress values remain `—`, while the fixed `Launches · new spend` row remains Manual/locked. Full populated parity remains blocked on the backend read contract, not B1.
+- **Fields added (additive, nullable, no backfill):** `meta_automation_business_controls.min_roas_floor NUMERIC(10,4)`, `.quiet_hours_start TIME`, `.quiet_hours_end TIME`, `.quiet_hours_timezone TEXT`, and `meta_automation_decision_type_modes.clean_approval_threshold INTEGER`. `POST /api/meta/automation` gained `set_guardrail_policy` (minRole `admin`, the stop-release role, plus the reviewer read-only guard) and `set_decision_type_mode` accepts an optional `cleanApprovalThreshold`.
+- **Where the threshold lives, and why:** per business AND action kind, persisted next to the tier it gates — not a shared config constant. It is the denominator of an audit statement, so a deploy must not be able to retroactively rewrite the progress a business has already been shown or the promotion records written under a different rule; and a €50k/mo account and a €500/mo account do not earn the same trust at the same streak length. Nothing seeds it, so the design's 30/20 are never adopted: an unset threshold renders `—`.
+- **Progress numerator:** derived, never stored. `cleanApprovalStreak` counts successful, operator-attributed (`requested_by IS NOT NULL`) writes of the action kind since the later of the tier's `updated_at` and the most recent failed write of the same kind — the ladder's own "any error demotes instantly" rule expressed as a count. Only `pause` has a provider-write channel (`meta_ads_action_log.action` allows `pause | resume | duplicate | launch_*`), so `budget`, `bid` and `creative` stay `null` rather than reporting a misleading zero.
+- **Completeness rule preserved:** `readCompleteness.cleanApprovalStreaks` is added alongside `promotionRecords`; absent or `unavailable` means no ratio is presented, and the bar renders at 0% with an em-dash value.
+- **Still `—`:** the ROAS floor and quiet-hours window for any business whose operator has not persisted one; the clean-approval progress for `budget`, `bid` and `creative`.
 
-### LAUNCHPAD-AUTOMATION-33 · HIGH · MISSING — Activity records cannot populate the canonical actor/entity/result tuple
+### LAUNCHPAD-AUTOMATION-33 · HIGH · CLOSED — Activity records carry the canonical actor/entity/result tuple
 
 - **Design:** Markup lines 1175–1197 and model lines 3664–3669 require Time, Actor, Action, Entity and Result as independently typed fields.
-- **Backend blocker:** Current activity items expose `activityType`, severity, message, payload, timestamp and source, but no authoritative typed actor/entity/result-or-receipt tuple. Parsing prose/payload opportunistically would invent semantics.
-- **Current safe state:** Real timestamp and action message render; Actor, Entity and Result remain `—` in the exact five-column geometry. Full row parity remains blocked on the backend activity contract, not B1.
+- **Columns added (additive, nullable, no backfill):** `meta_automation_activity_ledger.actor_kind`, `.entity_type`, `.entity_id`, `.result_status`, `.result_receipt_id`. The actor's USER ID is deliberately not a new column — the table already has `created_by UUID REFERENCES users(id)` filled at every write site, and the row's author and its actor are the same person; a second uuid would be a second source of truth.
+- **Filled at every write site:** kill-switch engage and release stamp `business` / the business id / `applied`; a decision-type mode change stamps `automation_decision_type` / the kind / `recorded` with the promotion record it created as the receipt; the new guardrail-policy write stamps `business` / `applied`.
+- **The action-log source, wired from columns that already existed:** actor from `meta_ads_action_log.requested_by` joined to `users.name`; entity from a `LEFT JOIN LATERAL` over `meta_ad_dimensions` / `meta_campaign_dimensions` / `meta_adset_dimensions` matched on `ad_id` OR `resulting_ad_id` within the account scope — necessary because a launch row's `ad_id` is the synthetic placeholder `launch:<key>:campaign`, not a provider id; result from `status`/`error_code` with `resulting_ad_id` as the receipt.
+- **Pre-migration tolerance:** every read and both ledger INSERT paths fall back to the legacy column list on `42703`, so an unmigrated schema loses the three columns rather than the whole ledger.
+- **Still `—`:** rows written before this migration; provider writes with no `requested_by` (the prototype's "System guard" label is never borrowed); provider entities the warehouse has no dimension for.
 
 ---
 

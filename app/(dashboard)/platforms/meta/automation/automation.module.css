@@ -49,7 +49,7 @@
 }
 
 .autonomyNext,
-.ledgerUnknown {
+.ledgerResult {
   font-size: 11px;
 }
 
@@ -460,6 +460,10 @@
   background: #e4e8f0;
 }
 
+.progressFill[data-tone="measured"] {
+  background: #6c41be;
+}
+
 .progressValue {
   flex-shrink: 0;
   color: #7a869e;
@@ -516,13 +520,24 @@
   font-weight: 600;
 }
 
-.ledgerUnknown {
+.ledgerResult {
   display: inline-flex;
   border-radius: 6px;
   background: #f1f4f9;
   padding: 2px 8px;
   color: #45526b;
   font-weight: 600;
+}
+
+.ledgerResult[data-tone="applied"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.ledgerResult[data-tone="blocked"],
+.ledgerResult[data-tone="failed"] {
+  background: #fdecf0;
+  color: #e11d48;
 }
 
 .ledgerEmpty {

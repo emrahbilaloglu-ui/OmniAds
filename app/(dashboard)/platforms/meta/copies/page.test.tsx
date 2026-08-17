@@ -323,10 +323,15 @@ describe("CopiesPage exact integration", () => {
 
     expect(screen.getByTestId("copy-detail-drawer")).toBeInTheDocument();
     expect(screen.getByText("“Served alternative”")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open in Launchpad →" })).toHaveAttribute(
+    // The design's per-alternate control is "Draft →"; the footer primary
+    // carries the served alternate count.
+    expect(screen.getByRole("link", { name: "Draft →" })).toHaveAttribute(
       "href",
       "/platforms/meta/launchpad?businessId=biz_1&providerAccountId=act_1",
     );
+    expect(
+      screen.getByRole("link", { name: "Draft all 1 in Launchpad" }),
+    ).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("copy-detail-drawer")).not.toBeInTheDocument();

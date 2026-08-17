@@ -1,0 +1,411 @@
+.overlay,
+.overlay * {
+  box-sizing: border-box;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(11, 16, 32, 0.46);
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+}
+
+.overlay button,
+.overlay a {
+  font-family: inherit;
+}
+
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-width: 94vw;
+  height: 100%;
+  background: #f3f5f9;
+  box-shadow: -28px 0 70px rgba(11, 16, 32, 0.35);
+}
+
+/* ── header band ─────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: #0b1020;
+}
+
+.headerIdentity {
+  min-width: 0;
+  flex: 1;
+}
+
+.headerEyebrow {
+  margin: 0;
+  color: #8b93a7;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.headerTitle {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerClose {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* ── scroll body ─────────────────────────────────────────────── */
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.lineCard {
+  padding: 14px 16px;
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.lineHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.lineText {
+  margin: 0;
+  flex: 1;
+  color: #0e1526;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.anglePill {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.statTile {
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.statLabel {
+  margin: 0;
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.statValue {
+  margin: 3px 0 0;
+  color: #0e1526;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.statValue.tonePositive {
+  color: #0e9f6e;
+}
+
+.statValue.toneNegative {
+  color: #e11d48;
+}
+
+.statValue.toneWarning {
+  color: #b45309;
+}
+
+.statSub {
+  margin: 2px 0 0;
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9px;
+}
+
+/* Read card */
+
+.readCard {
+  padding: 12px 14px;
+  border: 1px solid #e4e8f0;
+  border-left: 3px solid var(--tone-solid);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.cardEyebrow {
+  margin: 0;
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.readText {
+  margin: 5px 0 0;
+  color: #0e1526;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* Alternative lines */
+
+.alternatesCard {
+  padding: 14px 16px;
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.alternatesHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.alternatesHead h3 {
+  margin: 0;
+  color: #0e1526;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alternatesHead span {
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+}
+
+.alternatesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.alternateRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid #edf0f6;
+  border-radius: 11px;
+}
+
+.alternateHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alternateAngle {
+  display: inline-flex;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.draftButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px solid #e4e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2f6bff;
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.draftButton:hover {
+  background: #eaf0ff;
+}
+
+.draftButton:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.alternateText {
+  margin: 0;
+  color: #0e1526;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.alternateWhy {
+  margin: 0;
+  color: #7a869e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.footnote {
+  margin: 0;
+  color: #98a4ba;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* ── footer ──────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid #e4e8f0;
+  background: #ffffff;
+}
+
+.primaryButton,
+.closeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  border-radius: 9px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.primaryButton {
+  flex: 1;
+  border: none;
+  background: #2f6bff;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.closeButton {
+  padding: 0 13px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  color: #45526b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.closeButton:hover {
+  background: #f7f9fc;
+}
+
+.primaryButton:disabled,
+.closeButton:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+/* ── tones ───────────────────────────────────────────────────── */
+
+.tonePositive {
+  --tone-bg: #e7f6f0;
+  --tone-fg: #0e9f6e;
+  --tone-border: #bfe5d6;
+  --tone-solid: #0e9f6e;
+}
+
+.toneNegative {
+  --tone-bg: #fdecf0;
+  --tone-fg: #e11d48;
+  --tone-border: #f6c6d2;
+  --tone-solid: #e11d48;
+}
+
+.toneWarning {
+  --tone-bg: #fbf3e1;
+  --tone-fg: #b45309;
+  --tone-border: #ebd6a4;
+  --tone-solid: #b45309;
+}
+
+.toneInfo {
+  --tone-bg: #eaf0ff;
+  --tone-fg: #2f6bff;
+  --tone-border: #cbd9ff;
+  --tone-solid: #2f6bff;
+}
+
+.toneAutomation {
+  --tone-bg: #f1ebfb;
+  --tone-fg: #6c41be;
+  --tone-border: #dacbf2;
+  --tone-solid: #6c41be;
+}
+
+.toneNeutral {
+  --tone-bg: #f1f4f9;
+  --tone-fg: #45526b;
+  --tone-border: #e4e8f0;
+  --tone-solid: #98a4ba;
+}

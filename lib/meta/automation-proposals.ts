@@ -837,3 +837,14 @@ export async function raiseRuleAutomationProposal(
 
   return { status: "already_queued", proposalId: held[0]?.id ?? null };
 }
+
+/**
+ * The queue's response contract version.
+ *
+ * It lives here rather than in the route because a Next.js route module may
+ * only export the framework's own fields -- `GET`, `POST`, `dynamic` and the
+ * rest. Exporting anything else fails `next build` with "is not a valid Route
+ * export field", and `tsc --noEmit` does not see it, so the build is the only
+ * gate that catches it.
+ */
+export const META_AUTOMATION_PROPOSALS_CONTRACT = "meta-automation-proposals.v1";

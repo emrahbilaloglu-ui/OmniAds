@@ -27,6 +27,7 @@ import {
   settleMetaAutomationProposal,
   type MetaAutomationProposal,
   type MetaAutomationProposalAction,
+  META_AUTOMATION_PROPOSALS_CONTRACT,
 } from "@/lib/meta/automation-proposals";
 import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
@@ -37,9 +38,6 @@ import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { confirmationFor } from "@/lib/zero-base/meta/mutation-ceremony";
 
 export const dynamic = "force-dynamic";
-
-export const META_AUTOMATION_PROPOSALS_CONTRACT =
-  "meta-automation-proposals.v1";
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ ok: false, error: { code, message } }, { status });

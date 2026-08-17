@@ -80,8 +80,13 @@ describe("CreativeEvidenceWindowExact geometry", () => {
   });
 
   it("sets the header eyebrow to 9.5px mono, not 12px", () => {
-    expect(CSS).toMatch(/\.headerEyebrow \{[^}]*font-size: 9\.5px/);
     expect(CSS).toMatch(/\.headerEyebrow \{[^}]*IBM Plex Mono/);
+    // The size itself now lives in the marker-bounded reference-type block at
+    // the foot of the module, where lib/typography-floor.test.ts pins the full
+    // selector/size list so the sub-12px exemption cannot silently widen.
+    expect(CSS).toMatch(
+      /\.headerEyebrow,\s*\.funnelSub,\s*\.placementStats \{\s*font-size: 9\.5px/,
+    );
   });
 
   it("keeps the funnel value column at 52px and the fact gutter at 20px", () => {

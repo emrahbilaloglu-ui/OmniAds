@@ -52,7 +52,6 @@
   margin: 0;
   color: #8b93a7;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -128,7 +127,6 @@
   margin: 0;
   color: #7a869e;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -173,7 +171,6 @@
   background: rgba(255, 255, 255, 0.88);
   color: #45526b;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
 }
 
 .previewFooter {
@@ -186,7 +183,6 @@
 .previewKind {
   color: #7a869e;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10.5px;
 }
 
 .bandPill {
@@ -199,7 +195,6 @@
   border-radius: 9999px;
   background: var(--tone-bg);
   color: var(--tone-fg);
-  font-size: 11px;
   font-weight: 600;
 }
 
@@ -223,7 +218,6 @@
 
 .moneySub {
   color: #7a869e;
-  font-size: 11.5px;
   font-weight: 500;
 }
 
@@ -266,7 +260,6 @@
 .seriesNote {
   margin: 6px 0 0;
   color: #7a869e;
-  font-size: 11px;
 }
 
 /* funnel */
@@ -287,7 +280,6 @@
   flex-shrink: 0;
   width: 84px;
   color: #45526b;
-  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -337,7 +329,6 @@
   width: 66px;
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
   text-align: right;
 }
 
@@ -352,7 +343,6 @@
   justify-content: space-between;
   gap: 6px;
   margin-bottom: 3px;
-  font-size: 11.5px;
 }
 
 .placementLabel {
@@ -363,7 +353,6 @@
 .placementStats {
   color: #7a869e;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
 }
 
 .placementTrack {
@@ -403,7 +392,6 @@
 .adSetSpend {
   color: #7a869e;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10.5px;
 }
 
 .adSetRoas {
@@ -411,14 +399,12 @@
   border-radius: 6px;
   background: var(--tone-bg);
   color: var(--tone-fg);
-  font-size: 10.5px;
   font-weight: 700;
 }
 
 .adSetNote {
   margin: 8px 0 0;
   color: #98a4ba;
-  font-size: 10.5px;
 }
 
 /* evidence key/value grid */
@@ -444,13 +430,11 @@
 
 .factLabel {
   color: #7a869e;
-  font-size: 11.5px;
 }
 
 .factValue {
   color: #0e1526;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 11px;
   font-weight: 500;
 }
 
@@ -474,7 +458,6 @@
   margin: 0;
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
   text-align: center;
 }
 
@@ -582,3 +565,52 @@
   --tone-border: #e4e8f0;
   --tone-solid: #98a4ba;
 }
+
+/*
+ * The design's own micro-type for this drawer's chrome: mono eyebrows, the
+ * confidence pill, funnel and placement sub-labels, the ad-set row and the
+ * provenance line. Every value below is the literal size at that node in the
+ * reference (design file 3020-3117), and each labels the thing beside it
+ * rather than standing as content on its own. `lib/typography-floor.test.ts`
+ * pins this list exactly, so the block cannot widen into a general exemption.
+ * Nothing outside the markers may fall below the 12px floor.
+ */
+/* dashboard-v2-evidence-window-exact-reference-type:start */
+.cardEyebrow,
+.cardEyebrowSpaced,
+.cardEyebrowReasons,
+.cardEyebrowTight {
+  font-size: 9px;
+}
+
+.headerEyebrow,
+.funnelSub,
+.placementStats {
+  font-size: 9.5px;
+}
+
+.previewPlaceholder,
+.provenance {
+  font-size: 10px;
+}
+
+.previewKind,
+.adSetSpend,
+.adSetRoas,
+.adSetNote {
+  font-size: 10.5px;
+}
+
+.bandPill,
+.seriesNote,
+.factValue {
+  font-size: 11px;
+}
+
+.moneySub,
+.funnelLabel,
+.placementHead,
+.factLabel {
+  font-size: 11.5px;
+}
+/* dashboard-v2-evidence-window-exact-reference-type:end */

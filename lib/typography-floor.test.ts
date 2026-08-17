@@ -76,6 +76,18 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_EVIDENCE_WINDOW_TYPE_FILE =
+  "components/creatives/CreativeEvidenceWindowExact.module.css";
+const EXACT_EVIDENCE_WINDOW_TYPE_START =
+  "/* dashboard-v2-evidence-window-exact-reference-type:start */";
+const EXACT_EVIDENCE_WINDOW_TYPE_END =
+  "/* dashboard-v2-evidence-window-exact-reference-type:end */";
+const EXACT_COPY_DRAWER_TYPE_FILE =
+  "components/creatives/CopyDetailDrawerExact.module.css";
+const EXACT_COPY_DRAWER_TYPE_START =
+  "/* dashboard-v2-copy-drawer-exact-reference-type:start */";
+const EXACT_COPY_DRAWER_TYPE_END =
+  "/* dashboard-v2-copy-drawer-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +105,10 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_EVIDENCE_WINDOW_TYPE_FILE
+                    ? [EXACT_EVIDENCE_WINDOW_TYPE_START, EXACT_EVIDENCE_WINDOW_TYPE_END]
+                    : file === EXACT_COPY_DRAWER_TYPE_FILE
+                      ? [EXACT_COPY_DRAWER_TYPE_START, EXACT_COPY_DRAWER_TYPE_END]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
@@ -406,6 +422,81 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+  it("keeps the marker-bounded creative evidence window values narrow and exact", () => {
+    const source = readFileSync(EXACT_EVIDENCE_WINDOW_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_EVIDENCE_WINDOW_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_EVIDENCE_WINDOW_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_EVIDENCE_WINDOW_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactEvidenceWindow = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactEvidenceWindow.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    // Each value is the literal size at that node in the reference fragment
+    // (design file 3020-3117), and each labels the thing beside it: mono
+    // eyebrows, the confidence pill, funnel and placement sub-labels, the
+    // ad-set row and the provenance line.
+    expect(declarations).toEqual([
+      {
+        selector:
+          ".cardEyebrow, .cardEyebrowSpaced, .cardEyebrowReasons, .cardEyebrowTight",
+        size: 9,
+      },
+      { selector: ".headerEyebrow, .funnelSub, .placementStats", size: 9.5 },
+      { selector: ".previewPlaceholder, .provenance", size: 10 },
+      {
+        selector: ".previewKind, .adSetSpend, .adSetRoas, .adSetNote",
+        size: 10.5,
+      },
+      { selector: ".bandPill, .seriesNote, .factValue", size: 11 },
+      {
+        selector: ".moneySub, .funnelLabel, .placementHead, .factLabel",
+        size: 11.5,
+      },
+    ]);
+  });
+
+  it("keeps the marker-bounded copy detail drawer values narrow and exact", () => {
+    const source = readFileSync(EXACT_COPY_DRAWER_TYPE_FILE, "utf8");
+    expect(source.split(EXACT_COPY_DRAWER_TYPE_START)).toHaveLength(2);
+    expect(source.split(EXACT_COPY_DRAWER_TYPE_END)).toHaveLength(2);
+
+    const bounds = exactReferenceTypeBounds(EXACT_COPY_DRAWER_TYPE_FILE, source);
+    expect(bounds).not.toBeNull();
+    const exactCopyDrawer = source.slice(bounds!.start, bounds!.end);
+    const declarations = Array.from(
+      exactCopyDrawer.matchAll(
+        /([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g,
+      ),
+    )
+      .map((match) => ({
+        selector: match[1]!.replace(/\s+/g, " ").trim(),
+        size: Number(match[2]),
+      }))
+      .filter(({ size }) => size < 12);
+
+    // Same rule, same fragment (design file 3118-3170): mono stat labels and
+    // their sub-lines, the angle pills, the Read eyebrow, the Draft control
+    // and the closing footnote.
+    expect(declarations).toEqual([
+      { selector: ".statLabel", size: 8.5 },
+      { selector: ".statSub, .cardEyebrow, .alternateAngle", size: 9 },
+      { selector: ".headerEyebrow, .alternatesHead span", size: 9.5 },
+      { selector: ".footnote", size: 10 },
+      { selector: ".anglePill, .draftButton", size: 10.5 },
+      { selector: ".alternateWhy", size: 11 },
     ]);
   });
 

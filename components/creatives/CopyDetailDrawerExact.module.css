@@ -52,7 +52,6 @@
   margin: 0;
   color: #8b93a7;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -122,7 +121,6 @@
   border-radius: 6px;
   background: var(--tone-bg);
   color: var(--tone-fg);
-  font-size: 10.5px;
   font-weight: 600;
 }
 
@@ -143,7 +141,6 @@
   margin: 0;
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 8.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -173,7 +170,6 @@
   margin: 2px 0 0;
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9px;
 }
 
 /* Read card */
@@ -190,7 +186,6 @@
   margin: 0;
   color: #7a869e;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -229,7 +224,6 @@
 .alternatesHead span {
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9.5px;
 }
 
 .alternatesList {
@@ -261,7 +255,6 @@
   background: var(--tone-bg);
   color: var(--tone-fg);
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -278,7 +271,6 @@
   background: #ffffff;
   color: #2f6bff;
   cursor: pointer;
-  font-size: 10.5px;
   font-weight: 600;
   text-decoration: none;
 }
@@ -304,7 +296,6 @@
 .alternateWhy {
   margin: 0;
   color: #7a869e;
-  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -312,7 +303,6 @@
   margin: 0;
   color: #98a4ba;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  font-size: 10px;
   line-height: 1.6;
 }
 
@@ -409,3 +399,42 @@
   --tone-border: #e4e8f0;
   --tone-solid: #98a4ba;
 }
+
+/*
+ * The design's own micro-type for this drawer's chrome: the mono stat labels
+ * and their sub-lines, the angle pills, the Read eyebrow, the Draft control
+ * and the closing footnote. Every value below is the literal size at that node
+ * in the reference (design file 3118-3170), and each labels the thing beside
+ * it rather than standing as content on its own. `lib/typography-floor.test.ts`
+ * pins this list exactly, so the block cannot widen into a general exemption.
+ * Nothing outside the markers may fall below the 12px floor.
+ */
+/* dashboard-v2-copy-drawer-exact-reference-type:start */
+.statLabel {
+  font-size: 8.5px;
+}
+
+.statSub,
+.cardEyebrow,
+.alternateAngle {
+  font-size: 9px;
+}
+
+.headerEyebrow,
+.alternatesHead span {
+  font-size: 9.5px;
+}
+
+.footnote {
+  font-size: 10px;
+}
+
+.anglePill,
+.draftButton {
+  font-size: 10.5px;
+}
+
+.alternateWhy {
+  font-size: 11px;
+}
+/* dashboard-v2-copy-drawer-exact-reference-type:end */

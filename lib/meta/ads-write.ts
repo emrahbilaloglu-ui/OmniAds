@@ -2,6 +2,7 @@ import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { assertProviderWriteAuthorityUnchanged } from "@/lib/provider-write-authority";
 import { createHash } from "node:crypto";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import { recordAutomationGuardBlock } from "@/lib/meta/automation-rules-store";
 import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
 export interface MetaAdsWriteContext {
@@ -283,6 +284,25 @@ export async function getMetaAdsWriteBlockFailure(
 ): Promise<MetaAdsWriteFailure | null> {
   const block = await getMetaWriteBlockState({ businessId: ctx.businessId });
   if (block.blocked) {
+    // "Hard block · logged". This is the one place a guard rule's fired count
+    // becomes real: a provider write was actually attempted and refused here.
+    // Recording it must never turn the refusal into a pass, so it is awaited
+    // inside a catch and its failure is discarded — the block below returns
+    // either way.
+    if (block.reason === "automation_guard_rule" && block.guardRule) {
+      try {
+        await recordAutomationGuardBlock({
+          businessId: ctx.businessId,
+          ruleId: block.guardRule.id,
+          ruleName: block.guardRule.name,
+          reason: block.message ?? "Provider write hard-blocked by guard rule.",
+          providerAccountId: ctx.providerAccountId,
+          at: new Date(),
+        });
+      } catch {
+        // A logging failure is not a licence to write.
+      }
+    }
     return {
       ok: false,
       httpStatus: 503,

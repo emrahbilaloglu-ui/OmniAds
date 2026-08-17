@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(async () => ({ ready: true })),
+}));
+
+const dbModule = await import("@/lib/db");
 
 import {
   META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
@@ -9,10 +17,17 @@ import {
   proposalActionLabel,
   proposalDecisionKey,
   proposalExpiryFor,
+  raiseRuleAutomationProposal,
   type MetaAutomationProposalStatus,
 } from "@/lib/meta/automation-proposals";
 
 const NOW = new Date("2026-08-17T12:00:00.000Z");
+const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+const RULE_ID = "11111111-1111-4111-8111-111111111111";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("which engine decisions may become a proposal", () => {
   it("projects a cut decision at campaign and ad-set grain as a pause", () => {
@@ -160,6 +175,128 @@ describe("the proposal state machine", () => {
     });
     expect(result.ok === false && result.message).toContain(
       "next snapshot re-evaluates it",
+    );
+  });
+});
+
+describe("one queue, two origins", () => {
+  it("never lets a rule and the projection queue the same pause twice", () => {
+    const source = readFileSync("lib/meta/automation-proposals.ts", "utf8");
+    const projection = source.slice(
+      source.indexOf("export async function projectMetaAutomationProposals"),
+      source.indexOf("export interface ReadMetaAutomationProposalsResult"),
+    );
+
+    // The projection skips an entity whose pending action slot is already held
+    // — by a rule firing, or by anything else — and exempts only the exact row
+    // it upserts onto, so refresh-in-place still works.
+    expect(projection).toContain("held.status = 'pending'");
+    expect(projection).toContain("held.proposed_action = 'pause'");
+    expect(projection).toContain("held.origin = 'engine_decision'");
+    // And it stamps its own origin rather than letting the default decide.
+    expect(projection).toContain("'engine_decision',");
+  });
+
+  it("reads the queue as one collection, not one per origin", () => {
+    const source = readFileSync("lib/meta/automation-proposals.ts", "utf8");
+    const read = source.slice(
+      source.indexOf("export async function readMetaAutomationProposalQueue"),
+      source.indexOf("/** One proposal, scoped to the authorized business"),
+    );
+
+    // One FROM, no origin filter: the operator sees a single list.
+    expect(read.match(/FROM meta_automation_proposals/g)).toHaveLength(1);
+    expect(read).not.toContain("origin =");
+  });
+
+  it("has no second proposal table anywhere in the subsystem", () => {
+    for (const file of [
+      "lib/meta/automation-proposals.ts",
+      "lib/meta/automation-proposal-intake.ts",
+      "lib/meta/automation-rules-store.ts",
+      "lib/migrations.ts",
+    ]) {
+      expect(readFileSync(file, "utf8"), file).not.toContain(
+        "meta_automation_rule_proposals",
+      );
+    }
+  });
+});
+
+describe("raising a rule firing into the queue", () => {
+  function recordingDb(rows: Array<Array<{ id: string }>>) {
+    const calls: Array<{ text: string; values: unknown[] }> = [];
+    const tagged = () => Promise.resolve([]);
+    (tagged as unknown as { query: unknown }).query = (
+      text: string,
+      values: unknown[],
+    ) => {
+      calls.push({ text, values });
+      return Promise.resolve(rows.shift() ?? []);
+    };
+    return { tagged, calls };
+  }
+
+  it("inserts one pending row and reports its id", async () => {
+    const { tagged, calls } = recordingDb([[{ id: "proposal_1" }]]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    const result = await raiseRuleAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      ruleId: RULE_ID,
+      dedupeKey: `${RULE_ID}:adset_1:2026-08-16`,
+      scopeType: "adset",
+      scopeId: "adset_1",
+      proposedAction: "pause",
+      entityLabel: "Retargeting 7d — DPA",
+      reason: "ROAS below breakeven.",
+      evidenceLabel: "breakeven 2.50 · 3d",
+      evidenceRef: {},
+      evaluatedForDate: "2026-08-16",
+      now: NOW,
+    });
+
+    expect(result).toEqual({ status: "inserted", proposalId: "proposal_1" });
+    expect(calls).toHaveLength(1);
+    const statement = calls[0]!.text.replace(/\s+/g, " ");
+    // Untargeted on purpose: two different unique indexes can refuse this row,
+    // and naming one would turn the other into a thrown error mid-evaluation.
+    expect(statement).toContain("ON CONFLICT DO NOTHING");
+    expect(statement).not.toMatch(/ON CONFLICT \(/);
+    expect(calls[0]!.values).toContain("adset:adset_1");
+    expect(calls[0]!.values).toContain("Pause ad set");
+    expect(calls[0]!.values).toContain(
+      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+    );
+  });
+
+  it("joins the row that already holds the slot instead of queueing a second", async () => {
+    const { tagged, calls } = recordingDb([[], [{ id: "proposal_held" }]]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    const result = await raiseRuleAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      ruleId: RULE_ID,
+      dedupeKey: `${RULE_ID}:adset_1:2026-08-16`,
+      scopeType: "adset",
+      scopeId: "adset_1",
+      proposedAction: "pause",
+      entityLabel: null,
+      reason: "ROAS below breakeven.",
+      evidenceLabel: null,
+      evidenceRef: {},
+      evaluatedForDate: "2026-08-16",
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      status: "already_queued",
+      proposalId: "proposal_held",
+    });
+    expect(calls[1]!.text.replace(/\s+/g, " ")).toContain(
+      "status = 'pending'",
     );
   });
 });

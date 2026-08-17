@@ -23,7 +23,10 @@
  *   is the durable link between a queue row and its ledger receipt. The field
  *   is accepted by the handler's contract (it is not a native-lineage field);
  *   it does not manufacture native decision authority, and the action is still
- *   recorded as `manual_operator_v1` because an operator confirmed it.
+ *   recorded as `manual_operator_v1` because an operator confirmed it. A
+ *   rule-raised proposal has no engine decision behind it, so the field is
+ *   simply omitted rather than filled with the rule's own id — a forged
+ *   `rec_id_origin` would point the ledger at a decision that never existed.
  * - `dryRun` is set from the business's own `dryRunOnly` guardrail — the
  *   guardrail the Automation screen displays directly above the queue. The
  *   handler already supports this mode; wiring the persisted guardrail to it is
@@ -137,7 +140,7 @@ export async function executeMetaAutomationProposal(input: {
   const body = {
     ...built.descriptor.body,
     // Lineage of the *evidence*, not of the authority. See the module note.
-    recId: proposal.recId,
+    ...(proposal.recId ? { recId: proposal.recId } : {}),
     ...(input.dryRunOnly ? { dryRun: true } : {}),
   };
 

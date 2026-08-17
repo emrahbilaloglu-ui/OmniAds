@@ -76,6 +76,20 @@ const EXACT_GOOGLE_ADVISOR_TYPE_START =
   "/* dashboard-v2-google-advisor-exact-reference-type:start */";
 const EXACT_GOOGLE_ADVISOR_TYPE_END =
   "/* dashboard-v2-google-advisor-exact-reference-type:end */";
+const EXACT_TRUTH_TYPE_FILE =
+  "components/commercial-truth/CommercialTruthExact.module.css";
+const EXACT_TRUTH_TYPE_START =
+  "/* dashboard-v2-commercial-truth-exact-reference-type:start */";
+const EXACT_TRUTH_TYPE_END =
+  "/* dashboard-v2-commercial-truth-exact-reference-type:end */";
+const EXACT_TEAM_TYPE_FILE = "components/team/TeamExact.module.css";
+const EXACT_TEAM_TYPE_START = "/* dashboard-v2-team-exact-reference-type:start */";
+const EXACT_TEAM_TYPE_END = "/* dashboard-v2-team-exact-reference-type:end */";
+const EXACT_SETTINGS_TYPE_FILE = "components/settings/SettingsExact.module.css";
+const EXACT_SETTINGS_TYPE_START =
+  "/* dashboard-v2-settings-exact-reference-type:start */";
+const EXACT_SETTINGS_TYPE_END =
+  "/* dashboard-v2-settings-exact-reference-type:end */";
 
 function exactReferenceTypeBounds(file: string, source: string) {
   const markers: readonly [string, string | null] | null =
@@ -93,6 +107,12 @@ function exactReferenceTypeBounds(file: string, source: string) {
                 ? [EXACT_GOOGLE_OVERVIEW_TYPE_START, EXACT_GOOGLE_OVERVIEW_TYPE_END]
                 : file === EXACT_GOOGLE_ADVISOR_TYPE_FILE
                   ? [EXACT_GOOGLE_ADVISOR_TYPE_START, EXACT_GOOGLE_ADVISOR_TYPE_END]
+                  : file === EXACT_TRUTH_TYPE_FILE
+                    ? [EXACT_TRUTH_TYPE_START, EXACT_TRUTH_TYPE_END]
+                    : file === EXACT_TEAM_TYPE_FILE
+                      ? [EXACT_TEAM_TYPE_START, EXACT_TEAM_TYPE_END]
+                      : file === EXACT_SETTINGS_TYPE_FILE
+                        ? [EXACT_SETTINGS_TYPE_START, EXACT_SETTINGS_TYPE_END]
               : null;
   if (!markers) return null;
   const [startMarker, endMarker] = markers;
@@ -103,6 +123,23 @@ function exactReferenceTypeBounds(file: string, source: string) {
     start: markerStart + startMarker.length,
     end: markerEnd,
   };
+}
+
+/** The sub-12px selector/size pairs inside a file's exact-reference marker. */
+function exactTypeDeclarations(file: string) {
+  const source = readFileSync(file, "utf8");
+  const bounds = exactReferenceTypeBounds(file, source);
+  if (bounds === null) return null;
+  return Array.from(
+    source
+      .slice(bounds.start, bounds.end)
+      .matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px;?[^{}]*\}/g),
+  )
+    .map((match) => ({
+      selector: match[1]!.replace(/\s+/g, " ").trim(),
+      size: Number(match[2]),
+    }))
+    .filter(({ size }) => size < 12);
 }
 
 describe("no essential text is rendered below the readable floor", () => {
@@ -406,6 +443,67 @@ describe("no essential text is rendered below the readable floor", () => {
       { selector: ".infoLabel", size: 9 },
       { selector: ".confidence", size: 10 },
       { selector: ".closingCopy", size: 11 },
+    ]);
+  });
+
+
+  it("keeps the marker-bounded Commercial Truth values narrow and exact", () => {
+    expect(exactTypeDeclarations(EXACT_TRUTH_TYPE_FILE)).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".bandPill", size: 10 },
+      { selector: ".bandStatKey", size: 9 },
+      { selector: ".cardNote", size: 10 },
+      { selector: ".fieldHint", size: 11 },
+      { selector: ".packStamp", size: 10.5 },
+      { selector: ".splitValue", size: 11 },
+      { selector: ".consumerLast", size: 9.5 },
+      { selector: ".consumerReads", size: 10 },
+      { selector: ".logTime", size: 10 },
+      { selector: ".logWhy", size: 11.5 },
+      { selector: ".listFoot", size: 10 },
+      { selector: ".scenarioStubSpend", size: 10 },
+      { selector: ".scenarioSpendSymbol", size: 10.5 },
+      { selector: ".scenarioStubRoasSub", size: 9.5 },
+      { selector: ".scenarioRoasSymbol", size: 10.5 },
+      { selector: ".scenarioRowSub", size: 9.5 },
+      { selector: ".cardFoot", size: 10.5 },
+      { selector: ".bandCardRange", size: 9.5 },
+      { selector: ".bandCardShare", size: 11 },
+      { selector: ".bandCardVerdict", size: 11 },
+      { selector: ".shareNote", size: 10 },
+      { selector: ".spendTh", size: 10 },
+      { selector: ".spendMeta", size: 9.5 },
+      { selector: ".spendShareLabel", size: 10 },
+      { selector: ".spendRoasChip", size: 11.5 },
+      { selector: ".spendDeltaCell", size: 11.5 },
+      { selector: ".spendVerdictChip", size: 11 },
+      { selector: ".spendFootTarget", size: 10 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Team values narrow and exact", () => {
+    expect(exactTypeDeclarations(EXACT_TEAM_TYPE_FILE)).toEqual([
+      { selector: ".eyebrow", size: 11 },
+      { selector: ".seatsEyebrow", size: 10 },
+      { selector: ".cardSub", size: 10.5 },
+      { selector: ".th", size: 10 },
+      { selector: ".avatar", size: 11 },
+      { selector: ".memberEmail", size: 11.5 },
+      { selector: ".roleChip", size: 11 },
+      { selector: ".faChip", size: 10.5 },
+      { selector: ".actionsCell", size: 11.5 },
+      { selector: ".activeCell", size: 10.5 },
+      { selector: ".inviteListMeta", size: 11 },
+      { selector: ".inviteListRole", size: 10.5 },
+      { selector: ".inviteAction", size: 11.5 },
+      { selector: ".eventTime", size: 10 },
+      { selector: ".cardFoot", size: 10 },
+    ]);
+  });
+
+  it("keeps the marker-bounded Settings values narrow and exact", () => {
+    expect(exactTypeDeclarations(EXACT_SETTINGS_TYPE_FILE)).toEqual([
+      { selector: ".eyebrow", size: 11 },
     ]);
   });
 

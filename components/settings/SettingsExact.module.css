@@ -1,0 +1,214 @@
+/*
+ * Settings — Dashboard v2 reference, markup lines 2988-3019.
+ * Every rule is a literal port of the design's inline style="".
+ */
+
+.root,
+.root * {
+  box-sizing: border-box;
+}
+
+.root {
+  width: 100%;
+  min-width: 0;
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #0e1526;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: auto;
+}
+
+.root button,
+.root input,
+.root select {
+  font-family: inherit;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a869e;
+}
+
+.title {
+  margin: 4px 0 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0e1526;
+}
+
+.fieldCard {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #45526b;
+}
+
+.input {
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+  padding: 0 11px;
+  font-size: 13px;
+  outline: none;
+  color: #0e1526;
+  width: 100%;
+}
+
+.select {
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  padding: 0 11px;
+  font-size: 13px;
+  color: #0e1526;
+  width: 100%;
+}
+
+.planBand {
+  border-radius: 14px;
+  background: #0b1020;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.planBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.planTitle {
+  margin: 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.planDetail {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #8b93a7;
+}
+
+.planAction {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: none;
+  background: #2f6bff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.planAction:hover {
+  background: #1e4fd6;
+}
+
+.actionRow {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e4e8f0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.actionBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.actionTitle {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0e1526;
+}
+
+.actionDetail {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #7a869e;
+}
+
+.actionButton {
+  height: 31px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.flash {
+  margin: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+}
+
+.flashSuccess {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.flashError {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+@media (max-width: 620px) {
+  .fieldCard {
+    grid-template-columns: 1fr;
+  }
+}
+
+/*
+ * The reference's sub-12px type, kept together so the floor rule can assert
+ * every exemption by selector instead of granting the file a blanket pass.
+ */
+/* dashboard-v2-settings-exact-reference-type:start */
+.eyebrow {
+  font-size: 11px;
+}
+/* dashboard-v2-settings-exact-reference-type:end */

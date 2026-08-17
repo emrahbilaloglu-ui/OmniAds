@@ -332,12 +332,10 @@ test("commercial truth navigation relocation keeps Commercial Truth under Main a
 
   await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
   await page.getByTestId("commercial-target-roas").fill("3.1");
-  await page.getByTestId("commercial-cost-cogs").fill("30");
-  await page.getByTestId("commercial-cost-shipping").fill("8");
-  await page.getByTestId("commercial-cost-fulfillment").fill("5");
-  await page.getByTestId("commercial-cost-processing").fill("3");
-  await page.getByTestId("commercial-stock-pressure").selectOption("watch");
-  await page.getByTestId("commercial-risk-posture-aggressive").click();
+  await page.getByTestId("commercial-break-even-roas").fill("1.85");
+  await page.getByTestId("commercial-gross-margin").fill("70%");
+  await page.getByTestId("commercial-cost-shipping").fill("8%");
+  await page.getByTestId("commercial-cost-processing").fill("3%");
 
   const [saveResponse] = await Promise.all([
     page.waitForResponse((response) =>
@@ -350,14 +348,11 @@ test("commercial truth navigation relocation keeps Commercial Truth under Main a
 
   await page.reload();
   await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
-  await expect(page.getByTestId("commercial-target-roas")).toHaveValue("3.1");
-  await expect(page.getByTestId("commercial-cost-cogs")).toHaveValue("30");
-  await expect(page.getByTestId("commercial-cost-shipping")).toHaveValue("8");
-  await expect(page.getByTestId("commercial-cost-fulfillment")).toHaveValue("5");
-  await expect(page.getByTestId("commercial-cost-processing")).toHaveValue("3");
+  await expect(page.getByTestId("commercial-target-roas")).toHaveValue("3.10");
   await expect(page.getByTestId("commercial-break-even-roas")).toHaveValue("1.85");
-  await expect(page.getByTestId("commercial-stock-pressure")).toHaveValue("watch");
-  await expect(page.getByTestId("commercial-risk-posture-aggressive")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("commercial-gross-margin")).toHaveValue("70%");
+  await expect(page.getByTestId("commercial-cost-shipping")).toHaveValue("8%");
+  await expect(page.getByTestId("commercial-cost-processing")).toHaveValue("3%");
 
   await page.goto("/settings");
   await expect(page).toHaveURL(/\/settings$/);
@@ -379,10 +374,6 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
   await page.getByTestId("commercial-target-roas").fill("3.1");
   await page.getByTestId("commercial-break-even-roas").fill("1.9");
-  await page.getByTestId("commercial-add-country").click();
-  await page.getByTestId("commercial-country-code-0").selectOption("US");
-  await page.getByTestId("commercial-economics-multiplier-0").fill("1.12");
-  await page.getByTestId("commercial-stock-pressure").selectOption("watch");
   const [saveResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.url().includes("/api/business-commercial-settings") &&

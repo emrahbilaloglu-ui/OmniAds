@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MembershipRole } from "@/lib/auth";
-import { createInvite, listInvitesByBusiness, revokeInvite } from "@/lib/account-store";
+import {
+  createInvite,
+  listInvitesByBusiness,
+  resendInvite,
+  revokeInvite,
+} from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveRequestLanguage } from "@/lib/request-language";
 
@@ -14,7 +19,7 @@ interface InviteBody {
 interface InviteActionBody {
   businessId?: string;
   inviteId?: string;
-  action?: "revoke";
+  action?: "revoke" | "resend";
 }
 
 export async function GET(request: NextRequest) {
@@ -79,6 +84,30 @@ export async function PATCH(request: NextRequest) {
 
   if (action === "revoke") {
     await revokeInvite({ inviteId, businessId: businessId! });
+    return NextResponse.json({ status: "ok" });
+  }
+
+  if (action === "resend") {
+    // Same admin gate as issuing one, because a resend mints a new token.
+    const reissued = await resendInvite({ inviteId, businessId: businessId! });
+    if (!reissued) {
+      return NextResponse.json(
+        {
+          error: "invite_not_pending",
+          message:
+            language === "tr"
+              ? "Bu davet beklemede değil, yeniden gönderilemez."
+              : "That invite is not pending, so it cannot be resent.",
+        },
+        { status: 409 },
+      );
+    }
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
+    return NextResponse.json({
+      status: "ok",
+      invite: { id: reissued.id, expiresAt: reissued.expires_at },
+      inviteUrl: `${baseUrl}/invite/${reissued.token}`,
+    });
   }
 
   return NextResponse.json({ status: "ok" });

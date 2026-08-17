@@ -23,7 +23,7 @@ import {
   type ProviderHealth,
 } from "@/lib/zero-base/manage/manage-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
-import { CommercialTruthSettingsSection } from "@/components/settings/commercial-truth-settings";
+import { CommercialTruthScreen } from "@/components/commercial-truth/CommercialTruthScreen";
 import type { AdaptedCostModel } from "@/lib/zero-base/manage/manage-contract";
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
@@ -928,6 +928,7 @@ export function BusinessView({
   const divergence = economicsDivergence(economics);
   const [name, setName] = useState(settings?.name ?? "");
   const [currency, setCurrency] = useState(settings?.currency ?? "");
+  const [costTouched, setCostTouched] = useState(false);
   const [costDraft, setCostDraft] = useState({
     cogsPercent: String((costModel?.cogsPercent ?? 0) * 100),
     shippingPercent: String((costModel?.shippingPercent ?? 0) * 100),
@@ -940,15 +941,22 @@ export function BusinessView({
     setName(settings?.name ?? "");
     setCurrency(settings?.currency ?? "");
   }, [settings]);
+  /**
+   * Adopt the stored cost model when the read lands — but never over typing.
+   *
+   * The read is asynchronous, so it can resolve after the operator has already
+   * started editing. Overwriting then discards their input silently, which is
+   * indistinguishable from the form ignoring them.
+   */
   useEffect(() => {
-    if (!costModel) return;
+    if (!costModel || costTouched) return;
     setCostDraft({
       cogsPercent: String(costModel.cogsPercent === null ? 0 : costModel.cogsPercent * 100),
       shippingPercent: String(costModel.shippingPercent === null ? 0 : costModel.shippingPercent * 100),
       feePercent: String(costModel.feePercent === null ? 0 : costModel.feePercent * 100),
       fixedCost: String(costModel.fixedCost ?? 0),
     });
-  }, [costModel]);
+  }, [costModel, costTouched]);
 
   const parsedCostDraft = {
     cogsPercent: Number(costDraft.cogsPercent) / 100,
@@ -1070,7 +1078,10 @@ export function BusinessView({
                       inputMode="decimal"
                       value={costDraft[key]}
                       disabled={costPermission?.ok === false}
-                      onChange={(event) => setCostDraft((current) => ({ ...current, [key]: event.target.value }))}
+                      onChange={(event) => {
+                        setCostTouched(true);
+                        setCostDraft((current) => ({ ...current, [key]: event.target.value }));
+                      }}
                     />
                   ))}
                 </div>
@@ -1100,8 +1111,11 @@ export function BusinessView({
                 </Button>
               ) : null}
             </section>
+            {/* Both route families that reach Commercial Truth — `/commercial-truth`
+                and this leaf, which that path redirects to — render the same exact
+                screen. The header is suppressed because this page already has one. */}
             <div style={{ marginTop: 16 }} data-commercial-truth-editor="">
-              <CommercialTruthSettingsSection businessId={businessId} />
+              <CommercialTruthScreen businessId={businessId} showHeader={false} />
             </div>
           </>
         ) : (

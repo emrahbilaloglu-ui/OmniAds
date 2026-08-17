@@ -585,6 +585,36 @@ export async function revokeInvite(input: {
   `;
 }
 
+/**
+ * Re-issues a pending invite.
+ *
+ * The design's invite row carries Resend beside Revoke. Resending mints a fresh
+ * token and pushes the expiry out by the same seven days a new invite gets, so
+ * the previously mailed link stops working — a resend that left the old token
+ * live would be a second, unrevoked way in.
+ *
+ * Only a pending invite for this business can be re-issued; a revoked or
+ * accepted one is left exactly as it is and the caller is told nothing changed.
+ */
+export async function resendInvite(input: {
+  inviteId: string;
+  businessId: string;
+}): Promise<{ id: string; token: string; expires_at: string } | null> {
+  await assertAccountStoreTablesReady(["invites"], "account_store:resend_invite");
+  const sql = getDb();
+  const token = randomBytes(32).toString("hex");
+  const rows = (await sql`
+    UPDATE invites
+    SET token = ${token},
+        expires_at = ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
+    WHERE id = ${input.inviteId}
+      AND business_id = ${input.businessId}
+      AND status = 'pending'
+    RETURNING id, token, expires_at
+  `) as Array<{ id: string; token: string; expires_at: string }>;
+  return rows[0] ?? null;
+}
+
 export async function listBusinessMembers(businessId: string) {
   const readiness = await getDbSchemaReadiness({
     tables: ["memberships", "users"],
@@ -602,7 +632,10 @@ export async function listBusinessMembers(businessId: string) {
       m.status,
       m.joined_at,
       u.name,
-      u.email
+      u.email,
+      -- The Team screen's "Last active" column. Membership rows only carry the
+      -- join date, which is not activity; the sign-in stamp is.
+      u.last_login_at
     FROM memberships m
     JOIN users u ON u.id = m.user_id
     WHERE m.business_id = ${businessId}

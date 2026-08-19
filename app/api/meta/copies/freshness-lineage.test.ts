@@ -35,7 +35,12 @@ vi.mock("@/lib/db", async (importOriginal) => {
   return { ...actual, getDb: vi.fn() };
 });
 
-const { GET, resolveCopiesRowsObservedAt } = await import("@/app/api/meta/copies/route");
+const { GET } = await import("@/app/api/meta/copies/route");
+// Not from the route: Next.js rejects any non-verb export on a route module,
+// so the pure mapping lives in its own file and both sides import it.
+const { resolveCopiesRowsObservedAt } = await import(
+  "@/app/api/meta/copies/rows-observed-at"
+);
 const { resolveCopiesFreshness } = await import(
   "@/app/(dashboard)/platforms/meta/copies/page-support"
 );

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveCopiesRowsObservedAt } from "./rows-observed-at";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
@@ -239,28 +240,6 @@ type CreativePayload = {
    */
   warehouse_observed_at?: string | null;
 };
-
-/**
- * Which clock describes the rows the upstream actually served.
- *
- * Pure and exported so the mapping can be asserted directly rather than
- * inferred from a rendered string. The `warehouse` arm is the ONLY one allowed
- * to hand back the `meta_ad_daily` instant; every live arm returns null,
- * because there is no write behind a live read and the request time is not an
- * observation.
- */
-export function resolveCopiesRowsObservedAt(input: {
-  readSource: string | null | undefined;
-  warehouseObservedAt: string | null;
-}): { rowsObservedAt: string | null; rowsObservedAtSource: "warehouse" | "live" | "unknown" } {
-  if (input.readSource === "warehouse") {
-    return { rowsObservedAt: input.warehouseObservedAt, rowsObservedAtSource: "warehouse" };
-  }
-  if (input.readSource === "live_fallback" || input.readSource === "current_day_live") {
-    return { rowsObservedAt: null, rowsObservedAtSource: "live" };
-  }
-  return { rowsObservedAt: null, rowsObservedAtSource: "unknown" };
-}
 
 /**
  * Upstream statuses that mean the read actually happened.

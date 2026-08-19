@@ -8,6 +8,18 @@ vi.mock("@/lib/migration-verification", () => ({
   verifyMigrationSchemaContract: vi.fn(async () => ({ verified: 0 })),
 }));
 
+vi.mock("@/lib/meta/automation-claim-schema-verification", () => ({
+  // The Automation claim schema's own post-migration gate, neutralized for the
+  // same reason and on the same terms as the verifier above: this suite drives
+  // the migration statements against a fake SQL client, so there is no catalog
+  // to read. It is NOT weakened by being mocked here — it is proven end to end
+  // by scripts/ephemeral-postgres-automation-claim-race-seam.ts, which migrates
+  // a real PostgreSQL from zero, upgrades a real pre-claim schema, and then
+  // reproduces an unrepairable schema state and requires the migration to exit
+  // NON-ZERO over it.
+  assertMetaAutomationClaimSchema: vi.fn(async () => []),
+}));
+
 describe("Meta decision outcome migrations", () => {
   beforeEach(() => {
     vi.resetModules();

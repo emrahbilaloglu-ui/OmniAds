@@ -24,13 +24,16 @@ describe("History carries externally-made changes", () => {
   });
 
   it("carries the previous value so the movement is visible, not just the new state", () => {
-    expect(readModel).toContain("'previousDailyBudget', previous.daily_budget");
-    expect(readModel).toContain("ORDER BY prior.captured_at DESC");
+    expect(readModel).toContain("'previousDailyBudget', config.prev_daily_budget");
+    // The predecessor now comes from LAG over the same ordering rather than a
+    // per-row LATERAL: identical value, one sorted pass instead of 1.8M lookups.
+    expect(readModel).toContain("LAG(config.daily_budget) OVER w");
+    expect(readModel).toContain("ORDER BY config.captured_at");
   });
 
   it("only reports rows where something actually changed", () => {
     expect(readModel).toContain(
-      "previous.daily_budget IS DISTINCT FROM config.daily_budget",
+      "config.prev_daily_budget IS DISTINCT FROM config.daily_budget",
     );
   });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
+import type { MetaWarehouseFreshness } from "@/lib/meta/warehouse-types";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,14 @@ interface AggregatedBreakdownRow {
   revenue: number;
   clicks: number;
   impressions: number;
+  /**
+   * `null` means no measured reach for this bucket, which is a different
+   * fact from a reach of zero. Every breakdown row written before the field
+   * was requested from Meta carries a stored literal 0 that was never a
+   * measurement; it is not a divisor, so frequency stays null there.
+   */
+  reach?: number | null;
+  frequency?: number | null;
 }
 
 export interface MetaBreakdownsResponse {
@@ -46,8 +55,22 @@ export interface MetaBreakdownsResponse {
     | "ok"
     | "no_access_token"
     | "no_connection"
-    | "no_accounts_assigned";
+    | "no_accounts_assigned"
+    /**
+     * A `providerAccountId` was asked for that this workspace is not assigned.
+     * Refused rather than widened: silently answering with every assigned
+     * account would attribute pooled spend to the one account the operator
+     * picked, which is a fabricated number wearing a real account's name.
+     */
+    | "account_not_assigned";
   age: AggregatedBreakdownRow[];
+  /**
+   * The second dimension of the same `age,gender` fetch. Empty for any day
+   * whose rows were written before the fold was removed at the write path —
+   * those days hold no gender split at all and must stay withheld rather
+   * than be inferred from the age blend they were merged into.
+   */
+  gender: AggregatedBreakdownRow[];
   location: AggregatedBreakdownRow[];
   placement: AggregatedBreakdownRow[];
   budget: {
@@ -64,6 +87,14 @@ export interface MetaBreakdownsResponse {
   };
   isPartial?: boolean;
   notReadyReason?: string | null;
+  /**
+   * When the warehouse was last observed for these rows.
+   *
+   * Served so a reader can bind an as-of to a measured instant instead of
+   * inventing one from its own clock; `null` (or a null `lastSyncedAt`) is a
+   * real answer meaning "age unknown".
+   */
+  freshness?: MetaWarehouseFreshness | null;
 }
 
 function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
@@ -191,6 +222,10 @@ export async function GET(request: NextRequest) {
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
+  // Read, never trust: the id narrows the read only after the source has
+  // intersected it with this workspace's assignments. Omitting it keeps the
+  // long-standing account-wide answer for the callers that want one.
+  const providerAccountId = searchParams.get("providerAccountId");
 
   const access = await requireBusinessAccess({
     request,
@@ -200,6 +235,7 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
   const payload = await getMetaBreakdownsForRange({
     businessId: businessId!,
+    providerAccountId,
     startDate,
     endDate,
   });

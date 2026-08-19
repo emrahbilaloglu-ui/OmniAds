@@ -7,6 +7,7 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/meta/history-read-model", () => ({
   readMetaHistoryAccounts: vi.fn(),
+  readMetaHistoryAssignedAccountIds: vi.fn(),
   readMetaHistoryJournal: vi.fn(),
 }));
 
@@ -29,6 +30,7 @@ const payload = {
     kind: null,
     entity: null,
     label: null,
+    outcome: null,
     from: null,
     to: null,
     q: null,
@@ -52,6 +54,9 @@ describe("GET /api/meta/history", () => {
     });
     vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
       { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
     ]);
     vi.mocked(readModel.readMetaHistoryJournal).mockResolvedValue(payload);
   });
@@ -105,6 +110,98 @@ describe("GET /api/meta/history", () => {
     expect(response.status).toBe(404);
     expect(body.error.code).toBe("provider_account_not_assigned");
     expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
+  });
+
+  it("refuses an account whose assignment was withdrawn, however the caller asks", async () => {
+    // ITEM 11. `business_provider_accounts` keeps the identity binding forever
+    // and records the CURRENT selection in `is_selected`; History's own account
+    // projection is a separate statement and can still name a deselected
+    // account. `providerAccountId` is the caller's REQUEST, so the endpoint
+    // answers it against the assignment guard rather than against whatever the
+    // projection happens to hold.
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+      { id: "act_stale", name: "Removed", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
+
+    const response = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_stale",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("provider_account_not_assigned");
+    expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
+  });
+
+  it("serves the selected account and only the selected account", async () => {
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+      { id: "act_2", name: "Secondary", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
+
+    const allowed = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_1",
+      ),
+    );
+    expect(allowed.status).toBe(200);
+    expect(
+      vi.mocked(readModel.readMetaHistoryJournal).mock.calls[0]?.[0].account.id,
+    ).toBe("act_1");
+
+    const refused = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_2",
+      ),
+    );
+    expect(refused.status).toBe(404);
+    expect(readModel.readMetaHistoryJournal).toHaveBeenCalledTimes(1);
+  });
+
+  it("is unavailable when the assignment cannot be read, never permissive", async () => {
+    // An assignment read that fails is unknown, not empty and not a licence.
+    // Catching it and treating the projection as authoritative would serve a
+    // journal the guard never approved; catching it and calling the business
+    // unassigned would state a configuration fact nobody established.
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockRejectedValue(
+      new Error("assignment read failed"),
+    );
+
+    const response = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_1",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("meta_history_unavailable");
+    expect(readModel.readMetaHistoryJournal).not.toHaveBeenCalled();
+  });
+
+  it("carries the caller's date window into the journal read", async () => {
+    // ITEM 12's server half. The window arrives as `from`/`to` and is passed
+    // through unchanged — the endpoint neither invents one nor widens one.
+    const response = await route.GET(
+      new NextRequest(
+        "http://localhost/api/meta/history?businessId=business_1&providerAccountId=act_1&from=2026-08-11&to=2026-08-17",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const query = vi.mocked(readModel.readMetaHistoryJournal).mock.calls[0]?.[0]
+      .query;
+    expect(query?.from).toBe("2026-08-11");
+    expect(query?.to).toBe("2026-08-17");
   });
 
   it("returns authorization failures without reading journal tables", async () => {

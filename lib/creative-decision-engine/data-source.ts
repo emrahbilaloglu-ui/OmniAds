@@ -1371,7 +1371,17 @@ metric_cumulative AS (
     SUM(conversions) AS conversions,
     SUM(revenue) AS revenue,
     SUM(impressions) AS impressions,
-    SUM(link_clicks) AS link_clicks,
+    -- NULL-SAFETY ONLY. NOT a decision change. meta_ad_daily.link_clicks can
+    -- now be NULL (the provider supplied nothing) instead of a fabricated 0.
+    -- PostgreSQL SUM IGNORES nulls, so a window in which every row is
+    -- unsupplied would return NULL where it returns 0 today.
+    --
+    -- The coalesce is INSIDE the SUM on purpose. COALESCE(SUM(x), 0) would also
+    -- turn "no rows matched this window at all" from NULL into 0, which is a
+    -- different answer than today's. SUM(COALESCE(x, 0)) is NULL over zero rows
+    -- and 0 over all-unsupplied rows -- exactly what the NOT NULL column
+    -- returns today, for every window. The engine saw 0 and still sees 0.
+    SUM(COALESCE(link_clicks, 0)) AS link_clicks,
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions) END AS cpa,
     CASE
@@ -2033,7 +2043,12 @@ cumulative AS (
     SUM(d.conversions) AS purchases,
     SUM(d.revenue) AS purchase_value,
     SUM(d.impressions) AS impressions,
-    SUM(d.link_clicks) AS link_clicks,
+    -- NULL-SAFETY ONLY. NOT a decision change. Same law as the ad-grain
+    -- aggregate above, on meta_creative_daily -- the table the DEFAULT Assets
+    -- grain reads. Coalesce inside the SUM so an all-unsupplied window still
+    -- yields 0 and an empty window still yields NULL, exactly as today. The
+    -- engine saw 0 for these rows before and sees 0 for them now.
+    SUM(COALESCE(d.link_clicks, 0)) AS link_clicks,
     CASE WHEN SUM(d.spend) > 0 THEN SUM(d.revenue) / SUM(d.spend) END AS roas,
     CASE WHEN SUM(d.conversions) > 0 THEN SUM(d.spend) / SUM(d.conversions) END AS cpa,
     CASE
@@ -2271,7 +2286,13 @@ historical_source AS (
     d.clicks,
     d.conversions,
     d.revenue,
-    d.link_clicks
+    -- NULL-SAFETY ONLY. NOT a decision change. Coalesced here, where the raw
+    -- column leaves the table, so the click_to_purchase_rate aggregate below
+    -- stays textually and numerically identical: SUM(link_clicks) > 0 and
+    -- SUM(conversions) / NULLIF(SUM(link_clicks), 0) now see the same 0 they
+    -- see today for an unsupplied row rather than a NULL that would collapse
+    -- the whole window's SUM. The engine saw 0 and still sees 0.
+    COALESCE(d.link_clicks, 0) AS link_clicks
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   CROSS JOIN LATERAL (

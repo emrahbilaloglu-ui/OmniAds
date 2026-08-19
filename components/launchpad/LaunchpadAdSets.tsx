@@ -109,6 +109,7 @@ export function resetHiddenAdSetBudgetFieldsForMode(
 export function LaunchpadAdSets({
   value,
   businessId,
+  providerAccountId,
   campaignName,
   budget,
   currency = null,
@@ -117,6 +118,8 @@ export function LaunchpadAdSets({
 }: {
   value: LaunchpadAdSetState[];
   businessId?: string;
+  /** A pixel belongs to one ad account; the read is refused without it. */
+  providerAccountId?: string;
   campaignName: string;
   budget: LaunchpadBudgetState;
   currency?: string | null;
@@ -131,10 +134,12 @@ export function LaunchpadAdSets({
   }, [pixelOptions]);
 
   useEffect(() => {
-    if (!businessId || pixelOptions) return;
+    if (!businessId || !providerAccountId || pixelOptions) return;
     let cancelled = false;
     setPixelsLoading(true);
-    fetch(`/api/launchpad/meta/pixels?businessId=${encodeURIComponent(businessId)}`)
+    fetch(
+      `/api/launchpad/meta/pixels?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
+    )
       .then((response) => response.json())
       .then((payload) => {
         if (!cancelled) setPixels(Array.isArray(payload?.pixels) ? payload.pixels : []);
@@ -148,7 +153,7 @@ export function LaunchpadAdSets({
     return () => {
       cancelled = true;
     };
-  }, [businessId, pixelOptions]);
+  }, [businessId, pixelOptions, providerAccountId]);
 
   const sortedPixels = useMemo(
     () =>

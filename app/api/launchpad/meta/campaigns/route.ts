@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
+import { jsonError, requireLaunchpadAssignedAccountScope } from "../route-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -12,15 +12,33 @@ function toMinorUnits(value: unknown) {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
+  const providerAccountId = searchParams.get("providerAccountId")?.trim() ?? "";
   const objective = searchParams.get("objective")?.trim() || "OUTCOME_SALES";
   const status = (searchParams.get("status")?.trim() || "ACTIVE").toUpperCase();
 
-  const access = await requireBusinessAccess({
+  // Launchpad always works inside one account, and `meta-validation` refuses a
+  // target from any other one at Create time. Answering business-wide when the
+  // account is absent would offer campaigns the launch can never use, so the
+  // read refuses instead of silently widening.
+  if (!providerAccountId) {
+    return jsonError(
+      400,
+      "missing_provider_account_id",
+      "providerAccountId is required.",
+    );
+  }
+
+  // Membership alone is not scope. The `provider_account_id` below is a filter
+  // over rows this business has synced at some point, so a stale or foreign id
+  // in the URL would still be answered with real campaigns unless the current
+  // assignment is proven first. No statement is issued when it is not.
+  const scope = await requireLaunchpadAssignedAccountScope({
     request,
     businessId,
+    providerAccountId,
     minRole: "collaborator",
   });
-  if ("error" in access) return access.error;
+  if (!scope.ok) return scope.response;
 
   const objectiveFilter = objective.toUpperCase() === "ALL" ? null : objective;
   const sql = getDb();
@@ -32,7 +50,8 @@ export async function GET(request: NextRequest) {
         campaign_id,
         COUNT(DISTINCT adset_id)::int AS adset_count
       FROM meta_adset_dimensions
-      WHERE business_id = ${access.membership.businessId}
+      WHERE business_id = ${scope.businessId}
+        AND provider_account_id = ${scope.providerAccountId}
         AND UPPER(COALESCE(adset_status, '')) = 'ACTIVE'
       GROUP BY business_id, provider_account_id, campaign_id
     ),
@@ -43,7 +62,8 @@ export async function GET(request: NextRequest) {
         campaign_id,
         SUM(spend)::double precision AS last_spend_28d
       FROM meta_creative_daily
-      WHERE business_id = ${access.membership.businessId}
+      WHERE business_id = ${scope.businessId}
+        AND provider_account_id = ${scope.providerAccountId}
         AND date >= CURRENT_DATE - INTERVAL '27 days'
       GROUP BY business_id, provider_account_id, campaign_id
     )
@@ -79,7 +99,8 @@ export async function GET(request: NextRequest) {
       ON spend_28d.business_id = campaign.business_id
       AND spend_28d.provider_account_id = campaign.provider_account_id
       AND spend_28d.campaign_id = campaign.campaign_id
-    WHERE campaign.business_id = ${access.membership.businessId}
+    WHERE campaign.business_id = ${scope.businessId}
+      AND campaign.provider_account_id = ${scope.providerAccountId}
       AND UPPER(COALESCE(campaign.campaign_status, '')) = ${status}
       AND (${objectiveFilter}::text IS NULL OR config.objective = ${objectiveFilter})
     ORDER BY COALESCE(spend_28d.last_spend_28d, 0) DESC, campaign.updated_at DESC

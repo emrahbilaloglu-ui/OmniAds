@@ -322,6 +322,35 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     ]);
   });
 
+  it("fills the decision-specific slot with the engine's served fatigue class", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({ fatigueStatus: "fatigued" }),
+      canonical: canonicalFixture(),
+    });
+    expect(model.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Fatigued" });
+  });
+
+  it("reads the fatigue class off the canonical decision when the OS one omits it", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture({ fatigueStatus: "watch" }),
+    });
+    expect(model.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Watch" });
+  });
+
+  it("keeps a served 'unknown' fatigue class distinct from no fatigue field at all", () => {
+    const assessed = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({ fatigueStatus: "unknown" }),
+      canonical: canonicalFixture(),
+    });
+    const absent = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+    });
+    expect(assessed.facts?.[4]).toMatchObject({ label: "Fatigue", value: "Unknown" });
+    expect(absent.facts?.[4]).toMatchObject({ label: "—", value: "—" });
+  });
+
   it("weights thumbstop by impressions across the ads sharing the creative", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
@@ -351,18 +380,52 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adSeries: {
         adCount: 1,
         points: [
-          { date: "2026-08-01", linkCtr: 2, frequency: 1 },
-          { date: "2026-08-02", linkCtr: 2, frequency: 1 },
-          { date: "2026-08-03", linkCtr: 1, frequency: 3 },
-          { date: "2026-08-04", linkCtr: 1, frequency: 3 },
+          { date: "2026-08-01", linkCtr: 0, ctr: 2, frequency: 1 },
+          { date: "2026-08-02", linkCtr: 0, ctr: 2, frequency: 1 },
+          { date: "2026-08-03", linkCtr: 0, ctr: 1, frequency: 3 },
+          { date: "2026-08-04", linkCtr: 0, ctr: 1, frequency: 3 },
         ],
       },
     });
     // Four points across the design's 0 0 100 22 viewBox, 2px inset each side.
     expect(model.ctr?.path).toBe("M0.0 2.0 L33.3 2.0 L66.7 20.0 L100.0 20.0");
-    expect(model.ctr?.note).toBe("link CTR −50.0% vs prior 2d");
+    expect(model.ctr?.note).toBe("−50.0% vs prior 2d");
     expect(model.frequency?.path).toBe("M0.0 20.0 L33.3 20.0 L66.7 2.0 L100.0 2.0");
     expect(model.frequency?.note).toBe("3.0 · +200.0% vs prior 2d");
+  });
+
+  it("draws the CTR card from all-clicks CTR, not the flat-zero link CTR", () => {
+    // Every stored warehouse row has link_clicks 0, so `linkCtr` is 0 on every
+    // day of a real payload; a card captioned plainly "CTR · 28d" that read it
+    // drew one flat line for every creative in the account.
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      adSeries: {
+        adCount: 1,
+        points: [
+          { date: "2026-08-01", linkCtr: 0, ctr: 1, frequency: null },
+          { date: "2026-08-02", linkCtr: 0, ctr: 1, frequency: null },
+          { date: "2026-08-03", linkCtr: 0, ctr: 2, frequency: null },
+          { date: "2026-08-04", linkCtr: 0, ctr: 2, frequency: null },
+        ],
+      },
+    });
+    expect(model.ctr?.path).toBe("M0.0 20.0 L33.3 20.0 L66.7 2.0 L100.0 2.0");
+    expect(model.ctr?.note).toBe("+100.0% vs prior 2d");
+  });
+
+  it("leaves the CTR card unserved when the trail carries no all-clicks CTR", () => {
+    // Link CTR must not stand in: it is a different measure from the one the
+    // card is captioned with, so an unreadable CTR stays unreadable.
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      adSeries: {
+        adCount: 1,
+        points: [
+          { date: "2026-08-01", linkCtr: 1, ctr: null, frequency: null },
+          { date: "2026-08-02", linkCtr: 2, ctr: null, frequency: null },
+        ],
+      },
+    });
+    expect(model.ctr).toEqual({ path: null, note: "—" });
   });
 
   it("flattens a constant series to the middle of the sparkline band", () => {
@@ -370,13 +433,13 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adSeries: {
         adCount: 1,
         points: [
-          { date: "2026-08-01", linkCtr: 1.5, frequency: null },
-          { date: "2026-08-02", linkCtr: 1.5, frequency: null },
+          { date: "2026-08-01", linkCtr: 0, ctr: 1.5, frequency: null },
+          { date: "2026-08-02", linkCtr: 0, ctr: 1.5, frequency: null },
         ],
       },
     });
     expect(model.ctr?.path).toBe("M0.0 11.0 L100.0 11.0");
-    expect(model.ctr?.note).toBe("link CTR · 2 days served");
+    expect(model.ctr?.note).toBe("2 days served");
     expect(model.frequency).toEqual({ path: null, note: "—" });
   });
 
@@ -385,12 +448,12 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adSeries: {
         adCount: 3,
         points: [
-          { date: "2026-08-01", linkCtr: 1, frequency: null },
-          { date: "2026-08-02", linkCtr: 2, frequency: null },
+          { date: "2026-08-01", linkCtr: 0, ctr: 1, frequency: null },
+          { date: "2026-08-02", linkCtr: 0, ctr: 2, frequency: null },
         ],
       },
     });
-    expect(model.ctr?.note).toBe("link CTR · 2 days served · 3 ads");
+    expect(model.ctr?.note).toBe("2 days served · 3 ads");
   });
 
   it("prints snapshot, decision and engine provenance", () => {

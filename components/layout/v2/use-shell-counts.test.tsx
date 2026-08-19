@@ -7,9 +7,25 @@ import { describe, expect, it, vi } from "vitest";
 
 import { useGoogleAdvisorCount } from "./use-shell-signals";
 
+// The rail's counts resolve their business through `useConfirmedShellBusinessId`,
+// which only trusts a store selection that is hydrated, bootstrapped and still
+// in the membership list. The mock supplies all four fields so the hook is
+// exercised through its real rule rather than through a half-built store.
 vi.mock("@/store/app-store", () => ({
-  useAppStore: (selector: (value: { selectedBusinessId: string }) => unknown) =>
-    selector({ selectedBusinessId: "biz_1" }),
+  useAppStore: (
+    selector: (value: {
+      selectedBusinessId: string | null;
+      businesses: Array<{ id: string }>;
+      hasHydrated: boolean;
+      authBootstrapStatus: string;
+    }) => unknown,
+  ) =>
+    selector({
+      selectedBusinessId: "biz_1",
+      businesses: [{ id: "biz_1" }],
+      hasHydrated: true,
+      authBootstrapStatus: "ready",
+    }),
 }));
 
 describe("dashboard rail cached counts", () => {

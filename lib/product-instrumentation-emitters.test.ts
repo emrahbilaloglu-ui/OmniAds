@@ -14,7 +14,7 @@ import {
  * reads like coverage in the schema, in the dashboard, and in this ledger, while
  * measuring nothing. This test is what stops that.
  */
-const EMITTERS: Record<ProductInstrumentationEventName, string> = {
+const EMITTERS: Partial<Record<ProductInstrumentationEventName, string>> = {
   // Agency Today
   agency_today_viewed: "app/api/agency-today/route.ts",
   agency_today_client_opened: "components/overview/AgencyToday.tsx",
@@ -26,8 +26,8 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   saved_view_created: "components/views/SavedViewsMenu.tsx",
   saved_view_applied: "components/views/SavedViewsMenu.tsx",
   // Decisions
-  decision_opened: "components/meta/os/DecisionsOsView.tsx",
-  decision_evidence_viewed: "components/meta/os/DecisionsOsView.tsx",
+  decision_opened: "components/meta/redesign/MetaPlatformPage.tsx",
+  decision_evidence_viewed: "components/meta/redesign/MetaPlatformPage.tsx",
   decision_workflow_changed: "app/api/meta/decision-workflow/route.ts",
   // Reports
   report_generated: "app/api/reports/route.ts",
@@ -56,17 +56,34 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   guarded_action_confirmed: "lib/meta/ads-action-log.ts",
   guarded_action_provider_attempted: "lib/meta/ads-action-log.ts",
   guarded_action_reconciled: "lib/meta/manual-ad-status-reconciliation.ts",
-  // Mobile Tier-0
-  mobile_tier0_started: "components/meta/os/MobileTier0Triage.tsx",
-  mobile_tier0_completed: "components/meta/os/MobileTier0Triage.tsx",
   // Freshness
   freshness_stale_disclosed: "components/states/FreshnessChip.tsx",
 };
 
+/**
+ * Names the vocabulary still carries but nothing emits any more.
+ *
+ * The mobile Tier-0 triage screen these two measured was a standalone queue
+ * with a start and an end. The Decision Center's mobile surface is read-only —
+ * "rows here open evidence, never a pause button" — so it has no completion to
+ * record, and manufacturing one would make the completion rate a measure of
+ * page views. The names stay in the vocabulary because historical rows carry
+ * them; they are declared retired here so a future emitter is a deliberate act
+ * rather than a name quietly reused for a different flow.
+ */
+const RETIRED = new Set<string>(["mobile_tier0_started", "mobile_tier0_completed"]);
+
 describe("every declared event has a real emitter", () => {
   it("names an emitter file for each event in the vocabulary", () => {
     for (const name of PRODUCT_INSTRUMENTATION_EVENT_NAMES) {
+      if (RETIRED.has(name)) continue;
       expect(EMITTERS[name], `${name} has no declared emitter`).toBeTruthy();
+    }
+    for (const name of RETIRED) {
+      expect(
+        EMITTERS[name as ProductInstrumentationEventName],
+        `${name} is declared retired but still names an emitter`,
+      ).toBeUndefined();
     }
     // And no emitter is declared for an event that no longer exists.
     for (const name of Object.keys(EMITTERS)) {

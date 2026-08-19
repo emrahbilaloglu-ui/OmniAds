@@ -2716,6 +2716,21 @@ async function main() {
       "duplicate-ad reconciliation DB seam check",
     );
 
+    // The null-versus-zero contract rests on a claim about the SCHEMA — that a
+    // NULL column and an absent payload key are still distinguishable from a
+    // measured 0 after the read. In memory that claim is unfalsifiable, so it
+    // is proven here against the migrated tables and then carried through the
+    // real producer chain to the API row.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-creative-null-presence-seam-child.ts",
+      ),
+      "creative null-versus-zero presence DB seam check",
+    );
+
     // Production-seam checks against the freshly migrated schema: real
     // write query -> real reader, the class of defect in-memory tests miss.
     await runChildScript(

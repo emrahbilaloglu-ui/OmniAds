@@ -154,6 +154,29 @@ describe("share ledger", () => {
     shares([base], { error: "The share could not be revoked (HTTP 503)." });
     expect(document.querySelector("[data-share-error]")!.textContent).toMatch(/HTTP 503/);
   });
+
+  it("lets the operator out of the create dialog with no cancel handler supplied", async () => {
+    // The production client passes no onCancel; a modal that opens with the
+    // surface and only closes for callers who opted in is a trap.
+    shares();
+    expect(document.querySelector("[data-share-dialog-backdrop]")).not.toBeNull();
+    const cancel = document.querySelector("[data-share-cancel]") as HTMLElement;
+    expect(cancel).not.toBeNull();
+
+    await userEvent.setup().click(cancel);
+    expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+    // The ledger underneath is reachable again.
+    expect(document.querySelector('[data-share-rotate="t1"]')).not.toBeNull();
+  });
+
+  it("discards the draft when the dialog is dismissed and reopened", async () => {
+    shares();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Title"), "Abandoned draft");
+    await user.click(document.querySelector("[data-share-cancel]") as HTMLElement);
+    await user.click(document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]') as HTMLElement);
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("");
+  });
 });
 
 describe("public share media", () => {

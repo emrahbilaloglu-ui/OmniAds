@@ -419,6 +419,15 @@ function isVisibleForStatusLane(
   row: CampaignRow | AdsetRow,
   statusFilter: BriefingStatusFilter,
 ) {
+  // The lanes offer actions, so they answer a stricter question than the money
+  // rollups do. `isInBriefing` admits an uncaptured status because a spending
+  // entity must still be counted; here an unverifiable status is grounds to
+  // withhold, since we will not put a pause button on something we cannot
+  // confirm is running. Such a row lands in Archive carrying the
+  // "Status truth is incomplete" note rather than disappearing.
+  if (statusFilter !== "all" && briefingStatusForEntity(row) === "UNKNOWN") {
+    return false;
+  }
   return isInBriefing(row, statusFilter);
 }
 
@@ -439,6 +448,7 @@ function nullableNumber(value: unknown) {
 function upperFunnelMetricsFromRow(
   row: CampaignRow | AdsetRow | null | undefined,
   costPerThruplayP50: number | null,
+  cpmAccountP50: number | null = null,
 ) {
   return {
     spend: nullableNumber(row?.spend),
@@ -449,14 +459,16 @@ function upperFunnelMetricsFromRow(
     thruplayActions: nullableNumber((row as { thruplayActions?: unknown } | null | undefined)?.thruplayActions),
     videoViews3s: nullableNumber((row as { videoViews3s?: unknown } | null | undefined)?.videoViews3s),
     costPerThruplayP50,
+    cpmAccountP50,
   };
 }
 
 function upperFunnelStateMetricsFromRow(
   row: CampaignRow | AdsetRow | null | undefined,
   costPerThruplayP50: number | null,
+  cpmAccountP50: number | null = null,
 ) {
-  const metrics = upperFunnelMetricsFromRow(row, costPerThruplayP50);
+  const metrics = upperFunnelMetricsFromRow(row, costPerThruplayP50, cpmAccountP50);
   return {
     impressions: metrics.impressions,
     reach: metrics.reach,
@@ -465,6 +477,7 @@ function upperFunnelStateMetricsFromRow(
     thruplayActions: metrics.thruplayActions,
     videoViews3s: metrics.videoViews3s,
     costPerThruplayP50: metrics.costPerThruplayP50,
+    cpmAccountP50: metrics.cpmAccountP50,
   };
 }
 
@@ -479,6 +492,7 @@ function enrichUpperFunnelRecommendation(input: {
   campaignsById: Map<string, CampaignRow>;
   adsetsById: Map<string, AdsetRow>;
   costPerThruplayP50: number | null;
+  cpmAccountP50: number | null;
 }): MetaRecommendation {
   if (input.rec.cohort !== "upper_funnel") return input.rec;
   const row =
@@ -491,26 +505,64 @@ function enrichUpperFunnelRecommendation(input: {
     ...input.rec,
     targetValue: {
       ...targetValueRecord(input.rec.targetValue),
-      ...upperFunnelMetricsFromRow(row, input.costPerThruplayP50),
+      ...upperFunnelMetricsFromRow(
+        row,
+        input.costPerThruplayP50,
+        input.cpmAccountP50,
+      ),
     },
   };
 }
 
-async function readUpperFunnelCostPerThruplayP50(businessId: string) {
+/**
+ * One account-scope calibration percentile, or null when it is not trustworthy.
+ *
+ * Same gate for every metric: a p50 only counts once the calibration run had at
+ * least eight entities behind it, so a two-campaign account never gets told it
+ * is above or below "the account median".
+ */
+async function readAccountCalibrationP50(input: {
+  businessId: string;
+  metricName: string;
+  cohort: string;
+}) {
   const sql = getDb();
   const [row] = (await sql`
     SELECT p50, sample_size
     FROM meta_decision_calibration_daily
-    WHERE business_id = ${businessId}
+    WHERE business_id = ${input.businessId}
       AND scope_type = 'account'
-      AND metric_name = 'cost_per_thruplay_28d'
-      AND cohort = 'upper_funnel'
+      AND metric_name = ${input.metricName}
+      AND cohort = ${input.cohort}
     ORDER BY snapshot_date DESC
     LIMIT 1
   `) as Array<{ p50: number | string | null; sample_size: number | string | null }>;
   const sampleSize = toNumber(row?.sample_size);
   const p50 = nullableNumber(row?.p50);
   return p50 != null && p50 > 0 && sampleSize >= 8 ? p50 : null;
+}
+
+async function readUpperFunnelCostPerThruplayP50(businessId: string) {
+  return readAccountCalibrationP50({
+    businessId,
+    metricName: "cost_per_thruplay_28d",
+    cohort: "upper_funnel",
+  });
+}
+
+/**
+ * The account CPM median the Non-sales card compares each entity against.
+ *
+ * The card's third tile is "CPM · acct p50" and had no source at all, so it
+ * rendered a dash on every account while the calibration run had already
+ * computed `cpm_14d` at account scope.
+ */
+async function readUpperFunnelCpmP50(businessId: string) {
+  return readAccountCalibrationP50({
+    businessId,
+    metricName: "cpm_14d",
+    cohort: "upper_funnel",
+  });
 }
 
 function nonSalesStateRecommendation(input: {
@@ -534,6 +586,7 @@ function nonSalesStateRecommendation(input: {
   thruplayActions?: number | null;
   videoViews3s?: number | null;
   costPerThruplayP50?: number | null;
+  cpmAccountP50?: number | null;
 }): MetaRecommendation {
   const levelLabel = input.level === "campaign" ? "Campaign" : "Adset";
   const cohortLabel = formatCohort(input.cohort);
@@ -590,6 +643,7 @@ function nonSalesStateRecommendation(input: {
       thruplayActions: input.thruplayActions ?? null,
       videoViews3s: input.videoViews3s ?? null,
       costPerThruplayP50: input.costPerThruplayP50 ?? null,
+      cpmAccountP50: input.cpmAccountP50 ?? null,
     },
     engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
     signalQuality: { quality_status: "out_of_sales_scope", confidence_cap: "low" },
@@ -1334,6 +1388,7 @@ function nonSalesCampaignRows(input: {
   recommendedScopeIds: Set<string>;
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
+  cpmAccountP50: number | null;
   campaignLabelsById: MetaCampaignLabelKindMap;
 }): MetaRecommendation[] {
   return input.rows
@@ -1354,7 +1409,11 @@ function nonSalesCampaignRows(input: {
         status: briefingStatusForEntity(row),
         statusLabel: briefingStatusLabel(row),
         cohort,
-        ...upperFunnelStateMetricsFromRow(row, input.costPerThruplayP50),
+        ...upperFunnelStateMetricsFromRow(
+          row,
+          input.costPerThruplayP50,
+          input.cpmAccountP50,
+        ),
       }),
     );
 }
@@ -1366,6 +1425,7 @@ function nonSalesAdsetRows(input: {
   campaignsById: Map<string, CampaignRow>;
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
+  cpmAccountP50: number | null;
   campaignLabelsById: MetaCampaignLabelKindMap;
 }): MetaRecommendation[] {
   return input.rows
@@ -1394,7 +1454,11 @@ function nonSalesAdsetRows(input: {
         status: briefingStatusForEntity(row),
         statusLabel: briefingStatusLabel(row),
         cohort,
-        ...upperFunnelStateMetricsFromRow(row, input.costPerThruplayP50),
+        ...upperFunnelStateMetricsFromRow(
+          row,
+          input.costPerThruplayP50,
+          input.cpmAccountP50,
+        ),
       }),
     );
 }
@@ -1473,6 +1537,9 @@ export async function GET(request: NextRequest) {
       timedBaseRead("upper_funnel", () =>
         readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
       ),
+      timedBaseRead("upper_funnel_cpm", () =>
+        readUpperFunnelCpmP50(businessId).catch(() => null),
+      ),
     ] as const);
   const baseEvidence =
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
@@ -1498,6 +1565,7 @@ export async function GET(request: NextRequest) {
     campaigns,
     adsets,
     upperFunnelCostPerThruplayP50,
+    upperFunnelCpmP50,
   ] = baseEvidence;
   const baseEvidenceCompletedAt = performance.now();
 
@@ -1658,6 +1726,7 @@ export async function GET(request: NextRequest) {
         campaignsById,
         adsetsById,
         costPerThruplayP50: upperFunnelCostPerThruplayP50,
+        cpmAccountP50: upperFunnelCpmP50,
       }),
     );
   const actionNow = purchaseScopedRecs.filter(
@@ -1729,6 +1798,7 @@ export async function GET(request: NextRequest) {
       recommendedScopeIds,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
+      cpmAccountP50: upperFunnelCpmP50,
       campaignLabelsById,
     }),
     ...nonSalesAdsetRows({
@@ -1738,6 +1808,7 @@ export async function GET(request: NextRequest) {
       campaignsById,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
+      cpmAccountP50: upperFunnelCpmP50,
       campaignLabelsById,
     }),
   ]

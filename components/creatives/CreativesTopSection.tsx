@@ -1271,9 +1271,10 @@ function PreviewStrip({
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
           // Row ids can be grouped UI ids; v3 decisions are keyed by Meta creative id.
-          const decisionLabel = v3SurfaceVisible
-            ? decisionLabelByCreativeId.get(row.creativeId) ?? null
-            : null;
+          const decisionLabel =
+            v3SurfaceVisible && row.creativeId
+              ? (row.creativeId ? decisionLabelByCreativeId.get(row.creativeId) : undefined) ?? null
+              : null;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({
             creative_delivery_type: row.creativeDeliveryType,
             creative_visual_format: row.creativeVisualFormat,

@@ -562,6 +562,150 @@ export interface CreativeClassificationFields {
   taxonomy_reconciled_by_video_evidence?: boolean;
 }
 
+/**
+ * Every numeric wire field whose availability can be stated separately.
+ *
+ * Wire names, not camelCase UI names, because the sidecar travels beside the
+ * numbers on `MetaCreativeApiRow` and must be readable against them without a
+ * translation table in between.
+ */
+export const CREATIVE_METRIC_PRESENCE_KEYS = [
+  "spend",
+  "purchase_value",
+  "roas",
+  "cpa",
+  "clicks",
+  "cpc_link",
+  "cpm",
+  "ctr_all",
+  "purchases",
+  "impressions",
+  "link_clicks",
+  "landing_page_views",
+  "thruplay_actions",
+  "view_content",
+  "post_engagement",
+  "add_to_cart",
+  "initiate_checkout",
+  "thumbstop",
+  "click_to_atc",
+  "atc_to_purchase",
+  "leads",
+  "messages",
+  "frequency",
+  "video25",
+  "video50",
+  "video75",
+  "video100",
+] as const;
+
+export type CreativeMetricPresenceKey = (typeof CREATIVE_METRIC_PRESENCE_KEYS)[number];
+
+/**
+ * Which metrics on this row came from a real source value, per field.
+ *
+ * PRODUCED BEFORE COALESCING, at the point where the nullable source is still
+ * in hand. That is the whole reason it exists: every numeric field below ends
+ * up a `number` because `normalizeCreativeMetricFields` and
+ * `buildMetaCreativeApiRow` finish with `?? 0` / `: 0`, so by the time a row is
+ * on the wire the difference between "the account measured zero" and "no source
+ * ever supplied this" has already been destroyed. A reader cannot recover it
+ * from the number — 0 is a legitimate measurement — so the producer has to say
+ * so separately.
+ *
+ * `true` means a real source supplied it (0 included: a paused, never-delivered
+ * ad genuinely spent nothing, and an em dash there would hide a fact).
+ * `false` means the producer manufactured the number with nothing behind it.
+ * An absent key, or an absent map, means the producer does not publish
+ * availability for that field and the legacy number stands — which is what
+ * keeps every existing producer working unchanged.
+ */
+export type CreativeMetricPresence = Partial<Record<CreativeMetricPresenceKey, boolean>>;
+
+/**
+ * Was this field served by a real source?
+ *
+ * The default is `true`, deliberately. A row that carries no presence map comes
+ * from a producer that does not publish availability, and withholding its
+ * numbers would turn a silent producer into a blanked-out surface. Only an
+ * explicit `false` withholds.
+ *
+ * Lives in the types module because both the producer chain
+ * (`creatives-service-support`, `creatives-warehouse`) and the aggregator
+ * (`creatives-row-mappers`) need it, and those two already import each other.
+ */
+export function isCreativeMetricAvailable(
+  presence: CreativeMetricPresence | undefined,
+  key: CreativeMetricPresenceKey,
+): boolean {
+  return presence?.[key] !== false;
+}
+
+/**
+ * Did a producer STATE that this field is available?
+ *
+ * Distinct from `isCreativeMetricAvailable`, and the distinction is the whole
+ * point. That function answers "may this number be shown", so an absent key
+ * defaults to `true`. This one answers "did anything actually establish this
+ * field", so an absent key is `false`.
+ *
+ * The difference matters wherever one source's silence is being used as
+ * evidence FOR another source's number. `hydrateWarehouseCreativeMetrics` falls
+ * back from a null fact column to the projection's number, and it may only
+ * publish that as available if the projection SAID so. Reading the permissive
+ * default there turned "nobody knows" into "the projection vouches for it",
+ * which is how a genuinely unread funnel counter became a measured zero on
+ * screen.
+ */
+export function isCreativeMetricDeclaredAvailable(
+  presence: CreativeMetricPresence | undefined,
+  key: CreativeMetricPresenceKey,
+): boolean {
+  return presence?.[key] === true;
+}
+
+/**
+ * The presence map of a grouped row.
+ *
+ * THE AGGREGATION RULE, three-way and deliberate, because a creative-grain
+ * bucket is a SUM over the window's day-rows:
+ *
+ *   1. any member states `false`  -> `false`. A sum over a set where one member
+ *      never supplied the field is an understatement, not a measurement —
+ *      three days of add-to-cart plus two days of nothing is not five days of
+ *      add-to-cart — so one unavailable member makes the whole bucket
+ *      unavailable. This is the "available only if it was available on the rows
+ *      that fed it" half.
+ *   2. else every member states `true` -> `true`.
+ *   3. else the key is OMITTED — no member had an opinion, so the bucket has
+ *      none either.
+ *
+ * Rule 3 is not the same as `true`, and collapsing it into `true` (which
+ * `rows.every(isCreativeMetricAvailable)` did, because that helper defaults an
+ * absent key to available) is what made silence look like a producer's
+ * guarantee. Downstream, an omitted key still READS as available through
+ * `isCreativeMetricAvailable` — the additive default is unchanged and no number
+ * is withheld by this — but it can no longer be quoted back as evidence by
+ * `isCreativeMetricDeclaredAvailable`.
+ *
+ * Returns undefined when no member published availability at all, so a group of
+ * legacy rows stays a legacy row.
+ */
+export function intersectCreativeMetricPresence(
+  rows: Array<{ metric_presence?: CreativeMetricPresence }>,
+): CreativeMetricPresence | undefined {
+  if (!rows.some((row) => row.metric_presence)) return undefined;
+  const merged: CreativeMetricPresence = {};
+  for (const key of CREATIVE_METRIC_PRESENCE_KEYS) {
+    const stated = rows
+      .map((row) => row.metric_presence?.[key])
+      .filter((value): value is boolean => typeof value === "boolean");
+    if (stated.length === 0) continue;
+    merged[key] = stated.every((value) => value === true);
+  }
+  return merged;
+}
+
 export interface CreativeMetricFields {
   spend: number;
   purchase_value: number;
@@ -589,6 +733,12 @@ export interface CreativeMetricFields {
   video50: number;
   video75: number;
   video100: number;
+  /**
+   * Per-field availability for the numbers above. Optional and additive: the
+   * numeric fields keep their existing types and values, so nothing that reads
+   * them today changes behaviour.
+   */
+  metric_presence?: CreativeMetricPresence;
 }
 
 // ── Row types ──────────────────────────────────────────────────────────────────

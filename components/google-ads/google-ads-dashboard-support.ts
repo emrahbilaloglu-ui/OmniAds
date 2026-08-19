@@ -1,6 +1,6 @@
 import { getCurrencySymbol } from "@/hooks/use-currency";
 import type { RangePreset } from "@/components/date-range/DateRangePicker";
-import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
+import { MISSING_VALUE, formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 import type { BudgetRec } from "@/components/google-ads/BudgetScalingTab";
 import type { GoogleAdsReadCompletenessMeta } from "@/lib/google-ads/read-completeness";
 
@@ -360,11 +360,18 @@ export function isCampaignActive(status: string): boolean {
 }
 
 export function fmtCurrency(n: number): string {
-  return formatCurrencySmart(n, getCurrencySymbol());
+  const symbol = getCurrencySymbol();
+  // INVARIANTS.md: "Missing currency must not silently become USD, $, TRY, or
+  // EUR." With no configured currency there is no symbol, so the amount is
+  // unavailable rather than silently denominated in dollars.
+  if (symbol === null) return MISSING_VALUE;
+  return formatCurrencySmart(n, symbol);
 }
 
 export function fmtCurrencyPrecise(n: number): string {
-  return formatCurrencySmart(n, getCurrencySymbol());
+  const symbol = getCurrencySymbol();
+  if (symbol === null) return MISSING_VALUE;
+  return formatCurrencySmart(n, symbol);
 }
 
 export function fmtRoas(n: number): string {

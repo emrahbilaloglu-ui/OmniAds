@@ -1803,7 +1803,9 @@ export function CreativesTableSection({
             {visiblePagedRows.map((row) => {
               const rowId = safeTableText(row.id) || safeTableText(row.creativeId) || "creative";
               const decisionLabel = v3SurfaceVisible
-                ? decisionLabelByCreativeId.get(row.creativeId) ?? null
+                ? (row.creativeId
+                    ? (row.creativeId ? decisionLabelByCreativeId.get(row.creativeId) : undefined) ?? null
+                    : null)
                 : null;
               return (
 	              <CreativeTableRow

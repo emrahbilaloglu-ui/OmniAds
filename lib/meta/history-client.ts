@@ -2,6 +2,7 @@ import type {
   MetaHistoryAccount,
   MetaHistoryEntityType,
   MetaHistoryKind,
+  MetaHistoryOutcomeFilter,
   MetaHistoryResponse,
 } from "@/lib/meta/history-contract";
 
@@ -11,6 +12,7 @@ export interface MetaHistoryClientFilters {
   kind: MetaHistoryKind | null;
   entity: MetaHistoryEntityType | null;
   label: string | null;
+  outcome: MetaHistoryOutcomeFilter | null;
   from: string | null;
   to: string | null;
   q: string | null;

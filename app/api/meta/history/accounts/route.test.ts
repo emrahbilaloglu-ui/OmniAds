@@ -7,6 +7,7 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/meta/history-read-model", () => ({
   readMetaHistoryAccounts: vi.fn(),
+  readMetaHistoryAssignedAccountIds: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
@@ -22,6 +23,9 @@ describe("GET /api/meta/history/accounts", () => {
     });
     vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
       { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
     ]);
   });
 
@@ -43,6 +47,43 @@ describe("GET /api/meta/history/accounts", () => {
       businessId: "business_1",
       minRole: "guest",
     });
+  });
+
+  it("does not offer an account the business has deselected", async () => {
+    // This list is what an account picker offers. Offering a deselected account
+    // would hand the operator a scope the journal endpoint then refuses — and,
+    // before `is_selected` was honoured at all, one it quietly served.
+    vi.mocked(readModel.readMetaHistoryAccounts).mockResolvedValue([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+      { id: "act_stale", name: "Removed", currency: "EUR", timezone: "UTC" },
+    ]);
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockResolvedValue([
+      "act_1",
+    ]);
+
+    const response = await route.GET(
+      new NextRequest("http://localhost/api/meta/history/accounts?businessId=business_1"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.accounts).toEqual([
+      { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    ]);
+  });
+
+  it("is unavailable when the assignment cannot be read, not an empty list", async () => {
+    vi.mocked(readModel.readMetaHistoryAssignedAccountIds).mockRejectedValue(
+      new Error("assignment read failed"),
+    );
+
+    const response = await route.GET(
+      new NextRequest("http://localhost/api/meta/history/accounts?businessId=business_1"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("meta_history_accounts_unavailable");
   });
 
   it("returns auth errors before account reads", async () => {

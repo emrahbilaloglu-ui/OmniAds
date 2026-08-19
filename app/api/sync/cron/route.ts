@@ -14,6 +14,7 @@ import {
 import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
 import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
 import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
+import { runMetaAutomationRuleEvaluationIfDue } from "@/lib/meta/automation-rules-evaluation";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncKlaviyoFlowMetrics } from "@/lib/klaviyo/sync";
@@ -620,6 +621,24 @@ export async function POST(request: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     };
   });
+  // Automation rules, evaluated where the rest of the Meta periodic work runs.
+  //
+  // The evaluator and its whole persistence path shipped with no periodic
+  // caller, so a rule an operator armed with "+ New rule" could never fire and
+  // "Fired · 28d" was a permanent, truthful zero. This reaches no provider: a
+  // firing's strongest outcome is a queued proposal that still needs operator
+  // approval, and the job re-checks the kill switch per business itself.
+  const metaAutomationRuleJob = await runMetaAutomationRuleEvaluationIfDue().catch(
+    (error) => {
+      console.error("[sync-cron] meta_automation_rule_evaluation_failed", error);
+      return {
+        skipped: true,
+        reason: "failed" as const,
+        runDate: new Date().toISOString().slice(0, 10),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    },
+  );
   const decisionProducerJob = await runEngineV3ProducerChainForActiveBusinessesIfDue(
     new Date(),
   ).catch((error) => {
@@ -843,6 +862,9 @@ export async function POST(request: NextRequest) {
     metaOutcomeAccrualJobSkipped: metaOutcomeAccrualJob.skipped,
     metaOutcomeAccrualJobReason:
       "reason" in metaOutcomeAccrualJob ? metaOutcomeAccrualJob.reason : null,
+    metaAutomationRuleJobSkipped: metaAutomationRuleJob.skipped,
+    metaAutomationRuleJobReason:
+      "reason" in metaAutomationRuleJob ? metaAutomationRuleJob.reason : null,
     decisionProducerJobSkipped: decisionProducerJob.skipped,
     decisionProducerJobReason:
       "reason" in decisionProducerJob ? decisionProducerJob.reason : null,
@@ -889,6 +911,7 @@ export async function POST(request: NextRequest) {
       metaSnapshotJob,
       metaIgnoredMarkerJob,
       metaOutcomeAccrualJob,
+      metaAutomationRuleJob,
       decisionProducerJob,
       nativeAdShadowJob,
       decisionOutcomesJob,

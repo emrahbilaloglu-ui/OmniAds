@@ -9,6 +9,7 @@
  */
 
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
   anchorsFromTargetPack,
@@ -25,6 +26,9 @@ import {
 } from "@/lib/meta/automation-rules-store";
 import type { AutomationProposalSink } from "@/lib/meta/automation-proposal-intake";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
+import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
+import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 
 /** Hard ceiling on how much history one evaluation may pull per entity. */
 const MAX_LOOKBACK_DAYS = 30;
@@ -304,4 +308,198 @@ export async function evaluateBusinessAutomationRules(input: {
     skippedReason: null,
     minRoasFloor,
   };
+}
+
+/**
+ * The scheduler slot rule evaluation runs in, in UTC.
+ *
+ * 03:00 is the Meta snapshot, 04:00 the ignored-decision marker, 05:00 the
+ * outcome accrual; this takes the next free hour so it reads a warehouse day
+ * those jobs have already settled. The hour is NOT a threshold and nothing in a
+ * verdict depends on it: `meta_automation_rule_firings` is unique on
+ * `(rule_id, entity_id, evaluated_for_date)`, so a second pass over the same
+ * warehouse day records nothing new. It is a cadence, chosen the way its three
+ * siblings in this cron chose theirs.
+ */
+const RULE_EVALUATION_UTC_HOUR = 6;
+
+export type MetaAutomationRuleEvaluationSkip =
+  | "not_due"
+  | "schema_not_ready";
+
+export interface MetaAutomationRuleEvaluationBusinessOutcome {
+  businessId: string;
+  /** Present only when the business was skipped before any account ran. */
+  skippedReason?:
+    | "no_rules"
+    | "rules_unreadable"
+    | "no_assigned_accounts"
+    | "writes_blocked";
+  /** The kill-switch reason, verbatim, when `writes_blocked`. */
+  blockReason?: string | null;
+  accounts: Array<{
+    providerAccountId: string;
+    status: "evaluated" | "failed";
+    skippedReason?: AutomationRuleEvaluationReport["skippedReason"];
+    firings?: number;
+    error?: string;
+  }>;
+}
+
+export type MetaAutomationRuleEvaluationJobResult =
+  | { skipped: true; reason: MetaAutomationRuleEvaluationSkip; runDate: string }
+  | {
+      skipped: false;
+      runDate: string;
+      businesses: MetaAutomationRuleEvaluationBusinessOutcome[];
+    };
+
+/**
+ * The production trigger for {@link evaluateBusinessAutomationRules}.
+ *
+ * Until this existed the evaluator had exactly one caller — the operator-driven
+ * `evaluate_rules` action on `POST /api/meta/automation` — and no periodic one,
+ * which meant a rule an operator created with "+ New rule" could sit active
+ * forever while "Fired · 28d" stayed a truthful, permanent `0×`. The rule was
+ * armed and nothing ever pulled the trigger.
+ *
+ * What this may do is deliberately narrow. It reaches no provider: the strongest
+ * outcome of a firing is a row in `meta_automation_proposals`, which still needs
+ * an operator to approve it before anything is written anywhere. The guards it
+ * honours are the ones the rest of this path already honours, in order:
+ *
+ * 1. The cron's own global admission (`assertSyncLaneEnabled` + the growth
+ *    fence) runs before any job in that chain, so it is not restated here —
+ *    exactly as `runMetaOutcomeAccrualIfDue` and `runMetaSnapshotJobIfDue` do
+ *    not restate it.
+ * 2. Schema readiness, so an un-migrated database skips instead of throwing.
+ * 3. Per business, `getMetaWriteBlockState` — the same authority the write
+ *    guard uses, but only for the reasons that mean automation is off here at
+ *    all. A business under the global or business STOP, a demo business, or one
+ *    whose control row cannot be read raises no proposals: an operator who
+ *    stopped automation did not ask for a queue to come back to, and an
+ *    unreadable control state fails closed. A guard rule or a quiet-hours
+ *    window is NOT one of those reasons — it says "do not write now", and this
+ *    job never writes; the approval that eventually would re-checks it.
+ *
+ * Every failure is per business and per account. One business whose warehouse
+ * read throws must not cost every other business its evaluation.
+ */
+export async function runMetaAutomationRuleEvaluationIfDue(
+  now = new Date(),
+): Promise<MetaAutomationRuleEvaluationJobResult> {
+  const runDate = now.toISOString().slice(0, 10);
+  if (now.getUTCHours() !== RULE_EVALUATION_UTC_HOUR) {
+    return { skipped: true, reason: "not_due", runDate };
+  }
+
+  const readiness = await getDbSchemaReadiness({
+    tables: [
+      "meta_automation_rules",
+      "meta_automation_rule_firings",
+      "meta_automation_proposals",
+    ],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return { skipped: true, reason: "schema_not_ready", runDate };
+  }
+
+  const businesses = await getActiveBusinesses();
+  const outcomes: MetaAutomationRuleEvaluationBusinessOutcome[] = [];
+
+  for (const business of businesses) {
+    const businessId = business.id;
+
+    let rules: AutomationRuleDefinition[];
+    try {
+      rules = await listAutomationRules(businessId);
+    } catch {
+      outcomes.push({
+        businessId,
+        skippedReason: "rules_unreadable",
+        accounts: [],
+      });
+      continue;
+    }
+    // Cheapest possible exit, and the common one: most businesses have no
+    // rules at all, and none of the reads below are worth paying for them.
+    if (
+      !rules.some(
+        (rule) => rule.active && rule.trigger.kind !== "quiet_hours",
+      )
+    ) {
+      outcomes.push({ businessId, skippedReason: "no_rules", accounts: [] });
+      continue;
+    }
+
+    const writeBlock = await getMetaWriteBlockState({
+      businessId,
+      at: now,
+    }).catch(() => null);
+    // "Automation is off here" and "do not write right now" are different
+    // answers, and this gate must only honour the first.
+    //
+    // `automation_guard_rule` covers an enforced guard rule and the persisted
+    // quiet-hours window. Both mean the provider must not be written to at this
+    // moment — and this job never writes to a provider: its strongest outcome
+    // is a proposal an operator still has to approve, and that approval
+    // re-checks the same guard at write time via `rejectIfMetaWritesBlocked`.
+    //
+    // Skipping on it was worse than redundant. The job fires in exactly one UTC
+    // hour, so a business whose quiet hours cover that hour would be evaluated
+    // on no day at all — silently reproducing the permanently-zero
+    // `firedCount` this job exists to fix, visible only as a skip reason buried
+    // in the cron receipt.
+    const blockedForAutomation =
+      !writeBlock || (writeBlock.blocked && writeBlock.reason !== "automation_guard_rule");
+    if (blockedForAutomation) {
+      outcomes.push({
+        businessId,
+        skippedReason: "writes_blocked",
+        blockReason: writeBlock?.reason ?? "control_state_unavailable",
+        accounts: [],
+      });
+      continue;
+    }
+
+    const accountIds = await fetchAssignedAccountIds(businessId).catch(
+      () => [] as string[],
+    );
+    if (accountIds.length === 0) {
+      outcomes.push({
+        businessId,
+        skippedReason: "no_assigned_accounts",
+        accounts: [],
+      });
+      continue;
+    }
+
+    const accounts: MetaAutomationRuleEvaluationBusinessOutcome["accounts"] = [];
+    for (const providerAccountId of accountIds) {
+      try {
+        const report = await evaluateBusinessAutomationRules({
+          businessId,
+          providerAccountId,
+          rules,
+        });
+        accounts.push({
+          providerAccountId,
+          status: "evaluated",
+          ...(report.skippedReason
+            ? { skippedReason: report.skippedReason }
+            : {}),
+          firings: report.recorded.filter((firing) => firing.inserted).length,
+        });
+      } catch (error) {
+        accounts.push({
+          providerAccountId,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    outcomes.push({ businessId, accounts });
+  }
+
+  return { skipped: false, runDate, businesses: outcomes };
 }

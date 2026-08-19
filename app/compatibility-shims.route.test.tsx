@@ -287,9 +287,16 @@ describe("WP-27A · the compatibility table covers the mapping authority", () =>
       expect(source, `${route} does not use the shared page`).toContain(
         'from "@/lib/zero-base/compatibility-page"',
       );
-      expect(source, `${route} names the wrong route`).toContain(
-        `compatibilityPage("${route}"`,
-      );
+      // The route name must be the shim's OWN, but the call may be written
+      // across lines — a formatter should not be able to fail an
+      // architecture law. What is pinned is that this file hands its own
+      // route to the shared factory, not the exact source formatting.
+      expect(
+        new RegExp(
+          `compatibilityPage\\(\\s*"${route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`,
+        ).test(source),
+        `${route} names the wrong route`,
+      ).toBe(true);
     }
   });
 
@@ -343,11 +350,37 @@ describe("WP-27A · the redirect is temporary, server-side, and the only mechani
   it("REGRESSION: no shim can issue a permanent redirect", async () => {
     // A 301/308 is cached by the browser, which would make rollback impossible
     // for anyone who had already visited. Only `redirect()` — a 307 — is used.
+    //
+    // The blanket ban on `next/navigation` was a proxy for that hazard, and it
+    // outlived its precision. `/platforms/meta/launchpad` now carries a
+    // `?handoff=` reference to the canonical route, because the preserved
+    // legacy body is a client component with no session and cannot burn a
+    // single-use token — dropping the reference there would land the operator
+    // on a blank wizard they would read as success. That hop is a 307 and it
+    // is refused under `off`, so the rollback still owns the rollback. What
+    // stays banned is the cached kind, plus any shim that navigates INSTEAD OF
+    // delegating: every one of them must still fall through to the shared
+    // decision, which the assertion below pins directly.
     const { readFileSync } = await import("node:fs");
+    const HANDOFF_CARRIERS = new Set(["/platforms/meta/launchpad"]);
     for (const route of UNIQUE_CHANGED_PATHS) {
       const dir = dirFor(route);
       const source = readFileSync(path.join(dir, "page.tsx"), "utf8");
       expect(source, `${route} does its own navigation`).not.toContain("permanentRedirect");
+      if (HANDOFF_CARRIERS.has(route)) {
+        // It may navigate, but only as a 307, only when not rolled back, and
+        // it must still end at the shared decision for every other request.
+        expect(source, `${route} uses a cached redirect`).not.toContain(
+          "permanentRedirect",
+        );
+        expect(source, `${route} ignores the rollback mode`).toContain(
+          'uiMode === "off"',
+        );
+        expect(source, `${route} stops delegating`).toMatch(
+          /return\s+\w*Compatibility\w*Page\(props\)/,
+        );
+        continue;
+      }
       expect(source, `${route} redirects outside the shared decision`).not.toContain(
         "next/navigation",
       );

@@ -23,6 +23,7 @@ const queryState = vi.hoisted(() => ({
   copies: undefined as unknown,
   copiesError: null as Error | null,
   copiesLoading: false,
+  commercialTargets: undefined as unknown,
 }));
 
 const freshness = vi.hoisted(() => vi.fn());
@@ -84,12 +85,21 @@ function buildCopyApiRow(input?: {
   text?: string;
   angle?: string | null;
   variants?: string[];
+  /**
+   * The count `/api/meta/copies` publishes for this row. `undefined` models a
+   * response that carries no count at all, which must stay an em dash — the
+   * page may not re-derive it from the rows it received. See
+   * `page-support.test.ts` for the same law over the real route.
+   */
+  associatedAdsCount?: number | null;
 }): MetaCopyApiRow {
   const id = input?.id ?? "copy_1";
   const text = input?.text ?? "Real copy";
   const row = {
     id,
     ad_id: `ad_${id}`,
+    associated_ads_count:
+      input && "associatedAdsCount" in input ? input.associatedAdsCount : 1,
     creative_id: `creative_${id}`,
     post_id: null,
     name: text,
@@ -170,18 +180,28 @@ beforeEach(() => {
   queryState.copies = undefined;
   queryState.copiesError = null;
   queryState.copiesLoading = false;
+  queryState.commercialTargets = undefined;
   freshness.mockReset();
   useQueryMock.mockReset();
   useQueryMock.mockImplementation(
     (options: { queryKey?: readonly unknown[] }) => {
       const accountQuery = options.queryKey?.[0] === "meta-provider-accounts";
-      const data = accountQuery ? queryState.accounts : queryState.copies;
-      const error = accountQuery
-        ? queryState.accountsError
-        : queryState.copiesError;
-      const loading = accountQuery
-        ? queryState.accountsLoading
-        : queryState.copiesLoading;
+      const targetsQuery = options.queryKey?.[0] === "copies-commercial-targets";
+      const data = targetsQuery
+        ? queryState.commercialTargets
+        : accountQuery
+          ? queryState.accounts
+          : queryState.copies;
+      const error = targetsQuery
+        ? null
+        : accountQuery
+          ? queryState.accountsError
+          : queryState.copiesError;
+      const loading = targetsQuery
+        ? false
+        : accountQuery
+          ? queryState.accountsLoading
+          : queryState.copiesLoading;
       return {
         data,
         error,
@@ -236,9 +256,18 @@ describe("CopiesPage exact integration", () => {
     );
     expect(screen.getByTestId("copies-studio-page")).toBeInTheDocument();
     expect(document.querySelector('[data-plan-gate="growth"]')).not.toBeNull();
+    // ITEM 17 — the shared Studio builder now states the window in BOTH live
+    // spellings: `window`/`startDate`/`endDate` is what the shell's date control
+    // writes and what `usePersistentDateRange` reads back, and `start`/`end` is
+    // the Studio's older pair that the shares/briefs/detail routes still read.
+    // Both come from the one resolved window this surface measured, so they
+    // cannot name different days; `window=custom` is what forbids the
+    // destination from re-expanding a preset against its own clock.
     expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "href",
-      "/c/biz_authorized/creative/inbox?providerAccountId=act_authorized&start=2026-07-01&end=2026-07-28",
+      "/c/biz_authorized/creative/inbox?providerAccountId=act_authorized" +
+        "&window=custom&startDate=2026-07-01&endDate=2026-07-28" +
+        "&start=2026-07-01&end=2026-07-28",
     );
     expect(freshness).toHaveBeenCalledWith(
       expect.objectContaining({ businessId: "biz_authorized" }),
@@ -278,10 +307,17 @@ describe("CopiesPage exact integration", () => {
     const cells = Array.from(row!.querySelectorAll("td")).map((cell) =>
       cell.textContent?.trim(),
     );
+    // Angle, See more and Engage stay dashed: the copies response carries no
+    // angle field and no see-more/engagement counters, and a guess there would
+    // be worse than a dash.
     expect(cells[1]).toBe("—");
-    expect(cells[2]).toBe("—");
     expect(cells[4]).toBe("—");
     expect(cells[6]).toBe("—");
+    // Ads is different — it is the server's own count of the distinct ads it
+    // merged into this row, rendered as served. The page does not recompute it:
+    // `?groupBy=copy` already collapsed the per-ad rows, so any client-side
+    // grouping of the response could only ever answer 1.
+    expect(cells[2]).toBe("1");
     expect(screen.queryByText("Compare")).not.toBeInTheDocument();
     expect(screen.queryByText("Usage Map")).not.toBeInTheDocument();
     expect(screen.queryByText("Ad account")).not.toBeInTheDocument();
@@ -323,18 +359,152 @@ describe("CopiesPage exact integration", () => {
 
     expect(screen.getByTestId("copy-detail-drawer")).toBeInTheDocument();
     expect(screen.getByText("“Served alternative”")).toBeInTheDocument();
-    // The design's per-alternate control is "Draft →"; the footer primary
-    // carries the served alternate count.
-    expect(screen.getByRole("link", { name: "Draft →" })).toHaveAttribute(
-      "href",
-      "/platforms/meta/launchpad?businessId=biz_1&providerAccountId=act_1",
-    );
+    /**
+     * "Draft →" used to be a LINK to
+     * `/platforms/meta/launchpad?businessId=…&providerAccountId=…`, and the
+     * footnote told the operator the line's evidence was attached to it.
+     * Nothing was attached: no copy id, no alternate text, no evidence window,
+     * no lineage — and a URL parameter cannot mint any of them.
+     *
+     * It must never become a link again. Preparing a draft is a POST the server
+     * answers by re-reading the served copy for this creative and window, so
+     * the control is a BUTTON: an href could only carry claims. "Draft all"
+     * stays disabled outright because a handoff carries one line by
+     * construction and there is no honest implementation of "all".
+     */
+    expect(screen.queryByRole("link", { name: "Draft →" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Draft →" })).toBeEnabled();
     expect(
-      screen.getByRole("link", { name: "Draft all 1 in Launchpad" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("link", { name: "Draft all 1 in Launchpad" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Draft all 1 in Launchpad" }),
+    ).toBeDisabled();
+    expect(screen.queryByText(/evidence attached/)).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("copy-detail-drawer")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The Copy -> Launchpad handoff, end to end on this side of the wire.
+   *
+   * What must travel: the creative the line was served with, the exact line,
+   * and the window the copies table was actually showing. What must NOT travel:
+   * the line itself in a URL, or any claim about authority. The response is a
+   * single-use reference and that is the only thing the navigation carries.
+   */
+  it("prepares a draft by naming the creative, the line and the window to the server", async () => {
+    queryState.copies = {
+      rows: [buildCopyApiRow({ variants: ["Real copy", "Served alternative"] })],
+      meta: {},
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ handoff: `${"a".repeat(8)}-handoff-reference` }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { assign, href: "http://localhost/platforms/meta/copies" },
+    });
+
+    const { container } = render(
+      <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    fireEvent.click(container.querySelector('[data-copy-row="copy_1"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Draft →" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0]!;
+    expect(url).toBe("/api/meta/launchpad-handoff/copy");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      // The provider creative, not the synthetic copy-bucket row id.
+      creativeId: "creative_copy_1",
+      alternateText: "Served alternative",
+      start: "2026-07-01",
+      end: "2026-07-28",
+    });
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    const destination = String(assign.mock.calls[0]![0]);
+    expect(destination).toContain("/platforms/meta/launchpad");
+    expect(destination).toContain("handoff=");
+    // The line, the creative and the window are read back out of the record
+    // server-side; none of them may ride in the address bar.
+    expect(destination).not.toContain("Served%20alternative");
+    expect(destination).not.toContain("creativeId");
+    expect(destination).not.toContain("start=");
+  });
+
+  // A refusal is restated verbatim and NOTHING is opened. Navigating to
+  // Launchpad anyway would read as success.
+  it("restates a refused draft and opens nothing", async () => {
+    queryState.copies = {
+      rows: [buildCopyApiRow({ variants: ["Real copy", "Served alternative"] })],
+      meta: {},
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({
+          error: "copy_identity_missing",
+          message:
+            "That copy line is not in the current served universe for this account and window.",
+        }),
+      })) as unknown as typeof fetch,
+    );
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { assign, href: "http://localhost/platforms/meta/copies" },
+    });
+
+    const { container } = render(
+      <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    fireEvent.click(container.querySelector('[data-copy-row="copy_1"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Draft →" }));
+
+    await screen.findByText(/not in the current served universe/);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("reads the operator's own target pack into the drawer's ROAS tile", () => {
+    queryState.copies = { rows: [buildCopyApiRow()], meta: {} };
+    queryState.commercialTargets = { snapshot: { targetPack: { targetRoas: 2.5 } } };
+
+    const { container } = render(
+      <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+
+    expect(useQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: ["copies-commercial-targets", "biz_1"],
+        enabled: true,
+      }),
+    );
+
+    fireEvent.click(container.querySelector('[data-copy-row="copy_1"]')!);
+    expect(screen.getByText("target 2.50")).toBeInTheDocument();
+  });
+
+  it("keeps the ROAS tile's target an em dash when no target pack is configured", () => {
+    queryState.copies = { rows: [buildCopyApiRow()], meta: {} };
+    queryState.commercialTargets = { snapshot: { targetPack: { targetRoas: null } } };
+
+    const { container } = render(
+      <CopiesPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    fireEvent.click(container.querySelector('[data-copy-row="copy_1"]')!);
+
+    // An unconfigured target is not a target of zero.
+    expect(screen.getByText("target —")).toBeInTheDocument();
   });
 
   it("keeps a server-refused account null instead of using URL scope", () => {
@@ -359,6 +529,128 @@ describe("CopiesPage exact integration", () => {
       screen.getByText("Select one assigned Meta account to load copy performance."),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("act_url");
+  });
+
+  /**
+   * ITEM 16 — the endpoint's freshness lineage, proven to reach a pixel.
+   *
+   * `/api/meta/copies` has published `isPartial`, `notReadyReason`,
+   * `readSource`, `warehouseObservedAt` and `rowsObservedAt` for a while, and
+   * `resolveCopiesFreshness` has known how to read them — but a grep for either
+   * symbol found only the endpoint's own test. The page declared its own
+   * narrower `MetaCopiesResponse` carrying `warehouseObservedAt` alone and read
+   * exactly that, so the client half was a dead seam: a window the server had
+   * explicitly declared incomplete arrived on screen looking finished, and a
+   * live Meta read was aged by a warehouse write that never touched it.
+   *
+   * These four cases assert the binding at BOTH ends: the value handed to
+   * `useTierZeroFreshness` (which drives the shell's freshness pill), and the
+   * sentence rendered into the Copy performance header.
+   */
+  it("shows the server's own partial reason and refuses the warehouse clock for live rows", () => {
+    queryState.copies = {
+      status: "partial",
+      rows: [buildCopyApiRow()],
+      meta: {
+        warehouseObservedAt: "2026-07-29T00:00:00.000Z",
+        readSource: "current_day_live",
+        rowsObservedAt: null,
+        rowsObservedAtSource: "live",
+        isPartial: true,
+        notReadyReason: "Today is still being prepared in the account timezone.",
+      },
+    };
+
+    render(<CopiesPage businessId="biz_1" providerAccountId="act_1" />);
+
+    const call = freshness.mock.calls.at(-1)?.[0] as {
+      asOf: string | null;
+      partialReason: string | null;
+    };
+    // THE TWO CLOCKS STAY APART. `warehouseObservedAt` exists and is NOT quoted,
+    // because these rows were read live and no warehouse write describes them.
+    expect(call.asOf).toBeNull();
+    expect(call.partialReason).toContain(
+      "Today is still being prepared in the account timezone.",
+    );
+    expect(call.partialReason).toContain(
+      "These rows were read live from Meta, so the warehouse sync time does not describe them.",
+    );
+
+    // And the operator can read it, not just the store.
+    expect(
+      screen.getByText(
+        /Today is still being prepared in the account timezone\..*read live from Meta/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("quotes the warehouse clock, and names it, when the rows came from the warehouse", () => {
+    queryState.copies = {
+      status: "ok",
+      rows: [buildCopyApiRow()],
+      meta: {
+        warehouseObservedAt: "2026-07-29T06:15:00.000Z",
+        readSource: "warehouse",
+        rowsObservedAt: "2026-07-29T06:15:00.000Z",
+        rowsObservedAtSource: "warehouse",
+        isPartial: false,
+        notReadyReason: null,
+      },
+    };
+
+    render(<CopiesPage businessId="biz_1" providerAccountId="act_1" />);
+
+    const call = freshness.mock.calls.at(-1)?.[0] as {
+      asOf: string | null;
+      partialReason: string | null;
+    };
+    expect(call.asOf).toBe("2026-07-29T06:15:00.000Z");
+    expect(call.partialReason).toBeNull();
+    expect(
+      screen.getByText("Warehouse rows · age is the warehouse sync clock"),
+    ).toBeInTheDocument();
+  });
+
+  it("states an unknown lineage rather than borrowing the warehouse clock", () => {
+    queryState.copies = {
+      status: "ok",
+      rows: [buildCopyApiRow()],
+      // A response that names no read source at all: the warehouse instant is
+      // present but nothing establishes that it describes these rows.
+      meta: { warehouseObservedAt: "2026-07-29T06:15:00.000Z" },
+    };
+
+    render(<CopiesPage businessId="biz_1" providerAccountId="act_1" />);
+
+    const call = freshness.mock.calls.at(-1)?.[0] as { asOf: string | null };
+    expect(call.asOf).toBeNull();
+    expect(
+      screen.getByText("Row age unavailable · the read did not name its source"),
+    ).toBeInTheDocument();
+  });
+
+  it("names the demo source rather than calling it unnamed", () => {
+    queryState.copies = {
+      status: "ok",
+      rows: [buildCopyApiRow()],
+      // The demo branch of `/api/meta/copies` publishes `readSource: "demo"`
+      // with no observation instant, because fixtures were never observed.
+      meta: {
+        warehouseObservedAt: null,
+        readSource: "demo",
+        rowsObservedAt: null,
+        rowsObservedAtSource: "unknown",
+      },
+    };
+
+    render(<CopiesPage businessId="biz_1" providerAccountId="act_1" />);
+
+    const call = freshness.mock.calls.at(-1)?.[0] as { asOf: string | null };
+    expect(call.asOf).toBeNull();
+    expect(
+      screen.getByText("Demo rows · fixtures carry no observation time"),
+    ).toBeInTheDocument();
   });
 
   it("shows the query error rather than an empty-success message", () => {

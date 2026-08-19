@@ -11,19 +11,18 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type RangePreset =
-  | "today"
-  | "yesterday"
-  | "3d"
-  | "7d"
-  | "14d"
-  | "28d"
-  | "30d"
-  | "90d"
-  | "365d"
-  | "thisMonth"
-  | "lastMonth"
-  | "custom";
+// The vocabulary and its expansion moved to a module with no client
+// boundary, so a Server Component can use the same one authority instead of
+// growing a private copy. Re-exported here because every existing import
+// points at this file, and there must stay exactly ONE implementation.
+import {
+  getPresetDatesForReferenceDate,
+  getTodayIsoForTimeZone,
+  type RangePreset,
+} from "@/lib/dashboard/date-window-presets";
+
+export type { RangePreset };
+export { getTodayIsoForTimeZone, getPresetDatesForReferenceDate };
 
 /**
  * The comparisons this product can actually compute.
@@ -199,87 +198,6 @@ function addDays(date: Date, amount: number): Date {
 
 function addMonths(date: Date, amount: number): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
-}
-
-export function getTodayIsoForTimeZone(timeZone: string): string {
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date());
-  } catch {
-    parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "UTC",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date());
-  }
-
-  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  return `${year}-${month}-${day}`;
-}
-
-export function getPresetDatesForReferenceDate(
-  preset: RangePreset,
-  referenceDate: string,
-  customStart?: string,
-  customEnd?: string,
-  options: { includeCurrentDay?: boolean } = {}
-): { start: string; end: string } {
-  const today = parseISODate(referenceDate);
-  const completedRollingWindow = (days: number) => {
-    const end = options.includeCurrentDay ? today : addDays(today, -1);
-    return {
-      start: toISO(addDays(end, -(days - 1))),
-      end: toISO(end),
-    };
-  };
-
-  switch (preset) {
-    case "today":
-      return { start: referenceDate, end: referenceDate };
-    case "yesterday": {
-      const yesterday = toISO(addDays(today, -1));
-      return { start: yesterday, end: yesterday };
-    }
-    case "3d":
-      return completedRollingWindow(3);
-    case "7d":
-      return completedRollingWindow(7);
-    case "14d":
-      return completedRollingWindow(14);
-    case "28d":
-      return completedRollingWindow(28);
-    case "30d":
-      return completedRollingWindow(30);
-    case "90d":
-      return completedRollingWindow(90);
-    case "365d":
-      return completedRollingWindow(365);
-    case "thisMonth":
-      return {
-        start: toISO(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))),
-        end: referenceDate,
-      };
-    case "lastMonth": {
-      const year = today.getUTCFullYear();
-      const month = today.getUTCMonth();
-      const start = new Date(Date.UTC(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 0));
-      return { start: toISO(start), end: toISO(end) };
-    }
-    case "custom":
-      return {
-        start: customStart || toISO(addDays(today, -29)),
-        end: customEnd || referenceDate,
-      };
-  }
 }
 
 export function getPresetDates(

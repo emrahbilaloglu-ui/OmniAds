@@ -68,7 +68,9 @@ export function CreativesTopGrid({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {rows.map((row) => {
           // Row ids can be grouped UI ids; v3 decisions are keyed by Meta creative id.
-          const decisionLabel = decisionLabelByCreativeId.get(row.creativeId) ?? null;
+          const decisionLabel = row.creativeId
+            ? (row.creativeId ? decisionLabelByCreativeId.get(row.creativeId) : undefined) ?? null
+            : null;
 
           return (
             <CreativeCard

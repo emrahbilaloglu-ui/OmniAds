@@ -252,6 +252,13 @@
   color: #e11d48;
 }
 
+/* The drawn "Ready" verdict. It had no rule until the Validation column was
+   wired to /api/launchpad/meta/validate, because no row could ever reach it. */
+.exactValidationChip[data-status="ready"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
 .exactUpdated {
   color: #7a869e;
 }

@@ -1263,3 +1263,162 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.detail).toEqual({ message: "not allowed" });
   });
 });
+
+/**
+ * The server end of "one picked preset, one window".
+ *
+ * This route was the third disagreeing resolver. It forwarded whatever dates
+ * it was handed and, given none, supplied only an END date of its own
+ * (`resolveWorkspaceEndDate`) — leaving each upstream to derive a start from
+ * its own private `windowDays` table, and leaving a caller who stated a start
+ * with no end holding a window of arbitrary length still labelled "7d".
+ *
+ * The rule is now the one the client obeys: a stated pair of dates IS the
+ * window and travels verbatim; anything half-stated is completed from the
+ * preset's own day count. Both upstreams are handed the SAME two days, so the
+ * lanes and the pulse can never answer for different weeks.
+ */
+describe("GET /api/meta/decisions-workspace window resolution", () => {
+  function upstreamWindows() {
+    const pulseRequest = upstreamRouteMock.accountPulseGet.mock
+      .calls[0]?.[0] as NextRequest;
+    const laneRequest = upstreamRouteMock.laneClassificationGet.mock
+      .calls[0]?.[0] as NextRequest;
+    return {
+      pulse: {
+        start: pulseRequest?.nextUrl.searchParams.get("startDate"),
+        end: pulseRequest?.nextUrl.searchParams.get("endDate"),
+        window: pulseRequest?.nextUrl.searchParams.get("window"),
+      },
+      lanes: {
+        start: laneRequest?.nextUrl.searchParams.get("startDate"),
+        end: laneRequest?.nextUrl.searchParams.get("endDate"),
+      },
+    };
+  }
+
+  async function callWith(query: string) {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(
+      jsonResponse(metaPulse()),
+    );
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(metaLanePayload()),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        throw new Error("HTTP self-fetch must not run");
+      }),
+    );
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/decisions-workspace?${query}`,
+        { headers: { cookie: "session=test-session" } },
+      ),
+    );
+    expect(response.status).toBe(200);
+    return upstreamWindows();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    accessMock.requireBusinessAccess.mockResolvedValue({
+      session: {
+        sessionId: "sess_1",
+        activeBusinessId: "biz_1",
+        expiresAt: "2026-09-08T00:00:00.000Z",
+        user: {
+          id: "user_1",
+          name: "Operator",
+          email: "operator@example.com",
+          avatar: null,
+          language: "en",
+        },
+      },
+      membership: {
+        id: "mem_1",
+        userId: "user_1",
+        businessId: "biz_1",
+        role: "collaborator",
+        status: "active",
+        joinedAt: "2026-07-08T00:00:00.000Z",
+      },
+    });
+    reviewerMock.isReviewerEmail.mockReturnValue(false);
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue(null);
+    metaApiMock.resolveMetaCredentials.mockResolvedValue(null);
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: false,
+      termination: "request_failed",
+      rows: [],
+    });
+    readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel.mockReturnValue(
+      {
+        contractVersion: "meta-decisions-workspace.read.v1",
+        status: "unavailable",
+        scope: { businessId: "biz_1", providerAccountId: null },
+        unavailable: { code: "provider_account_required", message: "n/a" },
+      },
+    );
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "none",
+      targetRoas: null,
+      breakEvenRoas: null,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "unknown",
+      updatedAt: null,
+    });
+    commercialTargetsMock.hasMetaHardActionAnchor.mockReturnValue(false);
+    dbMock.getDb.mockImplementation(() => {
+      throw new Error("db unavailable in this unit test");
+    });
+  });
+
+  it("forwards a stated window verbatim to both upstreams", async () => {
+    const seen = await callWith(
+      "businessId=biz_1&window=7d&startDate=2026-08-11&endDate=2026-08-17",
+    );
+    expect(seen.pulse).toMatchObject({
+      start: "2026-08-11",
+      end: "2026-08-17",
+      window: "7d",
+    });
+    // The lanes must be classified over the very same days the pulse measures.
+    expect(seen.lanes).toEqual({ start: "2026-08-11", end: "2026-08-17" });
+  });
+
+  it("does not re-derive a window from the preset key when exact dates are stated", async () => {
+    // A fourteen-day span labelled "7d". The label is a name, not an
+    // instruction to re-measure.
+    const seen = await callWith(
+      "businessId=biz_1&window=7d&startDate=2026-06-01&endDate=2026-06-14",
+    );
+    expect(seen.pulse.start).toBe("2026-06-01");
+    expect(seen.pulse.end).toBe("2026-06-14");
+  });
+
+  it("completes a half-stated window from the preset's own day count", async () => {
+    // A start with no end used to be paired with a data-derived end date, so
+    // the served window could be any length while still labelled "7d".
+    const seen = await callWith(
+      "businessId=biz_1&window=7d&startDate=2026-06-01",
+    );
+    expect(seen.pulse.start).toBe("2026-06-01");
+    expect(seen.pulse.end).toBe("2026-06-07");
+    expect(seen.lanes).toEqual({ start: "2026-06-01", end: "2026-06-07" });
+  });
+
+  it("states both dates even when the caller named only a preset", async () => {
+    const seen = await callWith("businessId=biz_1&window=14d&endDate=2026-08-17");
+    // Both upstreams are told the same fourteen days rather than each deriving
+    // a start from its own copy of the rule.
+    expect(seen.pulse.start).toBe("2026-08-04");
+    expect(seen.pulse.end).toBe("2026-08-17");
+    expect(seen.lanes).toEqual({ start: "2026-08-04", end: "2026-08-17" });
+  });
+});

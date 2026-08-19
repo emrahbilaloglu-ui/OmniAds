@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { actorFor, toHistoryPage, toHistoryRow } from "@/lib/zero-base/meta/history-adapter";
+import {
+  actionFor,
+  actorFor,
+  moneyFactText,
+  toHistoryPage,
+  toHistoryRow,
+} from "@/lib/zero-base/meta/history-adapter";
 import type { MetaHistoryEntry, MetaHistoryResponse } from "@/lib/meta/history-contract";
 
 function entry(overrides: Partial<MetaHistoryEntry> = {}): MetaHistoryEntry {
@@ -97,13 +103,120 @@ describe("replay provenance survives the mapping", () => {
   it("does not mark an entry recorded at the time", () => {
     expect(toHistoryRow(entry()).replayed).toBe(false);
   });
+
+  it("carries the engine version the replay names", () => {
+    // The boolean alone cannot answer the question the design's replay caveat
+    // raises ("Replay ≠ live; V1/V2 snapshot badges"): which engine produced
+    // the snapshot. Dropping it here left no replay able to say.
+    const row = toHistoryRow(entry({ replay: { date: "2026-08-01", engineVersion: "v3" } }));
+    expect(row.replayEngineVersion).toBe("v3");
+  });
+
+  it("keeps a null engine version null rather than substituting one", () => {
+    // An unsupplied fact stays unsupplied; the view renders it as an em-dash.
+    const row = toHistoryRow(entry({ replay: { date: "2026-08-01", engineVersion: null } }));
+    expect(row.replayed).toBe(true);
+    expect(row.replayEngineVersion).toBeNull();
+  });
+});
+
+describe("the row names the entity it is about", () => {
+  it("appends the entity when the served title does not already carry it", () => {
+    // The decisions branch serves a bare verdict ("Persisted decision" /
+    // "Scale budget"), so the operator could not tell which campaign or ad set
+    // a money move concerned.
+    expect(
+      actionFor(entry({ title: "Scale budget", entity: { type: "campaign", id: "c-1", name: "Prospecting — broad" } })),
+    ).toBe("Scale budget | Prospecting — broad");
+  });
+
+  it("does not duplicate an entity the SQL already folded into the title", () => {
+    // Write and external-change rows are served as "… | <entity>" already.
+    expect(
+      actionFor(entry({ title: "Pause Ad | Ad 1", entity: { type: "ad", id: "ad-1", name: "Ad 1" } })),
+    ).toBe("Pause Ad | Ad 1");
+  });
+
+  it("falls back to the entity id, never to a made-up name", () => {
+    expect(
+      actionFor(entry({ title: "Scale budget", entity: { type: "adset", id: "as-9", name: null } })),
+    ).toBe("Scale budget | as-9");
+  });
+
+  it("leaves the title alone when no entity was served", () => {
+    expect(
+      actionFor(entry({ title: "Scale budget", entity: { type: "ad", id: "", name: null } })),
+    ).toBe("Scale budget");
+  });
+});
+
+describe("served detail reaches the row", () => {
+  it("carries the summary and money facts verbatim", () => {
+    const money = [
+      {
+        label: "Before spend",
+        amount: 120,
+        currency: "USD",
+        availability: "available" as const,
+        attribution: "meta_attributed" as const,
+      },
+    ];
+    const row = toHistoryRow(entry({ summary: "Spend outran the floor.", money }));
+    expect(row.summary).toBe("Spend outran the floor.");
+    expect(row.money).toEqual(money);
+  });
+});
+
+describe("money is only money in a currency", () => {
+  it("prints the served amount with its currency", () => {
+    expect(
+      moneyFactText({
+        label: "Outcome spend",
+        amount: 41.5,
+        currency: "EUR",
+        availability: "available",
+        attribution: "meta_attributed",
+      }),
+    ).toBe("41.5 EUR");
+  });
+
+  it("prints an em-dash when the currency could not be resolved", () => {
+    // A bare number would be read in whatever currency the operator assumes,
+    // which is a figure nobody served.
+    expect(
+      moneyFactText({
+        label: "Outcome spend",
+        amount: null,
+        currency: null,
+        availability: "currency_unavailable",
+        attribution: "meta_attributed",
+      }),
+    ).toBe("—");
+  });
 });
 
 describe("served text is not re-derived", () => {
-  it("uses the served title and status verbatim", () => {
+  // Restated, not relaxed. The law was and is: nothing here recomputes what the
+  // read model served — the status word is copied through untouched, and the
+  // served title is never rewritten, reworded or replaced.
+  //
+  // What this test used to also assert, incidentally, was that the Action cell
+  // is *nothing but* the title. That was pinning a data loss: the decisions
+  // branch serves a bare verdict ("Scale budget"), so a money move arrived with
+  // no campaign or ad set on it and the operator could not tell what it was
+  // about. The served entity is now appended after the served title, in the same
+  // " | " form the SQL already uses on the branches that fold it in themselves.
+  // Appended, never substituted.
+  it("copies the served status through and keeps the served title intact", () => {
     const row = toHistoryRow(entry({ title: "Resume ad set", status: "silent_failure" }));
-    expect(row.action).toBe("Resume ad set");
+    expect(row.action.startsWith("Resume ad set")).toBe(true);
+    expect(row.action).toBe("Resume ad set | Ad 1");
     expect(row.outcome).toBe("silent_failure");
+  });
+
+  it("leaves a title that already names its entity exactly as served", () => {
+    const row = toHistoryRow(entry({ title: "Resume ad set | Ad 1", status: "verified_success" }));
+    expect(row.action).toBe("Resume ad set | Ad 1");
   });
 });
 

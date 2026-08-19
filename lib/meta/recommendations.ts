@@ -8,6 +8,7 @@ import type {
   MetaMetricPercentiles,
 } from "@/lib/meta/calibration";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import { formatBidStrategyLabel } from "@/lib/meta/configuration";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
 import type { MetaEvidenceTrail } from "@/lib/meta/evidence-trail";
@@ -843,6 +844,25 @@ export interface WeightedCampaignSnapshot {
   revenue: number;
   purchases: number;
   cpa: number;
+}
+
+/**
+ * The bidding method, as a label.
+ *
+ * `bidStrategyLabel` is an optional convenience the caller may not have filled,
+ * while `bidStrategyType` comes straight from the warehouse (`bid_cap`,
+ * `cost_cap`, ...). Reading only the label printed an em dash beside "Bidding"
+ * on accounts whose bid strategy was stored the whole time. Formatting the
+ * served type is presentation, not a re-derivation: the same function the
+ * config snapshot uses.
+ */
+function bidStrategyDisplayLabel(row: {
+  bidStrategyLabel?: string | null;
+  bidStrategyType?: string | null;
+}): string | null {
+  const explicit = row.bidStrategyLabel?.trim();
+  if (explicit) return explicit;
+  return formatBidStrategyLabel(row.bidStrategyType) ?? null;
 }
 
 export const META_HISTORY_RECENCY_HALF_LIFE_DAYS = 14;
@@ -2387,7 +2407,7 @@ function maybeStructureRecommendation(window: CampaignWindowSnapshot): MetaRecom
     expectedImpact: "Cleaner learning, easier budget control, and more reliable scaling decisions.",
     evidence: [
       { label: "Optimization", value: row.isOptimizationGoalMixed ? "Mixed" : row.optimizationGoal ?? "—", tone: "warning" },
-      { label: "Bidding", value: row.isBidStrategyMixed ? "Mixed" : row.bidStrategyLabel ?? "—", tone: "warning" },
+      { label: "Bidding", value: row.isBidStrategyMixed ? "Mixed" : bidStrategyDisplayLabel(row) ?? "—", tone: "warning" },
       { label: "Budgeting", value: row.isBudgetMixed ? "Mixed" : row.budgetLevel ?? "—", tone: "neutral" },
     ],
     timeframeContext: buildTimeframeContext(
@@ -2743,7 +2763,7 @@ function maybeBidRecommendation(
           ? "More delivery without fully giving up profitability guardrails."
           : "Protect margin until the campaign proves stable again.",
       evidence: [
-        { label: "Bid method", value: row.bidStrategyLabel ?? "—", tone: "neutral" },
+        { label: "Bid method", value: bidStrategyDisplayLabel(row) ?? "—", tone: "neutral" },
         ...(typeof targetBidValue === "number"
           ? [{ label: "Current target", value: fmtRoas(targetBidValue), tone: "neutral" as const }]
           : []),
@@ -2809,7 +2829,7 @@ function maybeBidRecommendation(
           : `Test loosening ${row.bidStrategyLabel ?? "manual bidding"} by 10-15% before increasing budget aggressively.`,
       expectedImpact: "More delivery while keeping changes controlled.",
       evidence: [
-        { label: "Bid method", value: row.bidStrategyLabel ?? "—", tone: "neutral" },
+        { label: "Bid method", value: bidStrategyDisplayLabel(row) ?? "—", tone: "neutral" },
         ...(typeof row.bidValue === "number"
           ? [{
               label: "Bid value",
@@ -2869,7 +2889,7 @@ function maybeBidRecommendation(
       recommendedAction: "Test Cost Cap or Target ROAS instead of scaling the current Lowest Cost setup.",
       expectedImpact: "Better control over profit quality before pushing more volume.",
       evidence: [
-        { label: "Bid method", value: row.bidStrategyLabel ?? "—", tone: "warning" },
+        { label: "Bid method", value: bidStrategyDisplayLabel(row) ?? "—", tone: "warning" },
         { label: "Core ROAS", value: fmtRoas(core.roas), tone: "warning" },
         { label: "Peer-group ROAS", value: fmtRoas(accountRoas), tone: "neutral" },
       ],

@@ -180,6 +180,51 @@ const META_AUTOMATION_DECISION_MODES: MetaAutomationDecisionMode[] = [
   "auto",
 ];
 
+/**
+ * Why a section of this screen cannot be stated.
+ *
+ * `migration_required` is separated from `unavailable` because they call for
+ * different acts: one is a deploy, the other is a retry. Collapsing them made
+ * an unmigrated database look like a flaky read forever.
+ */
+export type MetaAutomationSectionStatus =
+  | "complete"
+  | "unavailable"
+  | "migration_required";
+
+/**
+ * One section's provenance.
+ *
+ * `observedAt` is the instant the read was ATTEMPTED, not a data timestamp, and
+ * it is stamped for failures too — "we tried at 12:04 and could not read it" is
+ * the fact the freshness bar needs, and it is not the same as "no data".
+ */
+export interface MetaAutomationSectionCompleteness {
+  status: MetaAutomationSectionStatus;
+  errorCode: string | null;
+  observedAt: string;
+}
+
+/**
+ * The sections the Automation screen draws, each answering for its own read.
+ *
+ * One failing section must not erase the others: before this, a screen-wide
+ * notion of "unavailable" meant a broken rules read blanked a promotion count
+ * the server had actually proven. Every entry here is independent, and the
+ * surface renders each card from its own entry.
+ */
+export interface MetaAutomationSections {
+  businessControl: MetaAutomationSectionCompleteness;
+  rules: MetaAutomationSectionCompleteness;
+  activity: MetaAutomationSectionCompleteness;
+  promotionRecords: MetaAutomationSectionCompleteness;
+  decisionModes: MetaAutomationSectionCompleteness;
+  /** The Commercial Truth pack the rule triggers are bound to. */
+  anchors: MetaAutomationSectionCompleteness;
+  /** The readiness tier and its promotion ladder. */
+  readiness: MetaAutomationSectionCompleteness;
+}
+
 export interface MetaAutomationControlPlane {
   contractVersion: "meta-automation-control-plane.v1";
   businessId: string;
@@ -216,7 +261,42 @@ export interface MetaAutomationControlPlane {
      * be treated as unproven rather than as "this workspace has no rules".
      */
     rules?: "complete" | "unavailable";
+    /**
+     * Additive, and absent on older payloads.
+     *
+     * `businessControl` below is ALWAYS populated — a failed read degrades to
+     * `defaultBusinessControl`, which is a concrete, benign-looking state
+     * (`killSwitchEngaged: false`, `readinessTier: "manual_review"`, the 15%
+     * / 3-action default guardrails). Without this flag the surface could not
+     * tell that state apart from one the database actually returned, and it
+     * printed a green ENABLED pill and hard guardrail numbers during a control
+     * read failure — while `getMetaWriteBlockState` refused every write in the
+     * same window with `control_state_unavailable`. That is a read failure
+     * rendered as a success, which this screen must never do.
+     *
+     * Anything other than `"complete"` (including absent) means no field of
+     * `businessControl` may be stated as fact.
+     */
+    businessControl?: "complete" | "unavailable";
+    /**
+     * Additive, and absent on older payloads. Separates "this workspace has
+     * never acted" from "the activity read failed": both produce an empty
+     * `activityLedger`, and only the first one may be presented as an empty
+     * ledger. Absent or `unavailable` keeps the em dash.
+     */
+    activityLedger?: "complete" | "unavailable";
   };
+  /**
+   * Per-section provenance, additive beside the flat `readCompleteness` map.
+   *
+   * Both exist on purpose: `readCompleteness` is the shape older payloads and
+   * existing callers already read, and dropping it would make an additive
+   * envelope a breaking change. `sections` is the richer one — it carries the
+   * error code and the observation instant that the flat map has nowhere to
+   * put — and an absent `sections` means this payload came from a server that
+   * did not produce one, never that everything is fine.
+   */
+  sections?: MetaAutomationSections;
   /**
    * Deterministic rule definitions with their real 28-day firing counts.
    * An empty array with `readCompleteness.rules === "complete"` is an honest
@@ -658,23 +738,71 @@ async function withAdditiveColumnFallback<T>(
   }
 }
 
+/**
+ * Degrade a read to a fallback value, WITHOUT recording that it degraded.
+ *
+ * Only legitimate where the fallback is indistinguishable from the real answer
+ * to the reader — i.e. where nothing downstream presents the value as a fact.
+ * Anything a surface prints must go through `readWithCompleteness` instead, so
+ * the payload can say "this was not read" rather than showing the fallback.
+ *
+ * The old body branched on `isUndefinedTableError` and then returned the same
+ * fallback in both arms — dead code that documented an intent (only a missing
+ * table degrades) the function did not honour. The intent is not restored here
+ * because the callers that needed it now carry provenance instead; the branch
+ * is removed so it cannot be mistaken for a live guarantee.
+ */
 async function safeRead<T>(reader: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await reader();
-  } catch (error) {
-    if (isUndefinedTableError(error)) return fallback;
+  } catch {
     return fallback;
   }
+}
+
+/**
+ * Classify a failed section read.
+ *
+ * `undefined_table` / `undefined_column` mean a pending migration, not a flaky
+ * read, and the operator's next act differs accordingly: one is a deploy, the
+ * other is the Retry button.
+ */
+function sectionStatusFor(error: unknown): {
+  status: MetaAutomationSectionStatus;
+  errorCode: string;
+} {
+  if (isUndefinedTableError(error)) {
+    return { status: "migration_required", errorCode: "undefined_table" };
+  }
+  if (isUndefinedColumnError(error)) {
+    return { status: "migration_required", errorCode: "undefined_column" };
+  }
+  return { status: "unavailable", errorCode: "read_failed" };
 }
 
 async function readWithCompleteness<T>(
   reader: () => Promise<T>,
   fallback: T,
-): Promise<{ value: T; completeness: "complete" | "unavailable" }> {
+): Promise<{
+  value: T;
+  completeness: "complete" | "unavailable";
+  section: MetaAutomationSectionCompleteness;
+}> {
+  const observedAt = new Date().toISOString();
   try {
-    return { value: await reader(), completeness: "complete" };
-  } catch {
-    return { value: fallback, completeness: "unavailable" };
+    const value = await reader();
+    return {
+      value,
+      completeness: "complete",
+      section: { status: "complete", errorCode: null, observedAt },
+    };
+  } catch (error) {
+    const classified = sectionStatusFor(error);
+    return {
+      value: fallback,
+      completeness: "unavailable",
+      section: { ...classified, observedAt },
+    };
   }
 }
 
@@ -1081,8 +1209,14 @@ function normalizeKillSwitchReason(value: unknown) {
  * is why three of the screen's five columns had nothing to render. The actor's
  * user id stays in the existing `created_by` foreign key — one id, one owner —
  * and `actor_kind` supplies the type that column never carried.
+ *
+ * Exported because it is the ONLY sanctioned way to add a row to this table.
+ * The confirmation queue's boundary used to hand-roll its own INSERT naming the
+ * six pre-tuple columns, so every proposal decision landed in the ledger with
+ * Actor, Entity and Result already em-dashed — three of the five columns the
+ * screen draws, blank for rows whose writer knew all three.
  */
-async function writeActivityLedgerRow(input: {
+export async function writeActivityLedgerRow(input: {
   businessId: string;
   activityType: string;
   severity: MetaAutomationActivityItem["severity"];
@@ -1556,10 +1690,16 @@ export async function getMetaAutomationControlPlane(input: {
   const providerAccountId = input.providerAccountId?.trim() || null;
   const env = input.env ?? process.env;
   const globalKillSwitchEngaged = isGlobalMetaAdsWriteKillSwitchEngaged(env);
-  const businessControl = await safeRead(
+  // Provenance, not just a value. The fallback this degrades to is a concrete
+  // control state (ENABLED, Tier 1, +15%, 3 actions/day) that the surface would
+  // otherwise print as fact during a read failure — while every write in the
+  // same window is refused with `control_state_unavailable` by
+  // `getMetaWriteBlockState`, which fails closed on the identical error.
+  const businessControlRead = await readWithCompleteness(
     () => readBusinessControl(businessId),
     defaultBusinessControl(businessId),
   );
+  const businessControl = businessControlRead.value;
   const [
     promotionRead,
     automationActivity,
@@ -1568,9 +1708,19 @@ export async function getMetaAutomationControlPlane(input: {
     rulesRead,
   ] = await Promise.all([
     readWithCompleteness(() => readPromotionRecords(businessId), []),
-    safeRead(() => readActivityLedger(businessId), []),
-    safeRead(() => readRecentActionLedger(businessId, providerAccountId), []),
-    safeRead(
+    readWithCompleteness(
+      () => readActivityLedger(businessId),
+      [] as MetaAutomationActivityItem[],
+    ),
+    readWithCompleteness(
+      () => readRecentActionLedger(businessId, providerAccountId),
+      [] as MetaAutomationActivityItem[],
+    ),
+    // Was `safeRead`, which degraded to the defaults WITHOUT recording that it
+    // had. The ladder prints those defaults, so a failed read and a workspace
+    // that has configured nothing were the same four rows. It answers for its
+    // own read now, like every other section.
+    readWithCompleteness(
       () => readDecisionTypeModes(businessId),
       defaultDecisionTypeModes(),
     ),
@@ -1592,9 +1742,14 @@ export async function getMetaAutomationControlPlane(input: {
   // Second phase on purpose: a streak window starts at the tier's own
   // `updatedAt`, which is only known once the modes have been read.
   const streakRead = await readWithCompleteness(
-    () => readCleanApprovalStreaks(businessId, decisionTypeModes),
-    decisionTypeModes,
+    () => readCleanApprovalStreaks(businessId, decisionTypeModes.value),
+    decisionTypeModes.value,
   );
+
+  const activitySection: MetaAutomationSectionCompleteness =
+    automationActivity.section.status === "complete"
+      ? actionActivity.section
+      : automationActivity.section;
 
   return {
     contractVersion: "meta-automation-control-plane.v1",
@@ -1621,10 +1776,39 @@ export async function getMetaAutomationControlPlane(input: {
       promotionRecords: promotionRead.completeness,
       cleanApprovalStreaks: streakRead.completeness,
       rules: rulesRead.completeness,
+      businessControl: businessControlRead.completeness,
+      // The ledger is one presented collection assembled from two reads, so it
+      // is only proven empty when BOTH halves were read. Either half failing
+      // means an empty array is unproven, never "nothing has happened here".
+      activityLedger:
+        automationActivity.completeness === "complete" &&
+        actionActivity.completeness === "complete"
+          ? "complete"
+          : "unavailable",
+    },
+    // The richer envelope. Each section answers for ITS read: a failed rules
+    // read leaves the promotion count complete, and vice versa.
+    sections: {
+      businessControl: businessControlRead.section,
+      rules: rulesRead.section,
+      // One presented collection, two reads: it is only proven when BOTH are.
+      activity: activitySection,
+      promotionRecords: promotionRead.section,
+      decisionModes: decisionTypeModes.section,
+      // The anchors ride the rules read (the Commercial Truth snapshot is
+      // fetched inside it), so they share its provenance rather than claiming
+      // an independent one they do not have.
+      anchors: rulesRead.section,
+      // Readiness is a field of the business control row, plus the promotion
+      // ladder's own streak read. Unproven if either is.
+      readiness:
+        businessControlRead.section.status === "complete"
+          ? streakRead.section
+          : businessControlRead.section,
     },
     rules: rulesRead.value.rules,
     commercialAnchors: rulesRead.value.anchors,
-    activityLedger: [...automationActivity, ...actionActivity]
+    activityLedger: [...automationActivity.value, ...actionActivity.value]
       .sort(
         (left, right) =>
           Date.parse(right.createdAt) - Date.parse(left.createdAt),

@@ -9,7 +9,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LaunchpadExactLanding } from "./legacy-page";
+import {
+  LaunchpadExactLanding,
+  readBusinessTargetCpa,
+  readLaunchpadDraftValidation,
+} from "./legacy-page";
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
 
 afterEach(cleanup);
@@ -81,8 +85,13 @@ describe("LaunchpadExactLanding", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Launchpad" }),
     ).toBeTruthy();
-    expect(screen.getByText("Rebuild “—”")).toBeTruthy();
-    expect(screen.getByText("Duplicate “—”")).toBeTruthy();
+    // Unrouted cards title themselves; a quoted em dash is not a name. The
+    // chip carries the same word, so this asserts inside each card.
+    for (const role of ["rebuild", "duplicate"]) {
+      const card = screen.getByTestId(`launchpad-start-${role}`);
+      expect(card.textContent).not.toContain("“—”");
+    }
+    expect(screen.queryByText("Rebuild “—”")).toBeNull();
     expect(screen.getByText("Start from scratch")).toBeTruthy();
     expect(
       screen.getByText("validation runs before any provider call"),
@@ -122,7 +131,9 @@ describe("LaunchpadExactLanding", () => {
     );
 
     expect(screen.getByText("Rebuild “Verified creative”")).toBeTruthy();
-    expect(screen.getByText("Duplicate “—”")).toBeTruthy();
+    expect(
+      screen.getByTestId("launchpad-start-duplicate").textContent,
+    ).not.toContain("“—”");
     const rebuild = within(
       screen.getByTestId("launchpad-start-rebuild"),
     ).getByRole("button");
@@ -236,5 +247,147 @@ describe("LaunchpadExactLanding", () => {
         .getAllByRole("button")
         .every((button) => button.hasAttribute("disabled")),
     ).toBe(true);
+  });
+});
+
+describe("Launchpad drafts validation column", () => {
+  function renderWithValidation(
+    validation: Parameters<typeof LaunchpadExactLanding>[0]["draftValidations"],
+  ) {
+    render(
+      <LaunchpadExactLanding
+        drafts={[draft()]}
+        intents={[]}
+        loading={false}
+        verifiedRole={null}
+        verifiedHandoffName={null}
+        draftValidations={validation}
+        onStartRole={vi.fn()}
+        onApplyDraft={vi.fn()}
+      />,
+    );
+    return screen.getByTestId("launchpad-draft-row");
+  }
+
+  it("renders the server's clean verdict", () => {
+    const row = renderWithValidation({
+      draft_1: { status: "checked", ok: true, blockerCount: 0 },
+    });
+    const chip = within(row).getByText("Ready");
+    expect(chip.getAttribute("data-status")).toBe("ready");
+  });
+
+  it("counts the blockers the server actually returned", () => {
+    const row = renderWithValidation({
+      draft_1: { status: "checked", ok: false, blockerCount: 2 },
+    });
+    const chip = within(row).getByText("2 blockers");
+    expect(chip.getAttribute("data-status")).toBe("failed");
+  });
+
+  it("keeps the count singular for one blocker", () => {
+    const row = renderWithValidation({
+      draft_1: { status: "checked", ok: false, blockerCount: 1 },
+    });
+    expect(within(row).getByText("1 blocker")).toBeTruthy();
+  });
+
+  it.each(["pending", "unavailable"] as const)(
+    "shows a dash rather than a verdict while the answer is %s",
+    (status) => {
+      const row = renderWithValidation({ draft_1: { status } });
+      expect(within(row).queryByText("Ready")).toBeNull();
+      expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe("readLaunchpadDraftValidation", () => {
+  const draftPayload = { mode: "add_to_existing", copyMode: "reuse_creative" };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the draft's own payload and reports the server's blockers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: async () => ({ ok: false, blockers: [{ code: "a" }, { code: "b" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await readLaunchpadDraftValidation({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      draft: { payload: draftPayload as never },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/launchpad/meta/validate");
+    expect(JSON.parse(init.body)).toEqual({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      payload: draftPayload,
+    });
+    expect(result).toEqual({ status: "checked", ok: false, blockerCount: 2 });
+  });
+
+  it("reports a bodiless response as unavailable rather than as Ready", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        json: async () => ({ error: { code: "meta_account_not_assigned" } }),
+      }),
+    );
+
+    await expect(
+      readLaunchpadDraftValidation({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        draft: { payload: draftPayload as never },
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("reports a transport failure as unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    await expect(
+      readLaunchpadDraftValidation({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        draft: { payload: draftPayload as never },
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+});
+
+describe("readBusinessTargetCpa", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the configured target CPA from the business target pack", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ snapshot: { targetPack: { targetCpa: 42.5 } } }),
+      }),
+    );
+
+    await expect(readBusinessTargetCpa("biz_1")).resolves.toBe(42.5);
+  });
+
+  it("returns null when no target CPA is configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ snapshot: { targetPack: { targetCpa: null } } }),
+      }),
+    );
+
+    await expect(readBusinessTargetCpa("biz_1")).resolves.toBeNull();
   });
 });

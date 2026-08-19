@@ -12,7 +12,11 @@
  *   that is *unavailable*, and one that is *not applicable* because no human
  *   acted. Those are three different sentences, and none of them is "System".
  */
-import type { MetaHistoryEntry, MetaHistoryResponse } from "@/lib/meta/history-contract";
+import type {
+  MetaHistoryEntry,
+  MetaHistoryMoneyFact,
+  MetaHistoryResponse,
+} from "@/lib/meta/history-contract";
 
 export interface HistoryRow {
   id: string;
@@ -21,6 +25,26 @@ export interface HistoryRow {
   outcome: string;
   actor: string | null;
   replayed: boolean;
+  /**
+   * The engine version the replayed snapshot was produced by.
+   *
+   * `replayed` alone says a row is a reconstruction; the design's replay caveat
+   * exists to ask *which* engine reconstructed it ("Replay ≠ live; V1/V2
+   * snapshot badges"). The served `replay.engineVersion` is carried verbatim,
+   * and a served `null` stays `null` so the drawer prints an em-dash rather
+   * than a guessed version.
+   */
+  replayEngineVersion?: string | null;
+  /** The engine's own reasoning for the entry, served or absent. Never composed here. */
+  summary?: string | null;
+  /**
+   * The money facts the read model served, verbatim.
+   *
+   * Nothing is re-derived: a fact whose currency could not be resolved arrives
+   * with a null amount and is rendered as an em-dash, because a number with no
+   * currency is not an amount.
+   */
+  money?: readonly MetaHistoryMoneyFact[];
 }
 
 export interface HistoryPage {
@@ -29,6 +53,14 @@ export interface HistoryPage {
   disclosure: string | null;
   limitations: string[];
   accountLabel: string | null;
+  /**
+   * The cursor the disclosure is talking about.
+   *
+   * It used to be dropped here, so the surface printed "More exist beyond this
+   * page" while holding nothing that could ask for them: the operator read a
+   * sentence about row 41 with no way to reach it.
+   */
+  nextCursor: string | null;
 }
 
 /**
@@ -45,15 +77,53 @@ export function actorFor(entry: MetaHistoryEntry): string | null {
   return name.length > 0 ? name : null;
 }
 
+/**
+ * The Action cell's text.
+ *
+ * Most branches of the journal SQL already fold the entity into the served
+ * title (`'… | ' || COALESCE(entity_name, entity_id)`), but the decisions
+ * branch does not: it serves a bare verdict such as "Scale budget", which left
+ * the operator unable to tell which campaign or ad set the row was about. The
+ * entity is appended only when the served title does not already carry it, in
+ * the same ` | ` form the SQL uses, so no row gains a duplicate.
+ *
+ * The name is preferred and the id is the fallback — never a made-up label, and
+ * never nothing when an id was served.
+ */
+export function actionFor(entry: MetaHistoryEntry): string {
+  const title = entry.title;
+  const entityLabel = (entry.entity.name ?? "").trim() || entry.entity.id.trim();
+  if (!entityLabel || title.includes(entityLabel)) return title;
+  return `${title} | ${entityLabel}`;
+}
+
+/**
+ * One money fact as text.
+ *
+ * An amount is only an amount in a currency. The read model nulls the amount
+ * whenever the account currency could not be resolved, and that case renders as
+ * an em-dash: printing the bare number would state a sum in no currency, which
+ * a reader would silently take as their own.
+ */
+export function moneyFactText(fact: MetaHistoryMoneyFact): string {
+  if (fact.availability !== "available" || fact.amount === null || !fact.currency) {
+    return "—";
+  }
+  return `${fact.amount} ${fact.currency}`;
+}
+
 export function toHistoryRow(entry: MetaHistoryEntry): HistoryRow {
   return {
     id: entry.id,
     occurredAt: entry.occurredAt,
-    action: entry.title,
+    action: actionFor(entry),
     // The served status word, not a re-derived one.
     outcome: entry.status,
     actor: actorFor(entry),
     replayed: entry.replay !== null,
+    replayEngineVersion: entry.replay?.engineVersion ?? null,
+    summary: entry.summary,
+    money: entry.money,
   };
 }
 
@@ -73,5 +143,6 @@ export function toHistoryPage(payload: MetaHistoryResponse): HistoryPage {
     disclosure,
     limitations: payload.limitations.map((item) => item.message),
     accountLabel: payload.scope.providerAccountName ?? payload.scope.providerAccountId,
+    nextCursor: payload.page.nextCursor,
   };
 }

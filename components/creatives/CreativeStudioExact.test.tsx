@@ -197,6 +197,47 @@ describe("CreativeStudioExact Assets interaction state", () => {
     });
   });
 
+  /**
+   * ITEM 18 / CREATIVE-42 — an Assets row is the PIN, and only the pin.
+   *
+   * The canonical Dashboard v2 reference defines no Assets detail drawer.
+   * `docs/dashboard-v2-parity-defects.md:1286` quotes the design directly:
+   * "The Assets row's sole handler is `r.toggle` at line 758; the dedicated
+   * checkbox and full row both represent the pin state. The only Studio drawer
+   * trigger is the Copies row handler at line 813." The closed verdict at
+   * :1023 says the same in the other direction: "An Assets row performs only
+   * the canonical pin toggle; the old asset usage/evidence drawer path is not
+   * mounted from this screen."
+   *
+   * So the absence of `onOpenRow` on `CreativeStudioAssetsModel` is a DESIGN
+   * DECISION, not an unfinished feature — and this test is what stops it being
+   * quietly undone. A stray handler is passed in deliberately: even when the
+   * field reappears on the model, the surface must not honour it, because the
+   * row already means something else. The Copies row keeps its opener, which is
+   * the asymmetry the design draws.
+   */
+  it("keeps an Assets row bound to the pin alone, honouring no detail opener", async () => {
+    const strayOpener = vi.fn();
+    const onPinnedIdsChange = vi.fn();
+    renderStudio("assets", {
+      assets: {
+        ...assetsModel({ onPinnedIdsChange }),
+        onOpenRow: strayOpener,
+      } as unknown as CreativeStudioAssetsModel,
+    });
+
+    fireEvent.click(document.querySelector('[data-creative-studio-asset-row="asset-a"]')!);
+
+    // The pin happened...
+    expect(document.querySelector('[data-pinned-asset="asset-a"]')).toBeTruthy();
+    await waitFor(() => {
+      expect(onPinnedIdsChange).toHaveBeenLastCalledWith(["asset-a"]);
+    });
+    // ...and nothing else did.
+    expect(strayOpener).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("opens the exact metric picker and saves edits into the Custom set", () => {
     renderStudio("assets");
 
@@ -337,27 +378,47 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     expect(document.body.textContent).not.toContain("Sessions");
   });
 
-  it("keeps all four Inbox lanes and fails closed when upload or card actions have no callback", () => {
+  /**
+   * THE INBOX SEGMENTS ARE THE ENGINE'S OWN SERVED SECTIONS.
+   *
+   * The lanes this replaces were Requested / In production / Delivered / Live —
+   * a creative-production pipeline with no producer anywhere in the product (no
+   * workflow status, owner, due date, version or approval is recorded; see
+   * `CreativeInboxColumnId` for the greps). Four columns named after that
+   * pipeline asserted it existed no matter what caption sat beneath them.
+   *
+   * What is pinned here now:
+   *
+   *   1. three segments, named after the briefing authority's own served
+   *      sections, drawn in the authority's own order;
+   *   2. a served card renders the engine's label and one-line summary and its
+   *      measured facts — and an unmeasured fact is an em dash, not a zero;
+   *   3. no owner avatar, no due date, and no action button, because none of
+   *      those is a thing this product records or can do from here;
+   *   4. no upload drop zone, because there is no multipart handler and no
+   *      storage dependency in this tree.
+   */
+  it("draws the three served briefing segments and no workflow affordance", () => {
     renderStudio("inbox", {
       inbox: {
         state: "ready",
         message: null,
         columns: [
           {
-            id: "delivered",
-            name: "Delivered",
-            tone: "automation",
+            id: "watching",
+            name: "Watching",
+            tone: "info",
             cards: [
               {
                 id: "served-card",
-                source: "Served source",
-                sourceTone: "neutral",
-                name: "Served file",
-                note: null,
-                ownerInitials: null,
-                ownerTone: "neutral",
-                due: null,
-                actionLabel: "Review & approve",
+                source: "Watch",
+                sourceTone: "info",
+                name: "Served creative",
+                note: "Spend is below the review floor.",
+                facts: [
+                  { label: "Spend", value: "$1,204" },
+                  { label: "ROAS", value: null },
+                ],
               },
             ],
           },
@@ -366,14 +427,26 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     });
 
     expect(textOf("[data-inbox-column] > div:first-child").map((text) => text.replace(/\d+$/, ""))).toEqual([
-      "Requested",
-      "In production",
-      "Delivered",
-      "Live",
+      "Action now",
+      "Watching",
+      "Healthy",
     ]);
-    expect(screen.getByText("Drop new exports here")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Browse files" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Review & approve" })).toBeDisabled();
+    // The card lands in the segment the authority served it in.
+    expect(
+      document.querySelector('[data-inbox-column="watching"] [data-inbox-card="served-card"]'),
+    ).toBeTruthy();
+    expect(screen.getByText("Served creative")).toBeTruthy();
+    expect(screen.getByText("Spend is below the review floor.")).toBeTruthy();
+    // Measured value printed; unmeasured value is an em dash, never a zero.
+    expect(document.querySelector('[data-inbox-fact="Spend"]')?.textContent).toContain("$1,204");
+    expect(document.querySelector('[data-inbox-fact="ROAS"]')?.textContent).toContain("—");
+    expect(document.querySelector('[data-inbox-fact="ROAS"]')?.textContent).not.toContain("0");
+
+    // Nothing on this surface claims a request, version, approval or handoff.
+    expect(screen.queryByText("Drop new exports here")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Browse files/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(document.body.textContent).toContain("are not built");
   });
 
   it("keeps four Audience summary slots, five fixed breakdowns and the matrix shell when unavailable", () => {

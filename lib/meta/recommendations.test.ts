@@ -116,6 +116,7 @@ function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
 const breakdowns: MetaBreakdownsResponse = {
   status: "ok",
   age: [],
+  gender: [],
   location: [],
   placement: [],
   budget: { campaign: [], adset: [] },

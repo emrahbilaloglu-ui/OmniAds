@@ -424,6 +424,18 @@ function mergeDirtySeverity(
   return priority[right] > priority[left] ? right : left;
 }
 
+/**
+ * The types a finalized day must carry before it stops being "dirty".
+ *
+ * Deliberately still THREE after `gender` was added to `MetaBreakdownType`.
+ * `gender` is co-fetched with `age` from one `age,gender` request — it is not an
+ * independent endpoint that could be present or absent on its own — and adding
+ * it here would have declared every historical day incomplete and re-queued the
+ * entire retained window for a re-sync. Coverage counting is filtered to exactly
+ * this list (see `META_EXPECTED_BREAKDOWN_TYPES_SQL_LIST`) so a `gender` row can
+ * never stand in for a missing `country` and let an incomplete day read as
+ * complete.
+ */
 const META_EXPECTED_FINALIZED_BREAKDOWN_TYPES = [
   "age",
   "country",
@@ -458,14 +470,61 @@ const META_BREAKDOWN_ENDPOINT_COVERAGE_MAP = [
   checkpointScope: (typeof META_BREAKDOWN_CHECKPOINT_SCOPES)[number];
 }>;
 
-const META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_SQL = `
-  CASE checkpoint.checkpoint_scope
-    WHEN 'breakdown:age,gender' THEN 'age'
-    WHEN 'breakdown:country' THEN 'country'
-    WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
-    ELSE NULL
-  END
+/**
+ * One checkpoint scope can finalize MORE THAN ONE breakdown type.
+ *
+ * `breakdown:age,gender` is a single fetch that yields two dimensions, so the
+ * old `CASE ... THEN 'age'` could only ever name one of them and coverage for
+ * `gender` was structurally invisible. A relation replaces the CASE: the same
+ * checkpoint row fans out to every type it actually finalized.
+ *
+ * The contract is preserved in both directions — no scope's existing meaning
+ * changed, `breakdown:age,gender` still finalizes `age`; it merely also admits
+ * the second dimension it was already fetching.
+ */
+const META_BREAKDOWN_CHECKPOINT_SCOPE_TYPE_PAIRS = [
+  { checkpointScope: "breakdown:age,gender", breakdownType: "age" },
+  { checkpointScope: "breakdown:age,gender", breakdownType: "gender" },
+  { checkpointScope: "breakdown:country", breakdownType: "country" },
+  {
+    checkpointScope:
+      "breakdown:publisher_platform,platform_position,impression_device",
+    breakdownType: "placement",
+  },
+] as const satisfies ReadonlyArray<{
+  checkpointScope: (typeof META_BREAKDOWN_CHECKPOINT_SCOPES)[number];
+  breakdownType: MetaBreakdownType;
+}>;
+
+/**
+ * The fan-out as a SQL relation, joined where the CASE used to sit.
+ *
+ * Built from compile-time literals only — there is no caller-supplied text in
+ * this string, and it is spliced into query TEXT (a tagged-template
+ * interpolation would bind it as a parameter, which is not a join source).
+ * Two of the three coverage queries are tagged templates and therefore carry
+ * the same relation written out literally; `warehouse-breakdown-fanout.test.ts`
+ * fails if the three copies ever disagree.
+ */
+const META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_JOIN_SQL = `
+  JOIN (VALUES
+    ${META_BREAKDOWN_CHECKPOINT_SCOPE_TYPE_PAIRS.map(
+      (pair) => `('${pair.checkpointScope}', '${pair.breakdownType}')`,
+    ).join(",\n    ")}
+  ) AS checkpoint_scope_type(checkpoint_scope, breakdown_type)
+    ON checkpoint_scope_type.checkpoint_scope = checkpoint.checkpoint_scope
 `;
+
+/**
+ * The coverage denominator, spelled as SQL literals.
+ *
+ * Counting DISTINCT breakdown_type WITHOUT this filter is how adding `gender`
+ * would have silently loosened the gate: a day holding age + gender + placement
+ * would count three types and pass while `country` was missing entirely.
+ */
+const META_EXPECTED_BREAKDOWN_TYPES_SQL_LIST = META_EXPECTED_FINALIZED_BREAKDOWN_TYPES.map(
+  (type) => `'${type}'`,
+).join(", ");
 
 const META_AUTHORITATIVE_CORE_SCOPES = [
   "account_daily",
@@ -8176,12 +8235,10 @@ export async function upsertMetaAccountDailyRows(
  * same current inventory under each backfilled effective date, fabricating
  * config history and amplifying storage by the size of the wave.
  *
- * Historical fact writers pass `appendConfigHistory: false` to keep metrics and
- * dimension enrichment while suppressing the false history append. The default
- * stays `true`, so every existing caller is unchanged.
- */
+ * Config history is NOT written here. `appendMetaCurrentConfigHistory` is its
+ * only author; see the note there for why two authors corrupted the table.
+*/
 export interface MetaDailyWriteOptions {
-  appendConfigHistory?: boolean;
 }
 
 export async function upsertMetaCampaignDailyRows(
@@ -8442,9 +8499,9 @@ export async function upsertMetaCampaignDailyRows(
     await sql.query(query, values);
     await Promise.all([
       upsertMetaCampaignDimensionRows(chunk, referenceContext),
-      ...(options?.appendConfigHistory === false
-        ? []
-        : [appendMetaCampaignConfigHistoryRows(chunk, referenceContext)]),
+      // No config-history side effect. See the note on
+      // `appendMetaCurrentConfigHistory`: that writer owns this table.
+
     ]);
   }
 }
@@ -8714,9 +8771,8 @@ export async function upsertMetaAdSetDailyRows(
     await sql.query(query, values);
     await Promise.all([
       upsertMetaAdSetDimensionRows(chunk, referenceContext),
-      ...(options?.appendConfigHistory === false
-        ? []
-        : [appendMetaAdSetConfigHistoryRows(chunk, referenceContext)]),
+      // No config-history side effect; see the campaign writer above.
+
     ]);
   }
 }
@@ -8725,17 +8781,22 @@ export async function upsertMetaAdSetDailyRows(
  * Typed campaign and adset config history for the account's CURRENT, provisional
  * day — written directly, not as a side effect of a daily fact write.
  *
- * The `appendConfigHistory` option on the daily writers could never fire. Those
- * writers run only when `truthState === "finalized"`, and current evidence is
- * permitted only on the account's own local today declared PROVISIONAL. The two
- * conditions are mutually exclusive, so `appendConfigHistory: true` was dead at
- * every call site and `meta_campaign_config_history` /
- * `meta_adset_config_history` received nothing at all.
+ * This is the ONLY author of these two tables, and that is the point.
  *
- * Even had it fired, every row would have been dropped: `captured_at` is part of
- * the arbiter, `buildMetaHistoryCapturedAt` returns null without a real
- * observation time, and on a provisional day `finalizedAt` is null and nothing
- * ever set `configObservedAt`.
+ * The daily writers used to append config history as a side effect as well, and
+ * two authors with two different notions of the same configuration is how the
+ * table filled with changes nobody made. The sync path builds its daily rows
+ * with STICKY mixed flags — `Boolean(summary.isBudgetMixed) ||
+ * Boolean(latestSnapshot.isBudgetMixed)`, correct for a daily fact, which is
+ * mixed if it was mixed at any point that day — while the `getCampaigns` read
+ * path builds them from the raw response. Those flags are part of the
+ * configuration fingerprint, so the two writers alternated between two hashes
+ * for an unchanged campaign: 917,269 of 966,523 recorded "transitions" on one
+ * account were an A -> B -> A flip-flop, and History reported every one of them
+ * as "Campaign configuration changed" to an operator who had changed nothing.
+ *
+ * A read path also has no business authoring history: it holds no observation
+ * receipt, so it cannot honour the partial-receipt rule below.
  *
  * So this writer takes the real observation timestamp from the config receipt
  * that produced the rows and stamps it onto them. It uses the SAME canonical
@@ -8925,14 +8986,30 @@ async function filterMetaConfigTransitions<TRow>(
        AND ${options.entityColumn} = ANY($3::text[])
      ORDER BY ${options.entityColumn}, captured_at DESC, id DESC`,
     [businessId, providerAccountId, entityIds],
-  )) as Array<{ entity_id: string; config_fingerprint: string }>;
+  )) as Array<{ entity_id: string; config_fingerprint: string }> | undefined;
+  // Fails toward writing. If the latest-fingerprint read gives back nothing
+  // usable we cannot tell a repeat from a transition, and the two mistakes are
+  // not symmetric: writing a duplicate costs a row the History read already
+  // treats as a non-change, while assuming "unchanged" would silently discard a
+  // real configuration change that nothing else records.
   const latestByEntity = new Map(
-    latest.map((row) => [row.entity_id, row.config_fingerprint]),
+    (Array.isArray(latest) ? latest : []).map((row) => [
+      row.entity_id,
+      row.config_fingerprint,
+    ]),
   );
 
   return rows.filter((row) => {
+    // Fingerprint what will actually be STORED, not the row as handed in.
+    //
+    // The appenders normalise a constrained bid strategy with no bid value away
+    // before writing, so the stored `config_fingerprint` is the hash of the
+    // stripped row. This comparison hashed the raw one, so for every campaign
+    // on a constrained strategy with a null bid the two could never match: the
+    // filter reported a transition on every pass and suppressed nothing, which
+    // is the shape of "this guard exists and does not work".
     const fingerprint = buildMetaConfigHistoryFingerprint(
-      row as never,
+      stripIncompleteConstrainedBidFields(row as never) as never,
     );
     return latestByEntity.get(options.entityIdOf(row)) !== fingerprint;
   });
@@ -8979,7 +9056,6 @@ export async function replaceMetaCampaignDailySlice(input: {
   rows: MetaCampaignDailyRow[];
   proof: MetaFinalizationCompletenessProof;
   /** See MetaDailyWriteOptions: historical replays must not append config history. */
-  appendConfigHistory?: boolean;
 }) {
   if (input.rows.length === 0) return;
   const slice = {
@@ -8992,7 +9068,6 @@ export async function replaceMetaCampaignDailySlice(input: {
   await runInTransaction(async () => {
     const sql = getDb();
     await upsertMetaCampaignDailyRows(input.rows, {
-      appendConfigHistory: input.appendConfigHistory,
     });
     const campaignIds = input.rows.map((row) => row.campaignId);
     await sql`
@@ -9009,7 +9084,6 @@ export async function replaceMetaAdSetDailySlice(input: {
   rows: MetaAdSetDailyRow[];
   proof: MetaFinalizationCompletenessProof;
   /** See MetaDailyWriteOptions: historical replays must not append config history. */
-  appendConfigHistory?: boolean;
 }) {
   if (input.rows.length === 0) return;
   const slice = {
@@ -9022,7 +9096,6 @@ export async function replaceMetaAdSetDailySlice(input: {
   await runInTransaction(async () => {
     const sql = getDb();
     await upsertMetaAdSetDailyRows(input.rows, {
-      appendConfigHistory: input.appendConfigHistory,
     });
     const adsetIds = input.rows.map((row) => row.adsetId);
     await sql`
@@ -9870,7 +9943,25 @@ export async function upsertMetaAdDailyRows(
         cpa = EXCLUDED.cpa,
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
-        link_clicks = COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks),
+        -- WHAT THE OLD THREE-ARGUMENT COALESCE ACTUALLY MEANT.
+        --
+        -- It read COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks).
+        -- The second argument is the literal 0, which is never NULL, so the
+        -- third argument was UNREACHABLE: the "keep whatever is already stored"
+        -- arm never ran once, in any re-sync, since the clause was written.
+        -- What it did instead is the opposite of what it looks like -- a
+        -- re-sync that supplied nothing OVERWROTE a previously measured
+        -- link-click count with a fabricated 0. That is a destructive write
+        -- wearing the costume of a fallback.
+        --
+        -- Two arguments now, and the semantics are the ones the three-argument
+        -- form was pretending to have:
+        --   a supplied value (INCLUDING a measured 0) wins, always;
+        --   NULL (the provider supplied nothing) leaves the stored value alone,
+        --   which is NULL on a first insert and the last real measurement
+        --   afterwards.
+        -- Nothing here manufactures a number, and nothing here erases one.
+        link_clicks = COALESCE(EXCLUDED.link_clicks, meta_ad_daily.link_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         truth_state = EXCLUDED.truth_state,
         truth_version = CASE
@@ -9931,7 +10022,14 @@ export async function upsertMetaAdDailyRows(
           row.cpa,
           row.ctr,
           row.cpc,
-          row.linkClicks ?? 0,
+          // `?? null`, not `?? 0`. The column is nullable as of the widening in
+          // lib/migrations.ts, and this bind is the only place that decided
+          // what an absent provider field means. `?? 0` answered "the account
+          // measured zero link clicks" on the provider's behalf, which is a
+          // measurement this code has no standing to make. A supplied 0 still
+          // arrives as 0 and is still written as 0 — that is a measurement and
+          // it is preserved exactly.
+          row.linkClicks ?? null,
           row.sourceSnapshotId,
           row.truthState ?? "finalized",
           row.truthVersion ?? 1,
@@ -10009,6 +10107,29 @@ function coalesceNumber(current: number | null | undefined, next: number | null 
   return current ?? next ?? null;
 }
 
+/**
+ * Add two counts that may each be ABSENT, without inventing a measurement.
+ *
+ * `(a ?? 0) + (b ?? 0)` reads like a sum but is really a fabricator: it answers
+ * 0 for absent + absent, which is a measurement neither operand made. That is
+ * the same class of bug as the old three-argument COALESCE in the ON CONFLICT
+ * clause below — an absence quietly promoted to a confident zero.
+ *
+ * The rules here are the only ones that preserve what each side actually said:
+ *   absent  + absent  -> absent  (nothing was supplied; say nothing)
+ *   absent  + value   -> value   (the one measurement present survives intact)
+ *   value   + value   -> sum     (unchanged arithmetic)
+ * A measured 0 is a value, not an absence, so it participates in the sum
+ * normally and can never be mistaken for "unsupplied".
+ */
+function addOptionalCount(
+  current: number | null | undefined,
+  next: number | null | undefined,
+) {
+  if (current == null && next == null) return null;
+  return (current ?? 0) + (next ?? 0);
+}
+
 function pickEarliestDateLike(current: string | null | undefined, next: string | null | undefined) {
   if (!current) return next ?? null;
   if (!next) return current;
@@ -10067,7 +10188,12 @@ function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
     existing.reach += row.reach;
     existing.conversions += row.conversions;
     existing.revenue += row.revenue;
-    existing.linkClicks = (existing.linkClicks ?? 0) + (row.linkClicks ?? 0);
+    // Two ad-rows folding into one creative-day. `?? 0` on both sides turned
+    // "neither row supplied a link-click count" into a measured 0 before the
+    // write ever reached the database, which no ON CONFLICT clause downstream
+    // could undo. A supplied 0 is still a value and still sums to what it
+    // summed to before; only genuine absence stays absent.
+    existing.linkClicks = addOptionalCount(existing.linkClicks, row.linkClicks);
     existing.outboundClicks = (existing.outboundClicks ?? 0) + (row.outboundClicks ?? 0);
     existing.sourceSnapshotId = coalesceText(existing.sourceSnapshotId, row.sourceSnapshotId);
     existing.sourceRunId = coalesceText(existing.sourceRunId, row.sourceRunId);
@@ -10160,7 +10286,14 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.cpa ?? null,
           row.ctr,
           row.cpc,
-          row.linkClicks ?? 0,
+          // `?? null`, not `?? 0` — the same law the `meta_ad_daily` bind
+          // above follows, on the table the DEFAULT Assets grain reads.
+          // `meta_creative_daily.link_clicks` is nullable as of the widening in
+          // lib/migrations.ts, so this bind no longer has to answer "the
+          // account measured zero link clicks" on the provider's behalf. A
+          // supplied 0 still arrives as 0 and is written as 0: that is a
+          // measurement and it is preserved exactly.
+          row.linkClicks ?? null,
           row.outboundClicks ?? 0,
           row.sourceSnapshotId,
           row.sourceRunId ?? null,
@@ -10727,15 +10860,17 @@ export async function getMetaDirtyRecentDates(input: {
       SELECT
         partition.provider_account_id,
         partition.partition_date AS date,
-        CASE checkpoint.checkpoint_scope
-          WHEN 'breakdown:age,gender' THEN 'age'
-          WHEN 'breakdown:country' THEN 'country'
-          WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
-          ELSE NULL
-        END AS breakdown_type
+        checkpoint_scope_type.breakdown_type AS breakdown_type
       FROM meta_sync_partitions partition
       JOIN meta_sync_checkpoints checkpoint
         ON checkpoint.partition_id = partition.id
+      JOIN (VALUES
+        ('breakdown:age,gender', 'age'),
+        ('breakdown:age,gender', 'gender'),
+        ('breakdown:country', 'country'),
+        ('breakdown:publisher_platform,platform_position,impression_device', 'placement')
+      ) AS checkpoint_scope_type(checkpoint_scope, breakdown_type)
+        ON checkpoint_scope_type.checkpoint_scope = checkpoint.checkpoint_scope
       WHERE partition.business_id = ${input.businessId}
         AND (${input.providerAccountId ?? null}::text IS NULL OR partition.provider_account_id = ${input.providerAccountId ?? null})
         AND partition.partition_date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
@@ -10749,7 +10884,7 @@ export async function getMetaDirtyRecentDates(input: {
         date,
         COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
       FROM breakdown_coverage
-      WHERE breakdown_type IS NOT NULL
+      WHERE breakdown_type IN ('age', 'country', 'placement')
       GROUP BY provider_account_id, date
     )
     SELECT
@@ -10815,10 +10950,11 @@ export async function getMetaDirtyRecentDates(input: {
       SELECT
         partition.provider_account_id,
         partition.partition_date AS date,
-        ${META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_SQL} AS breakdown_type
+        checkpoint_scope_type.breakdown_type AS breakdown_type
       FROM meta_sync_partitions partition
       JOIN meta_sync_checkpoints checkpoint
         ON checkpoint.partition_id = partition.id
+      ${META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_JOIN_SQL}
       WHERE partition.business_id = $1
         AND ($2::text IS NULL OR partition.provider_account_id = $2)
         AND partition.partition_date BETWEEN $3 AND $4
@@ -10836,7 +10972,7 @@ export async function getMetaDirtyRecentDates(input: {
         date,
         COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
       FROM breakdown_coverage
-      WHERE breakdown_type IS NOT NULL
+      WHERE breakdown_type IN (${META_EXPECTED_BREAKDOWN_TYPES_SQL_LIST})
       GROUP BY provider_account_id, date
     )
     SELECT
@@ -10902,15 +11038,17 @@ export async function getMetaDirtyRecentDates(input: {
       SELECT
         partition.provider_account_id,
         partition.partition_date AS date,
-        CASE checkpoint.checkpoint_scope
-          WHEN 'breakdown:age,gender' THEN 'age'
-          WHEN 'breakdown:country' THEN 'country'
-          WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
-          ELSE NULL
-        END AS breakdown_type
+        checkpoint_scope_type.breakdown_type AS breakdown_type
       FROM meta_sync_partitions partition
       JOIN meta_sync_checkpoints checkpoint
         ON checkpoint.partition_id = partition.id
+      JOIN (VALUES
+        ('breakdown:age,gender', 'age'),
+        ('breakdown:age,gender', 'gender'),
+        ('breakdown:country', 'country'),
+        ('breakdown:publisher_platform,platform_position,impression_device', 'placement')
+      ) AS checkpoint_scope_type(checkpoint_scope, breakdown_type)
+        ON checkpoint_scope_type.checkpoint_scope = checkpoint.checkpoint_scope
       WHERE partition.business_id = ${input.businessId}
         AND (${input.providerAccountId ?? null}::text IS NULL OR partition.provider_account_id = ${input.providerAccountId ?? null})
         AND partition.partition_date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
@@ -10924,7 +11062,7 @@ export async function getMetaDirtyRecentDates(input: {
         date,
         COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
       FROM breakdown_coverage
-      WHERE breakdown_type IS NOT NULL
+      WHERE breakdown_type IN ('age', 'country', 'placement')
       GROUP BY provider_account_id, date
     )
     SELECT
@@ -11919,7 +12057,13 @@ export async function getMetaBreakdownDailyRange(input: {
     spend: Number(row.spend ?? 0),
     impressions: Number(row.impressions ?? 0),
     clicks: Number(row.clicks ?? 0),
-    reach: Number(row.reach ?? 0),
+    // `?? 0` here was the read-side half of the same defect: it turned a NULL
+    // reach — the honest "never measured" — back into a measured zero before
+    // any caller could tell the difference. Legacy rows written before the
+    // breakdown fetch asked for reach still carry a literal 0; those are not
+    // reinterpreted here, and their frequency stays NULL because 0 is not a
+    // divisor.
+    reach: row.reach == null ? null : Number(row.reach),
     frequency: row.frequency == null ? null : Number(row.frequency),
     conversions: Number(row.conversions ?? 0),
     revenue: Number(row.revenue ?? 0),

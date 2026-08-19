@@ -6,6 +6,38 @@ import { describe, expect, it, vi } from "vitest";
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 import type { AutomationProposalsModel } from "./automation-proposals-exact-adapter";
 import { MetaAutomationView } from "./automation-view";
+import { buildAutomationViewerEnvelope } from "./viewer-envelope";
+
+/**
+ * Every read this payload carries was actually performed.
+ *
+ * Kept as a named constant because the provenance is now load-bearing for more
+ * than one card: a test that wants to pin ONE unproven read (rules, streaks,
+ * promotions) must not silently un-prove the control read too, which would
+ * em-dash the kill switch and guardrails and change what the test is measuring.
+ */
+const PROVEN_READS = {
+  promotionRecords: "complete",
+  businessControl: "complete",
+  activityLedger: "complete",
+} as const;
+
+const OBSERVED_AT = "2026-08-18T09:00:00.000Z";
+
+/** Every section read, and every one of them proven. */
+const SECTIONS = {
+  businessControl: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  rules: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  activity: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  promotionRecords: {
+    status: "complete",
+    errorCode: null,
+    observedAt: OBSERVED_AT,
+  },
+  decisionModes: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  anchors: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+  readiness: { status: "complete", errorCode: null, observedAt: OBSERVED_AT },
+} as const;
 
 const payload: MetaAutomationControlPlane = {
   contractVersion: "meta-automation-control-plane.v1",
@@ -55,7 +87,7 @@ const payload: MetaAutomationControlPlane = {
       createdAt: "2026-08-15T10:00:00.000Z",
     },
   ],
-  readCompleteness: { promotionRecords: "complete" },
+  readCompleteness: PROVEN_READS,
   activityLedger: [
     {
       id: "activity_1",
@@ -120,12 +152,45 @@ function render(input: MetaAutomationControlPlane | null = payload) {
   );
 }
 
-function renderWithQueue(proposals: AutomationProposalsModel) {
+/**
+ * A queue model with the hold counts read and nothing held — the canonical
+ * state. Spelled out rather than defaulted so that every test which wants a
+ * DIFFERENT hold state has to say so, and so no test can accidentally assert
+ * the design's geometry off a model that never carried the fact.
+ */
+const NO_HOLDS = { claimed: 0, reconcile: 0 } as const;
+
+function queueModel(
+  input: Partial<AutomationProposalsModel> & {
+    readCompleteness: AutomationProposalsModel["readCompleteness"];
+    count: string;
+    rows: AutomationProposalsModel["rows"];
+  },
+): AutomationProposalsModel {
+  const holds = input.holds === undefined ? { ...NO_HOLDS } : input.holds;
+  return {
+    ...input,
+    holds,
+    provenEmpty:
+      input.provenEmpty ??
+      (input.readCompleteness === "complete" &&
+        input.rows.length === 0 &&
+        holds !== null &&
+        holds.claimed === 0 &&
+        holds.reconcile === 0),
+  };
+}
+
+function renderWithQueue(
+  proposals: AutomationProposalsModel,
+  extra?: { viewer?: React.ComponentProps<typeof MetaAutomationView>["viewer"] },
+) {
   return renderToStaticMarkup(
     <MetaAutomationView
       payload={payload}
       providerAccountId="act_1"
       proposals={proposals}
+      viewer={extra?.viewer}
     />,
   );
 }
@@ -148,7 +213,7 @@ const queuedRow = {
 function withRules(): MetaAutomationControlPlane {
   return {
     ...payload,
-    readCompleteness: { promotionRecords: "complete", rules: "complete" },
+    readCompleteness: { ...PROVEN_READS, rules: "complete" },
     commercialAnchors: {
       target_roas: 3.8,
       break_even_roas: 2.5,
@@ -220,6 +285,28 @@ function withRules(): MetaAutomationControlPlane {
   };
 }
 
+/**
+ * The queue's own empty cell.
+ *
+ * Scoped on purpose: `data-proven-empty` is emitted by the rules table and the
+ * activity ledger too, so a bare `toContain('data-proven-empty="false"')`
+ * passes off an unrelated section and proves nothing about the queue. That is
+ * exactly how the first draft of these tests survived a mutation that broke
+ * the law they claim to pin.
+ */
+function confirmationEmptyEl(html: string) {
+  return (
+    html.match(/<div[^>]*data-testid="confirmation-empty"[^>]*>/)?.[0] ?? ""
+  );
+}
+
+/** The existing confirmation card, so a test can prove a statement is INSIDE it. */
+function confirmationCard(html: string) {
+  const start = html.indexOf("Needs your confirmation");
+  const end = html.indexOf("<h2>Rules</h2>");
+  return start < 0 ? "" : html.slice(start, end < 0 ? undefined : end);
+}
+
 function mobileMarkup(html: string) {
   return (
     html.match(
@@ -279,7 +366,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain("1 promotion record");
   });
 
-  it("does not hide the real global env read when business control has no persisted row", () => {
+  it("states the defaulted control the server actually enforces, and names it a default", () => {
     const html = render({
       ...payload,
       globalKillSwitch: {
@@ -293,24 +380,37 @@ describe("Dashboard v2 exact Automation presentation", () => {
       },
     });
 
+    // The global read is the subject and still comes through.
     expect(html).toMatch(/data-field="global-writes"[^>]*>STOPPED/);
-    expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
-    expect(html).toMatch(/data-field="readiness-tier">—/);
-    expect(html).toMatch(/data-field="promotion-count">—/);
-    expect(html).not.toContain("Every action requires operator confirmation.");
-    expect(html).not.toContain("+15% max");
+
+    // A defaulted control row is not an absent one. These defaults are what the
+    // server enforces for a business nobody has configured:
+    // `automation-proposal-execution.ts` sets `dryRun` from
+    // `guardrails.dryRunOnly`, which defaults true in the code AND in the
+    // column — which is why every approval here short-circuits before the
+    // provider. Printing an em dash beside a 15% ceiling and a 3-action cap
+    // told the operator no limit was in force while one governed every write.
+    // The fixture's business control is engaged, so the served answer is
+    // STOPPED — the point is that a served answer appears at all.
+    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    expect(html).not.toMatch(/data-field="readiness-tier">—/);
+    expect(html).toContain("+15% max");
+
+    // ...but it still has to say these are defaults, not the operator's own
+    // settings. That distinction is the reason the old gate existed.
+    expect(html).toContain("defaults, not set here");
   });
 
   it("shows a zero promotion count only when the collection read is proven complete", () => {
     const complete = render({
       ...payload,
       promotionRecords: [],
-      readCompleteness: { promotionRecords: "complete" },
+      readCompleteness: { ...PROVEN_READS, promotionRecords: "complete" },
     });
     const unavailable = render({
       ...payload,
       promotionRecords: [],
-      readCompleteness: { promotionRecords: "unavailable" },
+      readCompleteness: { ...PROVEN_READS, promotionRecords: "unavailable" },
     });
     const legacyWithoutProvenance = render({
       ...payload,
@@ -325,6 +425,21 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(legacyWithoutProvenance).toMatch(/data-field="promotion-count">—/);
   });
 
+  /**
+   * Rewritten, not deleted.
+   *
+   * The old assertion was `expect(html.match(/<button/g)).toHaveLength(1)` on a
+   * render whose queue read is UNAVAILABLE — so it pinned "one button" for a
+   * state that is a read failure, and in doing so pinned the absence of any way
+   * to retry that read. The law it was actually protecting is that the empty
+   * screen invents no PROPOSAL controls and no rule rows, and that survives
+   * intact below.
+   *
+   * What changed: an unreadable queue now carries its own Retry, for the same
+   * reason the control-plane read already does — a failure with no way back is
+   * a dead end an operator can only escape by reloading the page. The
+   * proven-empty queue is unchanged and still renders exactly one button.
+   */
   it("preserves canonical empty geometry without inventing proposals, rules or actions", () => {
     const html = render();
 
@@ -338,15 +453,501 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("Breakeven guard");
     expect(html).not.toContain("Scale window");
     expect(html).not.toContain("data-rule-id");
-    expect(html.match(/<button/g)).toHaveLength(1);
+
+    // The default fixture's queue read is UNAVAILABLE, so exactly two controls
+    // exist: "+ New rule" and the queue's Retry. Nothing else.
+    expect(html.match(/<button/g)).toHaveLength(2);
+    expect(html).toContain('data-control="retry-queue"');
+
+    // A queue that was actually read and is actually empty gets no retry —
+    // there is nothing to recover from — so the canonical geometry is a single
+    // control, exactly as before.
+    const proven = renderWithQueue(queueModel({
+      readCompleteness: "complete",
+      count: "0",
+      rows: [],
+    }));
+    expect(proven.match(/<button/g)).toHaveLength(1);
+    expect(proven).not.toContain('data-control="retry-queue"');
+  });
+
+  // ITEM 11. A queue error must offer a REAL retry: one bound to the handler
+  // that re-runs the read, not a decorative control.
+  it("binds the queue retry to the same read the notice retries", () => {
+    const live = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={payload}
+        providerAccountId="act_1"
+        proposals={queueModel({
+          readCompleteness: "unavailable",
+          count: "—",
+          rows: [],
+        })}
+        onRetryRead={() => {}}
+      />,
+    );
+    const inert = renderWithQueue(queueModel({
+      readCompleteness: "unavailable",
+      count: "—",
+      rows: [],
+    }));
+
+    expect(live).toMatch(
+      /<button[^>]*data-control="retry-queue"(?![^>]*disabled)/,
+    );
+    // A server render has no handler, so the control is visibly unavailable
+    // rather than armed and inert.
+    expect(inert).toMatch(
+      /<button[^>]*data-control="retry-queue"[^>]*disabled=""/,
+    );
+  });
+
+  // ITEM 9. The footnote makes a claim about EVIDENCE — "every outcome lands in
+  // the ledger with a receipt" — so it may only be made where the evidence
+  // exists. The ledger write used to end in `.catch(() => undefined)`, which
+  // meant a failed INSERT left this promise on screen under a decision that
+  // was never recorded there.
+  it("keeps the design's ledger promise while the ledger is actually working", () => {
+    const html = render();
+
+    expect(html).toContain("every outcome");
+    expect(html).toContain("lands in the ledger with a receipt");
+    expect(html).not.toContain("could not be written to the activity ledger");
+  });
+
+  it("withdraws the ledger promise when the last decision did not reach it", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={payload}
+        providerAccountId="act_1"
+        ledgerCompleteness="unavailable"
+      />,
+    );
+
+    expect(html).toContain("could not be written to the activity ledger");
+    expect(html).toContain("its receipt is on the proposal record");
+    // The claim itself is gone, not merely qualified.
+    expect(html).not.toContain("every outcome");
+    // And the two clauses that are still true are untouched.
+    expect(html).toContain("approving executes inside the guardrails above");
+    expect(html).toContain("expired proposals");
+  });
+
+  // ITEM 11. Each section answers for its OWN read. One failure must not erase
+  // a fact the server proved elsewhere on the same screen.
+  /**
+   * ITEM 5. `ledgerCompleteness` was CLIENT SESSION STATE ONLY. A reload reset
+   * it to `null`, and `null` printed the promise — so a decision that genuinely
+   * never reached the ledger was papered over by a refresh, and a workspace
+   * whose ledger could not be read at all was told every outcome lands there.
+   *
+   * The promise is a claim about evidence, so it needs evidence. There are now
+   * three states, not two, because asserting a failure with no decision behind
+   * it would be just as false as asserting success.
+   */
+  it("makes no ledger promise at all when nothing proves the ledger works", () => {
+    const unreadLedger = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          // The server read model's own answer: the activity read did not
+          // complete. This survives a reload because it arrives with the page.
+          readCompleteness: { ...PROVEN_READS, activityLedger: "unavailable" },
+        }}
+        providerAccountId="act_1"
+        // A fresh page load. No decision has been recorded in this session.
+        ledgerCompleteness={null}
+      />,
+    );
+
+    expect(unreadLedger).toContain('data-ledger-evidence="no_evidence"');
+    // The claim is not made...
+    expect(unreadLedger).not.toContain("every outcome");
+    // ...and neither is the opposite claim, because no decision failed here.
+    expect(unreadLedger).not.toContain(
+      "could not be written to the activity ledger",
+    );
+    // The two clauses that are still true are untouched.
+    expect(unreadLedger).toContain("approving executes inside the guardrails above");
+    expect(unreadLedger).toContain("expired proposals");
+  });
+
+  it("rebuilds the promise from the server read model rather than session state", () => {
+    // Exactly the state a refresh produces: no session fact, a served payload.
+    const afterReload = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={payload}
+        providerAccountId="act_1"
+        ledgerCompleteness={null}
+      />,
+    );
+
+    expect(afterReload).toContain('data-ledger-evidence="complete"');
+    expect(afterReload).toContain("lands in the ledger with a receipt");
+  });
+
+  it("lets a proven ledger failure outrank a healthy server read", () => {
+    // The control plane could READ the ledger, and the decision still failed to
+    // reach it. First-hand beats general.
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={payload}
+        providerAccountId="act_1"
+        ledgerCompleteness="unavailable"
+      />,
+    );
+
+    expect(html).toContain('data-ledger-evidence="unavailable"');
+    expect(html).not.toContain("every outcome");
+  });
+
+  /**
+   * ITEM 7. Every control on this screen was gated on `businessId &&
+   * providerAccountId` alone, so a guest, a reviewer and a demo session all got
+   * live Approve / Modify / Dismiss / + New rule / rule toggle the moment an
+   * account resolved. A resolved account is not write authority.
+   */
+  it("disables every write control for a viewer the server refuses, account or not", () => {
+    const refusals = [
+      buildAutomationViewerEnvelope({
+        role: "admin",
+        reviewerReadOnly: true,
+        writeAuthority: "live",
+      }),
+      buildAutomationViewerEnvelope({
+        role: "admin",
+        reviewerReadOnly: false,
+        writeAuthority: "demo",
+      }),
+      buildAutomationViewerEnvelope({
+        role: "guest",
+        reviewerReadOnly: false,
+        writeAuthority: "live",
+      }),
+      buildAutomationViewerEnvelope({
+        role: "admin",
+        reviewerReadOnly: false,
+        // An unreadable demo flag refuses. It never reads as "live".
+        writeAuthority: "unverified",
+      }),
+    ];
+
+    for (const viewer of refusals) {
+      const html = renderToStaticMarkup(
+        <MetaAutomationView
+          payload={withRules()}
+          providerAccountId="act_1"
+          businessId="biz_1"
+          proposals={queueModel({
+            readCompleteness: "complete",
+            count: "1",
+            rows: [queuedRow],
+          })}
+          onProposalControl={() => undefined}
+          onRulesChanged={() => undefined}
+          viewer={viewer}
+        />,
+      );
+
+      for (const control of ["approve", "modify", "dismiss"]) {
+        expect(
+          new RegExp(
+            `<button[^>]*data-control="${control}"[^>]*disabled=""`,
+          ).test(html),
+        ).toBe(true);
+      }
+      // "+ New rule" and every rule toggle are the same authority question.
+      expect(html).toMatch(/aria-disabled="true"[^>]*>\+ New rule</);
+      // `withRules()` carries three rules. Two are unlocked and were live
+      // before this change; the third is the enforced guard and was already
+      // locked. All three must be inert for a refused viewer.
+      const toggles = html.match(/<button[^>]*aria-pressed="[a-z]+"[^>]*>/g) ?? [];
+      expect(toggles).toHaveLength(3);
+      for (const toggle of toggles) expect(toggle).toContain('disabled=""');
+      // The server's own sentence, stated before the click rather than after.
+      expect(html).toContain('data-field="viewer-refusal"');
+      expect(html).toContain(viewer.reason!);
+      expect(html).toContain(`data-reason-code="${viewer.reasonCode}"`);
+    }
+  });
+
+  it("adds no refusal chrome on the canonical render", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={withRules()}
+        providerAccountId="act_1"
+        businessId="biz_1"
+        proposals={queueModel({
+          readCompleteness: "complete",
+          count: "1",
+          rows: [queuedRow],
+        })}
+        onProposalControl={() => undefined}
+        viewer={buildAutomationViewerEnvelope({
+          role: "collaborator",
+          reviewerReadOnly: false,
+          writeAuthority: "live",
+        })}
+      />,
+    );
+
+    expect(html).not.toContain('data-field="viewer-refusal"');
+    expect(html).toMatch(/<button[^>]*data-control="approve"(?![^>]*disabled)/);
+  });
+
+  it("does not let one failed section erase another that was proven", () => {
+    const rulesBroken = render({
+      ...payload,
+      rules: [],
+      sections: {
+        ...SECTIONS,
+        rules: {
+          status: "unavailable",
+          errorCode: "read_failed",
+          observedAt: OBSERVED_AT,
+        },
+      },
+    });
+
+    // The rules table cannot claim an empty workspace...
+    expect(rulesBroken).toContain('data-proven-empty="false"');
+    // ...but the promotion count, the guardrails and the readiness tier were
+    // all read successfully and are still stated.
+    expect(rulesBroken).toMatch(
+      /data-field="promotion-count">1 promotion record/,
+    );
+    expect(rulesBroken).toContain("+15% max");
+    expect(rulesBroken).not.toMatch(/data-field="readiness-tier">—/);
+  });
+
+  it("reads the richer section envelope in preference to the flat flags", () => {
+    // The flat map says everything is complete; the section envelope says the
+    // control read failed. The envelope is the more specific statement and it
+    // carries the error code, so it wins — otherwise a server that learned how
+    // to describe a failure would be ignored by the surface that must show it.
+    const html = render({
+      ...payload,
+      readCompleteness: PROVEN_READS,
+      sections: {
+        ...SECTIONS,
+        businessControl: {
+          status: "migration_required",
+          errorCode: "undefined_column",
+          observedAt: OBSERVED_AT,
+        },
+      },
+    });
+
+    expect(html).toMatch(/data-field="readiness-tier">—/);
+    expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
+    expect(html).toContain('data-field="read-error"');
+  });
+
+  // A failed control-plane read em-dashes every card on this screen. Until now
+  // it drew no notice and no way back: the retry handler existed but its only
+  // registered consumer, the Tier-0 freshness bar, is mounted nowhere, so a
+  // transient failure could only be cleared by reloading the page.
+  it("draws no read-failure notice while the read is healthy", () => {
+    const html = render();
+
+    expect(html).not.toContain('data-field="read-error"');
+    expect(html).not.toContain('data-control="retry-read"');
+  });
+
+  it("gives a failed read a live retry control", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId="act_1"
+        readError="automation_control_plane_unavailable"
+        onRetryRead={() => {}}
+      />,
+    );
+    const notice = html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
+
+    expect(notice).toContain('data-control="retry-read"');
+    expect(notice).toContain(">Retry</button>");
+    expect(notice).not.toContain('disabled=""');
+    expect(notice).toContain(
+      "Automation could not be read, so every figure below is unknown rather than zero.",
+    );
+  });
+
+  it("keeps the retry inert on a render that has no reader to re-run", () => {
+    const html = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId="act_1"
+        readError="automation_control_plane_unavailable"
+      />,
+    );
+    const notice = html.match(/<p[^>]*data-field="read-error"[\s\S]*?<\/p>/)?.[0] ?? "";
+
+    expect(notice).toContain('data-control="retry-read"');
+    expect(notice).toContain('disabled=""');
+  });
+
+  /**
+   * The law: a failed control read may not be dressed as a served one.
+   *
+   * `businessControl` is ALWAYS populated — a failed read degrades to
+   * `defaultBusinessControl`, which is a concrete, benign-looking state. The
+   * screen used to print that state as fact: a green ENABLED pill, "Tier 1 —
+   * Supervised", "+15% max" and "3", none of which came from the database —
+   * while `getMetaWriteBlockState` refused every write in the same window with
+   * `control_state_unavailable`. Provenance, not truthiness, decides.
+   */
+  it("withholds every control fact when the control read failed, and names the failure", () => {
+    const html = render({
+      ...payload,
+      // Exactly what the server hands back on a failed control read.
+      businessControl: {
+        ...payload.businessControl,
+        killSwitchEngaged: false,
+        killSwitchReason: null,
+        readinessTier: "manual_review",
+        updatedAt: null,
+        updatedBy: null,
+        source: "default",
+      },
+      readCompleteness: { ...PROVEN_READS, businessControl: "unavailable" },
+    });
+
+    expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
+    expect(html).not.toMatch(/data-field="business-writes"[^>]*>ENABLED/);
+    expect(html).toMatch(/data-field="readiness-tier">—/);
+    expect(html).not.toContain("Tier 1 — Supervised");
+    expect(html).toMatch(/guardrail-budget-change[\s\S]*?<strong>—<\/strong>/);
+    expect(html).toMatch(/guardrail-actions-per-day[\s\S]*?<strong>—<\/strong>/);
+    expect(html).not.toContain("+15% max");
+    expect(html).not.toContain(">3</strong>");
+
+    // ...but a collection with its OWN proven read is still stated. Hiding a
+    // fact the server did prove is the same defect pointed the other way.
+    expect(html).toMatch(/data-field="promotion-count">1 promotion record/);
+
+    // The old hint claimed the OPPOSITE of what happened: it said nobody
+    // configured a guardrail, when the server could not find out.
+    expect(html).not.toContain("defaults, not set here");
+
+    expect(html).toContain('data-field="read-error"');
+    expect(html).toContain(
+      'data-reason="automation_control_state_unavailable"',
+    );
+    expect(html).toContain(
+      "The automation control state could not be read, so the kill switch, guardrails and readiness above are unknown rather than the defaults they would otherwise show.",
+    );
+
+    // The global switch is read from the environment, not the control table,
+    // so it is still a served fact and stays stated.
+    expect(html).toMatch(/data-field="global-writes"[^>]*>ENABLED/);
+  });
+
+  // Same law, absent flag: a payload that never proved the control read is not
+  // a payload that proved it succeeded. Identical to the `rules` convention.
+  it("treats a payload without control-read provenance as unproven", () => {
+    const html = render({ ...payload, readCompleteness: undefined });
+
+    expect(html).toMatch(/data-field="business-writes"[^>]*>—/);
+    expect(html).toMatch(/data-field="readiness-tier">—/);
+    expect(html).not.toContain("defaults, not set here");
+    expect(html).toContain('data-field="read-error"');
+  });
+
+  /**
+   * The law: an empty activity ledger is only "nothing happened" when the read
+   * proved it. Both ledger halves used to degrade to `[]` on failure, so a
+   * broken read and a quiet workspace rendered the same em dash — and a
+   * business with a genuinely empty ledger could never learn that it was empty.
+   */
+  it("separates a proven-empty activity ledger from an unproven one", () => {
+    const provenEmpty = render({
+      ...payload,
+      activityLedger: [],
+      readCompleteness: { ...PROVEN_READS, activityLedger: "complete" },
+    });
+    const unproven = render({
+      ...payload,
+      activityLedger: [],
+      readCompleteness: { ...PROVEN_READS, activityLedger: "unavailable" },
+    });
+    const legacyWithoutProvenance = render({
+      ...payload,
+      activityLedger: [],
+      readCompleteness: { promotionRecords: "complete", businessControl: "complete" },
+    });
+    const emptyRow = (html: string) =>
+      html.match(/<tr[^>]*data-testid="ledger-empty"[\s\S]*?<\/tr>/)?.[0] ?? "";
+
+    expect(emptyRow(provenEmpty)).toContain('data-proven-empty="true"');
+    expect(emptyRow(provenEmpty)).toContain("No activity yet");
+    expect(emptyRow(unproven)).toContain('data-proven-empty="false"');
+    expect(emptyRow(unproven)).not.toContain("No activity yet");
+    expect(emptyRow(unproven)).toContain("—");
+    expect(emptyRow(legacyWithoutProvenance)).toContain(
+      'data-proven-empty="false"',
+    );
+    expect(emptyRow(legacyWithoutProvenance)).not.toContain("No activity yet");
+  });
+
+  /**
+   * The law: when no account scope resolved, neither read ran — and the screen
+   * has to say that rather than sit at "—" with no explanation. The design has
+   * no account picker and this adds none; it names the reason in the failure
+   * notice that is already drawn.
+   */
+  it("names an unresolved account scope instead of failing silently", () => {
+    const unresolved = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId={null}
+        readError="provider_account_scope_unresolved"
+        onRetryRead={() => {}}
+      />,
+    );
+    const noneAssigned = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId={null}
+        readError="provider_account_none_assigned"
+      />,
+    );
+    const unavailable = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={null}
+        providerAccountId={null}
+        readError="provider_account_scope_unavailable"
+      />,
+    );
+
+    expect(unresolved).toContain(
+      'data-reason="provider_account_scope_unresolved"',
+    );
+    expect(unresolved).toContain(
+      "No Meta ad account is resolved for this business, so Automation was never read",
+    );
+    // Still the same notice element and the same retry control — no new
+    // geometry, no account picker.
+    expect(unresolved).toContain('data-control="retry-read"');
+
+    // "Could not be read" and "there is nothing to read" are different facts.
+    expect(noneAssigned).toContain(
+      "No Meta ad account is assigned to this business",
+    );
+    expect(unavailable).toContain(
+      "Meta account assignments could not be read",
+    );
+    expect(unavailable).not.toContain(
+      "No Meta ad account is assigned to this business",
+    );
   });
 
   it("renders a real proposal in the canonical row shape with all three controls", () => {
-    const html = renderWithQueue({
+    const html = renderWithQueue(queueModel({
       readCompleteness: "complete",
       count: "1",
       rows: [queuedRow],
-    });
+    }));
 
     expect(html).toContain(
       'data-proposal-id="11111111-1111-4111-8111-111111111111"',
@@ -366,28 +967,111 @@ describe("Dashboard v2 exact Automation presentation", () => {
   it("leaves every control inert when no handler is bound", () => {
     // A server render has no action handler. The controls must be visibly
     // unavailable rather than look armed and do nothing on click.
-    const html = renderWithQueue({
+    const html = renderWithQueue(queueModel({
       readCompleteness: "complete",
       count: "1",
       rows: [queuedRow],
-    });
+    }));
 
     expect(html.match(/data-control="[a-z-]+"[^>]*disabled=""/g)).toHaveLength(
       3,
     );
   });
 
+  // ITEM 2. The server counts the rows this account holds open without being
+  // approvable and sends them beside the queue; the view model used to drop
+  // them. A `claimed` row is a dispatch in flight and a `reconcile` row is an
+  // outcome nobody has confirmed — telling the operator "0" over either one is
+  // the single worst answer this card can give.
+  it("states a dispatch in progress inside the confirmation card instead of claiming zero", () => {
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "—",
+        rows: [],
+        holds: { claimed: 1, reconcile: 0 },
+      }),
+    );
+
+    expect(html).toContain("dispatch in progress");
+    expect(html).toContain('data-field="queue-holds"');
+    expect(html).toContain('data-claimed="1"');
+    // Not empty, and not counted as empty.
+    expect(html).toContain('data-field="confirmation-count">—<');
+    expect(confirmationEmptyEl(html)).toContain('data-proven-empty="false"');
+    expect(html).not.toContain('data-field="confirmation-count">0<');
+    // Inside the existing card, not in a new region of its own.
+    const card = confirmationCard(html);
+    expect(card).toContain("dispatch in progress");
+  });
+
+  it("states reconciliation required, and that retry is forbidden, for a held row", () => {
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "—",
+        rows: [],
+        holds: { claimed: 0, reconcile: 2 },
+      }),
+    );
+
+    expect(html).toContain("reconciliation required");
+    // The invariant's own words: such a row "stays pending ... reconciliation
+    // required, and retry forbidden".
+    expect(html).toContain("retry is forbidden");
+    expect(html).toContain('data-reconcile="2"');
+    expect(confirmationEmptyEl(html)).toContain('data-proven-empty="false"');
+  });
+
+  it("forbids a proven-empty queue when the hold count could not be read", () => {
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "—",
+        rows: [],
+        holds: null,
+      }),
+    );
+
+    expect(html).toContain('data-holds="unreadable"');
+    expect(confirmationEmptyEl(html)).toContain('data-proven-empty="false"');
+    // And the failure gets the way back the read-failure state already has.
+    expect(html).toContain('data-control="retry-queue"');
+    expect(html).not.toContain('data-field="confirmation-count">0<');
+  });
+
+  it("draws no hold statement at all on the canonical empty queue", () => {
+    // No new persistent chrome: a read queue with nothing held renders exactly
+    // the geometry it always did.
+    const html = renderWithQueue(
+      queueModel({
+        readCompleteness: "complete",
+        count: "0",
+        rows: [],
+        holds: { claimed: 0, reconcile: 0 },
+      }),
+    );
+
+    expect(html).not.toContain('data-field="queue-holds"');
+    expect(html).not.toContain("dispatch in progress");
+    expect(html).not.toContain("reconciliation required");
+    expect(confirmationEmptyEl(html)).toContain('data-proven-empty="true"');
+    expect(html).toContain('data-field="confirmation-count">0<');
+    // The approved exception: no Retry on a state that is not a failure.
+    expect(html).not.toContain('data-control="retry-queue"');
+  });
+
   it("distinguishes a proven empty queue from an unproven read", () => {
-    const proven = renderWithQueue({
+    const proven = renderWithQueue(queueModel({
       readCompleteness: "complete",
       count: "0",
       rows: [],
-    });
-    const unproven = renderWithQueue({
+    }));
+    const unproven = renderWithQueue(queueModel({
       readCompleteness: "unavailable",
       count: "—",
       rows: [],
-    });
+    }));
 
     expect(proven).toContain('data-field="confirmation-count">0<');
     expect(proven).toContain('data-testid="confirmation-empty"');
@@ -397,11 +1081,11 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
   it("keeps the queue off the read-only mobile surface", () => {
     const mobile = mobileMarkup(
-      renderWithQueue({
+      renderWithQueue(queueModel({
         readCompleteness: "complete",
         count: "1",
         rows: [queuedRow],
-      }),
+      })),
     );
 
     expect(mobile).not.toContain("Approve");
@@ -557,10 +1241,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     };
     const proven = render({
       ...payload,
-      readCompleteness: {
-        promotionRecords: "complete",
-        cleanApprovalStreaks: "complete",
-      },
+      readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "complete" },
       decisionTypeModes: [
         persistedPause,
         ...payload.decisionTypeModes.filter(
@@ -570,10 +1251,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
     const unproven = render({
       ...payload,
-      readCompleteness: {
-        promotionRecords: "complete",
-        cleanApprovalStreaks: "unavailable",
-      },
+      readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "unavailable" },
       decisionTypeModes: [
         persistedPause,
         ...payload.decisionTypeModes.filter(
@@ -583,10 +1261,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     });
     const noThreshold = render({
       ...payload,
-      readCompleteness: {
-        promotionRecords: "complete",
-        cleanApprovalStreaks: "complete",
-      },
+      readCompleteness: { ...PROVEN_READS, cleanApprovalStreaks: "complete" },
       decisionTypeModes: [
         { ...persistedPause, cleanApprovalThreshold: null },
         ...payload.decisionTypeModes.filter(
@@ -695,17 +1370,37 @@ describe("Dashboard v2 exact Automation presentation", () => {
   it("leaves the table em-dashed when the rules read was not proven complete", () => {
     const unavailable = render({
       ...withRules(),
-      readCompleteness: { promotionRecords: "complete", rules: "unavailable" },
+      readCompleteness: { ...PROVEN_READS, rules: "unavailable" },
     });
     const legacyWithoutProvenance = render({
       ...withRules(),
-      readCompleteness: { promotionRecords: "complete" },
+      readCompleteness: PROVEN_READS,
     });
 
     expect(unavailable).toContain('data-testid="rules-empty"');
     expect(unavailable).not.toContain("data-rule-id");
+    expect(unavailable).toContain('data-proven-empty="false"');
     expect(legacyWithoutProvenance).toContain('data-testid="rules-empty"');
     expect(legacyWithoutProvenance).not.toContain("data-rule-id");
+    // The unproven read must never claim there are no rules.
+    expect(unavailable).not.toContain("No rules yet");
+    expect(legacyWithoutProvenance).not.toContain("No rules yet");
+  });
+
+  // The adapter separated "no rules" from "rules could not be read" and the
+  // table then rendered both as the same em dash, which told an operator who
+  // had just created their first rule the same thing it told one whose read had
+  // failed. A proven zero is stated, exactly as `0×` is on the Fired column.
+  it("says an empty rule set is empty when the read proved it", () => {
+    const html = render({
+      ...withRules(),
+      readCompleteness: { ...PROVEN_READS, rules: "complete" },
+      rules: [],
+    });
+
+    expect(html).toContain('data-proven-empty="true"');
+    expect(html).toContain("No rules yet");
+    expect(html).not.toContain("data-rule-id");
   });
 
   it("keeps every rule control inert without a server-authorized business scope", () => {
@@ -738,7 +1433,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
       <MetaAutomationView
         payload={{
           ...withRules(),
-          readCompleteness: { promotionRecords: "complete" },
+          readCompleteness: PROVEN_READS,
         }}
         providerAccountId="act_1"
         businessId="biz_1"

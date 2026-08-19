@@ -15,7 +15,10 @@ import { describe, expect, it } from "vitest";
  * This is a labelling contract, not a resolver change. Nothing here touches
  * `buyerAction`, confidence, thresholds, authority or snapshot semantics.
  */
-const view = readFileSync("components/meta/os/DecisionsOsView.tsx", "utf8");
+const view = readFileSync(
+  "components/meta/decision-center/MetaDecisionCenterExact.tsx",
+  "utf8",
+);
 const contract = readFileSync(
   "lib/meta/decisions-workspace-contract.ts",
   "utf8",
@@ -36,14 +39,12 @@ describe("the range control names what it actually changes", () => {
   });
 
   it("names the metrics/evidence window instead", () => {
-    expect(view).toMatch(/label="(Metrics|Evidence)[^"]*window"/);
+    expect(view).toMatch(/`(Metrics|Evidence)[^`]*window /);
   });
 
-  it("states in the UI that the verdict does not change with the window", () => {
+  it("states in the UI that the range scopes metrics, not decisions", () => {
     // The label alone is not enough: an operator who already believes the old
-    // meaning needs to be told, once, in the control itself.
-    expect(view).toMatch(
-      /does not change (the )?(current )?(verdict|decision)/i,
-    );
+    // meaning needs to be told, once, beside the queue the window sits above.
+    expect(view).toMatch(/the date range scopes metrics, not\s+decisions/);
   });
 });

@@ -111,7 +111,8 @@ function exactViewModel(
         ],
       },
     ],
-    nonSales: {
+    nonSales: [
+      {
       name: "Non-sales Alpha",
       level: "Campaign",
       contextLabel: "Upper funnel · informational",
@@ -122,7 +123,8 @@ function exactViewModel(
         { id: "metric-d", label: "Metric D", value: "Value D" },
       ],
       note: "Server context only",
-    },
+      },
+    ],
     archiveRows: [
       {
         id: "archive-a",
@@ -512,5 +514,31 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
     expect(css).toContain("position: sticky");
     expect(css).toContain("/* dashboard-v2-meta-exact-reference-type:start */");
     expect(css).toContain("/* dashboard-v2-meta-exact-reference-type:end */");
+  });
+});
+
+describe("a restored deep-link search is visible in the control that filtered", () => {
+  // The deep-link work restored `?q=` and filtered every lane by it, but this
+  // component kept its own `useState("")`. A link carrying `?q=` therefore
+  // rendered a filtered queue with an EMPTY search box and no notice: the
+  // operator saw fewer rows than the account has and nothing on screen said
+  // why. The restore is only complete when the term is on screen, so this pins
+  // the term's visibility, not merely that filtering happened.
+  it("shows the restored term in the search box", () => {
+    renderExact({ initialQuery: "prospecting" });
+    const input = root().querySelector<HTMLInputElement>(
+      'input[aria-label="Search entities"]',
+    );
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("prospecting");
+  });
+
+  it("leaves the box empty when the link carries no search", () => {
+    renderExact();
+    const input = root().querySelector<HTMLInputElement>(
+      'input[aria-label="Search entities"]',
+    );
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("");
   });
 });

@@ -150,7 +150,21 @@ describe("business-scoped Dashboard v2 shell binding", () => {
     expect(useAppStore.getState().authBootstrapStatus).toBe("ready");
   });
 
-  it("leaves the session-active selection authoritative for the /app family", () => {
+  /**
+   * REWRITTEN, not deleted. This test previously asserted the opposite — that on
+   * `/app/**` the persisted store selection stayed authoritative and the frame
+   * mounted bound to business_B while the server envelope said business_A. That
+   * is the defect, not the contract: `/app/**` states no business in its URL,
+   * but the envelope still carries the one the server authorized for this
+   * request. Under the old behaviour the topbar named A while the rail links,
+   * the lane badges and the freshness pill named B, and a rail link minted in
+   * that window landed on the "This link names a different workspace" refusal.
+   *
+   * The law: having no business in the URL is not having no business. Both
+   * canonical families reconcile against the envelope, and the shell mounts no
+   * business-scoped hooks until they agree.
+   */
+  it("holds the /app shell until the store agrees with the server envelope", async () => {
     navigation.pathname = "/app/meta/decisions";
 
     render(
@@ -159,11 +173,40 @@ describe("business-scoped Dashboard v2 shell binding", () => {
       </UnifiedDashboardClientShell>,
     );
 
-    expect(screen.getByTestId("dashboard-frame")).toHaveAttribute(
-      "data-business-id",
-      "business_B",
-    );
-    expect(useAppStore.getState().selectedBusinessId).toBe("business_B");
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-frame")).toHaveAttribute(
+        "data-business-id",
+        "business_A",
+      );
+    });
+    // The frame is never rendered naming the stale workspace.
+    expect(frameSelections).not.toContain("business_B");
+    expect(useAppStore.getState().selectedBusinessId).toBe("business_A");
+    // Narrowing the active selection is all it may do; membership is untouched.
     expect(useAppStore.getState().businesses).toEqual(businesses);
+  });
+
+  it("refuses to mount the /app shell at all while the envelope business is not a known membership", () => {
+    navigation.pathname = "/app/meta/decisions";
+    useAppStore.setState({
+      businesses: [businesses[1]!],
+      selectedBusinessId: "business_B",
+      hasHydrated: true,
+      authBootstrapStatus: "ready",
+      workspaceResolved: true,
+    });
+
+    const { container } = render(
+      <UnifiedDashboardClientShell envelope={envelopeA}>
+        <div>Readable route body</div>
+      </UnifiedDashboardClientShell>,
+    );
+
+    expect(screen.queryByTestId("dashboard-frame")).toBeNull();
+    expect(
+      container.querySelector('[data-dashboard-scope-binding="pending"]'),
+    ).not.toBeNull();
+    // Nothing is invented into the membership list to make the mount succeed.
+    expect(useAppStore.getState().selectedBusinessId).toBe("business_B");
   });
 });

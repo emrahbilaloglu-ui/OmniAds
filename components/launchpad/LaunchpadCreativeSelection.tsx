@@ -146,7 +146,9 @@ export function filterLaunchpadCreativeRows(input: {
   const badges = new Set(input.badges ?? []);
   const sort = input.sort ?? "spend_desc";
   const rows = input.rows.filter((row) => {
-    const decision = input.decisionByCreativeId.get(row.creativeId) ?? null;
+    // A row with no creative identity has no decision to look up. Keyed on
+    // the id itself so a missing one cannot collide into one shared bucket.
+    const decision = row.creativeId ? input.decisionByCreativeId.get(row.creativeId) ?? null : null;
     if (statusFilter === "active") {
       const status = row.effectiveStatus?.toUpperCase() ?? "ACTIVE";
       if (status && status !== "ACTIVE") return false;
@@ -181,12 +183,12 @@ export function filterLaunchpadCreativeRows(input: {
       return compareNullableMetricDescending(
         launchpadMetric(
           a,
-          input.decisionByCreativeId.get(a.creativeId) ?? null,
+          a.creativeId ? input.decisionByCreativeId.get(a.creativeId) ?? null : null,
           "roas",
         ),
         launchpadMetric(
           b,
-          input.decisionByCreativeId.get(b.creativeId) ?? null,
+          b.creativeId ? (b.creativeId ? input.decisionByCreativeId.get(b.creativeId) : undefined) ?? null : null,
           "roas",
         ),
       );
@@ -198,12 +200,12 @@ export function filterLaunchpadCreativeRows(input: {
     return compareNullableMetricDescending(
       launchpadMetric(
         a,
-        input.decisionByCreativeId.get(a.creativeId) ?? null,
+        a.creativeId ? (a.creativeId ? input.decisionByCreativeId.get(a.creativeId) : undefined) ?? null : null,
         "spend",
       ),
       launchpadMetric(
         b,
-        input.decisionByCreativeId.get(b.creativeId) ?? null,
+        b.creativeId ? (b.creativeId ? input.decisionByCreativeId.get(b.creativeId) : undefined) ?? null : null,
         "spend",
       ),
     );
@@ -222,7 +224,7 @@ export function buildLaunchpadSelectionSummary(input: {
   const labelCounts = new Map<DecisionLabel, number>();
   input.selectedCreatives.forEach((creative) => {
     const decision =
-      input.decisionByCreativeId.get(creative.creativeId) ?? null;
+      creative.creativeId ? (creative.creativeId ? input.decisionByCreativeId.get(creative.creativeId) : undefined) ?? null : null;
     const creativeSpend = launchpadMetric(creative, decision, "spend");
     const creativeRoas = launchpadMetric(creative, decision, "roas");
     if (creativeSpend === null || creativeRoas === null) {
@@ -328,7 +330,10 @@ export function LaunchpadCreativeSelection({
   loading = false,
   initialStatusFilter = "active",
   currency = null,
-  getSelectionId = (row) => row.creativeId,
+  // An absent creative id yields an empty selection key, which matches
+  // nothing — a row with no identity cannot be selected rather than all
+  // such rows sharing one.
+  getSelectionId = (row) => row.creativeId ?? "",
   onToggleCreative,
   onSetSelectedCreativeIds,
 }: {
@@ -689,7 +694,9 @@ export function LaunchpadCreativeSelection({
           </div>
           <div className="max-h-[520px] overflow-y-auto">
             {visibleRows.map((row) => {
-              const decision = decisionByCreativeId.get(row.creativeId) ?? null;
+              const decision = row.creativeId
+                ? (row.creativeId ? decisionByCreativeId.get(row.creativeId) : undefined) ?? null
+                : null;
               const selected = selectedSet.has(getSelectionId(row));
               const notes = selected ? getCreativeAdvisoryNotes(decision) : [];
               const placementTooltip = buildPlacementTooltip(row);
@@ -827,7 +834,7 @@ export function LaunchpadCreativeSelection({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visibleRows.map((row) => {
-            const decision = decisionByCreativeId.get(row.creativeId) ?? null;
+            const decision = (row.creativeId ? decisionByCreativeId.get(row.creativeId) : undefined) ?? null;
             const selected = selectedSet.has(getSelectionId(row));
             const recentlyDuplicated = hasRecentlyDuplicatedMarker(row);
             const spend = launchpadMetric(row, decision, "spend");

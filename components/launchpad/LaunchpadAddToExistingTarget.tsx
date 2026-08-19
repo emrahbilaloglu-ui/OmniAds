@@ -91,11 +91,14 @@ async function readAdsetPayload(response: Response) {
 
 export async function fetchLaunchpadCampaignAdsets({
   businessId,
+  providerAccountId,
   campaign,
   retryDelaysMs = ADSET_RETRY_DELAYS_MS,
   fetchImpl = fetch,
 }: {
   businessId: string;
+  /** The ad-set read is account-scoped: the route refuses a business-wide ask. */
+  providerAccountId: string;
   campaign: Pick<LaunchpadExistingCampaign, "id" | "adsetCount">;
   retryDelaysMs?: number[];
   fetchImpl?: typeof fetch;
@@ -104,7 +107,7 @@ export async function fetchLaunchpadCampaignAdsets({
   for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
     try {
       const response = await fetchImpl(
-        `/api/launchpad/meta/adsets?businessId=${encodeURIComponent(businessId)}&campaignId=${encodeURIComponent(campaign.id)}`,
+        `/api/launchpad/meta/adsets?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}&campaignId=${encodeURIComponent(campaign.id)}`,
       );
       const adsets = await readAdsetPayload(response);
       const expectedAdsets = campaign.adsetCount > 0;
@@ -182,20 +185,44 @@ export function defaultCreativeAddName(creative: MetaCreativeRow) {
 
 export function LaunchpadAddToExistingTarget({
   businessId,
+  providerAccountId,
   value,
   selectedCreatives,
   currency = null,
   onChange,
   campaignOptions,
   adsetOptions,
+  preselectedCampaignIds,
+  preselectedAdsetIds,
 }: {
   businessId: string;
+  /**
+   * The campaign and ad-set lists are account-scoped. Without this the surface
+   * would offer targets from another assigned account, and the operator would
+   * only learn at Create time that the launch account never owned them.
+   */
+  providerAccountId: string;
   value: LaunchpadAddToExistingState;
   selectedCreatives: MetaCreativeRow[];
   currency?: string | null;
   onChange: (value: LaunchpadAddToExistingState) => void;
   campaignOptions?: LaunchpadExistingCampaign[];
   adsetOptions?: LaunchpadExistingAdSet[];
+  /**
+   * Ids carried by a server-verified Launchpad handoff.
+   *
+   * IDS ONLY, and that is the point: this component never trusts them as
+   * targets. Each id is matched against the campaigns and ad sets THIS
+   * account-scoped read actually returned, and an id with no match selects
+   * nothing at all — so a handoff naming a campaign that has since been deleted,
+   * archived, or moved to another account lands on an empty picker rather than
+   * on a fabricated target row.
+   *
+   * Applied once, and only while the operator has selected nothing, so a
+   * prefill can never overwrite a choice already made.
+   */
+  preselectedCampaignIds?: readonly string[];
+  preselectedAdsetIds?: readonly string[];
 }) {
   const [campaigns, setCampaigns] = useState<LaunchpadExistingCampaign[]>(campaignOptions ?? []);
   const [adsetsByCampaignId, setAdsetsByCampaignId] = useState<Record<string, LaunchpadExistingAdSet[]>>({});
@@ -218,6 +245,80 @@ export function LaunchpadAddToExistingTarget({
     if (campaignOptions) setCampaigns(campaignOptions);
   }, [campaignOptions]);
 
+  const [prefillApplied, setPrefillApplied] = useState(false);
+  /**
+   * Apply a verified handoff's campaign ids once the account's own list lands.
+   *
+   * The guard chain matters. Nothing happens until the campaigns this account
+   * actually returned are in hand; nothing happens if the operator has already
+   * chosen a target; and nothing happens for an id this account does not own,
+   * because the selection is built by FILTERING the loaded list rather than by
+   * constructing a row out of the id.
+   */
+  useEffect(() => {
+    if (prefillApplied) return;
+    const wanted = new Set(
+      (preselectedCampaignIds ?? []).map((id) => id.trim()).filter(Boolean),
+    );
+    if (wanted.size === 0) return;
+    if (campaigns.length === 0) return;
+    if (getSelectedExistingCampaigns(value).length > 0) {
+      setPrefillApplied(true);
+      return;
+    }
+    const matched = campaigns.filter((campaign) => wanted.has(campaign.id));
+    setPrefillApplied(true);
+    if (matched.length === 0) return;
+    onChange(
+      buildTargetState({
+        campaigns: matched,
+        adsetsByCampaignId: {},
+        copyMode: value.copyMode,
+        nameOverrides: value.nameOverrides,
+      }),
+    );
+  }, [campaigns, onChange, prefillApplied, preselectedCampaignIds, value]);
+
+  const [adsetPrefillApplied, setAdsetPrefillApplied] = useState(false);
+  /**
+   * Same law one level down: an ad set is selected only if the ad sets this
+   * campaign actually returned contain it.
+   */
+  useEffect(() => {
+    if (adsetPrefillApplied) return;
+    const wanted = new Set(
+      (preselectedAdsetIds ?? []).map((id) => id.trim()).filter(Boolean),
+    );
+    if (wanted.size === 0) return;
+    const selectedCampaignList = getSelectedExistingCampaigns(value);
+    if (selectedCampaignList.length === 0) return;
+    const resolved: Record<string, LaunchpadExistingAdSet | null> = {};
+    let matchedAny = false;
+    for (const campaign of selectedCampaignList) {
+      const loaded = adsetsByCampaignId[campaign.id];
+      if (!loaded) return; // still loading: decide nothing yet
+      const match = loaded.find((adset) => wanted.has(adset.id)) ?? null;
+      resolved[campaign.id] = match;
+      if (match) matchedAny = true;
+    }
+    setAdsetPrefillApplied(true);
+    if (!matchedAny) return;
+    onChange(
+      buildTargetState({
+        campaigns: selectedCampaignList,
+        adsetsByCampaignId: resolved,
+        copyMode: value.copyMode,
+        nameOverrides: value.nameOverrides,
+      }),
+    );
+  }, [
+    adsetPrefillApplied,
+    adsetsByCampaignId,
+    onChange,
+    preselectedAdsetIds,
+    value,
+  ]);
+
   useEffect(() => {
     if (!adsetOptions) return;
     setAdsetsByCampaignId((current) => {
@@ -237,12 +338,12 @@ export function LaunchpadAddToExistingTarget({
   }, [adsetOptions, selectedCampaignIds]);
 
   useEffect(() => {
-    if (!businessId || campaignOptions) return;
+    if (!businessId || !providerAccountId || campaignOptions) return;
     let cancelled = false;
     setCampaignLoading(true);
     const objective = showAllObjectives ? "ALL" : "OUTCOME_SALES";
     fetch(
-      `/api/launchpad/meta/campaigns?businessId=${encodeURIComponent(businessId)}&objective=${encodeURIComponent(objective)}`,
+      `/api/launchpad/meta/campaigns?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}&objective=${encodeURIComponent(objective)}`,
     )
       .then((response) => response.json())
       .then((payload) => {
@@ -257,10 +358,10 @@ export function LaunchpadAddToExistingTarget({
     return () => {
       cancelled = true;
     };
-  }, [businessId, campaignOptions, showAllObjectives]);
+  }, [businessId, campaignOptions, providerAccountId, showAllObjectives]);
 
   useEffect(() => {
-    if (!businessId || selectedCampaignIds.length === 0 || adsetOptions) {
+    if (!businessId || !providerAccountId || selectedCampaignIds.length === 0 || adsetOptions) {
       if (selectedCampaignIds.length === 0 && !adsetOptions) {
         setAdsetsByCampaignId({});
         setAdsetLoadStatusByCampaignId({});
@@ -284,7 +385,11 @@ export function LaunchpadAddToExistingTarget({
 
     void (async () => {
       for (const campaign of selectedCampaigns) {
-        const result = await fetchLaunchpadCampaignAdsets({ businessId, campaign });
+        const result = await fetchLaunchpadCampaignAdsets({
+          businessId,
+          providerAccountId,
+          campaign,
+        });
         if (cancelled) return;
         if (result.ok) {
           setAdsetsByCampaignId((current) => ({
@@ -302,7 +407,14 @@ export function LaunchpadAddToExistingTarget({
     return () => {
       cancelled = true;
     };
-  }, [adsetOptions, adsetReloadNonce, businessId, selectedCampaignIds, selectedCampaigns]);
+  }, [
+    adsetOptions,
+    adsetReloadNonce,
+    businessId,
+    providerAccountId,
+    selectedCampaignIds,
+    selectedCampaigns,
+  ]);
 
   const filteredCampaigns = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -598,7 +710,12 @@ export function LaunchpadAddToExistingTarget({
         <div className="border-b border-[var(--border)] px-4 py-3 text-[13px] font-semibold text-[var(--ink)]">Ad names</div>
         <div className="divide-y divide-[var(--border)]">
           {selectedCreatives.map((creative) => {
-            const name = value.nameOverrides[creative.creativeId] ?? defaultCreativeAddName(creative);
+            // The selection list is filtered to rows carrying a creative
+            // identity upstream; this keeps the override key a string so a
+            // missing id can never become the literal "null" bucket that
+            // every unnamed row would then share.
+            const overrideKey = creative.creativeId ?? "";
+            const name = value.nameOverrides[overrideKey] ?? defaultCreativeAddName(creative);
             return (
               <div key={creative.creativeId} className="grid gap-3 px-4 py-3 md:grid-cols-[56px_1fr_1.4fr] md:items-center">
                 <CreativeRenderSurface
@@ -626,7 +743,7 @@ export function LaunchpadAddToExistingTarget({
                       ...value,
                       nameOverrides: {
                         ...value.nameOverrides,
-                        [creative.creativeId]: event.target.value,
+                        [overrideKey]: event.target.value,
                       },
                     })
                   }

@@ -72,6 +72,22 @@ export interface MetaCreativesWarehousePayloadInput {
   end: string;
 }
 
+/**
+ * The Meta connection row could not be read.
+ *
+ * Deliberately distinct from "this business has no Meta connection".
+ * `getIntegration` resolves to `null` for the second case and rejects for the
+ * first (DB error, decrypt failure), and the two must never be reported the
+ * same way: a caller that receives `no_connection` states a fact about the
+ * account, while this error states that no fact was obtained.
+ */
+export class MetaCreativesIntegrationReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaCreativesIntegrationReadError";
+  }
+}
+
 const requestScopedLiveFallbackCache = new WeakMap<
   NextRequest,
   Map<string, Promise<CreativesApiResponse>>
@@ -328,12 +344,47 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
   const scopedAccountIds = accountScope.assignedAccountIds;
   const accountScopeMetadata = buildMetaCreativesAccountScopeMetadata(accountScope);
 
-  const integration = await getIntegration(businessId, "meta").catch(() => null);
+  // A read that failed is not a known disconnection. `.catch(() => null)`
+  // collapsed a rejected integration read into the same value as "no row
+  // exists", so a DB or decrypt failure was reported as
+  // `{ status: "no_connection", rows: [] }` — which ships as HTTP 200 and makes
+  // the Creative Studio assets table draw its ordinary "no creative assets were
+  // served for this window" empty state. The operator then reads a definite
+  // statement about their account produced by a read that never happened, and
+  // may cut or scale on it. Surfacing the failure keeps the honesty law: a read
+  // failure is never an empty success.
+  let integration: Awaited<ReturnType<typeof getIntegration>>;
+  try {
+    integration = await getIntegration(businessId, "meta");
+  } catch (error) {
+    console.warn("[meta-creatives] integration_read_failed", {
+      businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw new MetaCreativesIntegrationReadError(
+      "The Meta connection for this business could not be read, so no creative data was loaded.",
+    );
+  }
+  // A source-health verdict, not an empty result set. `rows: []` here states
+  // that no read was attempted, so the envelope carries the status and an
+  // explicitly unknown observation instant; a surface that treated this as an
+  // ordinary empty window would tell the operator their account served nothing
+  // when in fact nothing was asked.
   if (!integration || integration.status !== "connected") {
-    return { status: "no_connection", rows: [], ...accountScopeMetadata };
+    return {
+      status: "no_connection",
+      rows: [],
+      warehouse_observed_at: null,
+      ...accountScopeMetadata,
+    };
   }
   if (!integration.access_token) {
-    return { status: "no_access_token", rows: [], ...accountScopeMetadata };
+    return {
+      status: "no_access_token",
+      rows: [],
+      warehouse_observed_at: null,
+      ...accountScopeMetadata,
+    };
   }
   const accessToken = integration.access_token;
 
@@ -462,6 +513,12 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
           ...scopedPayload,
           snapshot_source: "live",
           readSource: liveReadSource,
+          // A live read has no warehouse write behind it. `buildLiveApiResponse`
+          // stamps `last_synced_at: new Date().toISOString()`
+          // (lib/meta/creatives-snapshot-helpers.ts), which is the age of this
+          // request rather than of the data, so the observation instant is
+          // published as unknown instead of borrowing that number.
+          warehouse_observed_at: null,
           ...accountScopeMetadata,
           ...(selectedRangeNeedsCurrentDayLive
             ? {
@@ -489,6 +546,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
           media_hydrated: false,
           snapshot_source: "live",
           readSource: "current_day_live",
+          warehouse_observed_at: null,
           ...accountScopeMetadata,
           isPartial: true,
           notReadyReason: buildCurrentDayCreativeNotReadyReason({

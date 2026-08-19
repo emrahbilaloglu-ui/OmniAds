@@ -1943,6 +1943,16 @@ export function getDemoMetaBreakdowns() {
       { key: "45-54", label: "45–54", spend: 2690, purchases: 98, revenue: 7860, clicks: 5820, impressions: 241000 },
       { key: "55+", label: "55+", spend: 990, purchases: 31, revenue: 2240, clicks: 1840, impressions: 91000 },
     ],
+    // The second dimension of the same age,gender fetch. Synthetic review
+    // evidence like every other demo figure, and deliberately summing to the
+    // SAME totals as `age` above (spend 22,420 / purchases 876 / revenue
+    // 72,440 / clicks 43,350 / impressions 1,781,000) so the two panels
+    // cannot contradict each other on one screen.
+    gender: [
+      { key: "female", label: "Female", spend: 13000, purchases: 512, revenue: 42500, clicks: 25200, impressions: 1035000 },
+      { key: "male", label: "Male", spend: 8920, purchases: 341, revenue: 28200, clicks: 16900, impressions: 700000 },
+      { key: "unknown", label: "Unknown", spend: 500, purchases: 23, revenue: 1740, clicks: 1250, impressions: 46000 },
+    ],
     location: [
       { key: "US", label: "United States", spend: 16480, purchases: 634, revenue: 54280, clicks: 29420, impressions: 1182000 },
       { key: "CA", label: "Canada", spend: 3260, purchases: 117, revenue: 9740, clicks: 5610, impressions: 228000 },

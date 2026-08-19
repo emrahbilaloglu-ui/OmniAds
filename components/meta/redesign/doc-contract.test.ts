@@ -22,7 +22,7 @@ describe("meta page UI contract doc stays consistent with code", () => {
 
   it("legacy execute hints are review-only and the doc must not claim direct provider writes", () => {
     expect(page).toContain(
-      "This legacy execution hint is not a canonical provider-write authority.",
+      "The served hint carries no canonical provider-write authority",
     );
     expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/apply-bid/);
     expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/pause/);
@@ -51,9 +51,11 @@ describe("meta page UI contract doc stays consistent with code", () => {
   });
 
   it("stale caveat phrases cannot return while the code has the fix", () => {
-    // Currency: the page formats money through formatMoney; the doc must
-    // not claim the archive table / 7d-avg sublabel still use legacy $.
-    expect(page).toContain("formatMoney(avg7dSpend, moneyCurrency)");
+    // Currency: every money value on the band is formatted through the
+    // adapter's currency-aware formatter, never a hardcoded symbol; the doc
+    // must not claim the archive table / 7d-avg sublabel still use legacy $.
+    expect(adapter).toContain("function formatMoney(");
+    expect(adapter).not.toMatch(/["'`]\$["'`]\s*\+/);
     expect(doc).not.toMatch(/archive table[^.\n]*still use[^.\n]*formatCurrency/i);
     expect(doc).not.toMatch(/Currency-awareness is partial/);
     // Anomalies: endDate scoping exists; the old blanket sentence is banned.
@@ -90,18 +92,22 @@ describe("meta page UI contract doc stays consistent with code", () => {
   it("doc references to the page's key contracts stay alive in code", () => {
     for (const symbol of [
       "isTrackingWriteBlocked",
-      "FinalMetaPulse",
+      "ExactKpiBand",
       "MetaWorkspacePostureBanners",
       "mid_confidence",
     ]) {
       expect(doc, `doc must document ${symbol}`).toContain(symbol);
     }
-    for (const symbol of [
-      "isTrackingWriteBlocked",
-      "FinalMetaPulse",
-      "MetaWorkspacePostureBanners",
-    ]) {
+    for (const symbol of ["isTrackingWriteBlocked", "MetaWorkspacePostureBanners"]) {
       expect(page, `page must still define/use ${symbol}`).toContain(symbol);
     }
+    // The KPI band moved out of the page and into the exact component; the doc
+    // cites it there, so that is where it has to exist.
+    expect(exact, "the exact component must still define ExactKpiBand").toContain(
+      "function ExactKpiBand(",
+    );
+    expect(page, "the retired pulse strip must not come back").not.toContain(
+      "FinalMetaPulse",
+    );
   });
 });

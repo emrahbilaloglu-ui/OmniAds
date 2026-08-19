@@ -40,6 +40,60 @@ export const META_AI_TAG_KEYS = [
   "headlineTactic",
 ] as const;
 
+/**
+ * The metric fields whose availability travels with the row.
+ *
+ * `MetaCreativeRow` keeps every metric typed `number` because dozens of
+ * consumers do arithmetic on them, and widening those to `number | null` would
+ * change resolvers and ratio math this pass must not touch. The availability
+ * fact still has to reach the UI, so it travels beside the numbers instead of
+ * replacing them.
+ */
+export const META_OBSERVED_METRIC_KEYS = [
+  "spend",
+  "purchaseValue",
+  "roas",
+  "cpa",
+  "cpcLink",
+  "cpm",
+  "ctrAll",
+  "purchases",
+  "impressions",
+  "clicks",
+  "linkClicks",
+  "landingPageViews",
+  "addToCart",
+  "initiateCheckout",
+  "thumbstop",
+  "clickToAddToCart",
+  "atcToPurchaseRatio",
+  "frequency",
+  "leads",
+  "messages",
+  "video25",
+  "video50",
+  "video75",
+  "video100",
+] as const;
+
+export type MetaObservedMetricKey = (typeof META_OBSERVED_METRIC_KEYS)[number];
+
+/**
+ * Per-metric availability, carried as nullable values.
+ *
+ * A key holding a number was served by the producer — **including 0, which is a
+ * measurement**: a paused, never-delivered line really did spend nothing, and
+ * hiding that behind an em dash is as dishonest as inventing a figure. A key
+ * holding `null` was not served and must render as an em dash.
+ *
+ * This replaces the older all-or-nothing rule at the presentation boundary. One
+ * absent field used to withhold every number on the row, so a real measured
+ * spend disappeared because, say, `leads` was missing from the payload.
+ */
+export type MetaCreativeObservedMetrics = Partial<
+  Record<MetaObservedMetricKey, number | null>
+>;
+
 export type MetaAiTagKey = (typeof META_AI_TAG_KEYS)[number];
 export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
 export type PreviewState = "preview" | "catalog" | "unavailable";
@@ -73,7 +127,13 @@ export interface MetaCreativeScoreGap {
 
 export interface MetaCreativeRow {
   id: string;
-  creativeId: string;
+  /**
+   * `null` when the provider supplied no creative for this row. It used to be
+   * non-nullable, so the copies mapper substituted the copy row id to satisfy
+   * the type — which made every row look draftable and offered an enabled
+   * control the server then refused.
+   */
+  creativeId: string | null;
   realAdId?: string | null;
   launchpadRecentAction?: {
     action: "launch_ad" | "duplicate";
@@ -92,6 +152,14 @@ export interface MetaCreativeRow {
    * them when this flag is unavailable.
    */
   metricsAvailability?: "available" | "unavailable";
+  /**
+   * Which metrics the producer actually served, and what it served.
+   *
+   * Absent means the producer of this row does not publish per-metric
+   * availability; readers then fall back to `metricsAvailability`, which is the
+   * only fact such a row carries.
+   */
+  observedMetrics?: MetaCreativeObservedMetrics;
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;

@@ -20,7 +20,9 @@ interface MeResponse {
     name: string;
     timezone: string | null;
     timezoneSource?: "shopify" | "ga4" | null;
-    currency: string;
+    // Nullable on purpose: a workspace with no configured currency must reach
+    // the store as null. INVARIANTS.md forbids substituting USD for it here.
+    currency: string | null;
     isDemoBusiness?: boolean;
     industry?: string;
     platform?: string;

@@ -6,10 +6,26 @@ export const APP_STORE_PERSIST_KEY = "omniads-app-store-v2";
 
 export interface Business {
   id: string;
-  name: string;
+  /**
+   * `null` when the workspace record could not be read.
+   *
+   * A workspace whose name is unknown must not be labelled with its own UUID.
+   * Presentation renders the unavailable mark instead, so an operator never
+   * reads an identifier as if it were a name.
+   */
+  name: string | null;
   timezone: string | null;
   timezoneSource?: BusinessTimezoneSource;
-  currency: string;
+  /**
+   * The configured account currency, or `null` when the workspace has none.
+   *
+   * INVARIANTS.md: "Missing currency must not silently become USD, $, TRY, or
+   * EUR." This field used to be a plain `string`, which forced every writer to
+   * invent a code for a workspace that had never configured one — and the
+   * inventor of choice was `"USD"`. Nullable is the only shape that lets a
+   * missing currency reach presentation as a missing currency.
+   */
+  currency: string | null;
   isDemoBusiness?: boolean;
   industry?: string;
   platform?: string;

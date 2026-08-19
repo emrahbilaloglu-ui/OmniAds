@@ -21,7 +21,11 @@ describe("briefing-filter", () => {
     ["ACTIVE", [true, true, true]],
     ["ARCHIVED", [false, false, true]],
     ["DELETED", [false, false, true]],
-    ["UNKNOWN", [false, false, true]],
+    // UNKNOWN is in the briefing under every filter. It means the status was
+    // not captured, not that the entity is off — and reading it as "off" hid
+    // 95% of a real account's spend from every rollup, so the surface reported
+    // ROAS 0.00 for an account spending over $1k a day.
+    ["UNKNOWN", [true, true, true]],
     ["WITH_ISSUES", [false, false, true]],
   ] as const)("classifies %s across status filters", (status, expected) => {
     const actual = FILTERS.map((filter) => isInBriefing({ status }, filter, NOW));
@@ -52,5 +56,28 @@ describe("briefing-filter", () => {
     expect(briefingStatusLabel({ status: "PAUSED", statusChangedAt: "2026-05-09T08:30:00.000Z" }, NOW)).toBe("Paused 4h");
     expect(briefingStatusLabel({ status: "PAUSED", statusChangedAt: "2026-05-07T12:00:00.000Z" }, NOW)).toBe("Paused 2d");
     expect(briefingStatusLabel({ status: "WITH_ISSUES" }, NOW)).toBe("With Issues");
+  });
+});
+
+describe("an uncaptured status is never read as an archived one", () => {
+  /**
+   * The failure this closes: five Grandmix campaigns carried $34,612 of a
+   * $36,451 window while their daily rows had a null `campaign_status`. The
+   * system knew they were ACTIVE — `meta_entity_state_history` recorded exactly
+   * that — but the two tables this filter reads did not carry it. Listing
+   * UNKNOWN as archive-only dropped every one of them, and the Decision Center
+   * reported ROAS 0.00 and $0 spend for an account spending daily.
+   */
+  it("keeps an entity with no captured status out of the archive", () => {
+    for (const entity of [{ status: null }, { status: "" }, {}]) {
+      expect(isArchiveOnlyEntity(entity, "active", NOW)).toBe(false);
+      expect(isInBriefing(entity, "active", NOW)).toBe(true);
+    }
+  });
+
+  it("still archives the statuses that really are closed", () => {
+    for (const status of ["PAUSED", "ARCHIVED", "DELETED"]) {
+      expect(isArchiveOnlyEntity({ status }, "active", NOW)).toBe(true);
+    }
   });
 });

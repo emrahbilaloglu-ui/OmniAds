@@ -966,6 +966,24 @@
   white-space: nowrap;
 }
 
+/*
+ * Why the Creatives queue is empty, said where the question is asked.
+ *
+ * Borrows the footnote's own dashed shell so it reads as the same quiet
+ * annotation layer rather than as a new banner; the reference draws no
+ * page-level chrome here.
+ */
+.creativeNotice {
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px dashed #c9d2e0;
+  border-radius: 12px;
+  background: #fbfcfe;
+  color: #7a869e;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .creativeFootnote {
   display: flex;
   align-items: center;

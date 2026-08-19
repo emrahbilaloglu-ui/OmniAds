@@ -7,6 +7,14 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+// The demo refusal is a SERVER rule (rejectIfLaunchpadDemoWrite reads
+// businesses.is_demo_business). Mocked here so these cases exercise the rest
+// of the route; the refusal itself is asserted in demo-write-authority.test.ts
+// and in the per-route demo case below.
+vi.mock("../demo-write-authority", () => ({
+  rejectIfLaunchpadDemoWrite: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/meta/ads-action-log", () => ({
   completeMetaAdsActionLog: vi.fn(),
   createMetaAdsActionLog: vi.fn(),
@@ -57,6 +65,7 @@ const validation = await import("@/lib/launchpad/meta-validation");
 const intentService = await import("@/lib/launchpad/meta-launch-intent-service");
 const intentCapability = await import("@/lib/launchpad/meta-launch-intent-capability");
 const intentStore = await import("@/lib/launchpad/meta-launch-intent-store");
+const demoAuthority = await import("../demo-write-authority");
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -128,6 +137,9 @@ function mockValidPayload() {
 describe("POST /api/launchpad/meta/launch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: a proven live workspace. Individual cases override it; without
+    // this reset a per-test override would leak into every later case.
+    vi.mocked(demoAuthority.rejectIfLaunchpadDemoWrite).mockResolvedValue(null);
     vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
       status: "ready",
       canRead: true,
@@ -712,6 +724,76 @@ describe("POST /api/launchpad/meta/launch", () => {
     expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  // LAW (docs/creative-decision-center/INVARIANTS.md): "Demo businesses have
+  // zero Meta write authority even if a presentation defect supplies an
+  // action." The reviewer guard above does NOT cover this — `/api/auth/demo-login`
+  // opens a session as an ADMIN of the demo business under a non-reviewer
+  // email, so before this gate a demo session could drive a real provider
+  // launch. The refusal lands before the kill switch, before validation, and
+  // before the first provider POST; the provider write count for this case is
+  // zero and stays zero.
+  it("rejects a demo workspace launch before kill-switch, validation or any provider call", async () => {
+    vi.mocked(demoAuthority.rejectIfLaunchpadDemoWrite).mockResolvedValue(
+      NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "demo_business_read_only",
+            message: "Demo workspaces have zero Meta write authority.",
+            action: "launchpad_launch",
+          },
+        },
+        { status: 403 },
+      ),
+    );
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_demo",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("demo_business_read_only");
+    expect(body.error.action).toBe("launchpad_launch");
+    expect(writeGuard.rejectIfMetaWritesBlocked).not.toHaveBeenCalled();
+    expect(validation.validateMetaLaunchRequest).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+    expect(launchWrite.createAdSet).not.toHaveBeenCalled();
+    expect(launchWrite.createAd).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  // Same law, other direction: an unreadable demo flag holds the write instead
+  // of reading the failure as "live". A read failure is never a success.
+  it("holds a launch when the demo flag could not be read", async () => {
+    vi.mocked(demoAuthority.rejectIfLaunchpadDemoWrite).mockResolvedValue(
+      NextResponse.json(
+        {
+          ok: false,
+          error: { code: "demo_status_unverified", message: "held" },
+        },
+        { status: 503 },
+      ),
+    );
+
+    const response = await POST(
+      request({
+        businessId: BUSINESS_ID,
+        payload: payload(),
+        idempotencyKey: "idem_demo_unverified",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("demo_status_unverified");
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
   });
 
   it("blocks launch when validation returns blockers", async () => {

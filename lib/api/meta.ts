@@ -58,6 +58,7 @@ import {
   upsertMetaSyncPhaseTiming,
   appendMetaCurrentConfigHistory,
 } from "@/lib/meta/warehouse";
+import { deriveMetaFrequencyFromReach } from "@/lib/meta/warehouse-types";
 import {
   resolveMetaRawSnapshotFetchUrl,
   resolveMetaRawSnapshotResumeState,
@@ -67,6 +68,7 @@ import type {
   MetaAccountDailyRow,
   MetaAdDailyRow,
   MetaAdSetDailyRow,
+  MetaBreakdownType,
   MetaCampaignDailyRow,
   MetaRawSnapshotStatus,
   MetaSyncCheckpointRecord,
@@ -83,6 +85,7 @@ import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/
 import {
   normalizeMetaProviderUpdatedAt,
   persistMetaEntityObservation,
+  readMetaEntityStatesAsOf,
   resolveMetaEntityObservedAt,
   type MetaEntityObservationStateInput,
   type MetaEntityType,
@@ -456,6 +459,10 @@ interface RawBreakdownInsight {
   spend?: string;
   clicks?: string;
   impressions?: string;
+  // Optional because Meta OMITS them for a row it did not measure — which is
+  // why they must land as null rather than 0.
+  reach?: string;
+  frequency?: string;
   ctr?: string;
   cpm?: string;
   actions?: MetaActionValue[];
@@ -1797,9 +1804,13 @@ function buildMetaBreakdownInsightsUrl(input: {
     `https://graph.facebook.com/v25.0/${input.accountId}/insights`,
   );
   url.searchParams.set("level", "ad");
+  // `reach` and `frequency` are requested for the same reason the core insights
+  // URL above requests them: the warehouse has columns for both and was filling
+  // them with 0 and null because nothing ever asked. Their absence was a field
+  // list, never a provider limitation.
   url.searchParams.set(
     "fields",
-    "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas",
+    "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,ctr,cpm,impressions,clicks,reach,frequency,actions,action_values,purchase_roas",
   );
   url.searchParams.set("breakdowns", input.breakdowns);
   url.searchParams.set(
@@ -3043,6 +3054,32 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     run: async () => {
       sourceSnapshotId = latestSnapshotId;
       adsetPayloadsByCampaign = new Map<string, MetaConfigSnapshotPayload[]>();
+
+      // Same recovery the campaign rows get below: an ad set the config
+      // response did not return still has a status in `meta_entity_state_history`,
+      // and writing null instead lets the active filter drop a spending row.
+      const recoveredAdsetStatuses = new Map<string, string>();
+      const missingStatusAdsetIds = Array.from(aggregates.adsets.keys()).filter(
+        (adsetId) => {
+          const config = adsetConfigs.get(adsetId) ?? null;
+          return !config?.effective_status && !config?.status;
+        },
+      );
+      if (missingStatusAdsetIds.length > 0) {
+        const recorded = await readMetaEntityStatesAsOf({
+          businessId: input.credentials.businessId,
+          providerAccountId: input.accountId,
+          entityType: "adset",
+          entityIds: missingStatusAdsetIds,
+          cutoff: new Date(),
+        }).catch(() => []);
+        for (const state of recorded) {
+          if (state.presence !== "present") continue;
+          const status = state.effectiveStatus ?? state.configuredStatus;
+          if (status) recoveredAdsetStatuses.set(state.entityId, status);
+        }
+      }
+
       adsetRows = Array.from(aggregates.adsets.entries()).map(
         ([adsetId, value]): MetaAdSetDailyRow => {
           const metrics = deriveWarehouseMetrics(value);
@@ -3074,7 +3111,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             adsetNameCurrent: value.name ?? adsetConfig?.name ?? null,
             adsetNameHistorical: value.name ?? adsetConfig?.name ?? null,
             adsetStatus:
-              adsetConfig?.effective_status ?? adsetConfig?.status ?? null,
+              adsetConfig?.effective_status ??
+              adsetConfig?.status ??
+              recoveredAdsetStatuses.get(adsetId) ??
+              null,
             optimizationGoal: null,
             bidStrategyType: null,
             bidStrategyLabel: null,
@@ -3111,6 +3151,34 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           return applyConfigPayloadToDailyRow(baseRow, configPayload);
         },
       );
+      // A campaign the config response did not return still has a status the
+      // system recorded — `persistMetaStatusConfigObservation` writes it to
+      // `meta_entity_state_history` from the same fetch. Writing null instead
+      // made "we did not see it this run" indistinguishable from "it has no
+      // status", and the active filter then dropped those rows from every
+      // rollup: on one account the five campaigns carrying 95% of the spend
+      // were exactly the five the response missed, so the Decision Center
+      // reported ROAS 0.00 for an account spending over $1k a day.
+      const missingStatusCampaignIds = Array.from(aggregates.campaigns.keys())
+        .filter((campaignId) => !campaignStatuses.has(campaignId));
+      if (missingStatusCampaignIds.length > 0) {
+        const recorded = await readMetaEntityStatesAsOf({
+          businessId: input.credentials.businessId,
+          providerAccountId: input.accountId,
+          entityType: "campaign",
+          entityIds: missingStatusCampaignIds,
+          cutoff: new Date(),
+        }).catch(() => []);
+        for (const state of recorded) {
+          // `presence` distinguishes an entity we last saw present from one the
+          // provider stopped returning; only a present one carries a status we
+          // may still claim.
+          if (state.presence !== "present") continue;
+          const status = state.effectiveStatus ?? state.configuredStatus;
+          if (status) campaignStatuses.set(state.entityId, status);
+        }
+      }
+
       campaignRows = Array.from(aggregates.campaigns.entries()).map(
         ([campaignId, value]) => {
           const metrics = deriveWarehouseMetrics(value);
@@ -3193,7 +3261,44 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           cpa: metrics.cpa,
           ctr: metrics.ctr,
           cpc: metrics.cpc,
-          linkClicks: 0,
+          /**
+           * UNSUPPLIED, and now written as such.
+           *
+           * This used to be a literal `0`. It was never "the aggregate happened
+           * to be zero": `MetaAggregateTotals` has NO link-click member and
+           * `accumulateAdInsight` never accumulates one, so the sync genuinely
+           * holds no link-click value at any point. The `0` was a number typed
+           * into this file on the provider's behalf — a fabrication, not a
+           * measurement — and this function is the ONLY production writer of
+           * `meta_ad_daily.link_clicks` (`upsertMetaAdDailyRows` and
+           * `replaceMetaAdDailySlice` are both fed from `adRows` here), so
+           * every ad-day the sync has ever written carries it.
+           *
+           * `null` is therefore the TRUTHFUL write, and switching to it removes
+           * a fabrication rather than removing a measurement. Nothing that
+           * reads this column changes its answer: the engine coalesces an
+           * absent count to 0 (see the null-safety notes in
+           * `creative-decision-engine/jobs/ad-calibration-job.ts` and the
+           * `SUM(COALESCE(link_clicks, 0))` aggregates in `data-source.ts`), so
+           * it saw 0 for these rows before and sees 0 for them now. What
+           * changes is only that the presence sidecar can finally say
+           * "unavailable" instead of publishing a confident zero, and that the
+           * merge below will no longer let this absence overwrite a real
+           * measurement should one ever be stored.
+           *
+           * DELIBERATELY NOT derived from the `actions` array.
+           *
+           * `payload_json` does carry a `link_click` action entry for many of
+           * these rows, and reading it would produce a real count. That is a
+           * DIFFERENT change: it alters the numbers the Decision Engine reads,
+           * so it needs its own equivalence proof, its own review of every
+           * threshold the new numbers cross, and its own backfill decision. It
+           * is explicitly out of scope here, and this comment exists so the
+           * next reader does not mistake the empty seat for an oversight and
+           * quietly fill it. Supplying a real count is a decision change;
+           * refusing to invent one is not.
+           */
+          linkClicks: null,
           sourceSnapshotId,
           payloadJson: value.payloadJson ?? null,
           truthState,
@@ -3613,11 +3718,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             await replaceMetaCampaignDailySlice({
               rows: campaignRows,
               proof: campaignProof,
-              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           } else {
             await upsertMetaCampaignDailyRows(campaignRows, {
-              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           }
         }
@@ -3644,11 +3747,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             await replaceMetaAdSetDailySlice({
               rows: adsetRows,
               proof: adsetProof,
-              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           } else if (adsetRows.length > 0) {
             await upsertMetaAdSetDailyRows(adsetRows, {
-              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           }
         }
@@ -4358,23 +4459,43 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   };
 }
 
-function getMetaBreakdownTypeFromInput(
+/**
+ * One fetch, one type per DIMENSION it actually carries.
+ *
+ * `age,gender` is a two-dimensional Meta breakdown, and this function used to
+ * answer `"age"` for it. That single answer is what destroyed the split: every
+ * gender row was keyed by its age bucket alone, so `18-24 / female` and
+ * `18-24 / male` merged into one `18-24` row and no reader could ever take them
+ * apart again. Returning BOTH types lets the same raw rows be aggregated twice,
+ * once per dimension, into two independent identities.
+ *
+ * `age` is still first and still means exactly what it meant — existing `age`
+ * rows keep their keys, their labels and their values.
+ */
+function getMetaBreakdownTypesFromInput(
   breakdowns: string,
-): "age" | "country" | "placement" {
+): MetaBreakdownType[] {
   if (breakdowns === "breakdown_age" || breakdowns === "age,gender")
-    return "age";
+    return ["age", "gender"];
   if (breakdowns === "breakdown_country" || breakdowns === "country")
-    return "country";
-  return "placement";
+    return ["country"];
+  return ["placement"];
 }
 
 function buildMetaBreakdownIdentity(
-  breakdownType: "age" | "country" | "placement",
+  breakdownType: MetaBreakdownType,
   row: RawBreakdownInsight,
 ) {
   if (breakdownType === "age") {
     const age = String(row.age ?? "unknown");
     return { breakdownKey: age, breakdownLabel: age };
+  }
+  if (breakdownType === "gender") {
+    // Keyed on the OTHER dimension of the same row. Meta reports `unknown` as a
+    // real bucket, so an absent value falls into the same bucket rather than
+    // being dropped — dropping it would silently shrink account spend.
+    const gender = String(row.gender ?? "unknown");
+    return { breakdownKey: gender, breakdownLabel: gender };
   }
   if (breakdownType === "country") {
     const country = String(row.country ?? "unknown");
@@ -4392,13 +4513,31 @@ function buildMetaBreakdownIdentity(
   return { breakdownKey: key, breakdownLabel: label };
 }
 
+/**
+ * A reach Meta reported, or `null`.
+ *
+ * Never a fallback to impressions. The core insights path does
+ * `parseNum(row.reach ?? row.impressions)`, which makes frequency identically
+ * 1.0 for any row missing reach — a fabricated measurement that reads as a
+ * plausible one. Breakdown rows refuse that: a missing, unparseable or negative
+ * reach is "not measured", and every metric derived from it is null.
+ */
+function parseMetaBreakdownMeasuredReach(
+  row: RawBreakdownInsight,
+): number | null {
+  if (row.reach == null) return null;
+  const parsed = Number(row.reach);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
+}
+
 function buildMetaBreakdownDailyRows(input: {
   businessId: string;
   providerAccountId: string;
   date: string;
   accountTimezone: string;
   accountCurrency: string;
-  breakdownType: "age" | "country" | "placement";
+  breakdownType: MetaBreakdownType;
   rows: RawBreakdownInsight[];
   sourceRunId: string;
 }) {
@@ -4408,7 +4547,19 @@ function buildMetaBreakdownDailyRows(input: {
       spend: number;
       impressions: number;
       clicks: number;
-      reach: number;
+      /**
+       * `null` until a raw row in this bucket actually reported a reach.
+       *
+       * The old code seeded this to 0 unconditionally, which is how an
+       * unmeasured dimension became a measured "zero people reached". Meta
+       * omits `reach` for rows it did not measure, so absence stays absent.
+       *
+       * Summing reach across the ad rows inside one bucket over-counts anyone
+       * who saw two ads — the same known over-count the ad-set and account
+       * aggregations in `lib/meta/serving.ts` already accept, reused here on
+       * purpose rather than replaced with a second, differently-wrong rule.
+       */
+      reach: number | null;
       frequency: number | null;
       conversions: number;
       revenue: number;
@@ -4430,11 +4581,20 @@ function buildMetaBreakdownDailyRows(input: {
       action_values: row.action_values,
       purchase_roas: row.purchase_roas,
     });
+    const measuredReach = parseMetaBreakdownMeasuredReach(row);
     const existing = byKey.get(identity.breakdownKey);
     if (existing) {
       existing.spend = r2(existing.spend + metrics.spend);
       existing.impressions += metrics.impressions;
       existing.clicks += metrics.clicks;
+      existing.reach =
+        measuredReach == null
+          ? existing.reach
+          : (existing.reach ?? 0) + measuredReach;
+      existing.frequency = deriveMetaFrequencyFromReach({
+        impressions: existing.impressions,
+        reach: existing.reach,
+      });
       existing.conversions += metrics.purchases;
       existing.revenue = r2(existing.revenue + metrics.revenue);
       existing.roas =
@@ -4455,8 +4615,11 @@ function buildMetaBreakdownDailyRows(input: {
         spend: metrics.spend,
         impressions: metrics.impressions,
         clicks: metrics.clicks,
-        reach: 0,
-        frequency: null,
+        reach: measuredReach,
+        frequency: deriveMetaFrequencyFromReach({
+          impressions: metrics.impressions,
+          reach: measuredReach,
+        }),
         conversions: metrics.purchases,
         revenue: metrics.revenue,
         roas: metrics.roas,
@@ -4696,17 +4859,29 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     finishedAt: new Date().toISOString(),
   });
 
-  const breakdownType = getMetaBreakdownTypeFromInput(input.breakdowns);
-  const breakdownRows = buildMetaBreakdownDailyRows({
-    businessId: input.credentials.businessId,
-    providerAccountId: input.accountId,
-    date: normalizedDay,
-    accountTimezone: profile?.timezone ?? "UTC",
-    accountCurrency,
+  // ONE fetch, one slice PER DIMENSION it carries. `age,gender` produces an
+  // age-typed slice and a gender-typed slice from the same raw rows; the other
+  // breakdowns produce exactly the one slice they always did. Each slice is
+  // replaced under its own type, so the age slice is byte-for-byte what it was
+  // before gender existed.
+  const breakdownTypes = getMetaBreakdownTypesFromInput(input.breakdowns);
+  const breakdownSlices = breakdownTypes.map((breakdownType) => ({
     breakdownType,
-    rows: restoredRows,
-    sourceRunId,
-  });
+    rows: buildMetaBreakdownDailyRows({
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      accountTimezone: profile?.timezone ?? "UTC",
+      accountCurrency,
+      breakdownType,
+      rows: restoredRows,
+      sourceRunId,
+    }),
+  }));
+  const breakdownRowsWritten = breakdownSlices.reduce(
+    (total, slice) => total + slice.rows.length,
+    0,
+  );
   const breakdownProof = createMetaFinalizationCompletenessProof({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -4732,16 +4907,18 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     leaseOwner: input.workerId,
     startedAt: bulkUpsertStartedAt,
   });
-  await replaceMetaBreakdownDailySlice({
-    slice: {
-      businessId: input.credentials.businessId,
-      providerAccountId: input.accountId,
-      date: normalizedDay,
-      breakdownType,
-    },
-    rows: breakdownRows,
-    proof: breakdownProof,
-  });
+  for (const breakdownSlice of breakdownSlices) {
+    await replaceMetaBreakdownDailySlice({
+      slice: {
+        businessId: input.credentials.businessId,
+        providerAccountId: input.accountId,
+        date: normalizedDay,
+        breakdownType: breakdownSlice.breakdownType,
+      },
+      rows: breakdownSlice.rows,
+      proof: breakdownProof,
+    });
+  }
   await upsertOwnedMetaPhaseTimingOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,
@@ -4751,7 +4928,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     phase: "bulk_upsert",
     status: "succeeded",
     rowsFetched: rowsFetchedTotal,
-    rowsWritten: breakdownRows.length,
+    rowsWritten: breakdownRowsWritten,
     attemptCount: input.attemptCount,
     leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
@@ -4786,7 +4963,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     nextPageUrl: null,
     providerCursor: null,
     rowsFetched: rowsFetchedTotal,
-    rowsWritten: breakdownRows.length,
+    rowsWritten: breakdownRowsWritten,
     lastSuccessfulEntityKey: null,
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
@@ -5519,7 +5696,6 @@ export async function getCampaigns(
                 cpc: row.clicks > 0 ? r2(row.spend / row.clicks) : null,
                 sourceSnapshotId: null,
               })),
-              { appendConfigHistory: campaignCurrentEvidence.appendConfigHistory },
             );
             await upsertMetaAccountDailyRows([
               {
@@ -6049,7 +6225,6 @@ export async function getAdSets(
               isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
               isBidValueMixed: Boolean(row.isBidValueMixed),
             })),
-            { appendConfigHistory: adsetCurrentEvidence.appendConfigHistory },
           );
         }
 

@@ -33,7 +33,15 @@ export type WorkspaceContextEnvelope = {
   mode: WorkspaceMode;
   business: null | {
     id: string;
-    name: string;
+    /**
+     * `null` when the authorized business record could not be read.
+     *
+     * The two layouts used to fall back to `name: businessId`, which printed a
+     * raw UUID in the workspace switcher and passed it off as a workspace name.
+     * A name we do not have is not a name: presentation says "select business"
+     * / renders the unavailable mark instead of a value that looks like data.
+     */
+    name: string | null;
     configuredCurrency: string | null;
     businessTimezone: string | null;
   };

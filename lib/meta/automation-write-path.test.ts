@@ -90,9 +90,15 @@ describe("exactly one provider-write path out of Automation", () => {
     // One import reference plus one call site, and the call site lives in
     // `approve`. `decideWithoutProviderWrite` — modify and dismiss — has none.
     expect(dispatches).toBe(1);
+    // The slice ends at `approve`'s DOC COMMENT, not at its `async function`
+    // line. The comment explains why the executor is called after the claim
+    // and therefore names it; ending the slice below it put approve's own
+    // prose inside the body this assertion is about, and the law would have
+    // failed on a paragraph rather than on a call. The law is unchanged: no
+    // dispatch may exist between these two boundaries.
     const decideBody = route.slice(
       route.indexOf("async function decideWithoutProviderWrite"),
-      route.indexOf("async function approve"),
+      route.indexOf("/**\n * Approve."),
     );
     expect(decideBody).not.toContain("executeMetaAutomationProposal");
     expect(decideBody).toContain("providerWrite: false");

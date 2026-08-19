@@ -16,7 +16,6 @@ vi.mock("@/store/preferences-store", () => ({
 import { SavedViewsMenu } from "@/components/views/SavedViewsMenu";
 
 const source = readFileSync("components/views/SavedViewsMenu.tsx", "utf8");
-const view = readFileSync("components/meta/os/DecisionsOsView.tsx", "utf8");
 
 function render(props: Partial<React.ComponentProps<typeof SavedViewsMenu>> = {}) {
   return renderToStaticMarkup(
@@ -31,11 +30,10 @@ function render(props: Partial<React.ComponentProps<typeof SavedViewsMenu>> = {}
 }
 
 describe("saved views are reachable from a surface", () => {
-  it("is mounted on the Decisions surface", () => {
-    expect(view).toContain("<SavedViewsMenu");
-    expect(view).toContain('surface="meta-decisions"');
-  });
-
+  // Not mounted anywhere today. The only mount was the pre-redesign Decisions
+  // screen, which the reference toolbar replaced with lane pills, Deferred,
+  // sort and search; the menu itself still holds its scope and applicability
+  // laws for whichever surface adopts it next.
   it("renders a control", () => {
     expect(render()).toContain("Views");
   });
@@ -66,7 +64,8 @@ describe("the menu respects scope", () => {
     expect(source).toContain("describeSavedViewError(problem)");
   });
 
-  it("passes the account list from the surface so applicability is real", () => {
-    expect(view).toContain("availableAccountIds={providerAccounts.map((account) => account.id)}");
+  it("takes the account list from its caller so applicability is real", () => {
+    expect(source).toContain("availableAccountIds");
+    expect(source).toContain("isSavedViewApplicable(view, availableAccountIds)");
   });
 });

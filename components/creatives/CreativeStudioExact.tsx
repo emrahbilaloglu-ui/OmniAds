@@ -95,15 +95,27 @@ const TONE_CLASSES: Record<CreativeStudioTone, string> = {
   neutral: styles.toneNeutral,
 };
 
+/**
+ * The Inbox's three segments.
+ *
+ * They are the creative-briefing authority's own served sections — `actionNow`,
+ * `watching`, `healthy` — under their own names, so the board shows what the
+ * engine actually grouped rather than a Requested/In production/Delivered/Live
+ * production pipeline that nothing in this product produces. See
+ * `CreativeInboxColumnId` in creative-studio-exact-types.ts for the greps that
+ * establish the absence.
+ *
+ * The heading number is a MEASUREMENT of the served items in that segment, and
+ * is therefore allowed to be zero.
+ */
 const INBOX_COLUMNS: ReadonlyArray<{
   id: CreativeStudioInboxColumn["id"];
   name: string;
   tone: CreativeStudioTone;
 }> = [
-  { id: "requested", name: "Requested", tone: "warning" },
-  { id: "in-production", name: "In production", tone: "info" },
-  { id: "delivered", name: "Delivered", tone: "automation" },
-  { id: "live", name: "Live", tone: "positive" },
+  { id: "action-now", name: "Action now", tone: "warning" },
+  { id: "watching", name: "Watching", tone: "info" },
+  { id: "healthy", name: "Healthy", tone: "positive" },
 ];
 
 const AUDIENCE_BREAKDOWN_SLOTS: ReadonlyArray<{ title: string; subtitle: string }> = [
@@ -789,7 +801,12 @@ function CopiesView({ model }: { model: CreativeStudioCopiesModel | undefined })
       <article className={styles.borderedTableArticle}>
         <div className={styles.articleHeader}>
           <h2>Copy performance</h2>
-          <span>aggregated per exact string · 28d · click a line for alternates</span>
+          {/* The window is named from what was measured, never from a
+              literal: a hardcoded "28d" labelled a 14-day or custom selection
+              as 28 days. Unknown withholds instead of guessing. */}
+          <span>
+            {`aggregated per exact string · ${model?.windowLabel ?? EM_DASH} · click a line for alternates`}
+          </span>
           <span className={styles.insightPill}>{displayText(model?.insight)}</span>
         </div>
         <div className={styles.tableScroller}>
@@ -915,7 +932,9 @@ function LandingPagesView({ model }: { model: CreativeStudioLandingModel | undef
         <article className={styles.borderedTableArticle}>
           <div className={styles.articleHeader}>
             <h2>Destinations behind ads</h2>
-            <span>Meta-reported only — link clicks + pixel LP views · no analytics join · 28d</span>
+            <span>
+              {`Meta-reported only — link clicks + pixel LP views · no analytics join · ${model?.windowLabel ?? EM_DASH}`}
+            </span>
           </div>
           <div className={styles.tableScroller}>
             <table className={styles.landingTable}>
@@ -971,8 +990,12 @@ function LandingPagesView({ model }: { model: CreativeStudioLandingModel | undef
           </article>
           <article className={styles.readCard}>
             <h2>What to try</h2>
+            {/* The items below carry no href and no callback, and no server
+                intent is minted for them — nothing here starts a draft. The
+                sentence claimed a flow that has no producer, so it states what
+                the reads are instead of what they would do. */}
             <p className={styles.readSubtitle}>
-              Test ideas from the reads below — each starts as a Launchpad draft.
+              Test ideas from the reads below. Drafting them in Launchpad is not built.
             </p>
             <ReadItems items={model?.tests ?? []} message={message} showEstimate />
           </article>
@@ -1002,6 +1025,20 @@ function LandingPagesView({ model }: { model: CreativeStudioLandingModel | undef
   );
 }
 
+/**
+ * One served briefing item.
+ *
+ * The owner avatar and the due date this card used to draw are gone rather than
+ * dashed out. An em dash means "this was not served"; drawing one in an owner
+ * slot and a due-date slot would still be telling the reader that this product
+ * assigns owners and tracks due dates and merely has none for this card. It
+ * does neither. What is drawn instead is the engine's own served label, its own
+ * one-line summary, and the card's measured numbers — where a null value is an
+ * em dash and a measured zero prints as zero.
+ *
+ * No action button: there is no request, version, approval or handoff action on
+ * this surface to attach one to.
+ */
 function InboxCard({ card }: { card: CreativeStudioInboxCard }) {
   return (
     <article className={styles.inboxCard} data-inbox-card={card.id}>
@@ -1011,20 +1048,11 @@ function InboxCard({ card }: { card: CreativeStudioInboxCard }) {
       <p className={styles.inboxCardName}>{displayText(card.name)}</p>
       <p className={styles.inboxCardNote}>{displayText(card.note)}</p>
       <div className={styles.inboxCardFooter}>
-        <span className={`${styles.avatar} ${TONE_CLASSES[card.ownerTone]}`}>
-          {displayText(card.ownerInitials)}
-        </span>
-        <span className={styles.inboxDue}>{displayText(card.due)}</span>
-        {card.actionLabel ? (
-          <button
-            className={styles.inboxAction}
-            disabled={!card.onAction}
-            onClick={card.onAction}
-            type="button"
-          >
-            {card.actionLabel}
-          </button>
-        ) : null}
+        {card.facts.map((fact) => (
+          <span className={styles.inboxDue} data-inbox-fact={fact.label} key={fact.label}>
+            {fact.label} {displayText(fact.value)}
+          </span>
+        ))}
       </div>
     </article>
   );
@@ -1044,9 +1072,18 @@ function InboxView({ model }: { model: CreativeStudioExactProps["inbox"] }) {
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <path d="M22 12h-6l-2 3h-4l-2-3H2 M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
         </svg>
+        {/* What this board is, and what it is not. The three segments below
+            are the creative-briefing authority's own served sections; the
+            request -> version -> approval -> handoff workflow the design
+            imagined here has no producer anywhere in this product, so it is
+            named as unbuilt rather than drawn as four empty columns that read
+            like a workflow with no traffic. */}
         <p>
-          Requests route here from <b>Decisions</b> with evidence attached. Delivered files are
-          versioned, linked back to the request, and approved assets hand off to Launchpad.
+          These are the creative decision items the briefing authority serves for
+          this account, in the segments it serves them. Requesting a creative,
+          versioning a delivered file, approving it and handing it to{" "}
+          <b>Launchpad</b> are not built: no request, owner, due date, version or
+          approval is recorded anywhere in this product.
         </p>
       </div>
 
@@ -1068,18 +1105,12 @@ function InboxView({ model }: { model: CreativeStudioExactProps["inbox"] }) {
         ))}
       </div>
 
-      <div className={styles.dropZone}>
-        <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />
-        </svg>
-        <div>
-          <p>Drop new exports here</p>
-          <p>Files auto-match to open requests by name · MP4, MOV, PNG, JPG up to 500MB · versions kept</p>
-        </div>
-        <button disabled={!model?.onBrowseFiles} onClick={model?.onBrowseFiles} type="button">
-          Browse files
-        </button>
-      </div>
+      {/* The drop zone that used to sit here is gone. It offered "Drop new
+          exports here" over a permanently disabled Browse files button: there
+          is no multipart handler and no storage dependency in this tree, so
+          nothing could ever be dropped. A dead affordance for an unbuilt
+          workflow is the same claim the four pipeline columns were making, and
+          it is removed for the same reason. */}
     </>
   );
 }
@@ -1165,7 +1196,13 @@ function AudiencesView({ model }: { model: CreativeStudioExactProps["audiences"]
                 </span>
               </div>
               <div className={styles.audienceMetrics}>
-                <SummaryMetric label="Spend · 28d" value={formatMoney(summary.spend, summary.currency, true)} />
+                <SummaryMetric
+                  // The window is selectable, so a fixed "28d" here is a claim
+                  // about a measurement. Named from what was measured; an
+                  // unknown window says so rather than asserting a default.
+                  label={`Spend · ${model?.windowLabel ?? EM_DASH}`}
+                  value={formatMoney(summary.spend, summary.currency, true)}
+                />
                 <SummaryMetric label="ROAS" tone={roasTone(summary.roas)} value={formatRatio(summary.roas)} />
                 <SummaryMetric label="Freq" value={formatRatio(summary.frequency)} />
               </div>
@@ -1182,7 +1219,7 @@ function AudiencesView({ model }: { model: CreativeStudioExactProps["audiences"]
                 <span className={`${styles.tableStatus} ${TONE_CLASSES.neutral}`}>{EM_DASH}</span>
               </div>
               <div className={styles.audienceMetrics}>
-                <SummaryMetric label="Spend · 28d" value={EM_DASH} />
+                <SummaryMetric label={`Spend · ${model?.windowLabel ?? EM_DASH}`} value={EM_DASH} />
                 <SummaryMetric label="ROAS" value={EM_DASH} />
                 <SummaryMetric label="Freq" value={EM_DASH} />
               </div>
@@ -1194,7 +1231,13 @@ function AudiencesView({ model }: { model: CreativeStudioExactProps["audiences"]
 
       <div className={styles.audienceSectionHeading}>
         <h2>Breakdowns &amp; frequency</h2>
-        <span>account-wide · 28d · bar = spend share · right value = ROAS</span>
+        {/* The window is named from what was measured, never from a literal.
+            A hardcoded "28d" here labelled a 7-day or custom selection as a
+            28-day one, which is a caption asserting a measurement nobody
+            performed. Unknown withholds instead of guessing. */}
+        <span>
+          {`account-wide · ${model?.windowLabel ?? EM_DASH} · bar = spend share · right value = ROAS`}
+        </span>
       </div>
       <div className={styles.breakdownGrid}>
         {breakdownSlots.map((breakdown) => (

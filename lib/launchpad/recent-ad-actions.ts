@@ -38,7 +38,9 @@ export function applyRecentAdActionsToRows(
   const sourceByCreativeId = new Map<string, MetaCreativeRow>();
   const sourceByAdId = new Map<string, MetaCreativeRow>();
   rows.forEach((row) => {
-    if (!sourceByCreativeId.has(row.creativeId))
+    // Only rows that carry a creative identity get indexed by it. A null key
+    // would make every identity-less row the same source creative.
+    if (row.creativeId && !sourceByCreativeId.has(row.creativeId))
       sourceByCreativeId.set(row.creativeId, row);
     const adId = resolveLaunchpadAdActionId(row);
     if (adId && !sourceByAdId.has(adId)) sourceByAdId.set(adId, row);
@@ -215,7 +217,9 @@ function applyRecentSourceCreativeActionsToRows(
   );
   const sourceByCreativeId = new Map<string, MetaCreativeRow>();
   rows.forEach((row) => {
-    if (!sourceByCreativeId.has(row.creativeId))
+    // Only rows that carry a creative identity get indexed by it. A null key
+    // would make every identity-less row the same source creative.
+    if (row.creativeId && !sourceByCreativeId.has(row.creativeId))
       sourceByCreativeId.set(row.creativeId, row);
   });
 

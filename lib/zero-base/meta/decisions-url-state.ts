@@ -1,6 +1,19 @@
 /**
  * Decisions URL state.
  *
+ * NOT the live Meta Decisions contract. The shipped surface
+ * (`components/meta/redesign/MetaPlatformPage.tsx`) reads a different set:
+ * `area`/`segment` for the lane, `scope`, `entity`, `creativeId`,
+ * `row=ad:<adId>`, `q`, `window`/`startDate`/`endDate`. This module still
+ * serves `components/zero-base/meta/decisions/*`, and links minted from its
+ * vocabulary are still in circulation, which is exactly why the live surface
+ * treats `lane`, `levels`, `q` and `row` as INCOMING legacy parameters and
+ * states what it did with each one it cannot restore
+ * (`describeMetaDeepLinkCompatibility` there). Two things follow: `lane=test`
+ * and `levels` have no counterpart on the live queue and are reported rather
+ * than silently dropped, and any parameter added here is a parameter that
+ * surface has to answer for.
+ *
  * Every filter and the selected row live in the URL so a daily operator surface
  * is linkable, reloadable and restorable — an operator who finds something and
  * pastes the link to a colleague must land them on the same row, not the top of

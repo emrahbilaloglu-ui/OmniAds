@@ -47,7 +47,9 @@ export default function NewBusinessPage() {
                       name: string;
                       timezone: string | null;
                       timezoneSource?: "shopify" | "ga4" | null;
-                      currency: string;
+                      // A workspace with no configured currency stays null all
+                      // the way into the store; it never becomes "USD" here.
+                      currency: string | null;
                     }>;
                     activeBusinessId?: string | null;
                   }

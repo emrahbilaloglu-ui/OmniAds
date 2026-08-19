@@ -5,6 +5,7 @@ import {
   type RecordedAction,
 } from "@/lib/external-change-attribution";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   encodeMetaHistoryCursor,
   META_HISTORY_ENTITY_TYPES,
@@ -21,11 +22,34 @@ import {
   type MetaHistoryResponse,
   type MetaHistorySource,
   type MetaHistorySourceIdKind,
+  metaHistoryOutcomeRawValues,
 } from "@/lib/meta/history-contract";
 
 const CANONICAL_ID_LIMITATION =
   "A canonical date-free decision ID is not persisted yet. This entry is keyed only by its persisted source row.";
 
+/**
+ * The Meta accounts this business has SELECTED right now.
+ *
+ * `business_provider_accounts` carries two different facts in one table: the
+ * immutable historical identity binding (created once, never deleted, because
+ * many rows reference it as provenance) and the CURRENT selection, which is
+ * `is_selected`. Deselecting an account only flips the flag.
+ *
+ * This read used to ignore the flag, so it answered with the identity binding
+ * instead of the assignment. An account the operator had removed from the
+ * business still appeared in the History account scope, and — because the
+ * `/api/meta/history` endpoint validates the caller's `providerAccountId`
+ * against exactly this list — its journal, currency and account name were still
+ * served. Every other surface in the product resolves scope through
+ * `getProviderAccountAssignments`, which has always filtered `is_selected`;
+ * History was the one reader that disagreed with the rest about what "assigned"
+ * means.
+ *
+ * `assignment.is_selected` is therefore part of the WHERE clause, not a
+ * post-filter: a stale or unselected identity row is not an assignment and must
+ * never reach a caller.
+ */
 export const META_HISTORY_ACCOUNTS_SQL = `
 WITH latest_account AS (
   SELECT DISTINCT ON (business_id, provider_account_id)
@@ -52,6 +76,7 @@ LEFT JOIN latest_account latest
  AND latest.provider_account_id = pa.external_account_id
 WHERE assignment.business_id = $1
   AND assignment.provider = 'meta'
+  AND assignment.is_selected
 ORDER BY assignment.position, assignment.id
 `;
 
@@ -101,7 +126,13 @@ creative_names AS (
   ) names
   ORDER BY creative_id, observed_at DESC NULLS LAST
 ),
-v1_scoped_snapshots AS (
+-- NOT MATERIALIZED so each reference can push its own predicates down.
+-- Four references made Postgres materialise this and rescan the whole result
+-- inside three per-row LATERALs ("the latest snapshot for this rec_id"), which
+-- a materialised CTE cannot index: 113 rescans, and the slowest branch of the
+-- journal read. Inlined, each reference reaches
+-- meta_decision_snapshots_daily's own indexes. Same rows either way.
+v1_scoped_snapshots AS NOT MATERIALIZED (
   SELECT
     snapshot.*,
     COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical,
@@ -127,6 +158,61 @@ v1_scoped_snapshots AS (
       (snapshot.scope_type = 'campaign' AND campaign.id IS NOT NULL)
       OR (snapshot.scope_type = 'adset' AND adset.id IS NOT NULL)
     )
+),
+-- Configuration edits, with each row's predecessor resolved in one pass.
+--
+-- Both branches used to answer "what did this look like before" with a
+-- correlated LATERAL per row. The change test compares against that lookup, so
+-- Postgres had to run it for every stored row before it could discard the ones
+-- that were not edits: 1.8 million index lookups to keep 2,038 rows, and the
+-- whole History read timed out at 8s on a real account and reported itself
+-- unavailable. LAG over the same ordering is one sorted pass and the identical
+-- predecessor.
+campaign_config_window AS (
+  SELECT
+    config.*,
+    LAG(config.daily_budget) OVER w AS prev_daily_budget,
+    LAG(config.lifetime_budget) OVER w AS prev_lifetime_budget,
+    LAG(config.bid_value) OVER w AS prev_bid_value,
+    LAG(config.bid_strategy_type) OVER w AS prev_bid_strategy_type,
+    LAG(config.optimization_goal) OVER w AS prev_optimization_goal
+  FROM meta_campaign_config_history config
+  WHERE config.business_id = $1
+    AND config.provider_account_id = $2
+    -- The same slice bounds the whole union (see filtered_entries). Without
+    -- them this scanned every stored configuration row for the account to
+    -- surface a handful of recent edits.
+    -- COALESCE, not an IS NULL disjunction: the disjunctive form is not
+    -- sargable, so the planner ignored the index and seq-scanned regardless.
+    AND config.captured_at >= COALESCE($15::timestamptz, '-infinity'::timestamptz)
+    AND config.captured_at <= COALESCE($9::timestamptz, 'infinity'::timestamptz)
+  WINDOW w AS (
+    PARTITION BY config.business_id, config.provider_account_id, config.campaign_id
+    ORDER BY config.captured_at
+  )
+),
+adset_config_window AS (
+  SELECT
+    adset_config.*,
+    LAG(adset_config.daily_budget) OVER w AS prev_daily_budget,
+    LAG(adset_config.lifetime_budget) OVER w AS prev_lifetime_budget,
+    LAG(adset_config.bid_value) OVER w AS prev_bid_value,
+    LAG(adset_config.bid_strategy_type) OVER w AS prev_bid_strategy_type,
+    LAG(adset_config.optimization_goal) OVER w AS prev_optimization_goal
+  FROM meta_adset_config_history adset_config
+  WHERE adset_config.business_id = $1
+    AND adset_config.provider_account_id = $2
+    -- The same slice bounds the whole union (see filtered_entries). Without
+    -- them this scanned every stored configuration row for the account to
+    -- surface a handful of recent edits.
+    -- COALESCE, not an IS NULL disjunction: the disjunctive form is not
+    -- sargable, so the planner ignored the index and seq-scanned regardless.
+    AND adset_config.captured_at >= COALESCE($15::timestamptz, '-infinity'::timestamptz)
+    AND adset_config.captured_at <= COALESCE($9::timestamptz, 'infinity'::timestamptz)
+  WINDOW w AS (
+    PARTITION BY adset_config.business_id, adset_config.provider_account_id, adset_config.adset_id
+    ORDER BY adset_config.captured_at
+  )
 ),
 history_entries AS (
   SELECT
@@ -215,7 +301,12 @@ history_entries AS (
     ON account_scope.creative_id = snapshot.creative_id
   LEFT JOIN creative_names names
     ON names.creative_id = snapshot.creative_id
-  WHERE (snapshot.business_ref_id::text = $1 OR snapshot.business_id = $1)
+  -- Cast the PARAMETER, never the column. Casting business_ref_id to text makes
+  -- the comparison a computed expression, so its index cannot be used and the
+  -- branch degrades to a sequential scan -- repeated once per outer row. On the
+  -- outcomes branch that was 457 sequential scans of the whole table, 15 of the
+  -- read's 27 seconds, against an 8s budget.
+  WHERE (snapshot.business_ref_id = $1::uuid OR snapshot.business_id = $1)
 
   UNION ALL
 
@@ -260,8 +351,8 @@ history_entries AS (
     ON names.creative_id = event.creative_id
   LEFT JOIN engine_v3_decision_snapshots_daily snapshot
     ON snapshot.id = event.decision_snapshot_id
-   AND (snapshot.business_ref_id::text = $1 OR snapshot.business_id = $1)
-  WHERE (event.business_ref_id::text = $1 OR event.business_id = $1)
+   AND (snapshot.business_ref_id = $1::uuid OR snapshot.business_id = $1)
+  WHERE (event.business_ref_id = $1::uuid OR event.business_id = $1)
 
   UNION ALL
 
@@ -306,12 +397,12 @@ history_entries AS (
   FROM engine_v3_decision_outcomes_daily outcome
   INNER JOIN engine_v3_decision_snapshots_daily snapshot
     ON snapshot.id = outcome.decision_snapshot_id
-   AND (snapshot.business_ref_id::text = $1 OR snapshot.business_id = $1)
+   AND (snapshot.business_ref_id = $1::uuid OR snapshot.business_id = $1)
   INNER JOIN creative_account_scope account_scope
     ON account_scope.creative_id = outcome.creative_id
   LEFT JOIN creative_names names
     ON names.creative_id = outcome.creative_id
-  WHERE (outcome.business_ref_id::text = $1 OR outcome.business_id = $1)
+  WHERE (outcome.business_ref_id = $1::uuid OR outcome.business_id = $1)
 
   UNION ALL
 
@@ -693,7 +784,7 @@ history_entries AS (
     ON actor.id = intent.created_by
   LEFT JOIN engine_v3_decision_snapshots_daily snapshot
     ON snapshot.id = intent.source_decision_snapshot_id
-   AND (snapshot.business_ref_id::text = $1 OR snapshot.business_id = $1)
+   AND (snapshot.business_ref_id = $1::uuid OR snapshot.business_id = $1)
   WHERE intent.business_id::text = $1
     AND intent.provider_account_id = $2
   /* OPTIONAL_META_LAUNCH_INTENTS_END */
@@ -812,25 +903,14 @@ history_entries AS (
       'bidStrategyType', config.bid_strategy_type,
       'bidValue', config.bid_value,
       'optimizationGoal', config.optimization_goal,
-      'previousDailyBudget', previous.daily_budget,
-      'previousLifetimeBudget', previous.lifetime_budget,
-      'previousBidValue', previous.bid_value,
-      'previousBidStrategyType', previous.bid_strategy_type,
-      'previousOptimizationGoal', previous.optimization_goal,
+      'previousDailyBudget', config.prev_daily_budget,
+      'previousLifetimeBudget', config.prev_lifetime_budget,
+      'previousBidValue', config.prev_bid_value,
+      'previousBidStrategyType', config.prev_bid_strategy_type,
+      'previousOptimizationGoal', config.prev_optimization_goal,
       'observedAt', config.captured_at
     )
-  FROM meta_campaign_config_history config
-  LEFT JOIN LATERAL (
-    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
-           prior.bid_strategy_type, prior.optimization_goal
-    FROM meta_campaign_config_history prior
-    WHERE prior.business_id = config.business_id
-      AND prior.provider_account_id = config.provider_account_id
-      AND prior.campaign_id = config.campaign_id
-      AND prior.captured_at < config.captured_at
-    ORDER BY prior.captured_at DESC
-    LIMIT 1
-  ) previous ON TRUE
+  FROM campaign_config_window config
   LEFT JOIN LATERAL (
     SELECT dimension.campaign_name_current, dimension.campaign_name_historical
     FROM meta_campaign_dimensions dimension
@@ -840,8 +920,7 @@ history_entries AS (
     ORDER BY dimension.updated_at DESC
     LIMIT 1
   ) campaign ON TRUE
-  WHERE config.business_id = $1
-    AND config.provider_account_id = $2
+  WHERE
     -- Only rows that represent a change; the first snapshot of a campaign is
     -- not something anyone did.
     --
@@ -850,12 +929,12 @@ history_entries AS (
     -- daily_budget is null in every row and null IS NOT DISTINCT FROM null.
     -- A bid-strategy or optimization-goal change is just as much an edit, and
     -- was equally invisible on every account.
-    AND (
-      previous.daily_budget IS DISTINCT FROM config.daily_budget
-      OR previous.lifetime_budget IS DISTINCT FROM config.lifetime_budget
-      OR previous.bid_value IS DISTINCT FROM config.bid_value
-      OR previous.bid_strategy_type IS DISTINCT FROM config.bid_strategy_type
-      OR previous.optimization_goal IS DISTINCT FROM config.optimization_goal
+    (
+      config.prev_daily_budget IS DISTINCT FROM config.daily_budget
+      OR config.prev_lifetime_budget IS DISTINCT FROM config.lifetime_budget
+      OR config.prev_bid_value IS DISTINCT FROM config.bid_value
+      OR config.prev_bid_strategy_type IS DISTINCT FROM config.bid_strategy_type
+      OR config.prev_optimization_goal IS DISTINCT FROM config.optimization_goal
     )
 
   UNION ALL
@@ -899,24 +978,13 @@ history_entries AS (
       'bidStrategyType', adset_config.bid_strategy_type,
       'bidValue', adset_config.bid_value,
       'optimizationGoal', adset_config.optimization_goal,
-      'previousDailyBudget', adset_previous.daily_budget,
-      'previousBidValue', adset_previous.bid_value,
-      'previousBidStrategyType', adset_previous.bid_strategy_type,
-      'previousOptimizationGoal', adset_previous.optimization_goal,
+      'previousDailyBudget', adset_config.prev_daily_budget,
+      'previousBidValue', adset_config.prev_bid_value,
+      'previousBidStrategyType', adset_config.prev_bid_strategy_type,
+      'previousOptimizationGoal', adset_config.prev_optimization_goal,
       'observedAt', adset_config.captured_at
     )
-  FROM meta_adset_config_history adset_config
-  LEFT JOIN LATERAL (
-    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
-           prior.bid_strategy_type, prior.optimization_goal
-    FROM meta_adset_config_history prior
-    WHERE prior.business_id = adset_config.business_id
-      AND prior.provider_account_id = adset_config.provider_account_id
-      AND prior.adset_id = adset_config.adset_id
-      AND prior.captured_at < adset_config.captured_at
-    ORDER BY prior.captured_at DESC
-    LIMIT 1
-  ) adset_previous ON TRUE
+  FROM adset_config_window adset_config
   LEFT JOIN LATERAL (
     SELECT dimension.adset_name_current, dimension.adset_name_historical
     FROM meta_adset_dimensions dimension
@@ -926,18 +994,17 @@ history_entries AS (
     ORDER BY dimension.updated_at DESC
     LIMIT 1
   ) adset_dim ON TRUE
-  WHERE adset_config.business_id = $1
-    AND adset_config.provider_account_id = $2
+  WHERE
     -- Only rows representing a change. The first snapshot of an ad set is not
     -- something anyone did. Budget, bid and optimization goal are each a
     -- separate way to change what the engine reasons about, so any of them
     -- moving qualifies.
-    AND (
-      adset_previous.daily_budget IS DISTINCT FROM adset_config.daily_budget
-      OR adset_previous.lifetime_budget IS DISTINCT FROM adset_config.lifetime_budget
-      OR adset_previous.bid_value IS DISTINCT FROM adset_config.bid_value
-      OR adset_previous.bid_strategy_type IS DISTINCT FROM adset_config.bid_strategy_type
-      OR adset_previous.optimization_goal IS DISTINCT FROM adset_config.optimization_goal
+    (
+      adset_config.prev_daily_budget IS DISTINCT FROM adset_config.daily_budget
+      OR adset_config.prev_lifetime_budget IS DISTINCT FROM adset_config.lifetime_budget
+      OR adset_config.prev_bid_value IS DISTINCT FROM adset_config.bid_value
+      OR adset_config.prev_bid_strategy_type IS DISTINCT FROM adset_config.bid_strategy_type
+      OR adset_config.prev_optimization_goal IS DISTINCT FROM adset_config.optimization_goal
     )
 
   UNION ALL
@@ -1115,10 +1182,28 @@ history_entries AS (
 filtered_entries AS (
   SELECT *
   FROM history_entries
-  WHERE ($3::text IS NOT NULL OR kind <> 'structures')
+  -- One slice for every source. The caller widens it until the page is full,
+  -- so a bounded read never hides an entry — it only stops the union from
+  -- materialising the account's entire history to return forty rows.
+  WHERE occurred_at >= COALESCE($15::timestamptz, '-infinity'::timestamptz)
+    AND ($3::text IS NOT NULL OR kind <> 'structures')
     AND ($3::text IS NULL OR kind = $3)
     AND ($4::text IS NULL OR entity_type = $4)
     AND ($5::text IS NULL OR LOWER(COALESCE(label, '')) = LOWER($5))
+    -- Outcome groups the per-source status vocabularies (see
+    -- META_HISTORY_OUTCOME_GROUPS). Server-side for the same reason search is:
+    -- filtering the loaded page would report "no failed entries" for a failure
+    -- that sits on the next one.
+    AND (
+      $13::text[] IS NULL
+      OR (
+        CASE
+          WHEN $14::boolean
+            THEN NOT (LOWER(COALESCE(status_raw, '')) = ANY($13::text[]))
+          ELSE LOWER(COALESCE(status_raw, '')) = ANY($13::text[])
+        END
+      )
+    )
     AND ($6::date IS NULL OR event_date >= $6::date)
     AND ($7::date IS NULL OR event_date <= $7::date)
     AND (
@@ -1453,6 +1538,30 @@ function mapHistoryRow(
   };
 }
 
+/**
+ * The canonical current assignment, read through the guard the whole product
+ * shares — not through History's own SQL.
+ *
+ * `readMetaHistoryAccounts` and this function answer the same question from two
+ * independent statements on purpose. History's own SQL exists because the
+ * surface needs the account's NAME, CURRENCY and TIMEZONE, which the assignment
+ * guard does not carry; but a scope decision must not rest on a projection that
+ * only History maintains. When the two disagree — a warehouse row that outlives
+ * a deselection, a join that widens — the intersection is what survives, so the
+ * narrower answer always wins.
+ *
+ * Errors are NOT swallowed. An assignment read that fails is unknown, not
+ * empty and not permissive: the caller must turn it into an unavailable state.
+ * Catching it here would turn "we could not read the assignment" into "no
+ * account is assigned", which reads as a settled fact on screen.
+ */
+export async function readMetaHistoryAssignedAccountIds(
+  businessId: string,
+): Promise<string[]> {
+  const assignment = await getProviderAccountAssignments(businessId, "meta");
+  return assignment?.account_ids ?? [];
+}
+
 export async function readMetaHistoryAccounts(
   businessId: string,
 ): Promise<MetaHistoryAccount[]> {
@@ -1525,6 +1634,36 @@ async function readRecordedActionsForAttribution(input: {
   }));
 }
 
+/**
+ * How far back one read reaches, and when it reaches further.
+ *
+ * The union spans every Meta source, so an unbounded read materialised the
+ * account's entire recorded history — 444k rows sorted to return forty — and
+ * timed out at 8s on a real account, which the surface reported as "the
+ * persisted Meta journal could not be read". Bounding it makes the common read
+ * cheap; widening on a short page keeps it honest, because a bounded read that
+ * stopped early would look exactly like the end of the journal.
+ *
+ * The last slice is unbounded on purpose: the loop must be able to prove there
+ * is nothing older, not merely fail to find it.
+ */
+const META_HISTORY_SLICE_DAYS = [7, 30, 180, 730] as const;
+
+async function readMetaHistorySlices(
+  read: (sliceFloor: string | null) => Promise<MetaHistoryDbRow[]>,
+  input: { wanted: number; from: string | null },
+): Promise<MetaHistoryDbRow[]> {
+  // An explicit from-date is already a floor; widening past it would read rows
+  // the caller asked not to see.
+  if (input.from) return read(input.from);
+  for (const days of META_HISTORY_SLICE_DAYS) {
+    const floor = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = await read(floor);
+    if (rows.length >= input.wanted) return rows;
+  }
+  return read(null);
+}
+
 export async function readMetaHistoryJournal(input: {
   query: MetaHistoryQuery;
   account: MetaHistoryAccount;
@@ -1546,20 +1685,29 @@ export async function readMetaHistoryJournal(input: {
     includeCreativeBriefs,
     includeLaunchIntents,
   });
-  const sqlRows = await getDb().query<MetaHistoryDbRow>(readSql, [
-    input.query.businessId,
-    input.query.providerAccountId,
-    input.query.kind,
-    input.query.entity,
-    input.query.label,
-    input.query.from,
-    input.query.to,
-    input.query.q,
-    cursor?.occurredAt ?? null,
-    cursor?.source ?? null,
-    cursor?.sourceId ?? null,
-    input.query.limit + 1,
-  ]);
+  const outcomeMatch = input.query.outcome
+    ? metaHistoryOutcomeRawValues(input.query.outcome)
+    : null;
+  const sqlRows = await readMetaHistorySlices(async (sliceFloor) =>
+    getDb().query<MetaHistoryDbRow>(readSql, [
+      input.query.businessId,
+      input.query.providerAccountId,
+      input.query.kind,
+      input.query.entity,
+      input.query.label,
+      input.query.from,
+      input.query.to,
+      input.query.q,
+      cursor?.occurredAt ?? null,
+      cursor?.source ?? null,
+      cursor?.sourceId ?? null,
+      input.query.limit + 1,
+      outcomeMatch?.values ?? null,
+      outcomeMatch?.negate ?? false,
+      sliceFloor,
+    ]),
+    { wanted: input.query.limit + 1, from: input.query.from },
+  );
 
   const hasMore = sqlRows.length > input.query.limit;
   const visibleRows = sqlRows.slice(0, input.query.limit);
@@ -1603,6 +1751,7 @@ export async function readMetaHistoryJournal(input: {
       kind: input.query.kind,
       entity: input.query.entity,
       label: input.query.label,
+      outcome: input.query.outcome,
       from: input.query.from,
       to: input.query.to,
       q: input.query.q,

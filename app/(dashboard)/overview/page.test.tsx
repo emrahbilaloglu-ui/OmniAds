@@ -31,6 +31,12 @@ vi.mock("@/components/overview/CostModelSheet", () => ({
   CostModelSheet: () => React.createElement("div", null, "cost-model-sheet"),
 }));
 
+// This suite mocks `DateRangePicker` wholesale, so the real hook module cannot
+// load here. `useCanonicalDateWindowUrl` is therefore inert for these tests;
+// its real behaviour — the shell stating the window on the URL before anything
+// reads it — is pinned in `components/layout/v2/app-topbar.test.tsx` and
+// `hooks/use-persistent-date-range.test.tsx`, not here. What this suite asserts
+// is only that the topbar resolves the WORKSPACE clock.
 vi.mock("@/hooks/use-persistent-date-range", () => ({
   usePersistentDateRange: () => [
     {
@@ -43,6 +49,7 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
     },
     vi.fn(),
   ],
+  useCanonicalDateWindowUrl: () => {},
 }));
 
 vi.mock("@/lib/overview-metric-catalog", () => ({
@@ -100,6 +107,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   useMetaActionNowCount: () => null,
   useWorkspaceSyncState: () => ({ tone: "fresh", label: "Synced 12m ago" }),
+  // The one business the shell may name. It is also the gate on stating a date
+  // window: no confirmed workspace means no confirmed clock.
+  useConfirmedShellBusinessId: () => "biz_1",
 }));
 vi.mock("@/src/services", () => ({
   getOverviewSummary: vi.fn(),

@@ -1,17 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
+import { jsonError, requireLaunchpadAssignedAccountScope } from "../route-utils";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
-  const access = await requireBusinessAccess({
+  const providerAccountId =
+    request.nextUrl.searchParams.get("providerAccountId")?.trim() ?? "";
+  // A pixel belongs to one ad account. Offering the business-wide set lets the
+  // operator pick a pixel the launch account cannot use, which only surfaces as
+  // a Create-time refusal naming an account they never chose.
+  if (!providerAccountId) {
+    return jsonError(
+      400,
+      "missing_provider_account_id",
+      "providerAccountId is required.",
+    );
+  }
+
+  // A pixel id read out of the warehouse under an account this workspace no
+  // longer holds is exactly the pixel a launch must never promote to. Membership
+  // does not establish that; the current assignment does, and it is proven
+  // before any statement runs.
+  const scope = await requireLaunchpadAssignedAccountScope({
     request,
     businessId,
+    providerAccountId,
     minRole: "guest",
   });
-  if ("error" in access) return access.error;
+  if (!scope.ok) return scope.response;
 
   const sql = getDb();
   const rows = (await sql`
@@ -32,7 +50,8 @@ export async function GET(request: NextRequest) {
           ad.projection_json->'promoted_object'->>'name'
         ) AS pixel_name
       FROM meta_ad_dimensions ad
-      WHERE ad.business_id = ${access.membership.businessId}
+      WHERE ad.business_id = ${scope.businessId}
+        AND ad.provider_account_id = ${scope.providerAccountId}
         AND UPPER(COALESCE(ad.ad_status, '')) = 'ACTIVE'
     ),
     spend_28d AS (

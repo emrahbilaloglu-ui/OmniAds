@@ -7,6 +7,7 @@ function buildCopyApiRow(overrides: Partial<MetaCopyApiRow> = {}): MetaCopyApiRo
   return {
     id: "ad_1",
     ad_id: "ad_1",
+    associated_ads_count: 1,
     creative_id: "cr_1",
     post_id: null,
     name: "Winning copy",
@@ -123,22 +124,66 @@ describe("copies page mapApiRowToCopyRow", () => {
 
   it("maps only a real server messaging angle and does not invent one", () => {
     const tagged = mapApiRowToCopyRow(
-      {
-        ...buildCopyApiRow(),
-        ai_tags: { messagingAngle: ["", "Social Proof"] },
-      } as MetaCopyApiRow & {
-        ai_tags: { messagingAngle: string[] };
-      },
+      buildCopyApiRow({ ai_tags: { messagingAngle: ["", "Social Proof"] } }),
     );
-    const untagged = mapApiRowToCopyRow(buildCopyApiRow());
+    const untagged = mapApiRowToCopyRow(buildCopyApiRow({ ai_tags: {} }));
 
     expect(tagged.copyAngle).toBe("Social Proof");
     expect(untagged.copyAngle).toBeNull();
   });
 
-  it("keeps Ads unavailable because the copies contract has no aggregate ad count", () => {
-    const row = mapApiRowToCopyRow(buildCopyApiRow());
+  // LAW: the row carries the tags the server actually supplied. `aiTags: {}` was
+  // hardcoded, so a copy the engine had tagged still described itself as
+  // untagged — and the Angle column and angle roll-up read an em dash for data
+  // that existed on the sibling Assets tab.
+  it("carries the server's ai_tags onto the mapped row rather than an empty map", () => {
+    const row = mapApiRowToCopyRow(
+      buildCopyApiRow({ ai_tags: { messagingAngle: ["Promotional"], offerType: ["Discount"] } }),
+    );
 
-    expect(row.associatedAdsCountAvailable).toBe(false);
+    expect(row.aiTags).toEqual({
+      messagingAngle: ["Promotional"],
+      offerType: ["Discount"],
+    });
+  });
+
+  it("keeps an untagged row's angle unknown instead of guessing", () => {
+    const row = mapApiRowToCopyRow(buildCopyApiRow({ ai_tags: {} }));
+
+    expect(row.aiTags).toEqual({});
+    expect(row.copyAngle).toBeNull();
+  });
+
+  /**
+   * This used to assert "Ads stays unavailable because the copies contract has
+   * no aggregate ad count". The contract HAS one now: `?groupBy=copy` merges
+   * the per-ad rows and the route publishes `associated_ads_count` from inside
+   * each bucket, because after the merge the client can no longer see the ads.
+   * The mapper's job is to carry that number, and only that number.
+   */
+  it("carries the served ad count instead of deriving one", () => {
+    const row = mapApiRowToCopyRow(
+      buildCopyApiRow({ associated_ads_count: 7 }),
+    );
+
+    expect(row.associatedAdsCount).toBe(7);
+    expect(row.associatedAdsCountAvailable).toBe(true);
+  });
+
+  it("leaves Ads unavailable when the server sent no count", () => {
+    // An absent count is an uncounted set. The row it arrived on is one row —
+    // reading 1 off that would be the exact substitution that made a copy on
+    // ten ads render "Ads = 1".
+    const missing = mapApiRowToCopyRow(
+      buildCopyApiRow({ associated_ads_count: null }),
+    );
+    expect(missing.associatedAdsCountAvailable).toBe(false);
+
+    // 0 is not a measured zero here either: no served line runs on zero ads,
+    // so it can only be a failed count.
+    const zero = mapApiRowToCopyRow(
+      buildCopyApiRow({ associated_ads_count: 0 }),
+    );
+    expect(zero.associatedAdsCountAvailable).toBe(false);
   });
 });

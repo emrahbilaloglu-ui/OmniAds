@@ -64,7 +64,16 @@ export default async function ClientLayout({
           configuredCurrency: business.currency ?? null,
           businessTimezone: business.timezone ?? null,
         }
-      : { id: businessId, name: businessId, configuredCurrency: null, businessTimezone: null },
+      : {
+          id: businessId,
+          // The business is authorized but its record could not be read. This
+          // fell back to `name: businessId`, which printed a raw UUID in the
+          // workspace switcher as if it were the workspace's name. A name we
+          // do not have is null; presentation says so.
+          name: null,
+          configuredCurrency: null,
+          businessTimezone: null,
+        },
     provider: null,
     evidence: {
       windowLabel: null,

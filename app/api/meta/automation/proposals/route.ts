@@ -17,25 +17,41 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireBusinessAccess } from "@/lib/access";
-import { getDb } from "@/lib/db";
-import { executeMetaAutomationProposal } from "@/lib/meta/automation-proposal-execution";
+import {
+  executeMetaAutomationProposal,
+  type ExecuteProposalResult,
+} from "@/lib/meta/automation-proposal-execution";
 import {
   META_AUTOMATION_PROPOSAL_ACTIONS,
+  NO_PROVIDER_DISPATCH,
+  claimMetaAutomationProposal,
+  countMetaAutomationProposalHolds,
   evaluateProposalTransition,
+  forceMetaAutomationProposalReconcile,
+  markMetaAutomationProposalDispatchStarted,
+  providerDispatchFacts,
   readMetaAutomationProposal,
   readMetaAutomationProposalQueue,
   settleMetaAutomationProposal,
   type MetaAutomationProposal,
   type MetaAutomationProposalAction,
+  type MetaAutomationProposalReceipt,
+  type MetaAutomationProviderDispatchFacts,
   META_AUTOMATION_PROPOSALS_CONTRACT,
 } from "@/lib/meta/automation-proposals";
-import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
+import { appendMetaAutomationReconciliationReceipt } from "@/lib/meta/automation-reconciliation";
+import {
+  getMetaAutomationControlPlane,
+  writeActivityLedgerRow,
+  type MetaAutomationActivityResultStatus,
+} from "@/lib/meta/automation-control-plane";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { confirmationFor } from "@/lib/zero-base/meta/mutation-ceremony";
+import { rejectIfAutomationDemoWrite } from "../demo-write-authority";
 
 export const dynamic = "force-dynamic";
 
@@ -82,20 +98,50 @@ async function resolveAutomationAccountScope(input: {
   }
 }
 
+/**
+ * The queue, plus provenance for the queue.
+ *
+ * `sections.proposals` is the same envelope shape every other Automation
+ * section now carries: a status, the code behind it, and when it was observed.
+ * The flat `readCompleteness.proposals` stays beside it because the surface and
+ * its tests already read that field, and removing it would turn an additive
+ * envelope into a breaking one.
+ *
+ * `holds` is how a claimed or reconcile row stays visible without inventing a
+ * queue row for it: those rows are not approvable, so they are not in
+ * `proposals`, but the operator must not be told the queue is empty while one
+ * of them is holding an entity's slot.
+ */
 async function queueResponse(input: {
   businessId: string;
   providerAccountId: string;
   extra?: Record<string, unknown>;
 }) {
+  const observedAt = new Date().toISOString();
   const queue = await readMetaAutomationProposalQueue({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
   });
+  const holds = await countMetaAutomationProposalHolds({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  }).catch(() => null);
   return NextResponse.json({
     ok: true,
     contractVersion: META_AUTOMATION_PROPOSALS_CONTRACT,
     providerAccountId: input.providerAccountId,
     readCompleteness: { proposals: queue.readCompleteness },
+    sections: {
+      proposals: {
+        status: queue.readCompleteness,
+        errorCode:
+          queue.readCompleteness === "complete"
+            ? null
+            : "proposal_queue_unavailable",
+        observedAt,
+      },
+    },
+    holds,
     proposals: queue.proposals,
     ...(input.extra ?? {}),
   });
@@ -189,6 +235,24 @@ export async function POST(request: NextRequest) {
   );
   if (reviewerBlocked) return reviewerBlocked;
 
+  /**
+   * Zero write authority in a demo workspace, for all three actions.
+   *
+   * `approve` was already covered downstream — `rejectIfMetaWritesBlocked`
+   * inside `approve()` reads `getMetaWriteBlockState`, which refuses a demo
+   * business. `modify` and `dismiss` were not: `decideWithoutProviderWrite`
+   * never consults that guard, so a demo session could settle a proposal row
+   * and write an activity-ledger row for it. Hoisted here so all three answer
+   * the same way, and so `approve` refuses before it claims the row rather
+   * than after — a claim taken by a request that was always going to be
+   * refused would leave the proposal held by nobody.
+   */
+  const demoBlocked = await rejectIfAutomationDemoWrite(
+    access.membership.businessId,
+    `automation_proposal_${proposalAction}`,
+  );
+  if (demoBlocked) return demoBlocked;
+
   const accountScope = await resolveAutomationAccountScope({
     businessId: access.membership.businessId,
     providerAccountId: requestedProviderAccountId,
@@ -279,6 +343,10 @@ async function decideWithoutProviderWrite(input: {
     );
   }
 
+  // No claim token, so the settle is guarded on `status = 'pending'`. That is
+  // deliberate and it is the law here: a row an approval has already claimed is
+  // mid-dispatch, and letting a dismissal overwrite it would record "dismissed"
+  // for something being paused in Meta at that moment.
   const settled = await settleMetaAutomationProposal({
     businessId: input.businessId,
     proposalId: input.proposal.id,
@@ -288,14 +356,31 @@ async function decideWithoutProviderWrite(input: {
     receipt: null,
   });
   if (!settled) {
-    return jsonError(
-      409,
-      "proposal_not_pending",
-      "This proposal was decided by another action before this one landed.",
+    const current = await readMetaAutomationProposal({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      proposalId: input.proposal.id,
+    }).catch(() => null);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code:
+            current?.status === "claimed"
+              ? "proposal_claim_conflict"
+              : "proposal_not_pending",
+          message:
+            current?.status === "claimed"
+              ? "An approval already holds this proposal and is dispatching it, so it can no longer be modified or dismissed."
+              : "This proposal was decided by another action before this one landed.",
+        },
+        proposalStatus: current?.status ?? null,
+      },
+      { status: 409 },
     );
   }
 
-  await recordProposalLedgerEntry({
+  const ledger = await recordProposalLedgerEntry({
     businessId: input.businessId,
     userId: input.access.session.user.id,
     activityType: `automation_proposal_${input.action}`,
@@ -310,14 +395,23 @@ async function decideWithoutProviderWrite(input: {
       decisionKey: input.proposal.decisionKey,
       providerAccountId: input.proposal.providerAccountId,
       note: note || null,
+      // Kept, and provable HERE and only here: modify and dismiss never enter a
+      // provider handler, so "no write happened" is an observation rather than
+      // an inference. The approve path carries the three-fact shape instead,
+      // because it is the path where `false` could otherwise mean "unknown".
       providerWrite: false,
+      ...NO_PROVIDER_DISPATCH,
     },
+    proposal: input.proposal,
+    // Nothing reached a provider, so neither `applied` nor `failed` is true of
+    // this row: what happened is that the decision was recorded.
+    resultStatus: "recorded",
   });
 
   return queueResponse({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    extra: { proposal: settled },
+    extra: { proposal: settled, ...ledger },
   });
 }
 
@@ -337,6 +431,16 @@ async function decideWithoutProviderWrite(input: {
  *    confirmation level the existing ceremony defines for this action.
  * 4. **`dryRunOnly` guardrail** — read from the same persisted control the
  *    screen shows above the queue and handed to the handler's own dry-run mode.
+ * 5. **The atomic claim.** Last, because it is the only gate that MUTATES, and
+ *    a claim taken before a cheap refusal would leave the row held by a request
+ *    that was never going to dispatch. Everything above is a read.
+ *
+ * The claim is the fix this boundary owed. The compare-and-set used to run
+ * AFTER `executeMetaAutomationProposal`, so it decided who got to record the
+ * outcome rather than who got to cause it: two concurrent approvals both
+ * reached the provider handler, and the loser was told its action "did not
+ * land" while a pause sat in Meta. Now `pending -> claimed` happens first, in
+ * one statement, and only its holder may dispatch or settle.
  */
 async function approve(input: {
   request: NextRequest;
@@ -384,62 +488,491 @@ async function approve(input: {
   }
 
   const dryRunOnly = control.businessControl.guardrails.dryRunOnly === true;
-  const execution = await executeMetaAutomationProposal({
-    request: input.request,
-    businessId: input.businessId,
-    proposal: input.proposal,
-    dryRunOnly,
-  });
 
-  const settled = await settleMetaAutomationProposal({
+  const claim = await claimMetaAutomationProposal({
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
     proposalId: input.proposal.id,
-    status: execution.ok ? "approved" : "failed",
-    decidedBy: input.access.session.user.id,
-    decisionNote: null,
-    receipt: execution.receipt,
-  });
-  if (!settled) {
+    claimedBy: input.access.session.user.id,
+  }).catch(() => ({ status: "unavailable" as const }));
+
+  if (claim.status === "migration_required") {
+    // No claim columns means no exclusivity, and an approval without
+    // exclusivity is the race this gate exists to close. Refusing costs an
+    // operator one deploy; dispatching would cost them a second pause.
     return jsonError(
-      409,
-      "proposal_not_pending",
-      "This proposal was decided by another action before this one landed.",
+      503,
+      "proposal_claim_unavailable",
+      "This deployment cannot claim a proposal exclusively, so no approval may reach Meta. Run the pending Automation migration and retry.",
     );
   }
+  if (claim.status === "unavailable") {
+    return jsonError(
+      503,
+      "proposal_claim_unavailable",
+      "The confirmation queue could not be claimed, so nothing was dispatched.",
+    );
+  }
+  if (claim.status === "conflict") {
+    return claimConflictResponse(claim.current);
+  }
 
-  await recordProposalLedgerEntry({
+  // Written before the handler is entered, never after: its presence is the
+  // only durable evidence that a provider write MIGHT exist for this attempt.
+  const dispatchMarked = await markMetaAutomationProposalDispatchStarted({
+    businessId: input.businessId,
+    proposalId: input.proposal.id,
+    claimToken: claim.claimToken,
+  }).catch(() => false);
+  if (!dispatchMarked) {
+    // The claim is no longer ours. Dispatching anyway would be exactly the
+    // unclaimed provider write this whole path exists to prevent.
+    const current = await readMetaAutomationProposal({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      proposalId: input.proposal.id,
+    }).catch(() => null);
+    return claimConflictResponse(current);
+  }
+
+  let execution: ExecuteProposalResult;
+  let ambiguous = false;
+  try {
+    execution = await executeMetaAutomationProposal({
+      request: input.request,
+      businessId: input.businessId,
+      proposal: input.proposal,
+      dryRunOnly,
+      receiptKey: claim.claimToken,
+    });
+  } catch (error) {
+    // The dispatch was entered and produced no answer. That is not a failure
+    // and it is certainly not a success: a pause may be live in Meta. The row
+    // goes to `reconcile` and the response says so.
+    ambiguous = true;
+    execution = {
+      ok: false,
+      receipt: {
+        httpStatus: 0,
+        response: { error: { message: sanitizeErrorMessage(error) } },
+        dryRun: dryRunOnly,
+        dispatchedAt: new Date().toISOString(),
+        endpoint: null,
+        withheld: null,
+        receiptKey: claim.claimToken,
+        ambiguous: true,
+      },
+    };
+  }
+
+  // Everything below this line runs AFTER the provider has been reached. The
+  // dispatch is not repeatable and is never repeated: `executeMetaAutomation
+  // Proposal` is called exactly once, above, and no path from here calls it
+  // again.
+  const settledStatus = ambiguous
+    ? "reconcile"
+    : execution.ok
+      ? "approved"
+      : "failed";
+
+  // The three facts, derived once, so the ledger row, the response envelope and
+  // the reconciliation receipt cannot disagree about the same attempt.
+  const facts = providerDispatchFacts({
+    dispatchStarted: true,
+    outcomeKnown: !ambiguous,
+    ok: execution.ok,
+    dryRun: execution.receipt.dryRun === true,
+  });
+
+  let settled: MetaAutomationProposal | null = null;
+  let settleThrew: unknown = null;
+  try {
+    settled = await settleMetaAutomationProposal({
+      businessId: input.businessId,
+      proposalId: input.proposal.id,
+      status: settledStatus,
+      decidedBy: input.access.session.user.id,
+      decisionNote: null,
+      receipt: execution.receipt,
+      claimToken: claim.claimToken,
+    });
+  } catch (error) {
+    // THE post-dispatch settle exception.
+    //
+    // The provider answered and the write that had to record its answer threw.
+    // This used to fall through to the POST handler's generic catch, which
+    // returned `proposal_action_failed` with a 500 — a sentence an operator
+    // reads as "nothing happened" — while the ledger was never attempted and the
+    // receipt existed only in this dead request's memory.
+    //
+    // It is caught here, separately, because it is a different fact from the
+    // dispatch failing: the outcome may be KNOWN to this process and merely
+    // unrecorded. Either way it is not a success, the provider is not called
+    // again, and the row must not be left claimable.
+    settleThrew = error;
+  }
+
+  if (settleThrew !== null) {
+    return await recordPostDispatchSettleFailure({
+      access: input.access,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      proposal: input.proposal,
+      claimToken: claim.claimToken,
+      receipt: execution.receipt,
+      // The provider answered, but this request could not record it. Whether
+      // that answer survived anywhere durable is exactly what is unknown, so
+      // the facts written to the outbox report the outcome as NOT established.
+      facts: providerDispatchFacts({
+        dispatchStarted: true,
+        outcomeKnown: false,
+        ok: false,
+        dryRun: execution.receipt.dryRun === true,
+      }),
+      error: settleThrew,
+    });
+  }
+
+  // Losing here is no longer a race with another approval — the claim made that
+  // impossible — so it can only mean the claim was swept out from under this
+  // request. The outcome is still recorded in the ledger, because a dispatch
+  // nobody can see is worse than the bookkeeping that lost it.
+  const lostTheRow = !settled;
+
+  const ledger = await recordProposalLedgerEntry({
     businessId: input.businessId,
     userId: input.access.session.user.id,
-    activityType: execution.ok
-      ? "automation_proposal_approved"
-      : "automation_proposal_failed",
-    severity: execution.ok ? "success" : "danger",
-    message: execution.ok
-      ? `Proposal approved — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}${execution.receipt.dryRun ? " (dry run, per the dryRunOnly guardrail)" : ""}.`
-      : `Proposal approval did not land — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}.`,
+    activityType: ambiguous
+      ? "automation_proposal_reconcile"
+      : execution.ok
+        ? "automation_proposal_approved"
+        : "automation_proposal_failed",
+    severity: execution.ok && !ambiguous ? "success" : "danger",
+    message: `${
+      ambiguous
+        ? `Proposal outcome unknown — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId} was dispatched and no result came back. Reconcile against Meta before retrying.`
+        : execution.ok
+          ? `Proposal approved — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}${execution.receipt.dryRun ? " (dry run, per the dryRunOnly guardrail)" : ""}.`
+          : `Proposal approval did not land — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId}.`
+    }${
+      lostTheRow
+        ? " The claim on this proposal was released before the outcome could be recorded against it, so this outcome is recorded after the fact."
+        : ""
+    }`,
     payload: {
       proposalId: input.proposal.id,
+      // The auditable link. One key, present on the queue row, on this ledger
+      // row and inside the receipt envelope the response returns.
+      receiptKey: claim.claimToken,
       recId: input.proposal.recId,
       decisionKey: input.proposal.decisionKey,
       providerAccountId: input.proposal.providerAccountId,
       receipt: execution.receipt,
-      providerWrite: true,
+      // Three fields, never one boolean.
+      //
+      // This row used to carry `providerWrite: !ambiguous && !dryRun`, so a row
+      // whose own message says "was dispatched and no result came back" was
+      // written to the ledger as `providerWrite: false` — indistinguishable, to
+      // any reader, filter or aggregate, from "nothing was sent". An unknown
+      // outcome is not a negative one. `providerWriteVerified: false` beside
+      // `providerOutcomeKnown: false` is the honest pair; read either alone and
+      // you have not read the record.
+      ...facts,
     },
+    proposal: input.proposal,
+    // A dry run is not an application. `dryRunOnly` defaults to true in both the
+    // code and the column, and nothing in the tree ever writes guardrails_json,
+    // so in the only configuration production can reach every approval
+    // short-circuits before the provider POST and returns receipt.dryRun.
+    // Stamping those "applied" put a green chip and the word Applied in the
+    // ledger under a footnote promising a receipt, for a write that never left
+    // the building. `recorded` is what actually happened, and it is already in
+    // the status vocabulary and the column's CHECK constraint.
+    //
+    // An ambiguous dispatch is `failed` for the same reason in reverse: the one
+    // thing it must never render as is the green Applied chip.
+    resultStatus: ambiguous
+      ? "failed"
+      : execution.ok
+        ? execution.receipt.dryRun
+          ? "recorded"
+          : "applied"
+        : "failed",
   });
+
+  if (ambiguous) {
+    // The durable half. The proposal row already says `reconcile`, but that row
+    // alone cannot tell an operator WHICH attempt is unresolved or hand them a
+    // receipt to reconcile against; the outbox row is keyed by the claim token
+    // and is append-only, so the attempt's facts survive whatever happens next.
+    const outbox = await appendMetaAutomationReconciliationReceipt({
+      businessId: input.businessId,
+      proposalId: input.proposal.id,
+      providerAccountId: input.proposal.providerAccountId,
+      decisionKey: input.proposal.decisionKey,
+      proposedAction: input.proposal.proposedAction,
+      claimToken: claim.claimToken,
+      reason: "dispatch_no_answer",
+      facts,
+      receipt: execution.receipt,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "proposal_outcome_unknown",
+          message:
+            "This approval was dispatched and no provider result came back, so whether it paused anything is unknown. The proposal is held for reconciliation and was NOT recorded as applied.",
+        },
+        receipt: execution.receipt,
+        receiptKey: claim.claimToken,
+        proposalStatus: settled?.status ?? "reconcile",
+        reconciliation: {
+          required: true,
+          recorded: outbox.status !== "unavailable",
+          // Named, not implied. If the outbox write failed too, the only
+          // durable trace is the queue row's own claim token, and the operator
+          // is told that rather than shown a receipt that does not exist.
+          errorCode:
+            outbox.status === "unavailable"
+              ? "reconciliation_receipt_write_failed"
+              : null,
+        },
+        ...facts,
+        ...ledger,
+      },
+      { status: 502 },
+    );
+  }
+
+  if (lostTheRow) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "proposal_claim_lost",
+          message: execution.receipt.dryRun
+            ? "This proposal's claim was released before the outcome could be recorded. Nothing reached Meta: the dryRunOnly guardrail held this approval inside the building."
+            : "This proposal's claim was released before the outcome could be recorded — but this approval had already been dispatched to Meta. The receipt below is what this request sent; check the activity ledger before retrying.",
+        },
+        // Never withheld. A dispatch the operator cannot see is worse than the
+        // race that caused it.
+        receipt: execution.receipt,
+        receiptKey: claim.claimToken,
+        ...ledger,
+      },
+      { status: 409 },
+    );
+  }
 
   return queueResponse({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    extra: { proposal: settled, receipt: execution.receipt },
+    extra: {
+      proposal: settled,
+      receipt: execution.receipt,
+      receiptKey: claim.claimToken,
+      ...ledger,
+    },
   });
 }
 
 /**
- * Every outcome lands in the ledger.
+ * The provider answered; the write that had to record it did not.
  *
- * Written with the same statement shape the control plane already uses for
- * kill-switch events, so the Activity ledger on this screen reads proposal
- * outcomes through its existing `automation_ledger` source with no new reader.
+ * This is the narrowest, least-dependent path in the file, because it runs on a
+ * database that has just proven it can fail. In order, and each step
+ * independent of the last:
+ *
+ * 1. **The provider is NOT called again.** There is no dispatch in this
+ *    function and no caller re-enters one. A create/duplicate/pause POST has no
+ *    provider idempotency key bound to a durable per-attempt receipt here, so
+ *    it has no retry at all.
+ * 2. **The claim moves to `reconcile`** through a statement that shares nothing
+ *    with the settle that just failed — no receipt marshalling, no jsonb, no
+ *    decided_by. If even that cannot land, the row stays `claimed` with
+ *    `dispatch_started_at` set, which `claimMetaAutomationProposal` (guarded on
+ *    `status = 'pending'`) refuses to re-claim and the stale-claim sweep later
+ *    resolves to `reconcile` on its own. Either way the proposal cannot be
+ *    dispatched again.
+ * 3. **The receipt and claim token are appended to the durable outbox**, keyed
+ *    by the claim token, in one INSERT of already-serialized values.
+ * 4. **The ledger is attempted** — attempted, not required. It is the second
+ *    copy.
+ *
+ * The response is never a success and never a bare 500. If anything durable
+ * landed, it is `proposal_reconciliation_required`. If the database is entirely
+ * unavailable — nothing moved, nothing appended, nothing logged — it is
+ * `reconciliation_recording_failed`, which says out loud that a provider
+ * dispatch exists with NO durable record of it, and hands the operator the
+ * claim token and receipt in the response body because that is then the only
+ * copy that exists.
+ */
+async function recordPostDispatchSettleFailure(input: {
+  access: Access;
+  businessId: string;
+  providerAccountId: string;
+  proposal: MetaAutomationProposal;
+  claimToken: string;
+  receipt: MetaAutomationProposalReceipt;
+  facts: MetaAutomationProviderDispatchFacts;
+  error: unknown;
+}) {
+  const heldForReconcile = await forceMetaAutomationProposalReconcile({
+    businessId: input.businessId,
+    proposalId: input.proposal.id,
+    claimToken: input.claimToken,
+  });
+
+  const outbox = await appendMetaAutomationReconciliationReceipt({
+    businessId: input.businessId,
+    proposalId: input.proposal.id,
+    providerAccountId: input.proposal.providerAccountId,
+    decisionKey: input.proposal.decisionKey,
+    proposedAction: input.proposal.proposedAction,
+    claimToken: input.claimToken,
+    reason: "settle_failed_after_dispatch",
+    facts: input.facts,
+    receipt: input.receipt,
+  });
+
+  const ledger = await recordProposalLedgerEntry({
+    businessId: input.businessId,
+    userId: input.access.session.user.id,
+    activityType: "automation_proposal_reconcile",
+    severity: "danger",
+    message:
+      `Proposal outcome unrecorded — ${input.proposal.actionLabel} on ${input.proposal.entityLabel ?? input.proposal.scopeId} was dispatched and the write that had to record its result failed. ` +
+      `Reconcile against Meta using receipt key ${input.claimToken} before retrying; this approval was NOT recorded as applied.`,
+    payload: {
+      proposalId: input.proposal.id,
+      receiptKey: input.claimToken,
+      recId: input.proposal.recId,
+      decisionKey: input.proposal.decisionKey,
+      providerAccountId: input.proposal.providerAccountId,
+      receipt: input.receipt,
+      settleError: sanitizeErrorMessage(input.error),
+      reconciliationHeld: heldForReconcile,
+      reconciliationRecorded: outbox.status !== "unavailable",
+      ...input.facts,
+    },
+    proposal: input.proposal,
+    // Never `applied`. The one thing this outcome must not render as is the
+    // green Applied chip, and `recorded` would claim bookkeeping that failed.
+    resultStatus: "failed",
+  });
+
+  const anythingDurable =
+    heldForReconcile ||
+    outbox.status !== "unavailable" ||
+    ledger.ledgerCompleteness === "complete";
+
+  if (!anythingDurable) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "reconciliation_recording_failed",
+          message:
+            "This approval was dispatched to Meta and NOTHING about it could be recorded: the proposal could not be moved, the reconciliation receipt could not be written, and the activity ledger refused too. The receipt and receipt key below are the only copy that exists — reconcile against Meta before any retry.",
+        },
+        receipt: input.receipt,
+        receiptKey: input.claimToken,
+        proposalStatus: null,
+        reconciliation: {
+          required: true,
+          recorded: false,
+          errorCode: "reconciliation_receipt_write_failed",
+        },
+        ...input.facts,
+        ...ledger,
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: "proposal_reconciliation_required",
+        message:
+          "This approval was dispatched to Meta and the write that had to record its result failed, so whether it landed is unknown. The proposal is held for reconciliation and was NOT recorded as applied; nothing was re-sent.",
+      },
+      receipt: input.receipt,
+      receiptKey: input.claimToken,
+      proposalStatus: heldForReconcile ? "reconcile" : "claimed",
+      reconciliation: {
+        required: true,
+        recorded: outbox.status !== "unavailable",
+        errorCode:
+          outbox.status === "unavailable"
+            ? "reconciliation_receipt_write_failed"
+            : null,
+      },
+      ...input.facts,
+      ...ledger,
+    },
+    { status: 502 },
+  );
+}
+
+/**
+ * The loser's answer — one code, whatever the winner is doing right now.
+ *
+ * Deterministic on purpose: the refusal must not depend on how far the winning
+ * request happened to get, so the code is always `proposal_claim_conflict` and
+ * the row's ACTUAL state travels beside it. `proposalStatus` is `claimed` while
+ * the winner is dispatching and `approved`/`failed`/`reconcile` once it has
+ * settled, and `receipt` is the winner's receipt whenever one exists yet.
+ */
+function claimConflictResponse(current: MetaAutomationProposal | null) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: "proposal_claim_conflict",
+        message:
+          current?.status === "claimed"
+            ? "Another approval already holds this proposal and is dispatching it. Nothing was sent from this request; its outcome will appear in the activity ledger."
+            : "This proposal was already decided by another action, so nothing was dispatched from this request.",
+      },
+      proposalStatus: current?.status ?? null,
+      receipt: current?.receipt ?? null,
+      receiptKey: current?.claimToken ?? null,
+    },
+    { status: 409 },
+  );
+}
+
+/**
+ * Every outcome lands in the ledger — with the tuple the screen renders, and
+ * with an answer when it does NOT land.
+ *
+ * This delegates to the control plane's single ledger writer rather than
+ * repeating its INSERT, which is the whole point: the hand-rolled copy here
+ * named only the six pre-tuple columns, so `actor_kind`, `entity_type`,
+ * `entity_id` and `result_status` were left NULL on every proposal decision.
+ * The ledger's SELECT already reads all four, so the Activity ledger showed an
+ * em dash under Actor, Entity and Result for rows whose writer knew each one.
+ *
+ * The entity is the proposal's own scope (`campaign`/`adset` plus its id) — the
+ * thing the decision was about. The receipt id column stays null because it
+ * drives the rendered `Receipt <id>` chip and expects a PROVIDER entity id; the
+ * attempt's receipt key travels in `payload.receiptKey`, where it is queryable
+ * jsonb and joins the ledger row to the queue row and to the receipt envelope
+ * without putting a claim uuid inside a design caption that promises a provider
+ * receipt.
+ *
+ * **The failure is returned, not swallowed.** It used to end in
+ * `.catch(() => undefined)` under a footnote reading "every outcome lands in
+ * the ledger with a receipt" — so a failed INSERT produced a screen that
+ * promised an audit trail it did not have. There is no retry here on purpose:
+ * this function runs AFTER the provider result exists, and a retry loop around
+ * it can only ever duplicate bookkeeping, never recover a write. The durable
+ * record of the outcome is the proposal row itself (status + `receipt_json` +
+ * `claim_token`, all written in the same database); the ledger is the second
+ * copy, and its absence is reported rather than hidden.
  */
 async function recordProposalLedgerEntry(input: {
   businessId: string;
@@ -448,24 +981,31 @@ async function recordProposalLedgerEntry(input: {
   severity: "info" | "warning" | "danger" | "success";
   message: string;
   payload: Record<string, unknown>;
-}) {
-  const sql = getDb();
-  await sql`
-    INSERT INTO meta_automation_activity_ledger (
-      business_id,
-      activity_type,
-      severity,
-      message,
-      payload_json,
-      created_by
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.activityType},
-      ${input.severity},
-      ${input.message},
-      ${JSON.stringify(input.payload)}::jsonb,
-      ${input.userId}
-    )
-  `.catch(() => undefined);
+  proposal: MetaAutomationProposal;
+  resultStatus: MetaAutomationActivityResultStatus;
+}): Promise<{
+  ledgerCompleteness: "complete" | "unavailable";
+  ledgerErrorCode: string | null;
+}> {
+  try {
+    await writeActivityLedgerRow({
+      businessId: input.businessId,
+      activityType: input.activityType,
+      severity: input.severity,
+      message: input.message,
+      payload: input.payload,
+      userId: input.userId,
+      actorKind: "operator",
+      entityType: input.proposal.scopeType,
+      entityId: input.proposal.scopeId,
+      resultStatus: input.resultStatus,
+      resultReceiptId: null,
+    });
+    return { ledgerCompleteness: "complete", ledgerErrorCode: null };
+  } catch {
+    return {
+      ledgerCompleteness: "unavailable",
+      ledgerErrorCode: "activity_ledger_write_failed",
+    };
+  }
 }

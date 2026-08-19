@@ -158,9 +158,24 @@ export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
   meta_creative_lineage_edges: 5 * 1024 ** 3, // live 3.04 GiB
   // Post-compaction ceiling. The old 90 GiB budget would have let this regrow
   // to tens of gigabytes without a single refusal, which is exactly how it got
-  // large the first time. 4 GiB against a live 2.79 GiB means any renewed
-  // per-historical-day observation writing refuses within days.
-  meta_entity_state_history: 4 * 1024 ** 3, // live 2.79 GiB
+  // large the first time. The ceiling exists to catch renewed
+  // per-historical-day observation writing, not ordinary accretion.
+  //
+  // Raised from 4 GiB on 2026-08-18. The table reached 4,295,172,096 bytes -
+  // 200 KB past the old ceiling - and the fence then refused every Meta ad and
+  // campaign observation write from 2026-08-17 15:49 onward. Nothing reported
+  // an outage: the native ad decision job kept succeeding, found no same-day
+  // complete ad observation run to anchor to, and published
+  // "native_account_manifest_incomplete", so the Decision Center quietly served
+  // its Creatives scope from the legacy path instead.
+  //
+  // The runaway this guards against is absent - measured writes are ~200 rows
+  // (~220 KB) a day, so 5 GiB is roughly a decade of headroom at the observed
+  // rate while still refusing a genuine per-historical-day rewrite within days.
+  // The structural fix is retention: 3.76M rows reach back to 2020-04-27 and
+  // the decision path reads only recent state. That deletes history, so it is
+  // an operator decision, not a default.
+  meta_entity_state_history: 5 * 1024 ** 3, // live 4.11 GiB
   sync_release_gates: 3 * 1024 ** 3, // live 1.26 GiB
   google_ads_raw_snapshots: 3 * 1024 ** 3, // live 0.93 GiB
   // New relations: zero today. Budgets sized for the observation rate the

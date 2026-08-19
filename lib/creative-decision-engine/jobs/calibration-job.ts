@@ -209,7 +209,14 @@ per_creative_raw AS (
     SUM(d.revenue) AS total_revenue,
     SUM(d.impressions) AS total_impressions,
     SUM(d.clicks) AS total_clicks,
-    SUM(d.link_clicks) AS total_link_clicks,
+    -- NULL-SAFETY ONLY. NOT a decision change. total_link_clicks is the
+    -- denominator of link-to-LPV, link-to-ATC and click-to-purchase below, each
+    -- of which is already guarded by CASE WHEN total_link_clicks > 0. That
+    -- guard treats NULL and 0 alike, so the calibrated rates would not move --
+    -- but the coalesce keeps the SUM itself reporting the same 0 it reports
+    -- today rather than a NULL, so nothing downstream can tell the difference.
+    -- The engine saw 0 before and sees 0 now.
+    SUM(COALESCE(d.link_clicks, 0)) AS total_link_clicks,
     SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS lpv_total,
     SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS atc_total,
     SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS ic_total,

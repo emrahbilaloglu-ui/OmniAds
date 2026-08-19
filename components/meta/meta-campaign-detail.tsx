@@ -45,11 +45,17 @@ function formatRelativeAge(isoValue: string | null | undefined): string | null {
   return "just now";
 }
 
-function fmt$(n: number, sym = "$") {
+// A money value whose currency is unknown renders as the missing mark, not as
+// a dollar figure. INVARIANTS.md: "Missing currency must not silently become
+// USD, $, TRY, or EUR." The `sym = "$"` defaults these formatters carried were
+// exactly that substitution, one hop below the store.
+function fmt$(n: number, sym: string | null) {
+  if (sym === null) return "—";
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function fmtK(n: number, sym = "$") {
+function fmtK(n: number, sym: string | null) {
+  if (sym === null) return "—";
   if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}k`;
   return fmt$(n, sym);
@@ -213,7 +219,7 @@ function AdSetList({
   businessId: string;
   since: string;
   until: string;
-  sym: string;
+  sym: string | null;
   language: "en" | "tr";
 }) {
   const { data, isLoading, isError } = useQuery<MetaAdSetsResponse>({

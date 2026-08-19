@@ -996,4 +996,106 @@ describe("rules in the control-plane payload", () => {
     expect(payload.readCompleteness?.rules).toBe("unavailable");
     expect(payload.rules).toEqual([]);
   });
+
+  /**
+   * The law: a failed control read is reported as a failed read.
+   *
+   * `businessControl` is always populated, because a failure degrades to
+   * `defaultBusinessControl` — a concrete, benign-looking state (not stopped,
+   * Tier 1 supervised, the 15% / 3-action default guardrails). Without
+   * provenance the surface could not tell that apart from a row the database
+   * actually returned, and it printed those four values as facts while
+   * `getMetaWriteBlockState` refused every write in the same window with
+   * `control_state_unavailable`. The value still degrades; what changed is
+   * that the payload now admits it.
+   */
+  it("marks the control read unavailable rather than passing its default off as a read", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("meta_automation_business_controls")) {
+        // Not 42P01: a timeout, a permission error or a dropped connection is
+        // exactly the case the old `safeRead` swallowed into a default.
+        throw Object.assign(new Error("control read timed out"), {
+          code: "57014",
+        });
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.readCompleteness?.businessControl).toBe("unavailable");
+    expect(payload.businessControl.source).toBe("default");
+    expect(payload.businessControl.killSwitchEngaged).toBe(false);
+  });
+
+  it("proves the control read when the row comes back", async () => {
+    const sql = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("meta_automation_business_controls")) {
+        return [
+          {
+            business_id: BUSINESS_ID,
+            kill_switch_engaged: false,
+            kill_switch_reason: null,
+            auto_execution_enabled: false,
+            readiness_tier: "manual_review",
+            guardrails_json: {},
+            updated_at: "2026-08-17T08:00:00.000Z",
+            updated_by: "user_1",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.readCompleteness?.businessControl).toBe("complete");
+    expect(payload.businessControl.source).toBe("persisted");
+  });
+
+  /**
+   * The law: an empty activity ledger is only "nothing has happened here" when
+   * BOTH halves of it were read. The ledger is assembled from the automation
+   * ledger and the ads action log; either one degrading to `[]` on failure made
+   * a broken read indistinguishable from a quiet workspace.
+   */
+  it("refuses to prove an empty activity ledger when either half failed", async () => {
+    const brokenActionLog = vi.fn(async (parts: TemplateStringsArray) => {
+      const query = Array.from(parts).join("?");
+      if (query.includes("FROM meta_ads_action_log")) {
+        throw Object.assign(new Error("action log unavailable"), {
+          code: "57P01",
+        });
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(brokenActionLog as never);
+    const broken = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(broken.activityLedger).toEqual([]);
+    expect(broken.readCompleteness?.activityLedger).toBe("unavailable");
+
+    const cleanReads = vi.fn(async () => []);
+    vi.mocked(db.getDb).mockReturnValue(cleanReads as never);
+    const proven = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(proven.activityLedger).toEqual([]);
+    expect(proven.readCompleteness?.activityLedger).toBe("complete");
+  });
 });

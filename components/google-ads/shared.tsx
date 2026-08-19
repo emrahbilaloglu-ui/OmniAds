@@ -3,12 +3,18 @@
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrencySymbol } from "@/hooks/use-currency";
-import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
+import { MISSING_VALUE, formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 
 // ── Formatting ────────────────────────────────────────────────────────
 
 export function fmtCurrency(n: number): string {
-  return formatCurrencySmart(n, getCurrencySymbol());
+  const symbol = getCurrencySymbol();
+  // INVARIANTS.md: "Missing currency must not silently become USD, $, TRY, or
+  // EUR." A workspace with no configured currency has no symbol to print, so
+  // the amount renders as unavailable rather than as a dollar figure nobody
+  // configured. The numeric decision underneath is unchanged.
+  if (symbol === null) return MISSING_VALUE;
+  return formatCurrencySmart(n, symbol);
 }
 
 export function fmtNumber(n: number): string {

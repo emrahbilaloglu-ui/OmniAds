@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 
+import type { AutomationViewerEnvelope } from "@/app/(dashboard)/platforms/meta/automation/viewer-envelope";
+
 type ExactPageProps = {
   businessId?: string;
   providerAccountId?: string | null;
   initialPayload?: MetaAutomationControlPlane | null;
+  viewer?: AutomationViewerEnvelope;
 };
 
 const redirect = vi.fn((href: string): never => {
@@ -34,6 +37,9 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
 vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaAutomationControlPlane: vi.fn(),
 }));
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(),
+}));
 vi.mock("@/app/(dashboard)/platforms/meta/automation/automation-view", () => ({
   default: (props: ExactPageProps) => exactPage(props),
 }));
@@ -47,6 +53,9 @@ const businessPageAccess =
 const providerScope = await import("@/lib/zero-base/provider-scope-server");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 const authRouting = await import("@/lib/zero-base/auth-routing");
+const writeAuthority = await import(
+  "@/app/api/launchpad/meta/demo-write-authority"
+);
 
 function session() {
   return {
@@ -171,6 +180,9 @@ beforeEach(() => {
   vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValue(
     control,
   );
+  vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
+    "live",
+  );
 });
 
 describe("Automation canonical route authority", () => {
@@ -192,6 +204,14 @@ describe("Automation canonical route authority", () => {
       businessId: "biz_route",
       providerAccountId: "act_assigned",
       initialPayload: control,
+      viewer: {
+        role: "admin",
+        reviewerReadOnly: false,
+        demo: false,
+        canMutate: true,
+        reason: null,
+        reasonCode: null,
+      },
     });
   });
 
@@ -224,7 +244,22 @@ describe("Automation canonical route authority", () => {
     );
   });
 
-  it("renders the same read-only surface for reviewers without passing a write capability", async () => {
+  /**
+   * REWRITTEN, not deleted, and its assertion is now INVERTED on purpose.
+   *
+   * The old law was "pass no write capability", and `not.toHaveProperty
+   * ("viewer")` was read as proof of it. It proved the opposite. Withholding
+   * the viewer facts did not withhold anything from the surface: every control
+   * on it was gated on `businessId && providerAccountId`, both of which this
+   * route DOES pass, so a reviewer got live Approve / Modify / Dismiss /
+   * + New rule / rule toggle and found out about the refusal from the 403 that
+   * landed after the click. The absent prop was the defect, not the guard.
+   *
+   * The refusal itself has always lived on the routes (`rejectIfReviewerReadOnly`)
+   * and still does. What travels now is the server's ANSWER, so the refusal is
+   * visible before the click instead of after it.
+   */
+  it("carries the reviewer refusal from the server rather than withholding it", async () => {
     vi.mocked(
       businessPageAccess.requireBusinessPageContext,
     ).mockResolvedValueOnce({
@@ -237,9 +272,77 @@ describe("Automation canonical route authority", () => {
 
     await renderPage();
 
-    expect(exactPage.mock.calls[0]?.[0]).not.toHaveProperty("viewer");
+    const viewer = exactPage.mock.calls[0]?.[0]?.viewer;
+    expect(viewer).toBeDefined();
+    expect(viewer!.reviewerReadOnly).toBe(true);
+    expect(viewer!.canMutate).toBe(false);
+    // The code the route that would answer actually returns. Restated, never
+    // re-derived: this reviewer is also an admin, and re-deriving from role
+    // alone would have said "may write".
+    expect(viewer!.reasonCode).toBe("reviewer_read_only");
+    expect(viewer!.reason).toContain("Reviewer access is read-only");
+    // Still no mutation handler and no write capability of any kind.
     expect(exactPage.mock.calls[0]?.[0]).not.toHaveProperty(
       "onToggleBusinessStop",
+    );
+  });
+
+  it("refuses a demo workspace even for an admin", async () => {
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValueOnce(
+      "demo",
+    );
+
+    await renderPage();
+
+    const viewer = exactPage.mock.calls[0]?.[0]?.viewer;
+    // "Demo businesses have zero Meta write authority even if a presentation
+    // defect supplies an action."
+    expect(viewer?.demo).toBe(true);
+    expect(viewer?.canMutate).toBe(false);
+    expect(viewer?.reasonCode).toBe("demo_business_read_only");
+  });
+
+  it("holds writes when the demo flag itself could not be read", async () => {
+    vi.mocked(writeAuthority.readLaunchpadWriteAuthority).mockResolvedValueOnce(
+      "unverified",
+    );
+
+    await renderPage();
+
+    const viewer = exactPage.mock.calls[0]?.[0]?.viewer;
+    // An unreadable flag is never "live". A missing fact does not become a
+    // permission.
+    expect(viewer?.canMutate).toBe(false);
+    expect(viewer?.reasonCode).toBe("demo_status_unverified");
+  });
+
+  it("refuses a viewer below the collaborator floor every write route enforces", async () => {
+    vi.mocked(
+      businessPageAccess.requireBusinessPageContext,
+    ).mockResolvedValueOnce({
+      ...authorizedContext("biz_route"),
+      context: {
+        ...authorizedContext("biz_route").context,
+        role: "guest",
+      },
+    } as never);
+
+    await renderPage();
+
+    const viewer = exactPage.mock.calls[0]?.[0]?.viewer;
+    expect(viewer?.role).toBe("guest");
+    expect(viewer?.canMutate).toBe(false);
+    expect(viewer?.reasonCode).toBe("insufficient_role");
+  });
+
+  it("reads the demo flag from the table rather than reusing the id comparison", async () => {
+    await renderPage();
+
+    // `access.context.demo` only compares the well-known demo id and would miss
+    // a workspace flagged `is_demo_business`, so the write-authority read is
+    // the one that decides.
+    expect(writeAuthority.readLaunchpadWriteAuthority).toHaveBeenCalledWith(
+      "biz_route",
     );
   });
 

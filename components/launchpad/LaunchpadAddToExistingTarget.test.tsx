@@ -130,6 +130,7 @@ describe("LaunchpadAddToExistingTarget", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
+        providerAccountId="act_1"
         value={makeDefaultAddToExistingTargetState()}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
@@ -146,6 +147,7 @@ describe("LaunchpadAddToExistingTarget", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
+        providerAccountId="act_1"
         value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "rebuild_creative", nameOverrides: {} }}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
@@ -176,6 +178,7 @@ describe("LaunchpadAddToExistingTarget", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
+        providerAccountId="act_1"
         value={{
           targetCampaign: campaign,
           targetAdset: adset,
@@ -205,6 +208,7 @@ describe("LaunchpadAddToExistingTarget", () => {
     const html = renderToStaticMarkup(
       <LaunchpadAddToExistingTarget
         businessId="biz"
+        providerAccountId="act_1"
         value={{ targetCampaign: campaign, targetAdset: adset, copyMode: "reuse_creative", nameOverrides: {} }}
         selectedCreatives={[creative()]}
         campaignOptions={[campaign]}
@@ -230,6 +234,7 @@ describe("LaunchpadAddToExistingTarget", () => {
 
     const result = await fetchLaunchpadCampaignAdsets({
       businessId: "biz",
+      providerAccountId: "act_1",
       campaign: { id: "cmp_1", adsetCount: 1 },
       retryDelaysMs: [0],
       fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -241,11 +246,35 @@ describe("LaunchpadAddToExistingTarget", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  // Every launch is written into exactly one ad account, and `meta-validation`
+  // refuses a target belonging to any other one at Create time. The target
+  // lists must therefore be read account-scoped, or the operator builds a whole
+  // launch against a campaign the launch account never owned and only learns it
+  // from a Create-time blocker naming an account they never chose.
+  it("reads ad sets scoped to the launch account", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ adsets: [adset] }));
+
+    await fetchLaunchpadCampaignAdsets({
+      businessId: "biz",
+      providerAccountId: "act_1",
+      campaign: { id: "cmp_1", adsetCount: 1 },
+      retryDelaysMs: [],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain(
+      "providerAccountId=act_1",
+    );
+  });
+
   it("does not cache an empty result as loaded when active ad sets were expected", async () => {
     const fetchImpl = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ adsets: [] })));
 
     const result = await fetchLaunchpadCampaignAdsets({
       businessId: "biz",
+      providerAccountId: "act_1",
       campaign: { id: "cmp_1", adsetCount: 1 },
       retryDelaysMs: [0],
       fetchImpl: fetchImpl as unknown as typeof fetch,

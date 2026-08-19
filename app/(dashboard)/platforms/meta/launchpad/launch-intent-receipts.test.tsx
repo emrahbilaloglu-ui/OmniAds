@@ -105,7 +105,15 @@ describe("LaunchIntentReceiptRows", () => {
     },
   );
 
-  it("keeps a terminal partial campaign as a real PAUSED receipt without error chrome", () => {
+  // A terminal partial campaign stays a listed, linkable receipt — dropping it
+  // would hide a real provider object that needs reconciling in Meta — but its
+  // status cell never claims a provider state verification could not confirm.
+  // `silent_failure` is defined by this very surface as "the provider call
+  // returned success, but verification could not confirm the entity. The
+  // outcome is unknown", so PAUSED there is an assertion we cannot back, and an
+  // unsupplied fact renders as an em-dash. The error chrome still stays off the
+  // row: this card lists receipts, it is not an error log.
+  it("keeps a terminal partial campaign listed and linkable but never claims its provider state", () => {
     const html = renderToStaticMarkup(
       <LaunchIntentReceiptRows
         intents={[
@@ -134,12 +142,33 @@ describe("LaunchIntentReceiptRows", () => {
     );
 
     expect(html).toContain("Real Campaign");
-    expect(html).toContain("PAUSED");
+    expect(html).not.toContain("PAUSED");
     expect(html).toContain("Jul 10, 10:05");
     expect(html).not.toContain("Jul 12");
     expect(html).toContain("selected_campaign_ids=campaign_partial");
     expect(html).not.toContain("provider_outcome_ambiguous");
     expect(html).not.toContain("Provider response was ambiguous");
+  });
+
+  // The verified case is unchanged: a succeeded intent did have its objects
+  // confirmed, so the row prints the state that was actually established.
+  it("prints the provider state for a verified receipt", () => {
+    const html = renderToStaticMarkup(
+      <LaunchIntentReceiptRows intents={[intent({ status: "succeeded" })]} />,
+    );
+
+    expect(html).toContain("PAUSED");
+  });
+
+  it("does not claim a provider state for a failed partial receipt", () => {
+    const html = renderToStaticMarkup(
+      <LaunchIntentReceiptRows intents={[intent({ status: "failed" })]} />,
+    );
+
+    // Listed and linkable — the campaign exists — but the state is unknown.
+    expect(html).toContain("Real Campaign");
+    expect(html).toContain("Open in Ads Manager");
+    expect(html).not.toContain("PAUSED");
   });
 
   it("does not render a terminal status without a real campaign receipt", () => {
@@ -158,5 +187,61 @@ describe("LaunchIntentReceiptRows", () => {
 
     expect(html).toContain('data-testid="launchpad-receipt-empty"');
     expect(html).not.toContain("Real Campaign");
+  });
+
+  function addToExisting(overrides: Partial<MetaLaunchIntent> = {}) {
+    return intent({
+      id: "intent_add_1",
+      operation: "add_to_existing",
+      requestPayload: {
+        mode: "add_to_existing",
+        targets: [
+          {
+            targetCampaignId: "campaign_target",
+            targetCampaignName: "Prospecting — Broad US",
+            targetAdsetId: "adset_target",
+          },
+        ],
+      },
+      resultReceipt: {
+        ...intent().resultReceipt!,
+        // add_to_existing creates no campaign, so its receipt has none.
+        campaignId: null,
+      },
+      ...overrides,
+    });
+  }
+
+  it("keeps an add_to_existing receipt and links to its persisted target campaign", () => {
+    const html = renderToStaticMarkup(
+      <LaunchIntentReceiptRows intents={[addToExisting()]} />,
+    );
+
+    expect(html).not.toContain('data-testid="launchpad-receipt-empty"');
+    expect(html).toContain("intent_add_1");
+    expect(html).toContain("Prospecting — Broad US");
+    expect(html).toContain("PAUSED");
+    expect(html).toContain("Open in Ads Manager");
+    expect(html).toContain("selected_campaign_ids=campaign_target");
+  });
+
+  it("withholds the target link when no ad landed in the target campaign", () => {
+    const html = renderToStaticMarkup(
+      <LaunchIntentReceiptRows
+        intents={[
+          addToExisting({
+            status: "failed",
+            resultReceipt: {
+              ...intent().resultReceipt!,
+              campaignId: null,
+              adIds: [],
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain('data-testid="launchpad-receipt-empty"');
+    expect(html).not.toContain("selected_campaign_ids=campaign_target");
   });
 });

@@ -24,10 +24,10 @@ vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.query),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
 const { default: MetaLaunchpadPage } = await import("./legacy-page");
-const { launchpadLibraryCount } = await import("./launchpad-library-count");
 
 describe("MetaLaunchpadPage", () => {
   beforeEach(() => {
@@ -43,8 +43,12 @@ describe("MetaLaunchpadPage", () => {
     expect(html).toContain("Launchpad · read-only");
     expect(html).toContain("Meta · Guarded write surface");
     expect(html).toContain("Launches create PAUSED campaigns.");
-    expect(html).toContain("Rebuild “—”");
-    expect(html).toContain("Duplicate “—”");
+    // No routed entity means no name — the card carries its own, rather than
+    // a pair of quotes around a dash, which reads as a value that failed to load.
+    expect(html).toContain("Rebuild");
+    expect(html).toContain("Duplicate");
+    expect(html).not.toContain("Rebuild “—”");
+    expect(html).not.toContain("Duplicate “—”");
     expect(html).toContain("Start from scratch");
     expect(html).toContain("validation runs before any provider call");
     expect(html).toContain("Launch receipts");
@@ -114,37 +118,6 @@ describe("MetaLaunchpadPage", () => {
 
     expect(html).toContain("Unavailable");
     expect(html).not.toContain("Meta · IwaStore · USD");
-  });
-
-  it("never reports unavailable launch storage as a zero count", () => {
-    expect(
-      launchpadLibraryCount({
-        rowCount: 0,
-        loading: false,
-        capabilityStatus: "migration_required",
-      }),
-    ).toBe("Unavailable");
-    expect(
-      launchpadLibraryCount({
-        rowCount: 0,
-        loading: false,
-        capabilityStatus: null,
-      }),
-    ).toBe("Unavailable");
-    expect(
-      launchpadLibraryCount({
-        rowCount: 0,
-        loading: true,
-        capabilityStatus: null,
-      }),
-    ).toBe("Loading");
-    expect(
-      launchpadLibraryCount({
-        rowCount: 5,
-        loading: false,
-        capabilityStatus: "migration_required",
-      }),
-    ).toBe(5);
   });
 
   it("shows the source creative name for recently duplicated target ads", () => {

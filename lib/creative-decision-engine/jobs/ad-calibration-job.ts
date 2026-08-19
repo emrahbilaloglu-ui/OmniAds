@@ -5084,7 +5084,28 @@ export function mapNativeAdCalibrationSourceRow(
     spend: dbRequiredNumber(row.spend, "spend"),
     impressions: dbRequiredNumber(row.impressions, "impressions"),
     clicks: dbRequiredNumber(row.clicks, "clicks"),
-    linkClicks: dbRequiredNumber(row.link_clicks, "link_clicks"),
+    // NULL-SAFETY ONLY. NOT a decision change.
+    //
+    // `meta_ad_daily.link_clicks` was `BIGINT NOT NULL DEFAULT 0`, and the only
+    // production writer of it typed a literal `0` on the provider's behalf
+    // because the sync holds no link-click value at all. Storage can now hold
+    // NULL so that "nobody clicked" and "nothing was supplied" stop being the
+    // same stored value. `dbRequiredNumber` THROWS on NULL, so leaving it here
+    // would abort the whole native ad calibration job for any account carrying
+    // an unsupplied ad-day.
+    //
+    // The engine saw 0 for these rows before and sees 0 for them now. Every row
+    // that reaches this mapper today is non-null, so this coalesce is currently
+    // unreachable and the job's output is byte-identical; once a row is stored
+    // unsupplied it yields exactly the number that row yielded when the same
+    // absence was stored as a fabricated 0. `linkClicks` stays `number`, so no
+    // threshold, comparison, branch, label, confidence or authority gate
+    // downstream sees a shape it did not see before.
+    //
+    // This is deliberately NOT the place to start supplying a real link-click
+    // count from the provider payload: that would change the numbers the engine
+    // reads, which is a different change with a different proof.
+    linkClicks: dbOptionalNumber(row.link_clicks) ?? 0,
     // PostgreSQL double precision can represent NaN/Infinity. Keep malformed
     // canonical purchase truth in the source manifest so the account-AOV
     // receipt becomes contradictory instead of aborting the whole job before

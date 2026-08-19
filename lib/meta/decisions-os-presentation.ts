@@ -1129,14 +1129,19 @@ function adDecision(
       purchases: decision.metrics.purchases,
       roas: decision.metrics.roas,
       cpa: null,
-      ctr: null,
-      frequency: null,
+      // 28-day figures from the lifecycle row the engine decided from. Both
+      // were pinned to null here, so the creative rows and the posture band had
+      // nothing to read even though the decision behind them carried it.
+      ctr: decision.metrics.ctr ?? null,
+      frequency: decision.metrics.frequency ?? null,
       effectiveTargetRoas: decision.metrics.effectiveTargetRoas,
       ratioToTarget: decision.metrics.ratioToTarget,
       currency: decision.metrics.currency,
       attribution: "meta_attributed",
       grain: decision.identityGrain === "ad" ? "ad" : "creative_context",
     },
+    creativeFormat: decision.creativeFormat ?? null,
+    fatigueStatus: decision.fatigueStatus ?? null,
     rawLabel: decision.sourceDecision.rawLabel,
     publishedLabel: decision.sourceDecision.label,
     authorityProvenance: authorityProvenanceForDecision(decision),

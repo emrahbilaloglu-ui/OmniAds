@@ -7,8 +7,52 @@ import type { TierZeroFreshnessState } from "@/components/states/TierZeroFreshne
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { GoogleAdvisorResponse } from "@/src/services/google";
+import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 import { useAppStore } from "@/store/app-store";
 import { useTierZeroFreshnessStore } from "@/store/tier-zero-freshness-store";
+
+/**
+ * The one business the shell chrome is allowed to name — or `null`.
+ *
+ * The shell had two answers to "which business". The topbar read the
+ * server-resolved envelope, while the rail, the lane badges and the freshness
+ * pill read `selectedBusinessId` out of the persisted store. Those disagree for
+ * the whole window between localStorage rehydration and AuthBootstrap: the
+ * switcher named the session's workspace while the rail minted
+ * `?businessId=<previous workspace>` links and the pill reported the previous
+ * workspace's sync age. A link minted in that window lands on the Meta scope
+ * refusal ("This link names a different workspace"), which is the operator
+ * seeing our own desynchronisation reported back as their mistake.
+ *
+ * The rule, in order:
+ *   1. The server-resolved envelope, when one exists. It is the only value that
+ *      has been authorised for this request, so it always wins.
+ *   2. Otherwise the store selection — but only once the shell has actually
+ *      confirmed it: hydrated, auth bootstrap finished, and the id still
+ *      present in the authenticated membership list.
+ *   3. Otherwise `null`.
+ *
+ * `null` means "not yet confirmed", and nothing may be minted from it: no
+ * href parameter, no query key, no badge. An unconfirmed scope is missing
+ * data, and missing data is never rendered as a value.
+ */
+export function useConfirmedShellBusinessId(): string | null {
+  const workspace = useOptionalWorkspaceContext();
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businesses = useAppStore((state) => state.businesses);
+  const hasHydrated = useAppStore((state) => state.hasHydrated);
+  const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
+
+  const envelopeBusinessId = workspace?.business?.id ?? null;
+  if (envelopeBusinessId) return envelopeBusinessId;
+
+  if (!hasHydrated || authBootstrapStatus !== "ready" || !selectedBusinessId) {
+    return null;
+  }
+  return businesses.some((business) => business.id === selectedBusinessId)
+    ? selectedBusinessId
+    : null;
+}
 
 /**
  * Reads the Action Now lane size straight out of whatever the decisions
@@ -27,7 +71,7 @@ import { useTierZeroFreshnessStore } from "@/store/tier-zero-freshness-store";
  */
 export function useMetaActionNowCount(): number | null {
   const queryClient = useQueryClient();
-  const businessId = useAppStore((state) => state.selectedBusinessId);
+  const businessId = useConfirmedShellBusinessId();
 
   const subscribe = useCallback(
     (onStoreChange: () => void) =>
@@ -61,7 +105,7 @@ export function useMetaActionNowCount(): number | null {
 /** Mirrors the last real Google Advisor result already loaded for this business. */
 export function useGoogleAdvisorCount(): number | null {
   const queryClient = useQueryClient();
-  const businessId = useAppStore((state) => state.selectedBusinessId);
+  const businessId = useConfirmedShellBusinessId();
 
   const subscribe = useCallback(
     (onStoreChange: () => void) =>
@@ -127,7 +171,10 @@ export function formatSyncAge(minutes: number | null): string {
  * recent completed provider sync across the workspace.
  */
 export function useWorkspaceSyncState(): WorkspaceSyncState {
-  const businessId = useAppStore((state) => state.selectedBusinessId);
+  // Same rule as the switcher above it and the rail beside it. Reading the
+  // store directly is what let this pill report one workspace's sync age under
+  // another workspace's name.
+  const businessId = useConfirmedShellBusinessId();
   const activeSurface = useTierZeroFreshnessStore((state) => state.active);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
@@ -190,6 +237,17 @@ export function useWorkspaceSyncState(): WorkspaceSyncState {
         freshnessState: "ready",
       };
     }
+    // The surface registered itself and reported NO age. Falling through to
+    // the account-level sync times below would answer with a timestamp that
+    // belongs to a different thing than the screen in front of the operator:
+    // a surface serving an unavailable or unaged read was showing
+    // "Synced 9h ago" from the last Meta sync. An unknown age is stated as
+    // unknown, using the vocabulary this hook already has.
+    return {
+      tone: "unknown",
+      label: "Synced —",
+      freshnessState: "unknown",
+    };
   }
 
   const ages = [

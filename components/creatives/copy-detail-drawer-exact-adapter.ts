@@ -9,6 +9,16 @@ const EM_DASH = "—";
 
 export interface CopyDetailDrawerExactRow {
   id: string;
+  /**
+   * The provider creative this line was served with.
+   *
+   * Required for the Launchpad handoff: `POST /api/meta/launchpad-handoff/copy`
+   * names a CREATIVE, a window and one alternate, and re-reads the served copy
+   * for that creative before it will mint anything. The copies row id is a
+   * synthetic bucket key (`copy_<account>:<currency>:<normalized key>`) and
+   * names no provider object, so it cannot stand in for this.
+   */
+  creativeId: string | null;
   text: string | null;
   assetType: string | null;
   /** Server-supplied messaging angle. Null until the engine's tagging ships. */
@@ -29,7 +39,55 @@ export interface CopyDetailDrawerExactAdapterInput {
   /** Every synced line in the same account and window; used for the medians. */
   peers?: readonly CopyDetailDrawerExactRow[];
   targetRoas?: number | null;
-  draftHref?: string | null;
+  /**
+   * There is still deliberately no `draftHref`, and there never will be.
+   *
+   * The drawer used to take one generic Launchpad URL and put it on the "Draft"
+   * control of every alternate and on "Draft all", under a footnote claiming
+   * "a Launchpad draft with this line's evidence attached". Nothing was
+   * attached: the href carried only `businessId` and `providerAccountId`. No
+   * copy id, no alternate text, no evidence window, no lineage travelled, and a
+   * URL parameter could not have minted any of it anyway.
+   *
+   * What replaces it is a POST, not a link. `POST
+   * /api/meta/launchpad-handoff/copy` names the creative, the window and the
+   * alternate; the SERVER re-reads the served copy for that creative in that
+   * window and refuses a line Meta never served, then persists an
+   * account-scoped, single-use record carrying the copy identity, the alternate
+   * text, the source line, the frozen evidence window and the creative/ad/
+   * campaign selection. `app/c/[businessId]/meta/launchpad/page.tsx` re-verifies
+   * and consumes it server-side.
+   *
+   * That record is explicitly NOT a decision: it is minted with
+   * `origin: "copy"`, `sourceAuthorityStatus: "warehouse_discovery"`,
+   * `authorizedAction: null` and `actionEligible: false`, because a copies row
+   * is a warehouse aggregate and the canonical contract classes those as
+   * discovery evidence only. No decision id is invented for it anywhere.
+   *
+   * WHAT IS STILL NOT TRUE, stated rather than implied by an enabled control:
+   * `MetaLaunchPayload` and `MetaAddToExistingPayload` (lib/launchpad/meta.ts)
+   * have no primary-text, headline or description field at any level, so
+   * Launchpad has nothing to put the alternate INTO. The line travels in the
+   * draft record and the wizard says so; it does not become ad copy.
+   */
+  draftHref?: never;
+  /**
+   * Whether the host can actually prepare a draft for these alternates.
+   *
+   * False (the default) keeps the control disabled and the footnote saying
+   * drafting is unavailable. It is false whenever the business, the account or
+   * the window is not established, because a handoff cannot be minted without
+   * all three and offering the control would promise a refusal.
+   */
+  draftingAvailable?: boolean;
+  /**
+   * The last thing the draft POST actually said, verbatim.
+   *
+   * Refusals come back from the server with their own sentence
+   * (`describeLaunchpadHandoffRefusal`); this restates it rather than
+   * inventing one, and a null means nothing has been attempted.
+   */
+  draftStatusMessage?: string | null;
 }
 
 function nonBlank(value: string | null | undefined): string | null {
@@ -157,7 +215,10 @@ function buildAlternates(
       angleTone: "neutral",
       text: normalized,
       why: EM_DASH,
-      draftHref: input.draftHref ?? null,
+      // Always null. Drafting is a POST the server has to answer, so the drawer
+      // renders a BUTTON and the host mints the handoff; an href here could
+      // only carry claims. See `draftHref` on the adapter input.
+      draftHref: null,
     });
   }
   return alternates;
@@ -171,6 +232,11 @@ export function buildCopyDetailDrawerExactViewModel(
   const chars = text?.length ?? 0;
   const assetType = assetTypeLabel(row.assetType);
   const alternates = buildAlternates(input);
+  // Drafting needs a real creative to bind the line to. A row whose creative is
+  // unknown cannot be named to the handoff endpoint, so it is not offered.
+  const draftable =
+    input.draftingAvailable === true && Boolean(nonBlank(row.creativeId));
+  const draftStatus = nonBlank(input.draftStatusMessage ?? null);
 
   return {
     kind: assetType ? `${assetType} · ${chars} chars` : `${EM_DASH} · ${chars} chars`,
@@ -185,12 +251,43 @@ export function buildCopyDetailDrawerExactViewModel(
     // ROAS. These are the other lines Meta served with the same creative.
     alternatesNote: "served with this creative · Meta-reported",
     alternates,
-    footnote:
-      "Alternates are the other lines Meta served with this creative. Drafting one opens a Launchpad draft with this line’s evidence attached. Nothing publishes from here.",
+    // The second sentence used to read "Drafting one opens a Launchpad draft
+    // with this line's evidence attached." Nothing was attached then. Something
+    // is attached now — the copy identity, this exact line, the line it would
+    // replace, the frozen window and the creative/ad/campaign selection, all
+    // persisted server-side and re-verified on landing — so the sentence says
+    // exactly that, and it also says the part that is still not true: Launchpad
+    // has no copy field, so the line does not become ad copy.
+    footnote: draftable
+      ? [
+          "Alternates are the other lines Meta served with this creative.",
+          "Drafting one prepares a Launchpad draft carrying this line, its window and its creative; the server re-checks the line was served before it prepares anything.",
+          "Launchpad has no copy field, so the line travels with the draft and does not become ad copy. Nothing publishes from here.",
+          draftStatus,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : [
+          "Alternates are the other lines Meta served with this creative.",
+          "Drafting is unavailable here: preparing one needs a business, a Meta account and a window this view has not established.",
+          "Nothing publishes from here.",
+          draftStatus,
+        ]
+          .filter(Boolean)
+          .join(" "),
     draftAllLabel:
       alternates.length > 0
         ? `Draft all ${alternates.length} in Launchpad`
         : "Draft all in Launchpad",
-    draftAllHref: alternates.length > 0 ? (input.draftHref ?? null) : null,
+    /**
+     * Still null, and still disabled — including when single drafting works.
+     *
+     * A handoff carries ONE alternate by construction: the record names one
+     * line, one source line and one asset type. "Draft all" would therefore
+     * have to mint N single-use records and could open only the last one, so
+     * there is no honest implementation of this control to enable. A link here
+     * would be the generic Launchpad URL this drawer already removed once.
+     */
+    draftAllHref: null,
   };
 }

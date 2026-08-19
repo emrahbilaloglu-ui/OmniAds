@@ -29,7 +29,10 @@ const SURFACES: Array<{ label: string; file: string }> = [
     label: "Google Ads",
     file: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   },
-  { label: "Decisions", file: "components/meta/os/DecisionsOsView.tsx" },
+  {
+    label: "Decisions",
+    file: "components/meta/redesign/MetaPlatformPage.tsx",
+  },
   {
     label: "History",
     file: "app/(dashboard)/platforms/meta/history/history-view.tsx",

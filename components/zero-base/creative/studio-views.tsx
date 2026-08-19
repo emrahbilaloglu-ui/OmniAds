@@ -324,7 +324,11 @@ export function SharesView({
   initialOpen?: boolean;
   /** Reference artboard only: shows the alternate unacknowledged gate beside the live state. */
   showAlternateGateProof?: boolean;
-  /** Discards the draft. A form with no way out is a trap. */
+  /**
+   * Optional notification that the draft was discarded. The Cancel control
+   * itself is always rendered — a form with no way out is a trap, and that is
+   * not something a caller may opt out of.
+   */
   onCancel?: () => void;
 }) {
   const t = useCopy();
@@ -473,23 +477,29 @@ export function SharesView({
               {copy.acknowledgementRequired}
             </Button>
           ) : null}
-          {onCancel ? (
-            <Button
-              variant="quiet"
-              data-share-cancel=""
-              data-ctl="live:cancel"
-              onClick={() => {
-                setTitle("");
-                setExpiresAt("");
-                setAcknowledged(false);
-                setCreateOpen(false);
-                onCancel();
-              }}
-              style={{ marginLeft: 6 }}
-            >
-              {copy.cancel}
-            </Button>
-          ) : null}
+          {/*
+            Unconditional, not gated on `onCancel`. This dialog opens with the
+            surface (H27 draws the form open), so a cancel that only exists when
+            a caller happens to pass a handler leaves the operator inside a modal
+            with no way out — which is what the production share client did.
+            Closing is the view's own business; `onCancel` is only the optional
+            notification that the draft was discarded.
+          */}
+          <Button
+            variant="quiet"
+            data-share-cancel=""
+            data-ctl="live:cancel"
+            onClick={() => {
+              setTitle("");
+              setExpiresAt("");
+              setAcknowledged(false);
+              setCreateOpen(false);
+              onCancel?.();
+            }}
+            style={{ marginLeft: 6 }}
+          >
+            {copy.cancel}
+          </Button>
         </div>
       </section>
       </div>

@@ -69,7 +69,21 @@ export interface AutomationProposalDraft {
 
 export interface AutomationProposalReceipt {
   proposalId: string | null;
-  status: "inserted" | "already_present" | "sink_unavailable";
+  /**
+   * `held_for_reconciliation` is deliberately NOT folded into
+   * `already_present`. They are different facts: `already_present` means an
+   * approvable queue row exists for this entity and action, and
+   * `held_for_reconciliation` means the entity's slot is held by an attempt
+   * whose provider outcome is UNKNOWN — there is nothing to approve, and there
+   * will not be until a human reconciles it against a fresh provider read.
+   * Reporting the second as the first tells an operator a confirmation is
+   * waiting for them when what is waiting is a reconciliation.
+   */
+  status:
+    | "inserted"
+    | "already_present"
+    | "held_for_reconciliation"
+    | "sink_unavailable";
 }
 
 export type AutomationProposalSink = (
@@ -156,6 +170,15 @@ export const persistAutomationRuleProposal: AutomationProposalSink = async (
 
   if (result.status === "unavailable") {
     return { proposalId: null, status: "sink_unavailable" };
+  }
+  if (result.status === "held_for_reconciliation") {
+    // The firing still happened and is still counted, and it still points at
+    // the row that represents the entity's slot. What it must not claim is that
+    // a confirmation is queued.
+    return {
+      proposalId: result.proposalId,
+      status: "held_for_reconciliation",
+    };
   }
   return {
     proposalId: result.proposalId,

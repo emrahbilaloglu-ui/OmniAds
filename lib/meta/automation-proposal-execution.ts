@@ -91,9 +91,19 @@ export async function executeMetaAutomationProposal(input: {
   proposal: MetaAutomationProposal;
   /** The persisted `dryRunOnly` guardrail shown above the queue. */
   dryRunOnly: boolean;
+  /**
+   * The attempt's claim token, stamped into every receipt this call produces.
+   *
+   * It is what makes the ledger row, the queue row and the response envelope
+   * joinable to ONE attempt. Optional only so a caller that has not migrated
+   * to the claim path still type-checks; the queue's own boundary always
+   * supplies it.
+   */
+  receiptKey?: string | null;
   now?: Date;
 }): Promise<ExecuteProposalResult> {
   const dispatchedAt = (input.now ?? new Date()).toISOString();
+  const receiptKey = input.receiptKey ?? null;
   const { proposal } = input;
 
   if (!isExecutable(proposal.proposedAction)) {
@@ -106,6 +116,7 @@ export async function executeMetaAutomationProposal(input: {
         dispatchedAt,
         endpoint: null,
         withheld: "unsupported_action",
+        receiptKey,
       },
     };
   }
@@ -133,6 +144,7 @@ export async function executeMetaAutomationProposal(input: {
         dispatchedAt,
         endpoint: null,
         withheld: built.reason,
+        receiptKey,
       },
     };
   }
@@ -178,6 +190,7 @@ export async function executeMetaAutomationProposal(input: {
       dispatchedAt,
       endpoint: built.descriptor.path,
       withheld: null,
+      receiptKey,
     },
   };
 }

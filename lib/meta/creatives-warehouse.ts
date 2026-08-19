@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
 import {
   coerceCreativeTaxonomyFromLegacy,
@@ -8,12 +9,18 @@ import {
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { buildCreativesResponse } from "@/lib/meta/creatives-service";
 import type {
+  CreativeMetricPresence,
+  CreativeMetricPresenceKey,
   FormatFilter,
   GroupBy,
   MetaCreativeApiRow,
   NormalizedRenderPreviewPayload,
   RawCreativeRow,
   SortKey,
+} from "@/lib/meta/creatives-types";
+import {
+  CREATIVE_METRIC_PRESENCE_KEYS,
+  isCreativeMetricDeclaredAvailable,
 } from "@/lib/meta/creatives-types";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
 import { buildMetaCreativeApiRowLightweight } from "@/lib/meta/creatives-service-support";
@@ -158,7 +165,7 @@ function normalizeCreativeRows(rows: RawCreativeRow[], format: FormatFilter) {
   return rows.filter((row) => row.format === format);
 }
 
-function buildCreativeUsageMap(rows: RawCreativeRow[]) {
+export function buildCreativeUsageMap(rows: RawCreativeRow[]) {
   const map = new Map<string, Set<string>>();
   for (const row of rows) {
     const bucket = map.get(row.creative_id) ?? new Set<string>();
@@ -227,13 +234,129 @@ function readProjectionString(value: unknown, key: string) {
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
 }
 
-function buildFallbackAdRawRow(input: {
+/**
+ * Per-field availability of a STORED projection payload.
+ *
+ * ABSENCE IS EVIDENCE. PRESENCE IS NOT. That asymmetry is the correction, and
+ * it is what makes this reader usable on the DEFAULT production grain.
+ *
+ * `meta_creative_dimensions.projection_json` is not raw provider data: it is the
+ * output of `buildMetaCreativeApiRow`, which ends every economic field with
+ * `?? 0` / `: 0`. So the projection carries EVERY metric key as a finite number
+ * whether or not anything was ever measured. Reading "the key is a finite
+ * number" as availability therefore certifies the coalescing instead of
+ * detecting it: on production, all 5,678 rows of `meta_creative_dimensions`
+ * carry `add_to_cart` and `thumbstop`, and 0 of them carry `metric_presence` —
+ * so the old rule returned `true` for every field of every row, and the sidecar
+ * could not fire on the one grain the Assets table actually reads
+ * (`groupBy: "creative"`).
+ *
+ * The three answers this function can honestly give:
+ *
+ *   - the payload DECLARES `metric_presence` for the key -> that boolean. A
+ *     projection written after this contract landed says what it knows, and
+ *     re-deriving over the top would upgrade a declared `false` back to `true`.
+ *   - the key is ABSENT from the payload -> `false`. Absence is provable: the
+ *     payload never carried the field, and `coerceRawCreativeRow` spreads that
+ *     absence into a row where `buildMetaCreativeApiRow` publishes it as `0`.
+ *   - the key is present as a number, undeclared -> NO OPINION (key omitted).
+ *     The number proves nothing about its own provenance. Callers that need a
+ *     positive statement use `isCreativeMetricDeclaredAvailable`; callers that
+ *     only ask "may this be shown" keep getting the permissive default from
+ *     `isCreativeMetricAvailable`, so nothing is withheld by silence alone.
+ */
+export function readProjectionMetricPresence(value: unknown): CreativeMetricPresence {
+  const payload =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const declared = payload.metric_presence;
+  const declaredMap =
+    declared && typeof declared === "object" && !Array.isArray(declared)
+      ? (declared as Record<string, unknown>)
+      : null;
+  const presence: CreativeMetricPresence = {};
+  for (const key of CREATIVE_METRIC_PRESENCE_KEYS) {
+    if (declaredMap && typeof declaredMap[key] === "boolean") {
+      presence[key] = declaredMap[key] as boolean;
+      continue;
+    }
+    if (!(key in payload)) {
+      presence[key] = false;
+      continue;
+    }
+    const raw = payload[key];
+    // Present but not a number is still an absence of a usable figure. Present
+    // AND numeric is the coalesced case: state nothing.
+    if (typeof raw !== "number" || !Number.isFinite(raw)) presence[key] = false;
+  }
+  return presence;
+}
+
+/**
+ * Per-field availability of a warehouse FACT row.
+ *
+ * `spend`, `revenue`, `roas`, `conversions`, `impressions` and `clicks` are NOT
+ * NULL columns on `meta_ad_daily` / `meta_creative_daily`: a row that exists
+ * carries them, so a zero there is a measured zero and stays 0. Everything else
+ * in this map is genuinely nullable at the source — `link_clicks` as a nullable
+ * column, and the funnel counters as `payload_json` keys that
+ * `payloadMetricNumber` resolves to `null` when the sync never wrote them — and
+ * a null there is an absence that the readers below would otherwise turn into
+ * a zero the account never measured.
+ *
+ * `link_clicks` only started TELLING THE TRUTH here on 2026-08-19. The line
+ * below has read `factRow.linkClicks != null` since the sidecar was written,
+ * but `meta_ad_daily.link_clicks` was `BIGINT NOT NULL DEFAULT 0` and
+ * `upsertMetaAdDailyRows` bound `row.linkClicks ?? 0`, so the column could not
+ * hold an absence and this line could only ever evaluate to `true` — an
+ * availability claim with nothing behind it. The widening in `lib/migrations.ts`
+ * and the `?? null` bind in `lib/meta/warehouse.ts` are what make it a real
+ * question. Nothing here back-infers from the NUMBER: a link-click count of 0
+ * is still `true`, because a measured zero is a measurement.
+ */
+function readWarehouseFactMetricPresence(
+  factRow: MetaAdDailyRow | MetaCreativeDailyRow,
+): CreativeMetricPresence {
+  return {
+    spend: true,
+    purchase_value: true,
+    roas: true,
+    purchases: true,
+    impressions: true,
+    clicks: true,
+    link_clicks: factRow.linkClicks != null,
+    landing_page_views: factRow.landingPageViews != null,
+    add_to_cart: factRow.addToCart != null,
+    initiate_checkout: factRow.initiateCheckout != null,
+    frequency: factRow.frequency != null,
+  };
+}
+
+function overlayMetricPresence(
+  base: CreativeMetricPresence | undefined,
+  overrides: CreativeMetricPresence,
+): CreativeMetricPresence {
+  const merged: CreativeMetricPresence = { ...(base ?? {}) };
+  for (const key of Object.keys(overrides) as CreativeMetricPresenceKey[]) {
+    const value = overrides[key];
+    if (typeof value === "boolean") merged[key] = value;
+  }
+  return merged;
+}
+
+export function buildFallbackAdRawRow(input: {
   factRow: MetaAdDailyRow;
   projectionJson: unknown;
   creativeId: string | null | undefined;
 }): RawCreativeRow {
   const { factRow, projectionJson } = input;
   const preview = buildUnavailablePreview(false);
+  // `?? factRow.clicks` substitutes ALL clicks for LINK clicks. It is a
+  // presentation fallback that predates the sidecar and it is deliberately left
+  // in place: the numeric fields on this row keep their existing values so
+  // nothing downstream changes shape. What stops it being read as a
+  // measurement is `readWarehouseFactMetricPresence` below, which reports
+  // `link_clicks: false` for exactly this case — so the substituted number, and
+  // every ratio derived from it, is withheld at the cell rather than printed.
   const linkClicks = factRow.linkClicks ?? factRow.clicks;
   const purchaseValue = factRow.revenue;
   const spend = factRow.spend;
@@ -324,6 +447,25 @@ function buildFallbackAdRawRow(input: {
     video50: 0,
     video75: 0,
     video100: 0,
+    // This row exists because no stored projection was found for the ad, so
+    // there is no source at all behind the six zeros above: `leads`,
+    // `messages`, `thumbstop` and the video quartiles are literals typed into
+    // this function, not measurements. `link_clicks`/`landing_page_views`/
+    // `add_to_cart`/`initiate_checkout` are only as real as the fact row's
+    // nullable columns. The numbers stay (nothing downstream changes shape);
+    // the map is what stops the surface printing them as facts.
+    metric_presence: overlayMetricPresence(readWarehouseFactMetricPresence(factRow), {
+      leads: false,
+      messages: false,
+      thumbstop: false,
+      view_content: false,
+      post_engagement: false,
+      thruplay_actions: false,
+      video25: false,
+      video50: false,
+      video75: false,
+      video100: false,
+    }),
   };
 }
 
@@ -422,6 +564,11 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
 
     return {
       ...(row as RawCreativeRow),
+      // The spread above copies whatever metric keys the stored payload had —
+      // and copies the ABSENCE of the ones it did not, which downstream becomes
+      // `Number(undefined ?? 0)`. Read the availability off the payload here,
+      // while the missing keys are still missing.
+      metric_presence: readProjectionMetricPresence(value),
       preview,
       format: legacyCreativeClassification.format,
       creative_type: legacyCreativeClassification.creative_type,
@@ -512,6 +659,10 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
     creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
     classification_signals: reconciledCreativeTaxonomy.classification_signals,
+    // Same reason as the raw-row branch: every `Number(x ?? 0)` below erases
+    // whether `x` was ever there. Taken from the payload before the coalescing
+    // starts.
+    metric_presence: readProjectionMetricPresence(value),
     spend: Number(apiRow.spend ?? 0),
     purchase_value: Number(apiRow.purchase_value ?? 0),
     roas: Number(apiRow.roas ?? 0),
@@ -548,6 +699,23 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
 }) {
+  // THE PRE-COALESCE, and why the absence still survives it.
+  //
+  // `??` (not `||`) is load-bearing on the left: a MEASURED zero is a value and
+  // must win, and `0 ?? x` is 0. Only a genuine null falls through to the
+  // projection's number.
+  //
+  // When it does fall through, the absence is NOT lost — it is carried by the
+  // presence sidecar below rather than by this number, because
+  // `RawCreativeRow.link_clicks` is typed `number` and dozens of consumers do
+  // arithmetic on it. That is the additive contract this whole sidecar exists
+  // to honour: the numbers are left exactly as they were, and availability
+  // travels beside them. The presence entry for `link_clicks` is
+  // `factRow.linkClicks != null || isCreativeMetricDeclaredAvailable(...)`, so
+  // the substituted projection number is published as available ONLY when the
+  // projection positively declared it. A projection that merely stayed silent
+  // cannot vouch for it, and the cell renders an em dash instead of the
+  // fabricated zero sitting in this variable.
   const resolvedLinkClicks = input.factRow.linkClicks ?? input.row.link_clicks;
   const resolvedAddToCart = input.factRow.addToCart ?? input.row.add_to_cart;
 
@@ -601,6 +769,77 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
       resolvedAddToCart > 0
         ? round2((input.factRow.conversions / resolvedAddToCart) * 100)
         : input.row.atc_to_purchase,
+    // Field-by-field, matching the merge above, and derived from the FACT ROW —
+    // the only source in this function that describes the window being read.
+    //
+    // THE RULE. `meta_creative_daily` / `meta_ad_daily` hold one row per entity
+    // per DAY; `meta_creative_dimensions` / `meta_ad_dimensions` hold ONE row
+    // per entity, keyed `(business_id, provider_account_id, creative_id)` with
+    // `projection_json = EXCLUDED.projection_json`, so the projection is
+    // whichever single day synced last. A field is available on this row only
+    // if the day's fact row supplied it, or the projection explicitly DECLARED
+    // it. A projection's silence is not a second opinion.
+    //
+    // Two failures this closes, both on `groupBy: "creative"` — the grain the
+    // Assets table reads:
+    //
+    //   1. `|| isCreativeMetricAvailable(projection, key)` read the permissive
+    //      default, and the old `readProjectionMetricPresence` back-inferred
+    //      `true` from the projection's already-coalesced numbers. Together
+    //      they made every fact-row null read as available, so a funnel counter
+    //      the sync never captured printed as a measured 0.
+    //   2. The block below stamps `false` on the ten fields NEITHER fact table
+    //      carries a column or payload key for. Their numbers ride in from the
+    //      per-creative projection unchanged, and `groupRows` then SUMS them
+    //      across the window's day-rows — every day contributing the same
+    //      single projection value, so a 28-day window multiplies one day's
+    //      `leads` / `messages` / `view_content` / `post_engagement` /
+    //      `thruplay_actions` by 28, and reports one day's `thumbstop` and
+    //      video quartiles as the window's. On production, 1,998 of 5,678
+    //      projections carry a positive `post_engagement` and 3,706 a positive
+    //      `thumbstop`, so this is not a theoretical shape. The numbers are
+    //      left exactly as they are — this is an additive sidecar — and the map
+    //      is what stops the surface presenting them as this window's
+    //      measurements. `buildFallbackAdRawRow` has always stamped these same
+    //      ten `false` for the same reason; the only change is that a stored
+    //      projection no longer exempts them.
+    metric_presence: overlayMetricPresence(
+      input.row.metric_presence,
+      {
+        spend: true,
+        purchase_value: true,
+        roas: true,
+        purchases: true,
+        impressions: true,
+        clicks: true,
+        link_clicks:
+          input.factRow.linkClicks != null ||
+          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "link_clicks"),
+        landing_page_views:
+          input.factRow.landingPageViews != null ||
+          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "landing_page_views"),
+        add_to_cart:
+          input.factRow.addToCart != null ||
+          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "add_to_cart"),
+        initiate_checkout:
+          input.factRow.initiateCheckout != null ||
+          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "initiate_checkout"),
+        frequency:
+          input.factRow.frequency != null ||
+          (input.row.frequency != null &&
+            isCreativeMetricDeclaredAvailable(input.row.metric_presence, "frequency")),
+        leads: false,
+        messages: false,
+        thumbstop: false,
+        view_content: false,
+        post_engagement: false,
+        thruplay_actions: false,
+        video25: false,
+        video50: false,
+        video75: false,
+        video100: false,
+      },
+    ),
   } satisfies RawCreativeRow;
 }
 
@@ -1101,6 +1340,58 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
   return { status: "ok" as const };
 }
 
+/**
+ * When the warehouse rows behind a creatives response were last written.
+ *
+ * This is the *metric observation* instant: the moment a sync last wrote the
+ * daily facts this payload is built from. It is deliberately not the moment the
+ * route ran, not the moment a decision snapshot was computed, and not the
+ * `end` date of the requested window — a date is not an instant, and a request
+ * time is fresh by construction, which is exactly what `lib/tier-zero-as-of.ts`
+ * exists to keep off a freshness bar.
+ *
+ * The table follows the same split the payload itself uses: creative/adSet
+ * groupings are built from `meta_creative_daily`, ad/adName groupings from
+ * `meta_ad_daily`. Reading the other table would date the rows from a sync that
+ * did not produce them.
+ *
+ * Returns null rather than a guess when nothing matched or the read failed, so
+ * the surface says the age is unknown instead of implying a currency it cannot
+ * support. Mirrors `readCopiesWarehouseObservedAt` in
+ * `app/api/meta/copies/route.ts`, which is the tested precedent for this shape.
+ */
+export async function readMetaCreativesWarehouseObservedAt(input: {
+  businessId: string;
+  providerAccountId: string;
+  start: string;
+  end: string;
+  groupBy: GroupBy;
+}): Promise<string | null> {
+  const table =
+    input.groupBy === "creative" || input.groupBy === "adSet"
+      ? "meta_creative_daily"
+      : "meta_ad_daily";
+  try {
+    const sql = getDb();
+    const rows = await sql.query<{ observed_at: Date | string | null }>(
+      `SELECT MAX(updated_at) AS observed_at
+         FROM ${table}
+        WHERE business_id = $1
+          AND provider_account_id = $2
+          AND date BETWEEN $3::date AND $4::date`,
+      [input.businessId, input.providerAccountId, input.start, input.end],
+    );
+    const observedAt = rows[0]?.observed_at ?? null;
+    if (!observedAt) return null;
+    const parsed =
+      observedAt instanceof Date ? observedAt : new Date(observedAt);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  } catch {
+    // An unreadable timestamp is an unknown age, never a fresh one.
+    return null;
+  }
+}
+
 export async function getMetaCreativesWarehousePayload(input: {
   businessId: string;
   providerAccountId?: string | null;
@@ -1309,6 +1600,17 @@ export async function getMetaCreativesWarehousePayload(input: {
     freshness_state: previewHydrating ? ("stale" as const) : ("fresh" as const),
     is_refreshing: previewHydrating,
     preview_coverage: previewCoverage,
+    // The age of these rows, taken from the table that produced them. Surfaces
+    // read this and nothing else as their as-of; see
+    // `readMetaCreativesWarehouseObservedAt` for why the alternatives are not
+    // observation instants.
+    warehouse_observed_at: await readMetaCreativesWarehouseObservedAt({
+      businessId: input.businessId,
+      providerAccountId: accountScope.providerAccountId,
+      start: input.start,
+      end: input.end,
+      groupBy: input.groupBy,
+    }),
   };
 }
 

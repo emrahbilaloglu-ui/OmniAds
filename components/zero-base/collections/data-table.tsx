@@ -194,13 +194,26 @@ export function MetricCell({ metric }: { metric: MetricValue }) {
     );
   }
 
+  // `currency: null` is a declared state of MetricValue, not an accident, and
+  // INVARIANTS.md is explicit: "Missing currency must not silently become USD,
+  // $, TRY, or EUR; presentation may say account currency without changing the
+  // underlying numeric decision." Formatting a null currency as USD did exactly
+  // that - it printed an unknown unit as dollars on every zero-base surface
+  // this table feeds. The number is still true, so it is still shown; only the
+  // invented unit is withheld.
+  const currencyUnknown = metric.unit === "currency" && !metric.currency;
   const formatted =
     metric.unit === "currency"
-      ? new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: metric.currency ?? "USD",
-          currencyDisplay: "narrowSymbol",
-        }).format(metric.value)
+      ? metric.currency
+        ? new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: metric.currency,
+            currencyDisplay: "narrowSymbol",
+          }).format(metric.value)
+        : new Intl.NumberFormat("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }).format(metric.value)
       : metric.unit === "percent"
         ? `${metric.value.toFixed(1)}%`
         : metric.unit === "ratio"
@@ -212,7 +225,12 @@ export function MetricCell({ metric }: { metric: MetricValue }) {
       {formatted}
       {/* An unproven currency is labelled, so a configured guess is never
           presented as an observed fact. */}
-      {metric.unit === "currency" && !metric.currencyProven ? (
+      {currencyUnknown ? (
+        <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {" "}
+          (account currency)
+        </span>
+      ) : metric.unit === "currency" && !metric.currencyProven ? (
         <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}> (configured)</span>
       ) : null}
     </span>

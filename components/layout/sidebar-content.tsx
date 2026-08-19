@@ -14,6 +14,7 @@ import { usePreferencesStore } from "@/store/preferences-store";
 import { cn } from "@/lib/utils";
 import { usePlatformContext } from "@/lib/navigation/platform-context";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { carryDateWindowParams } from "@/lib/dashboard/date-window-url";
 import { PlatformLogo } from "./PlatformSwitcher";
 import {
   getLayer1Items,
@@ -304,13 +305,19 @@ export function SidebarContent({
   const isConsole = variant === "console";
   const currentProviderAccountId =
     searchParams.get("providerAccountId")?.trim() || null;
+  // The window the operator is looking at travels with the link, for the same
+  // reason it does in the rail: a stored range never reaches a server-rendered
+  // surface, so a navigation that drops it silently changes the question.
   const scopedLayer2Href = (item: ShellNavItem) =>
-    activePlatformId === "meta" && item.href.startsWith("/platforms/meta")
-      ? buildMetaScopedHref(item.href, {
-          businessId: selectedBusinessId,
-          providerAccountId: currentProviderAccountId,
-        })
-      : item.href;
+    carryDateWindowParams(
+      activePlatformId === "meta" && item.href.startsWith("/platforms/meta")
+        ? buildMetaScopedHref(item.href, {
+            businessId: selectedBusinessId,
+            providerAccountId: currentProviderAccountId,
+          })
+        : item.href,
+      searchParams,
+    );
 
   return (
     <div

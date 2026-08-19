@@ -11,6 +11,14 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
   resolveAssignedMetaLaunchAccount: vi.fn(),
 }));
 
+// The demo refusal is a SERVER rule (rejectIfLaunchpadDemoWrite reads
+// businesses.is_demo_business). Mocked here so these cases exercise the rest
+// of the route; the refusal itself is asserted in demo-write-authority.test.ts
+// and in the per-route demo case below.
+vi.mock("../demo-write-authority", () => ({
+  rejectIfLaunchpadDemoWrite: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/launchpad/meta-launch-intent-store", () => ({
   createMetaLaunchIntent: vi.fn(),
   listMetaLaunchIntents: vi.fn(),

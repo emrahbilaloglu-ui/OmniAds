@@ -43,9 +43,12 @@ describe("zero call sites to launch execution", () => {
   ];
 
   it("scans a non-empty set of shipped files", () => {
-    // A test that scanned nothing would pass forever.
+    // A test that scanned nothing would pass forever. This used to pin
+    // launchpad-client.tsx, which no route ever mounted; the law now names
+    // files that actually ship.
     expect(files.length).toBeGreaterThanOrEqual(3);
-    expect(files.some((f) => f.endsWith("launchpad-client.tsx"))).toBe(true);
+    expect(files.some((f) => f.endsWith("launchpad-view.tsx"))).toBe(true);
+    expect(files.some((f) => f.endsWith("launchpad-contract.ts"))).toBe(true);
     expect(files.some((f) => f.endsWith("page.tsx"))).toBe(true);
   });
 
@@ -71,9 +74,12 @@ describe("zero call sites to launch execution", () => {
   }
 
   it("strips comments without stripping the code", () => {
-    const source = code(path.join(ROOT, "components", "zero-base", "launchpad", "launchpad-client.tsx"));
-    expect(source).toContain("/api/launchpad/meta/templates");
-    expect(source).not.toContain("not a guarded one");
+    const source = code(path.join(ROOT, "components", "zero-base", "launchpad", "launchpad-view.tsx"));
+    // Code survives.
+    expect(source).toContain("disabledLaunchActions");
+    // A block comment and a line comment do not.
+    expect(source).not.toContain("teaches an operator that the product is broken");
+    expect(source).not.toContain("Duplicate and delete only");
   });
 
   it("references neither launch endpoint anywhere in the canonical bundle", () => {

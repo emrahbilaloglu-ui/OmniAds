@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { normalizeAttributionSpecItems, summarizeAttributionSpec } from "@/lib/launchpad/attribution-presets";
+import { jsonError, requireLaunchpadAssignedAccountScope } from "../route-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +55,7 @@ function readTargetingSummary(value: unknown) {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
+  const providerAccountId = searchParams.get("providerAccountId")?.trim() ?? "";
   const campaignId = searchParams.get("campaignId")?.trim() ?? "";
   if (!campaignId) {
     return NextResponse.json(
@@ -62,13 +63,28 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+  // Same law as the campaign list: a business-wide answer would offer ad sets
+  // from an account the launch cannot write to, and `meta-validation` only
+  // discovers that at Create time. Refuse rather than widen.
+  if (!providerAccountId) {
+    return jsonError(
+      400,
+      "missing_provider_account_id",
+      "providerAccountId is required.",
+    );
+  }
 
-  const access = await requireBusinessAccess({
+  // Same law as the campaign list, one level down. `adset.provider_account_id`
+  // filters; it does not authorize. An id the workspace no longer holds still
+  // has ad-set rows under this business, and those rows would become selectable
+  // launch targets. Prove the current assignment before issuing anything.
+  const scope = await requireLaunchpadAssignedAccountScope({
     request,
     businessId,
+    providerAccountId,
     minRole: "collaborator",
   });
-  if ("error" in access) return access.error;
+  if (!scope.ok) return scope.response;
 
   const sql = getDb();
   const rows = (await sql`
@@ -79,7 +95,8 @@ export async function GET(request: NextRequest) {
         adset_id,
         projection_json
       FROM meta_ad_dimensions
-      WHERE business_id = ${access.membership.businessId}
+      WHERE business_id = ${scope.businessId}
+        AND provider_account_id = ${scope.providerAccountId}
         AND adset_id IS NOT NULL
       ORDER BY business_id, provider_account_id, adset_id, updated_at DESC
     ),
@@ -90,7 +107,8 @@ export async function GET(request: NextRequest) {
         adset_id,
         COUNT(DISTINCT ad_id)::int AS current_ad_count
       FROM meta_ad_dimensions
-      WHERE business_id = ${access.membership.businessId}
+      WHERE business_id = ${scope.businessId}
+        AND provider_account_id = ${scope.providerAccountId}
         AND UPPER(COALESCE(ad_status, '')) = 'ACTIVE'
       GROUP BY business_id, provider_account_id, adset_id
     ),
@@ -102,7 +120,8 @@ export async function GET(request: NextRequest) {
         SUM(spend)::double precision AS last_7d_spend,
         SUM(revenue)::double precision AS last_7d_revenue
       FROM meta_creative_daily
-      WHERE business_id = ${access.membership.businessId}
+      WHERE business_id = ${scope.businessId}
+        AND provider_account_id = ${scope.providerAccountId}
         AND date >= CURRENT_DATE - INTERVAL '6 days'
       GROUP BY business_id, provider_account_id, adset_id
     )
@@ -166,7 +185,8 @@ export async function GET(request: NextRequest) {
       ON spend_7d.business_id = adset.business_id
       AND spend_7d.provider_account_id = adset.provider_account_id
       AND spend_7d.adset_id = adset.adset_id
-    WHERE adset.business_id = ${access.membership.businessId}
+    WHERE adset.business_id = ${scope.businessId}
+      AND adset.provider_account_id = ${scope.providerAccountId}
       AND adset.campaign_id = ${campaignId}
       AND UPPER(COALESCE(adset.adset_status, '')) = 'ACTIVE'
     ORDER BY COALESCE(spend_7d.last_7d_spend, 0) DESC, adset.updated_at DESC

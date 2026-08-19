@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { carryDateWindowParams } from "@/lib/dashboard/date-window-url";
 import {
   dashboardHrefForRouteFamily,
   normalizeDashboardPath,
@@ -25,6 +26,7 @@ import {
   type RailPlatform,
 } from "./nav-model";
 import {
+  useConfirmedShellBusinessId,
   useGoogleAdvisorCount,
   useMetaActionNowCount,
 } from "./use-shell-signals";
@@ -61,9 +63,11 @@ const REFERENCE_RAIL_ICON_PATHS: Record<string, string> = {
 
 function useLocked() {
   const currentPlan = usePlan();
-  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  // Same business the rail's links and badges use, so entitlement cannot be
+  // decided for one workspace while the links point at another.
+  const confirmedBusinessId = useConfirmedShellBusinessId();
   const businesses = useAppStore((state) => state.businesses);
-  const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const isDemo = isDemoBusinessSelected(confirmedBusinessId, businesses);
   return (requiredPlan?: PlanId) =>
     !isDemo &&
     requiredPlan !== undefined &&
@@ -314,15 +318,27 @@ export function AppRail({
   const plan = usePlan();
   const actionNowCount = useMetaActionNowCount();
   const googleAdvisorCount = useGoogleAdvisorCount();
-  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  /**
+   * No rail link is minted from a business the shell has not confirmed.
+   *
+   * This read `selectedBusinessId` straight out of the persisted store. Between
+   * localStorage rehydration and AuthBootstrap that is the *previous* session's
+   * workspace, so every Meta link in the rail was stamped
+   * `?businessId=<previous workspace>` while the switcher above already named
+   * the current one — and following one of those links landed the operator on
+   * the "This link names a different workspace" refusal. `null` mints no
+   * parameter at all, which leaves the destination on the session's own
+   * business instead of asserting a stale one.
+   */
+  const confirmedBusinessId = useConfirmedShellBusinessId();
   const currentProviderAccountId =
     searchParams.get("providerAccountId")?.trim() || null;
-  useBusinessIntegrationsBootstrap(selectedBusinessId, {
+  useBusinessIntegrationsBootstrap(confirmedBusinessId, {
     providers: ["klaviyo"],
   });
   const klaviyoDomain = useIntegrationsStore((state) =>
-    selectedBusinessId
-      ? state.domainsByBusinessId[selectedBusinessId]?.klaviyo
+    confirmedBusinessId
+      ? state.domainsByBusinessId[confirmedBusinessId]?.klaviyo
       : undefined,
   );
   /**
@@ -337,13 +353,20 @@ export function AppRail({
   );
   const model = getRailModel(language, { showKlaviyo: klaviyoSnapshotReady });
 
+  // A window stated on this URL travels with the navigation. A server-rendered
+  // surface cannot read the shell's stored range, so without this the operator
+  // picks a window, follows a rail link, and the next screen answers for a
+  // different one while the control above it still names theirs.
   const scopedHref = (href: string) =>
-    buildRailScopedHref({
-      href,
-      pathname,
-      businessId: selectedBusinessId,
-      providerAccountId: currentProviderAccountId,
-    });
+    carryDateWindowParams(
+      buildRailScopedHref({
+        href,
+        pathname,
+        businessId: confirmedBusinessId,
+        providerAccountId: currentProviderAccountId,
+      }),
+      searchParams,
+    );
   const lockedDestination = scopedHref("/settings");
 
   return (

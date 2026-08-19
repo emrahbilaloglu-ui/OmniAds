@@ -106,6 +106,41 @@ function metaCampaignDailyRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function metaBreakdownDailyRow(overrides: Record<string, unknown> = {}) {
+  return {
+    businessId: "biz-1",
+    providerAccountId: "act_1",
+    date: "2026-04-01",
+    breakdownType: "age",
+    breakdownKey: "25-34",
+    breakdownLabel: "25-34",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    // Defaults to the honest "never measured", which is what every row written
+    // before the breakdown fetch asked Meta for reach actually holds.
+    reach: null,
+    frequency: null,
+    conversions: 0,
+    revenue: 0,
+    roas: 0,
+    cpa: null,
+    ctr: null,
+    cpc: null,
+    sourceSnapshotId: null,
+    truthState: "finalized",
+    truthVersion: 1,
+    finalizedAt: "2026-04-02T00:00:00Z",
+    validationStatus: "passed",
+    sourceRunId: "run-1",
+    createdAt: "2026-04-02T00:00:00Z",
+    updatedAt: "2026-04-02T00:00:00Z",
+    ...overrides,
+  };
+}
+
 describe("meta historical serving", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -1257,6 +1292,156 @@ describe("meta historical serving", () => {
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);
+  });
+
+  it("serves the gender dimension without requiring it for completeness", async () => {
+    // The regression this guards: `filterBreakdownRowsToPublishedKeys` drops a
+    // day's ENTIRE breakdown set unless every REQUIRED type is present. No day
+    // written before the write-path fix holds a gender row, so requiring gender
+    // would have emptied three working panels to serve a fourth. Gender is
+    // fetched and passed through; the required set stays age/country/placement.
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      metaBreakdownDailyRow({
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        breakdownLabel: "25-34",
+        spend: 4,
+        impressions: 160,
+        reach: 80,
+      }),
+      metaBreakdownDailyRow({
+        breakdownType: "gender",
+        breakdownKey: "female",
+        breakdownLabel: "female",
+        spend: 3,
+        impressions: 100,
+        reach: 50,
+      }),
+      metaBreakdownDailyRow({
+        breakdownType: "gender",
+        breakdownKey: "male",
+        breakdownLabel: "male",
+        spend: 1,
+        impressions: 60,
+        reach: 30,
+      }),
+      metaBreakdownDailyRow({
+        breakdownType: "country",
+        breakdownKey: "US",
+        breakdownLabel: "United States",
+        spend: 4,
+      }),
+      metaBreakdownDailyRow({
+        breakdownType: "placement",
+        breakdownKey: "facebook|feed|mobile",
+        breakdownLabel: "facebook • feed • mobile",
+        spend: 4,
+      }),
+    ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    // Gender is READ from the warehouse alongside the other three.
+    expect(vi.mocked(warehouse.getMetaBreakdownDailyRange)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        breakdownTypes: ["age", "gender", "country", "placement"],
+      }),
+    );
+    expect(payload.gender.map((row) => row.key)).toEqual(["female", "male"]);
+    expect(payload.gender[0]).toMatchObject({ key: "female", spend: 3, reach: 50 });
+    // 100 impressions over 50 measured people.
+    expect(payload.gender[0]!.frequency).toBe(2);
+    // The age dimension is untouched by the split.
+    expect(payload.age).toEqual([
+      expect.objectContaining({ key: "25-34", spend: 4, reach: 80, frequency: 2 }),
+    ]);
+  });
+
+  it("keeps the other panels when a day carries no gender rows at all", async () => {
+    // Exactly the historical shape: age, country and placement present, gender
+    // absent because it was never stored. Nothing may be withheld for it.
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      metaBreakdownDailyRow({ breakdownType: "age", breakdownKey: "25-34", spend: 4 }),
+      metaBreakdownDailyRow({ breakdownType: "country", breakdownKey: "US", spend: 4 }),
+      metaBreakdownDailyRow({
+        breakdownType: "placement",
+        breakdownKey: "facebook|feed|mobile",
+        spend: 4,
+      }),
+    ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.age).toHaveLength(1);
+    expect(payload.location).toHaveLength(1);
+    expect(payload.placement).toHaveLength(1);
+    // Empty, so the surface can say "not measured" — never a fabricated split.
+    expect(payload.gender).toEqual([]);
+  });
+
+  it("carries an unmeasured reach through as null instead of zero", async () => {
+    // A legacy row (reach never fetched) and a fresh row (reach measured) in the
+    // same bucket. The measured value must not be dragged to zero by the day
+    // that measured nothing, and a bucket with no measurement at all must stay
+    // null so the Frequency panel can say so.
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      metaBreakdownDailyRow({
+        date: "2026-04-01",
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        spend: 2,
+        impressions: 100,
+        reach: null,
+      }),
+      metaBreakdownDailyRow({
+        date: "2026-04-02",
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        spend: 2,
+        impressions: 100,
+        reach: 80,
+      }),
+      metaBreakdownDailyRow({
+        date: "2026-04-01",
+        breakdownType: "age",
+        breakdownKey: "45-54",
+        spend: 1,
+        impressions: 50,
+        reach: null,
+      }),
+    ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      providerAccountIds: ["act_1"],
+    });
+
+    const partiallyMeasured = payload.age.find((row) => row.key === "25-34")!;
+    expect(partiallyMeasured.reach).toBe(80);
+    expect(partiallyMeasured.frequency).toBe(2.5);
+
+    const neverMeasured = payload.age.find((row) => row.key === "45-54")!;
+    expect(neverMeasured.reach).toBeNull();
+    expect(neverMeasured.frequency).toBeNull();
+    expect(neverMeasured.frequency).not.toBe(0);
   });
 
   it("keeps breakdown rows available when optional budget reads fail", async () => {

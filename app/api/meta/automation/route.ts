@@ -29,6 +29,7 @@ import {
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
+import { rejectIfAutomationDemoWrite } from "./demo-write-authority";
 
 export const dynamic = "force-dynamic";
 
@@ -197,6 +198,25 @@ export async function POST(request: NextRequest) {
     REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
   );
   if (reviewerBlocked) return reviewerBlocked;
+
+  /**
+   * Zero write authority in a demo workspace, for EVERY action above — not
+   * only the ones that could reach Meta.
+   *
+   * None of these seven actions consults `getMetaWriteBlockState`, which is
+   * where the demo refusal already lived, so a demo session (an ADMIN under a
+   * non-reviewer email, minted by `/api/auth/demo-login`) cleared the role gate
+   * and the reviewer gate and then persisted real control, guardrail, rule and
+   * proposal rows. Placed after the role and reviewer gates so the operator is
+   * told the first refusal that applies, in the same precedence the surface
+   * restates, and before every validation branch so no write can be reached by
+   * a request the server was always going to refuse.
+   */
+  const demoBlocked = await rejectIfAutomationDemoWrite(
+    access.membership.businessId,
+    REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
+  );
+  if (demoBlocked) return demoBlocked;
 
   const VALID_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
   let cleanApprovalThreshold: number | null | undefined;

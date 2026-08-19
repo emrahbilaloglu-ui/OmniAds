@@ -97,7 +97,11 @@ export function buildEngineAggregate(input: {
   let weightedSpend = 0;
 
   input.selectedCreatives.forEach((creative) => {
-    const decision = input.decisionByCreativeId.get(creative.creativeId);
+    // A creative with no identity has no decision to count; skipping it keeps
+    // the tallies about creatives we can actually name.
+    const decision = creative.creativeId
+      ? input.decisionByCreativeId.get(creative.creativeId)
+      : undefined;
     if (decision?.label === "scale") scale += 1;
     if (decision?.label === "cut") cut += 1;
     if (decision?.label === "diagnose") diagnose += 1;
@@ -149,6 +153,7 @@ export function LaunchpadReview({
   onSaveDraft,
   onLaunch,
   executionBlockedReason = null,
+  viewerWriteRefusalReason = null,
 }: {
   mode?: "new_campaign" | "add_to_existing";
   businessId: string;
@@ -170,6 +175,15 @@ export function LaunchpadReview({
   onSaveDraft?: () => void;
   onLaunch: (authority: MetaLaunchpadManualAuthority) => void;
   executionBlockedReason?: string | null;
+  /**
+   * Why the *viewer* may not write, decided on the server (reviewer, demo
+   * workspace, sub-collaborator role). Distinct from a missing storage
+   * capability: when it is set, Save-as-template and Save-draft stay on screen
+   * and go disabled with the reason attached, instead of disappearing. A
+   * control that vanishes teaches nothing; one that is present and refuses
+   * says who may do this and why you may not.
+   */
+  viewerWriteRefusalReason?: string | null;
 }) {
   const [validation, setValidation] = useState<LaunchpadValidationState | null>(
     null,
@@ -589,14 +603,26 @@ export function LaunchpadReview({
         <span className="mr-auto text-[11.5px] text-[var(--muted)]">
           No undo, rollback, or retry control is available.
         </span>
-        {mode === "new_campaign" && onSaveTemplate ? (
-          <button type="button" className="btn" onClick={onSaveTemplate}>
+        {mode === "new_campaign" && (onSaveTemplate || viewerWriteRefusalReason) ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={Boolean(viewerWriteRefusalReason) || !onSaveTemplate}
+            title={viewerWriteRefusalReason ?? undefined}
+            onClick={onSaveTemplate}
+          >
             <Save className="h-4 w-4" />
             Save as template
           </button>
         ) : null}
-        {onSaveDraft ? (
-          <button type="button" className="btn" onClick={onSaveDraft}>
+        {onSaveDraft || viewerWriteRefusalReason ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={Boolean(viewerWriteRefusalReason) || !onSaveDraft}
+            title={viewerWriteRefusalReason ?? undefined}
+            onClick={onSaveDraft}
+          >
             <Save className="h-4 w-4" />
             Save draft
           </button>

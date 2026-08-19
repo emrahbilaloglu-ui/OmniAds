@@ -25,7 +25,12 @@ import {
 } from "@/lib/navigation/platform-context";
 import { getPlatformFirstHref } from "@/components/layout/nav-items";
 
-function getInitials(name: string) {
+/**
+ * A workspace whose name could not be read has no initials to draw. It renders
+ * the unavailable mark rather than initials invented from an id.
+ */
+function getInitials(name: string | null) {
+  if (!name) return "—";
   return name
     .split(" ")
     .filter(Boolean)
@@ -130,7 +135,7 @@ export function BusinessSelector() {
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[12px] font-bold text-primary">
           {getInitials(selectedBusiness.name)}
         </div>
-        <span className="truncate hidden sm:block">{selectedBusiness.name}</span>
+        <span className="truncate hidden sm:block">{selectedBusiness.name ?? "—"}</span>
         {selectedIsDemo ? (
           <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[12px] font-semibold uppercase tracking-wider">
             Demo
@@ -178,7 +183,7 @@ export function BusinessSelector() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
-                {business.name}
+                {business.name ?? "—"}
                 {business.isDemoBusiness ? (
                   <span className="ml-2 inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[12px] font-semibold uppercase tracking-wider">
                     Demo

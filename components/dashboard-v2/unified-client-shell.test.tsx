@@ -181,7 +181,15 @@ describe("Dashboard v2 unified client shell scope", () => {
     expect(effective.evidence.windowLabel).toBe("Server evidence window");
   });
 
-  it("uses the same default creative evidence label on scoped routes", () => {
+  /**
+   * Rewritten: this pinned the shell asserting "Last 28 days" as a constant on
+   * any creative path with no window in the URL. The shell measures nothing —
+   * it printed a caption for a window the body may never have read, which is a
+   * confident claim in place of an unknown. The law is that an unstated window
+   * is not captioned at all; the server's own label answers, and when it has
+   * none the label stays null so the surface can render it as unavailable.
+   */
+  it("never captions a creative window the URL did not state", () => {
     const effective = buildEffectiveDashboardEnvelope({
       envelope,
       pathname: "/c/business_1/creative/copies",
@@ -190,7 +198,35 @@ describe("Dashboard v2 unified client shell scope", () => {
     });
 
     expect(effective.provider?.id).toBe("meta");
-    expect(effective.evidence.windowLabel).toBe("Last 28 days");
+    expect(effective.evidence.windowLabel).toBe("Server evidence window");
+    expect(effective.evidence.windowLabel).not.toBe("Last 28 days");
+  });
+
+  it("captions the window the shell control stated, in either spelling", () => {
+    const canonical = buildEffectiveDashboardEnvelope({
+      envelope,
+      pathname: "/c/business_1/creative/copies",
+      searchParams: new URLSearchParams({
+        window: "custom",
+        startDate: "2026-07-01",
+        endDate: "2026-07-14",
+      }),
+      providerCatalogs: catalogs,
+    });
+    expect(canonical.evidence.windowLabel).toBe("2026-07-01 → 2026-07-14");
+
+    const creativeSpelling = buildEffectiveDashboardEnvelope({
+      envelope,
+      pathname: "/c/business_1/creative/copies",
+      searchParams: new URLSearchParams({
+        start: "2026-07-01",
+        end: "2026-07-14",
+      }),
+      providerCatalogs: catalogs,
+    });
+    expect(creativeSpelling.evidence.windowLabel).toBe(
+      "2026-07-01 → 2026-07-14",
+    );
   });
 
   it("provides the effective envelope before the shared Dashboard v2 frame", () => {

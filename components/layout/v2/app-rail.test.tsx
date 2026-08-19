@@ -9,6 +9,13 @@ const state = vi.hoisted(() => ({
   search: "",
   plan: "scale",
   selectedBusinessId: "biz_1",
+  /**
+   * What the shell has actually confirmed, which is what the rail is allowed to
+   * mint links from. `null` models the window between localStorage rehydration
+   * and AuthBootstrap, when the persisted selection has not been confirmed by
+   * the server for this session.
+   */
+  confirmedBusinessId: "biz_1" as string | null,
   push: vi.fn(),
   domainsByBusinessId: {} as Record<
     string,
@@ -69,6 +76,7 @@ vi.mock("@/store/integrations-store", () => ({
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   useMetaActionNowCount: () => null,
   useGoogleAdvisorCount: () => null,
+  useConfirmedShellBusinessId: () => state.confirmedBusinessId,
 }));
 
 import {
@@ -82,6 +90,7 @@ describe("Dashboard v2 rail navigation", () => {
     state.search = "";
     state.plan = "scale";
     state.selectedBusinessId = "biz_1";
+    state.confirmedBusinessId = "biz_1";
     state.domainsByBusinessId = {};
     state.push.mockReset();
   });
@@ -197,6 +206,44 @@ describe("Dashboard v2 rail navigation", () => {
     expect(state.push.mock.calls).toEqual([
       ["/app/home"],
       ["/app/google/advisor?providerAccountId=google_99"],
+    ]);
+  });
+
+  /**
+   * A rail link is never minted from a business the shell has not confirmed.
+   *
+   * The rail used to stamp `?businessId=` from the persisted store, so for the
+   * whole window before AuthBootstrap converged, every Meta link named the
+   * previous session's workspace while the switcher above already named the
+   * current one. Following such a link lands on `/platforms/meta`'s scope
+   * refusal — "This link names a different workspace" — which is our own
+   * desynchronisation shown to the operator as their mistake. With nothing
+   * confirmed the parameter is simply absent, and the destination stays on the
+   * session's own business.
+   */
+  it("mints no businessId while the shell has not confirmed one", () => {
+    state.confirmedBusinessId = null;
+    state.pathname = "/overview";
+    const { container } = render(<AppRail userName="Emrah Bilaloglu" />);
+
+    fireEvent.click(container.querySelector('[data-platform="meta"]')!);
+
+    expect(state.push.mock.calls).toEqual([["/platforms/meta"]]);
+    expect(state.push.mock.calls[0]![0]).not.toContain("businessId");
+  });
+
+  it("mints the confirmed business, not the raw persisted selection", () => {
+    // The store still holds the previous workspace; the shell has confirmed the
+    // session's. Only the confirmed one may reach an href.
+    state.selectedBusinessId = "biz_persisted";
+    state.confirmedBusinessId = "biz_confirmed";
+    state.pathname = "/overview";
+    const { container } = render(<AppRail userName="Emrah Bilaloglu" />);
+
+    fireEvent.click(container.querySelector('[data-platform="meta"]')!);
+
+    expect(state.push.mock.calls).toEqual([
+      ["/platforms/meta?businessId=biz_confirmed"],
     ]);
   });
 });

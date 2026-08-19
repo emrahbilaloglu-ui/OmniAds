@@ -117,7 +117,16 @@ export type MetaHistoricalVerificationState =
   | "failed"
   | "repair_required";
 
-export type MetaBreakdownType = "age" | "country" | "placement";
+/**
+ * The dimensions the breakdown warehouse can store, one identity per dimension.
+ *
+ * `gender` is additive and was the defect: Meta's `age,gender` breakdown is TWO
+ * dimensions, and the write path folded both onto the single `age` identity, so
+ * every gender row collapsed onto its age bucket and the split was unrecoverable
+ * from the warehouse. Adding the type does not change what an `age` row means —
+ * `age` keys are still the raw age bucket and read exactly as they always have.
+ */
+export type MetaBreakdownType = "age" | "gender" | "country" | "placement";
 
 export type MetaDirtyRecentSeverity = "critical" | "high" | "low";
 
@@ -163,6 +172,38 @@ export interface MetaSelectedRangeTruthReadiness {
   publishedAt?: string | null;
   verificationState?: MetaHistoricalVerificationState;
   asOf?: string | null;
+}
+
+/*
+ * Lives in this leaf module, not beside the warehouse queries, because it is a
+ * pure arithmetic law with no database in it and every layer that derives
+ * frequency — ingestion, warehouse and serving — has to call the SAME one. A
+ * home inside `warehouse.ts` put it behind that module's test doubles, where a
+ * mock could satisfy the call and the law itself would go unexercised.
+ */
+/**
+ * The ONE frequency law in the Meta warehouse: impressions per reached person.
+ *
+ * It already existed, twice, spelled the same way — the account rebuild in
+ * `lib/meta/serving.ts` and the ad-set aggregation beside it both wrote
+ * `reach > 0 ? r2(impressions / reach) : null`. Breakdown rows needed the same
+ * derivation, and the wrong move would have been to write a third copy. This is
+ * that expression, named, so the three call sites cannot drift.
+ *
+ * The `null` is the point. A reach of zero is not a divisor, and a reach that
+ * was never MEASURED (`null`) is not a zero — either one yields "unknown", never
+ * 0 and never Infinity. Callers must not substitute a fallback numerator
+ * (impressions-as-reach makes frequency identically 1.0, which is a fabricated
+ * measurement wearing a plausible value).
+ */
+export function deriveMetaFrequencyFromReach(input: {
+  impressions: number;
+  reach: number | null | undefined;
+}): number | null {
+  const reach = input.reach;
+  if (reach == null || !Number.isFinite(reach) || reach <= 0) return null;
+  if (!Number.isFinite(input.impressions)) return null;
+  return Math.round((input.impressions / reach) * 100) / 100;
 }
 
 export interface MetaWarehouseMetricSet {
@@ -646,7 +687,20 @@ export interface MetaSyncPhaseTimingSummary {
   p50RowsPerSecond: number | null;
 }
 
-export interface MetaBreakdownDailyRow extends MetaWarehouseBaseRow {
+/**
+ * `reach` is nullable HERE and nowhere else in the warehouse.
+ *
+ * `MetaWarehouseBaseRow.reach` is `number`, which can only say "zero people".
+ * The breakdown fetch never asked Meta for `reach` at all, so every breakdown
+ * row was written with a fabricated 0 — a number that looks measured and is
+ * not. A reach Meta did not report is now `null`, and `frequency` derived from
+ * a null or zero reach is `null` rather than 0 or Infinity. Widened with `Omit`
+ * rather than by loosening the base row, because an account/campaign/adset
+ * reach IS fetched and a null there would be a different, unproven claim.
+ */
+export interface MetaBreakdownDailyRow
+  extends Omit<MetaWarehouseBaseRow, "reach"> {
+  reach: number | null;
   breakdownType: MetaBreakdownType;
   breakdownKey: string;
   breakdownLabel: string;

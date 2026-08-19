@@ -16,7 +16,6 @@ describe("decideMetaCurrentEvidence", () => {
     });
     expect(decision).toEqual({
       persistsCurrentConfigEvidence: true,
-      appendConfigHistory: true,
       persistsEntityObservations: true,
       reason: "current_provisional_day",
     });
@@ -37,7 +36,6 @@ describe("decideMetaCurrentEvidence", () => {
     // snapshot but still appended config history or an entity observation run
     // is exactly the state this gate exists to make impossible.
     expect(decision.persistsCurrentConfigEvidence).toBe(false);
-    expect(decision.appendConfigHistory).toBe(false);
     expect(decision.persistsEntityObservations).toBe(false);
     expect(decision.reason).toBe("historical_day");
   });

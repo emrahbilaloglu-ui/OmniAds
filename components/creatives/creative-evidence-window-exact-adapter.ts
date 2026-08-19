@@ -34,8 +34,22 @@ export interface CreativeEvidenceWindowExactAdRow {
 /** One day of the per-ad trail, as `/api/meta/ads/series` serves it. */
 export interface CreativeEvidenceWindowExactSeriesPoint {
   date: string;
-  /** Percent, not a fraction. */
+  /**
+   * Link CTR, percent. Served, but deliberately not the measure this card
+   * draws: `meta_ad_daily.link_clicks` is 0 on every stored row, so a line
+   * built from it is a flat zero for every creative
+   * (app/api/meta/ads/series/route.ts states the same gap). Kept in the shape
+   * so a later reader sees the choice was made rather than missed.
+   */
   linkCtr: number | null;
+  /**
+   * All-clicks CTR, percent, as the provider stored it on `meta_ad_daily.ctr`.
+   * The design captions this card plainly "CTR · 28d" (design file 3052), and
+   * this is the measure that caption names — the same clicks-over-impressions
+   * definition the engine's own `ctr_28d` uses (lib/meta/calibration.ts:353),
+   * so this trail and the decision's own CTR speak about one number.
+   */
+  ctr: number | null;
   frequency: number | null;
 }
 
@@ -297,8 +311,14 @@ function buildSeriesPair(
   }
   const suffix = adCountSuffix(payload.adCount);
 
+  // The card's caption is the generic "CTR · 28d", so it draws the generic
+  // all-clicks CTR the route serves. Reading `linkCtr` under that caption drew
+  // a flat zero for every creative, because link clicks are not ingested; and
+  // relabelling the card "link CTR" is not available either — the caption is
+  // drawn by the design. No fallback between the two: they are different
+  // measures and one line must not silently switch between them.
   const ctrValues = payload.points
-    .map((point) => finite(point.linkCtr))
+    .map((point) => finite(point.ctr))
     .filter((value): value is number => value !== null);
   const ctrDelta = halfWindowDelta(ctrValues);
   const ctrPath = sparklinePath(ctrValues);
@@ -306,8 +326,8 @@ function buildSeriesPair(
     ctrPath === null
       ? EM_DASH
       : ctrDelta
-        ? `link CTR ${signedPercent(ctrDelta.delta)} vs prior ${ctrDelta.days}d${suffix}`
-        : `link CTR · ${ctrValues.length} days served${suffix}`;
+        ? `${signedPercent(ctrDelta.delta)} vs prior ${ctrDelta.days}d${suffix}`
+        : `${ctrValues.length} days served${suffix}`;
 
   const frequencyValues = payload.points
     .map((point) => finite(point.frequency))
@@ -470,13 +490,16 @@ function buildFunnel(input: {
 }
 
 function buildPlacements(): CreativeEvidenceWindowExactPlacement[] {
-  // `meta_breakdown_daily` does carry revenue and roas (lib/migrations.ts:7796
-  // and `MetaWarehouseMetricSet`); what it has no column for is the entity.
-  // Its unique key is (business_id, provider_account_id, date, breakdown_type,
-  // breakdown_key) — no campaign, ad set or ad — so every placement row is
-  // account-wide. A per-creative placement share cannot be computed from an
-  // account-grain row at all, and its ROAS would be the account's, not this
-  // creative's. The card keeps its geometry and states the absence.
+  // `meta_breakdown_daily` does carry spend, revenue and roas per placement
+  // (lib/migrations.ts:8021); what it has no column for is the entity. Its
+  // unique key is (business_id, provider_account_id, date, breakdown_type,
+  // breakdown_key) — no campaign, ad set or ad — and the sync writes it from
+  // an account-level insights call (checkpoint scope
+  // `breakdown:publisher_platform,platform_position,impression_device`,
+  // lib/meta/warehouse.ts:436), so every placement row is account-wide. A
+  // per-creative placement share cannot be computed from an account-grain row
+  // at all, and its ROAS would be the account's, not this creative's. The card
+  // keeps its geometry and states the absence.
   return [1, 2, 3].map((slot) => ({
     id: `placement-${slot}`,
     label: EM_DASH,
@@ -486,9 +509,47 @@ function buildPlacements(): CreativeEvidenceWindowExactPlacement[] {
   }));
 }
 
+/**
+ * The design's fifth fact row is decision-specific: "Fatigue confirmed · 6
+ * days" on the Refresh creative, "Better variants live · 2" on the Retire one,
+ * "Days above target · 21" on the Scale one (design file 3613, 3627, 3641).
+ * Exactly one of those three families is persisted — the engine's own fatigue
+ * classification, served as `fatigueStatus` on both decision envelopes. It
+ * lives on `engine_v3_creative_lifecycle_daily.fatigue_status` and reaches the
+ * ad-grain payload by the lineage join the read model makes on
+ * `snapshot.creative_evidence_lifecycle_row_id`; `engine_v3_decision_snapshots_daily`
+ * carries no such column. The *duration* beside the design's label ("6 days")
+ * is not persisted, so this row prints the served classification and does not
+ * invent a day count for it.
+ *
+ * One grain caveat worth keeping in the record: this is CREATIVE-grain lifecycle
+ * evidence, and the ad-grain engine deliberately declines to label from it
+ * (`ad-decisions-job.ts` pins `fatigueStatus: null` until an ad-level lifecycle
+ * contract exists). This is the creative evidence window, so the grain is right
+ * and printing it is truthful — but it sits beside an ad-grain verdict that
+ * provably did not consume it, and a reader should not infer otherwise.
+ *
+ * An absent field and a served `unknown` are different facts: the first means
+ * the payload carries no decision-specific evidence and keeps the slot fully
+ * dashed; the second means the engine looked and could not classify, and says
+ * so.
+ */
+function fatigueFact(status: string | null | undefined): {
+  label: string;
+  value: string;
+} {
+  const normalized = nonBlank(status)?.toLowerCase() ?? null;
+  if (!normalized) return { label: EM_DASH, value: EM_DASH };
+  return {
+    label: "Fatigue",
+    value: normalized.charAt(0).toUpperCase() + normalized.slice(1),
+  };
+}
+
 function buildFacts(input: {
   rows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
   decision: MetaOsAdDecision | null;
+  canonical: MetaCanonicalDecision | null;
 }): CreativeEvidenceWindowExactFact[] {
   const rows = input.rows ?? [];
   const frequency = finite(input.decision?.metrics.frequency);
@@ -514,9 +575,9 @@ function buildFacts(input: {
     // ThruPlay is the nearest served fact and is not a 15s hold, so this stays
     // unserved rather than substituting a different metric under this label.
     "hold-15s": { label: "Hold 15s", value: EM_DASH },
-    // The design's fifth row is decision-specific (fatigue-confirmed days /
-    // better variants live / days above target). None is persisted.
-    "decision-specific": { label: EM_DASH, value: EM_DASH },
+    "decision-specific": fatigueFact(
+      input.decision?.fatigueStatus ?? input.canonical?.fatigueStatus,
+    ),
     "first-seen": { label: "First seen", value: firstSeen ?? EM_DASH },
   };
 
@@ -656,7 +717,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
     funnel: buildFunnel({ rows: input.adRows, decision, canonical }),
     placements: buildPlacements(),
     adSets,
-    facts: buildFacts({ rows: input.adRows, decision }),
+    facts: buildFacts({ rows: input.adRows, decision, canonical }),
     provenance: buildProvenance({ canonical, decision }),
     primaryAction: {
       label: actionLabel ?? EM_DASH,

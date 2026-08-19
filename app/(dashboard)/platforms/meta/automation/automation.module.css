@@ -315,9 +315,41 @@
   min-height: 128px;
   align-items: center;
   justify-content: center;
+  /* Only ever more than one child in the unreadable state, where the em dash
+     is joined by the control that re-runs the read. The proven-empty state is
+     a single centred glyph, exactly as before. */
+  gap: 12px;
   border-top: 1px solid #f3f5f9;
   color: #98a4ba;
   font-size: 13px;
+}
+
+/* The unresolved-scope account control. It is mounted inside the read-failure
+   notice and nowhere else, so it cannot appear on a resolved screen. */
+.accountPicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px 8px;
+  color: #0e1526;
+  font-size: 12px;
+}
+
+.accountPicker select {
+  max-width: 220px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.accountPicker select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* Confirmation-queue row — canonical source lines 1115–1129. */
@@ -476,6 +508,47 @@
   padding: 10px 16px;
   color: #b45309;
   font-size: 12px;
+}
+
+/* The read-failure notice: the existing error tone, above the cards it explains. */
+.readError {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  border: 1px solid #f3d7ae;
+  border-radius: 10px;
+  background: #fdf7ec;
+  padding: 10px 14px;
+  color: #b45309;
+  font-size: 12px;
+}
+
+.readRetry {
+  margin-left: auto;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 5px 12px;
+  color: #0e1526;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.readRetry:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* `.readRetry` carries `margin-left: auto` so it sits at the far end of the
+   read-failure notice. Inside the centred empty-queue block that auto margin
+   beats `justify-content: center` and throws the em dash and the button to
+   opposite edges, so it is cancelled here — the pair stays centred, which is
+   the geometry the empty block already had. */
+.confirmationEmpty .readRetry {
+  margin-left: 0;
 }
 
 .sectionFootnote {

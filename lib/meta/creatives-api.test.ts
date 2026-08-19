@@ -598,6 +598,32 @@ describe("getMetaCreativesApiPayload", () => {
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
   });
 
+  // LAW: a read that failed is not a known disconnection. `getIntegration`
+  // resolves to null only when the business genuinely has no Meta connection
+  // row and rejects when the row could not be read (DB error, decrypt failure).
+  // The old `.catch(() => null)` reported the second as the first, which ships
+  // as `{ status: "no_connection", rows: [] }` at HTTP 200 and makes Creative
+  // Studio draw its ordinary "no creative assets were served" empty state — an
+  // operator could cut or scale on a window nobody actually read.
+  it("surfaces a failed integration read instead of calling it a disconnection", async () => {
+    vi.mocked(integrations.getIntegration).mockRejectedValue(
+      new Error("decrypt failed"),
+    );
+
+    await expect(getMetaCreativesApiPayload(buildInput())).rejects.toThrow(
+      /could not be read/i,
+    );
+    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
+  it("still reports a genuinely absent connection as no_connection", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue(null as never);
+
+    const result = await getMetaCreativesApiPayload(buildInput());
+
+    expect(result).toMatchObject({ status: "no_connection", rows: [] });
+  });
+
   it("isolates request-scoped live fallback cache entries by providerAccountId", async () => {
     vi.mocked(fetchers.fetchAssignedAccountIds).mockResolvedValue(["act_1", "act_2"]);
     vi.mocked(service.buildCreativesResponse).mockImplementation(async (query) => ({

@@ -6,6 +6,7 @@ import {
 } from "@/lib/meta/history-contract";
 import {
   readMetaHistoryAccounts,
+  readMetaHistoryAssignedAccountIds,
   readMetaHistoryJournal,
 } from "@/lib/meta/history-read-model";
 
@@ -40,8 +41,33 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   try {
-    const accounts = await readMetaHistoryAccounts(query.businessId);
-    const account = accounts.find((item) => item.id === query.providerAccountId) ?? null;
+    // `providerAccountId` arrives from the caller, so it is a REQUEST, never an
+    // authority. It is answered here against the business's current assignment,
+    // and against it twice:
+    //
+    //  - `readMetaHistoryAssignedAccountIds` is the canonical guard every other
+    //    surface resolves scope through (`business_provider_accounts` filtered
+    //    by `is_selected`);
+    //  - `readMetaHistoryAccounts` is History's own projection, which carries
+    //    the name/currency/timezone the response has to state.
+    //
+    // Only the intersection is served. A previously assigned account that has
+    // since been deselected fails the guard even if some warehouse row still
+    // names it, and an id belonging to another business is absent from both
+    // because both are scoped by `businessId`. Neither read is caught here: a
+    // failure falls through to the unavailable branch below rather than being
+    // read as "nothing is assigned", which would answer a broken read with a
+    // confident refusal.
+    const [accounts, assignedAccountIds] = await Promise.all([
+      readMetaHistoryAccounts(query.businessId),
+      readMetaHistoryAssignedAccountIds(query.businessId),
+    ]);
+    const currentlyAssigned = new Set(assignedAccountIds);
+    const account =
+      accounts.find(
+        (item) =>
+          item.id === query.providerAccountId && currentlyAssigned.has(item.id),
+      ) ?? null;
     if (!account) {
       return jsonError(
         404,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import type {
@@ -11,13 +11,17 @@ import type {
   MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
-import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
+import type {
+  MetaAutomationProposal,
+  MetaAutomationProposalHoldCounts,
+} from "@/lib/meta/automation-proposals";
 import {
   createAutomationRuleRequest,
   setAutomationRuleActiveRequest,
   type AutomationRuleDraftInput,
 } from "@/lib/meta/automation-rules-client";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { useAppStore } from "@/store/app-store";
 
@@ -30,6 +34,10 @@ import {
   buildAutomationRulesViewModel,
   type AutomationRuleRowViewModel,
 } from "./automation-rules-exact-adapter";
+import {
+  AUTOMATION_VIEWER_NOT_ESTABLISHED,
+  type AutomationViewerEnvelope,
+} from "./viewer-envelope";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
@@ -40,6 +48,13 @@ export interface MetaAutomationPageProps {
   /** `null` is an intentional unresolved scope and must not silently select an account. */
   providerAccountId?: string | null;
   initialPayload?: AutomationPayload | null;
+  /**
+   * The server's answer to "may this viewer write here". Absent means no server
+   * established it (the preserved legacy mount), which is NOT a grant — the
+   * routes still refuse on their own authority — it only means this render has
+   * no server fact to restate.
+   */
+  viewer?: AutomationViewerEnvelope;
 }
 
 interface StatusPresentation {
@@ -88,8 +103,132 @@ const MODE_TONES: Record<
   auto: "enabled",
 };
 
-function hasPersistedBusinessControl(payload: AutomationPayload | null) {
-  return payload?.businessControl.source === "persisted";
+/**
+ * One section's provenance, from the richest source this payload offers.
+ *
+ * The server now sends a per-section envelope (`sections`) carrying a status,
+ * an error code and the instant the read was attempted. Older payloads carry
+ * only the flat `readCompleteness` booleans, and payloads older still carry
+ * neither — so the fallback chain ends at `"unproven"`, never at `"complete"`.
+ * An absent flag has always meant "this server never told us", and that is not
+ * the same as "it is fine".
+ */
+type SectionKey =
+  | "businessControl"
+  | "rules"
+  | "activity"
+  | "promotionRecords"
+  | "decisionModes"
+  | "anchors"
+  | "readiness";
+
+type SectionState = "complete" | "unavailable" | "migration_required" | "unproven";
+
+const LEGACY_COMPLETENESS_KEY: Partial<
+  Record<SectionKey, "rules" | "activityLedger" | "promotionRecords" | "businessControl" | "cleanApprovalStreaks">
+> = {
+  businessControl: "businessControl",
+  rules: "rules",
+  activity: "activityLedger",
+  promotionRecords: "promotionRecords",
+  readiness: "cleanApprovalStreaks",
+};
+
+function sectionState(
+  payload: AutomationPayload | null,
+  key: SectionKey,
+): SectionState {
+  if (!payload) return "unproven";
+  const served = payload.sections?.[key];
+  if (served) return served.status;
+  const legacyKey = LEGACY_COMPLETENESS_KEY[key];
+  if (!legacyKey) return "unproven";
+  const legacy = payload.readCompleteness?.[legacyKey];
+  if (legacy === "complete") return "complete";
+  return legacy === "unavailable" ? "unavailable" : "unproven";
+}
+
+function sectionIsComplete(payload: AutomationPayload | null, key: SectionKey) {
+  return sectionState(payload, key) === "complete";
+}
+
+/**
+ * Whether the served control state can be stated at all.
+ *
+ * Deliberately NOT "did an operator persist a row". A defaulted control is not
+ * an absent one: `dryRunOnly: true`, a 15% budget ceiling and a 3-action daily
+ * cap are what the server actually enforces for a business nobody has
+ * configured — every approval on this screen short-circuits because of that
+ * default. Gating the panel on `source === "persisted"` printed an em dash
+ * beside each of those, telling the operator no guardrail was in force while
+ * one governed every write.
+ *
+ * The distinction is still worth drawing, so `source` is surfaced beside the
+ * values rather than used to suppress them.
+ *
+ * It IS gated on read provenance, because `businessControl` is populated even
+ * when the control read failed: the server degrades to a concrete, benign
+ * default (ENABLED, Tier 1 — Supervised, +15% max, 3 actions/day). Truthiness
+ * alone was therefore true of a failed read, and this screen printed those
+ * four values as facts while the write path refused every action in the same
+ * window with `control_state_unavailable`. An absent flag is an unproven read,
+ * exactly as for `rules`, so it withholds too.
+ */
+function hasServedBusinessControl(payload: AutomationPayload | null) {
+  return (
+    Boolean(payload?.businessControl) &&
+    sectionIsComplete(payload, "businessControl")
+  );
+}
+
+/**
+ * The failure this render has to name, or `null` while nothing failed.
+ *
+ * `readError` covers the client fetch. The control-plane read can also fail
+ * *inside* a successful response — the payload arrives, carrying defaults where
+ * the control row should be — and that case drew no notice at all.
+ */
+function readFailureFor(input: {
+  payload: AutomationPayload | null;
+  readError: string | null;
+}) {
+  if (input.readError) return input.readError;
+  if (input.payload && !hasServedBusinessControl(input.payload)) {
+    return "automation_control_state_unavailable";
+  }
+  return null;
+}
+
+/**
+ * One sentence per failure, because "unknown rather than zero" is not true of
+ * all of them: an unresolved account scope means the read never ran, which is a
+ * different fact from a read that ran and failed. Unrecognised codes fall back
+ * to the general sentence rather than rendering a raw code at an operator.
+ */
+const READ_FAILURE_MESSAGES: Record<string, string> = {
+  automation_control_plane_unavailable:
+    "Automation could not be read, so every figure below is unknown rather than zero.",
+  automation_control_state_unavailable:
+    "The automation control state could not be read, so the kill switch, guardrails and readiness above are unknown rather than the defaults they would otherwise show.",
+  provider_account_scope_unresolved:
+    "No Meta ad account is resolved for this business, so Automation was never read — the confirmation queue and every account-scoped figure below is unknown rather than empty.",
+  provider_account_none_assigned:
+    "No Meta ad account is assigned to this business, so Automation has nothing to read.",
+  provider_account_not_assigned:
+    "The requested Meta ad account is not assigned to this business, so Automation was never read.",
+  provider_account_scope_unavailable:
+    "Meta account assignments could not be read, so Automation was never read — every figure below is unknown rather than zero.",
+};
+
+function readFailureMessage(code: string) {
+  return (
+    READ_FAILURE_MESSAGES[code] ??
+    READ_FAILURE_MESSAGES.automation_control_plane_unavailable!
+  );
+}
+
+function businessControlIsDefault(payload: AutomationPayload | null) {
+  return payload?.businessControl.source !== "persisted";
 }
 
 function statusForGlobalKillSwitch(
@@ -106,7 +245,7 @@ function statusForGlobalKillSwitch(
 function statusForBusinessKillSwitch(
   payload: AutomationPayload | null,
 ): StatusPresentation {
-  if (!hasPersistedBusinessControl(payload)) {
+  if (!hasServedBusinessControl(payload)) {
     return { label: UNKNOWN, tone: "unknown" };
   }
   return payload!.businessControl.killSwitchEngaged
@@ -115,15 +254,25 @@ function statusForBusinessKillSwitch(
 }
 
 function readinessFor(payload: AutomationPayload | null) {
-  return hasPersistedBusinessControl(payload)
+  return hasServedBusinessControl(payload)
     ? READINESS_LABELS[payload!.businessControl.readinessTier]
     : UNKNOWN;
 }
 
+/**
+ * Gated on the promotion read alone, deliberately.
+ *
+ * This was coupled to the control gate, which was harmless while that gate only
+ * meant "a control object exists". Now that the gate also means "the control
+ * read succeeded", the coupling would hide a promotion count the server DID
+ * prove whenever the unrelated control read failed — an em dash standing in for
+ * a known fact, which is the mirror image of the defect above and just as
+ * wrong. Each collection answers for its own read.
+ */
 function promotionCountFor(payload: AutomationPayload | null) {
   if (
-    !hasPersistedBusinessControl(payload) ||
-    payload?.readCompleteness?.promotionRecords !== "complete"
+    !payload?.promotionRecords ||
+    !sectionIsComplete(payload, "promotionRecords")
   ) {
     return UNKNOWN;
   }
@@ -145,7 +294,7 @@ function formatRoas(value: number) {
 }
 
 function guardrailsFor(payload: AutomationPayload | null) {
-  const guardrails = hasPersistedBusinessControl(payload)
+  const guardrails = hasServedBusinessControl(payload)
     ? payload!.businessControl.guardrails
     : null;
   const quietHours = guardrails?.quietHours ?? null;
@@ -183,18 +332,21 @@ function guardrailsFor(payload: AutomationPayload | null) {
 function autonomyFor(
   payload: AutomationPayload | null,
 ): AutonomyPresentation[] {
-  const budgetLimit = hasPersistedBusinessControl(payload)
+  const budgetLimit = hasServedBusinessControl(payload)
     ? `+${formatNumber(payload!.businessControl.guardrails.maxBudgetIncreasePct)}%`
     : UNKNOWN;
+  // Gated on the decision-mode read too. The server used to degrade this
+  // collection to its defaults without recording that it had, so a failed read
+  // and a workspace that had configured nothing rendered the same four rows.
+  const modesProven = sectionState(payload, "decisionModes") !== "unavailable";
   const byType = new Map(
-    (payload?.decisionTypeModes ?? [])
+    (modesProven ? (payload?.decisionTypeModes ?? []) : [])
       .filter((item) => item.source === "persisted")
       .map((item) => [item.decisionType, item]),
   );
   // The same rule the promotion count already follows: a read this payload
   // cannot prove is complete may not be turned into a total.
-  const streaksProven =
-    payload?.readCompleteness?.cleanApprovalStreaks === "complete";
+  const streaksProven = sectionIsComplete(payload, "readiness");
 
   const mapped = (
     kind: string,
@@ -563,6 +715,59 @@ function AutomationRuleComposer({
   );
 }
 
+/**
+ * The account choice, offered ONLY where the scope is unresolved.
+ *
+ * The design draws no account control on this screen, and in the resolved
+ * state this renders nothing at all — the surface is byte-identical. It exists
+ * because the unresolved state was a dead end: every card em-dashed, the
+ * notice said the scope was unresolved, and a multi-account business had no
+ * way to say which account it meant short of hand-editing the address bar.
+ *
+ * The client may only REQUEST an account. Selecting one writes the id into the
+ * URL and the server re-resolves it against this business's assignments on the
+ * next render, so an unassigned id is still refused. A URL parameter therefore
+ * never becomes authority — it becomes a question the server answers.
+ */
+function AutomationAccountPicker({
+  accounts,
+  loading,
+  onSelect,
+}: {
+  accounts: MetaHistoryAccount[];
+  loading: boolean;
+  onSelect: (providerAccountId: string) => void;
+}) {
+  return (
+    <label className={styles.accountPicker} data-control="account-picker">
+      <span>Meta ad account</span>
+      <select
+        aria-label="Meta ad account for Automation"
+        // No pre-selection. Picking the first of several assigned accounts on
+        // the operator's behalf is exactly the silent scope this screen must
+        // never invent.
+        value=""
+        disabled={loading || accounts.length === 0}
+        onChange={(event) => onSelect(event.currentTarget.value)}
+      >
+        <option value="">
+          {loading
+            ? "Loading accounts"
+            : accounts.length === 0
+              ? "No assigned account"
+              : "Select account"}
+        </option>
+        {accounts.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name ?? account.id}
+            {account.currency ? ` · ${account.currency}` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function MetaAutomationView({
   payload,
   providerAccountId = null,
@@ -572,6 +777,13 @@ export function MetaAutomationView({
   proposalError = null,
   businessId = null,
   onRulesChanged,
+  readError = null,
+  onRetryRead,
+  providerAccounts = [],
+  providerAccountsLoading = false,
+  onSelectProviderAccount,
+  ledgerCompleteness = null,
+  viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
 }: {
   payload: AutomationPayload | null;
   providerAccountId?: string | null;
@@ -591,6 +803,37 @@ export function MetaAutomationView({
    */
   businessId?: string | null;
   onRulesChanged?: (next: AutomationPayload) => void;
+  /**
+   * Why this render has no read, when it has none. Either the control-plane
+   * read's own failure code, or the reason no account scope resolved and the
+   * read therefore never ran. Every card below em-dashes in that state, and an
+   * em dash alone cannot tell an operator whether the read broke, the scope is
+   * unresolved, or the fact is genuinely unknown.
+   */
+  readError?: string | null;
+  /** Re-runs the same read. Absent on a server render, where nothing can retry. */
+  onRetryRead?: () => void;
+  /** The business's assigned Meta accounts, for the unresolved-scope picker. */
+  providerAccounts?: MetaHistoryAccount[];
+  providerAccountsLoading?: boolean;
+  /**
+   * Requests an account by writing it into the URL. Absent means this render
+   * cannot express a choice, and the picker is then not drawn at all rather
+   * than drawn inert.
+   */
+  onSelectProviderAccount?: (providerAccountId: string) => void;
+  /**
+   * Whether the LAST decision this session recorded actually reached the
+   * ledger. `null` means no decision has been made in this session — which is
+   * NOT by itself permission to print the promise; see `ledgerEvidence` below.
+   */
+  ledgerCompleteness?: "complete" | "unavailable" | null;
+  /**
+   * The server's answer to "may this viewer write here", restated — never
+   * re-derived. Defaults to the not-established envelope so a server render and
+   * the preserved legacy mount behave exactly as they did.
+   */
+  viewer?: AutomationViewerEnvelope;
 }) {
   // Modify has no operator-editable field on the proposal itself (a status
   // write declares none), so the only thing it can carry is what the operator
@@ -607,8 +850,52 @@ export function MetaAutomationView({
   const readiness = readinessFor(payload);
   const promotionCount = promotionCountFor(payload);
   const ledger = payload?.activityLedger ?? [];
+  // Same law the rules table already follows: an empty collection is only an
+  // honest "nothing has happened" when the read proved it. Without provenance
+  // a broken activity read and a quiet workspace were the same em dash, so a
+  // business with a genuinely empty ledger could never learn that.
+  /**
+   * A model that does not carry the hold counts did not READ them, so they are
+   * unknown — the same law the adapter applies to an absent `holds` field from
+   * the server. Normalised here because this component is also rendered
+   * directly (server render, tests) with hand-built models, and an absent fact
+   * must never crash the surface nor read as zero.
+   */
+  const queueHolds = proposals.holds ?? null;
+  const queueProvenEmpty = proposals.provenEmpty === true;
+  const ledgerIsProvenEmpty =
+    payload?.readCompleteness?.activityLedger === "complete";
+  /**
+   * Whether the footnote may claim a receipt trail — and it may only claim one
+   * where something proves it.
+   *
+   * Precedence, most direct evidence first:
+   *
+   *  1. This session watched a decision's ledger write succeed or fail. That is
+   *     first-hand and wins.
+   *  2. Otherwise the SERVER READ MODEL: `readCompleteness.activityLedger` is
+   *     the control plane's own answer for whether the ledger could be read at
+   *     all, and it survives a reload because it arrives with every render.
+   *  3. Otherwise nothing is known.
+   *
+   * `no_evidence` exists because the two-state version was wrong in both
+   * directions after a refresh. `null` used to print "every outcome lands in
+   * the ledger with a receipt" off no evidence whatsoever; printing the
+   * `unavailable` copy instead would be just as wrong, because it asserts that
+   * a decision failed when no decision was made. So the middle clause — the
+   * only one that is a claim about evidence — is simply not made.
+   */
+  const ledgerEvidence: "complete" | "unavailable" | "no_evidence" =
+    ledgerCompleteness === "unavailable"
+      ? "unavailable"
+      : ledgerCompleteness === "complete"
+        ? "complete"
+        : payload?.readCompleteness?.activityLedger === "complete"
+          ? "complete"
+          : "no_evidence";
+  const readFailure = readFailureFor({ payload, readError });
   const showCanonicalReadinessCopy =
-    hasPersistedBusinessControl(payload) &&
+    hasServedBusinessControl(payload) &&
     payload!.businessControl.readinessTier === "manual_review";
 
   const [composerOpen, setComposerOpen] = useState(false);
@@ -616,17 +903,39 @@ export function MetaAutomationView({
   const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
   const [ruleError, setRuleError] = useState<string | null>(null);
 
+  /**
+   * Nothing here may act without a resolved account.
+   *
+   * Every write this screen can issue is account-scoped — the rules routes and
+   * the proposal queue both refuse a request whose account does not resolve —
+   * so a control rendered live while `providerAccountId` is null is a control
+   * that can only fail. It is disabled instead, which is the honest shape of
+   * "choose an account first".
+   */
+  const accountResolved = Boolean(providerAccountId);
+  /**
+   * Three independent conditions, and every write control on this screen needs
+   * all three: a server-authorized business scope, a resolved ad account, and a
+   * viewer the SERVER says may write. The third was missing entirely — a guest,
+   * a reviewer and a demo session all got live Approve / Modify / Dismiss /
+   * + New rule / toggle controls the moment an account resolved, and learned
+   * about the refusal from a 403 after the click.
+   */
+  const canMutate =
+    Boolean(businessId) && accountResolved && viewer.canMutate;
+
   const rules = buildAutomationRulesViewModel({
     payload,
-    // Creation needs a proven read and a server-authorized scope. Without
-    // either, the control is present but inert — the design's geometry with
-    // none of its authority.
-    canCreate:
-      Boolean(businessId) && payload?.readCompleteness?.rules === "complete",
+    // Creation needs a proven read, a server-authorized scope AND a resolved
+    // account. Without any of them the control is present but inert — the
+    // design's geometry with none of its authority.
+    canCreate: canMutate && sectionIsComplete(payload, "rules"),
   });
 
   async function toggleRule(row: AutomationRuleRowViewModel) {
-    if (!businessId || row.locked || pendingRuleId) return;
+    // `canMutate` as well as the scope narrowing: a refused viewer must issue
+    // no request at all, not one the route will refuse.
+    if (!canMutate || !businessId || row.locked || pendingRuleId) return;
     setPendingRuleId(row.id);
     setRuleError(null);
     try {
@@ -647,7 +956,7 @@ export function MetaAutomationView({
   }
 
   async function createRule(draft: AutomationRuleDraftInput) {
-    if (!businessId || composerBusy) return;
+    if (!canMutate || !businessId || composerBusy) return;
     setComposerBusy(true);
     setRuleError(null);
     try {
@@ -678,6 +987,44 @@ export function MetaAutomationView({
           <p className={styles.eyebrow}>Meta · Supervision control plane</p>
           <h1 className={styles.title}>Automation</h1>
         </div>
+
+        {/*
+          The failure state's own recovery. The read this re-runs is the one
+          that already exists; without a control to invoke it the only way back
+          from a transient failure was a full page reload, and the screen gave
+          no sign that a reload was what it needed.
+        */}
+        {readFailure ? (
+          <p
+            className={styles.readError}
+            role="status"
+            data-field="read-error"
+            data-reason={readFailure}
+          >
+            <span>{readFailureMessage(readFailure)}</span>
+            {/*
+              The way out of the dead end, mounted only here. In the resolved
+              state this whole notice does not render, so the design's surface
+              is untouched.
+            */}
+            {onSelectProviderAccount && !providerAccountId ? (
+              <AutomationAccountPicker
+                accounts={providerAccounts}
+                loading={providerAccountsLoading}
+                onSelect={onSelectProviderAccount}
+              />
+            ) : null}
+            <button
+              type="button"
+              className={styles.readRetry}
+              data-control="retry-read"
+              disabled={!onRetryRead}
+              onClick={onRetryRead}
+            >
+              Retry
+            </button>
+          </p>
+        ) : null}
 
         <div className={styles.summaryGrid}>
           <article className={styles.killCard}>
@@ -711,7 +1058,24 @@ export function MetaAutomationView({
           </article>
 
           <article className={styles.guardrailCard}>
-            <p className={styles.cardKicker}>Guardrails</p>
+            <p className={styles.cardKicker}>
+              Guardrails
+              {hasServedBusinessControl(payload) &&
+              businessControlIsDefault(payload) ? (
+                // These are the system defaults, and they are in force: every
+                // approval on this screen is a dry run because `dryRunOnly`
+                // defaults true. Naming them as defaults is the difference
+                // between "nobody set a limit" and "nobody set a limit, so
+                // these apply".
+                //
+                // Gated on the read having happened, because an unread control
+                // also arrives with `source: "default"`. Saying "defaults, not
+                // set here" there asserts nobody configured a guardrail, when
+                // what actually happened is that the server could not find out
+                // — the opposite claim, beside four em dashes.
+                <span data-field="guardrail-source"> · defaults, not set here</span>
+              ) : null}
+            </p>
             {guardrails.map((guardrail) => (
               <div
                 className={styles.guardrailRow}
@@ -789,7 +1153,11 @@ export function MetaAutomationView({
                       className={styles.proposalPrimary}
                       data-tone={row.tone}
                       data-control="approve"
-                      disabled={!onProposalControl || pendingProposalId !== null}
+                      disabled={
+                        !onProposalControl ||
+                        !canMutate ||
+                        pendingProposalId !== null
+                      }
                       onClick={() => onProposalControl?.(row.id, "approve")}
                     >
                       {row.primaryCaption}
@@ -799,7 +1167,11 @@ export function MetaAutomationView({
                       className={styles.proposalSecondary}
                       data-control="modify"
                       aria-expanded={modifyingProposalId === row.id}
-                      disabled={!onProposalControl || pendingProposalId !== null}
+                      disabled={
+                        !onProposalControl ||
+                        !canMutate ||
+                        pendingProposalId !== null
+                      }
                       onClick={() => {
                         setModificationNote("");
                         setModifyingProposalId(
@@ -813,7 +1185,11 @@ export function MetaAutomationView({
                       type="button"
                       className={styles.proposalTertiary}
                       data-control="dismiss"
-                      disabled={!onProposalControl || pendingProposalId !== null}
+                      disabled={
+                        !onProposalControl ||
+                        !canMutate ||
+                        pendingProposalId !== null
+                      }
                       onClick={() => onProposalControl?.(row.id, "dismiss")}
                     >
                       Dismiss
@@ -842,6 +1218,7 @@ export function MetaAutomationView({
                       data-control="modify-submit"
                       disabled={
                         !onProposalControl ||
+                        !canMutate ||
                         pendingProposalId !== null ||
                         modificationNote.trim().length === 0
                       }
@@ -862,11 +1239,40 @@ export function MetaAutomationView({
               </div>
             ))
           ) : (
+            // "Nothing needs confirmation" and "the queue could not be read"
+            // are different facts and only one of them may be offered a
+            // recovery. The proven-empty state renders exactly what it always
+            // did; the unreadable one gets the em dash AND the control that
+            // re-runs the read, because a failure with no way back is a dead
+            // end an operator can only escape by reloading the page.
             <div
               className={styles.confirmationEmpty}
               data-testid="confirmation-empty"
+              // Proven empty means the queue read completed AND the server
+              // proved nothing is being held. A claimed row being dispatched
+              // right now, a reconcile row awaiting reconciliation, or a hold
+              // count that could not be read at all each keep this `false`.
+              data-proven-empty={queueProvenEmpty ? "true" : "false"}
             >
-              {UNKNOWN}
+              {/*
+                The em dash stays in BOTH states: the count badge above already
+                separates a proven `0` from an unproven `—`, and changing this
+                cell's own copy is a design decision this change has no mandate
+                to make. What changes is only that the unreadable state now has
+                a way back.
+              */}
+              <span>{UNKNOWN}</span>
+              {queueProvenEmpty ? null : (
+                <button
+                  type="button"
+                  className={styles.readRetry}
+                  data-control="retry-queue"
+                  disabled={!onRetryRead}
+                  onClick={onRetryRead}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
           {proposalError ? (
@@ -874,10 +1280,108 @@ export function MetaAutomationView({
               {proposalError}
             </p>
           ) : null}
-          <p className={styles.sectionFootnote}>
-            approving executes inside the guardrails above · every outcome lands
-            in the ledger with a receipt · expired proposals re-evaluate on the
-            next snapshot
+          {/*
+            The server said this viewer may not write, so the refusal is stated
+            once, here, beside the controls it explains — rather than arriving
+            as a 403 after a click. It is the SERVER's sentence and the SERVER's
+            code, restated verbatim: re-wording either would describe a guard
+            this surface does not own.
+
+            No new happy-path chrome: `canMutate` is true on every canonical
+            render, so this element does not exist there at all.
+          */}
+          {!viewer.canMutate && viewer.reason ? (
+            <p
+              className={styles.sectionFootnote}
+              role="status"
+              data-field="viewer-refusal"
+              data-reason-code={viewer.reasonCode ?? ""}
+            >
+              {viewer.reason}
+            </p>
+          ) : null}
+          {/*
+            What the queue is holding but cannot offer. `claimed` is a dispatch
+            in flight and `reconcile` is an outcome nobody has confirmed; the
+            invariant keeps the second one pending with retry forbidden, so the
+            only correct thing this screen can do is say so. Neither is
+            approvable, so neither appears as a row — and before this the
+            operator was simply told `0`.
+
+            Renders only when there is something to say. A queue with no holds
+            draws nothing, so the canonical state is untouched.
+          */}
+          {queueHolds === null ? (
+            <p
+              className={styles.sectionFootnote}
+              role="status"
+              data-field="queue-holds"
+              data-holds="unreadable"
+            >
+              held proposals could not be counted, so this queue is not proven
+              empty — a dispatch in progress or a row awaiting reconciliation
+              would not be visible here
+            </p>
+          ) : queueHolds.claimed > 0 || queueHolds.reconcile > 0 ? (
+            <p
+              className={styles.sectionFootnote}
+              role="status"
+              data-field="queue-holds"
+              data-holds="present"
+              data-claimed={queueHolds.claimed}
+              data-reconcile={queueHolds.reconcile}
+            >
+              {queueHolds.claimed > 0 ? (
+                <span data-field="queue-holds-claimed">
+                  {queueHolds.claimed} dispatch in progress
+                </span>
+              ) : null}
+              {queueHolds.claimed > 0 && queueHolds.reconcile > 0
+                ? " · "
+                : null}
+              {queueHolds.reconcile > 0 ? (
+                <span data-field="queue-holds-reconcile">
+                  {queueHolds.reconcile} reconciliation required — retry is
+                  forbidden until it is reconciled
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+          {/*
+            The middle clause is a claim about evidence, so it is only made
+            when the evidence exists. A decision whose ledger INSERT failed is
+            still recorded — on the proposal row itself, with its receipt and
+            its receipt key — but it is NOT in the ledger, and printing the
+            promise anyway is what turned a swallowed error into a lie. Every
+            other state renders the design's own sentence, unchanged.
+          */}
+          <p
+            className={styles.sectionFootnote}
+            data-field="queue-footnote"
+            data-ledger-evidence={ledgerEvidence}
+          >
+            {ledgerEvidence === "unavailable" ? (
+              <>
+                approving executes inside the guardrails above · the last
+                decision could not be written to the activity ledger — its
+                receipt is on the proposal record · expired proposals
+                re-evaluate on the next snapshot
+              </>
+            ) : ledgerEvidence === "no_evidence" ? (
+              // Nothing proves the ledger works and nothing proves it failed.
+              // The two clauses that are still true are printed; the one that
+              // is a claim about evidence is not made at all.
+              <>
+                approving executes inside the guardrails above · expired
+                proposals re-evaluate on the next snapshot
+              </>
+            ) : (
+              <>
+                approving executes inside the guardrails above · every outcome
+                lands in the ledger with a receipt · expired proposals
+                re-evaluate on the next snapshot
+              </>
+            )}
           </p>
         </article>
 
@@ -919,13 +1423,25 @@ export function MetaAutomationView({
                         key={row.id}
                         row={row}
                         busy={pendingRuleId === row.id}
-                        canMutate={Boolean(businessId)}
+                        canMutate={canMutate}
                         onToggle={() => void toggleRule(row)}
                       />
                     ))
                   ) : (
-                    <tr className={styles.rulesEmpty} data-testid="rules-empty">
-                      <td colSpan={5}>{UNKNOWN}</td>
+                    // "No rules exist" and "the rules could not be read" are
+                    // different facts, and the adapter has already separated
+                    // them. Collapsing both into an em dash told an operator
+                    // who had just created a rule the same thing it told one
+                    // whose read had failed. Same rule as `0×` on the Fired
+                    // column: a proven zero is a fact and is stated as one.
+                    <tr
+                      className={styles.rulesEmpty}
+                      data-testid="rules-empty"
+                      data-proven-empty={rules.isProvenEmpty ? "true" : "false"}
+                    >
+                      <td colSpan={5}>
+                        {rules.isProvenEmpty ? "No rules yet" : UNKNOWN}
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1033,8 +1549,18 @@ export function MetaAutomationView({
                     );
                   })
                 ) : (
-                  <tr className={styles.ledgerEmpty} data-testid="ledger-empty">
-                    <td colSpan={5}>{UNKNOWN}</td>
+                  // "This workspace has never acted" and "the activity read
+                  // failed" are different facts and only one of them may be
+                  // stated. Same `data-proven-empty` pattern the rules table
+                  // uses two sections up, for the same reason.
+                  <tr
+                    className={styles.ledgerEmpty}
+                    data-testid="ledger-empty"
+                    data-proven-empty={ledgerIsProvenEmpty ? "true" : "false"}
+                  >
+                    <td colSpan={5}>
+                      {ledgerIsProvenEmpty ? "No activity yet" : UNKNOWN}
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -1084,31 +1610,76 @@ export function MetaAutomationView({
 interface ProposalQueueRead {
   readCompleteness: "complete" | "unavailable";
   proposals: MetaAutomationProposal[];
+  /**
+   * The server's claimed/reconcile hold counts. `null` is UNKNOWN, never zero:
+   * a hold read that failed must not license the queue to call itself empty.
+   */
+  holds: MetaAutomationProposalHoldCounts | null;
 }
 
 const UNAVAILABLE_QUEUE: ProposalQueueRead = {
   readCompleteness: "unavailable",
   proposals: [],
+  holds: null,
 };
+
+/**
+ * `holds` only if the server actually counted both statuses.
+ *
+ * A partially shaped object, a negative, a non-finite or an absent field is
+ * unknown — and unknown is `null`, because the only thing this value is used
+ * for is deciding whether the queue may claim to be empty.
+ */
+function parseHolds(value: unknown): MetaAutomationProposalHoldCounts | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as { claimed?: unknown; reconcile?: unknown };
+  const claimed = raw.claimed;
+  const reconcile = raw.reconcile;
+  if (
+    typeof claimed !== "number" ||
+    typeof reconcile !== "number" ||
+    !Number.isFinite(claimed) ||
+    !Number.isFinite(reconcile) ||
+    claimed < 0 ||
+    reconcile < 0
+  ) {
+    return null;
+  }
+  return { claimed, reconcile };
+}
 
 function parseProposalQueue(body: unknown): ProposalQueueRead {
   const payload = body as
     | {
         ok?: boolean;
         readCompleteness?: { proposals?: string };
+        sections?: { proposals?: { status?: string } };
+        holds?: unknown;
         proposals?: MetaAutomationProposal[];
       }
     | null;
+  // The server has always sent this beside the queue and this function used to
+  // throw it away, so a queue holding a live dispatch (`claimed`) or an
+  // unreconciled provider outcome (`reconcile`) arrived here as an empty array
+  // and rendered as a proven `0`.
+  const holds = parseHolds(payload?.holds);
+  // The richer per-section envelope wins where the server sends one, and the
+  // flat flag is the fallback for a server that does not. Neither may be
+  // absent AND treated as complete.
+  const status =
+    payload?.sections?.proposals?.status ??
+    payload?.readCompleteness?.proposals ??
+    null;
   // An `unavailable` read is not an empty queue, and the two must not be
   // collapsed here: the count badge says `—` for one and `0` for the other.
   if (
     payload?.ok !== true ||
-    payload.readCompleteness?.proposals !== "complete" ||
+    status !== "complete" ||
     !Array.isArray(payload.proposals)
   ) {
-    return UNAVAILABLE_QUEUE;
+    return { ...UNAVAILABLE_QUEUE, holds };
   }
-  return { readCompleteness: "complete", proposals: payload.proposals };
+  return { readCompleteness: "complete", proposals: payload.proposals, holds };
 }
 
 async function readProposalQueue(input: {
@@ -1156,7 +1727,9 @@ export default function MetaAutomationPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
   initialPayload = null,
+  viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
 }: MetaAutomationPageProps = {}) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId =
@@ -1177,29 +1750,124 @@ export default function MetaAutomationPage({
   );
   const [readLoading, setReadLoading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
+  /**
+   * Why no account scope was resolved, when none was.
+   *
+   * `providerAccountId === null` short-circuits BOTH reads below without a
+   * request ever leaving the browser, so without this the surface went silent:
+   * the confirmation count stayed at "—" forever, no proposal row could appear,
+   * and on the legacy mount every card em-dashed with nothing on screen saying
+   * why. The design has no account picker and this does not add one — it names
+   * the unresolved scope in the failure notice the screen already draws.
+   */
+  const [scopeFailure, setScopeFailure] = useState<string | null>(null);
+  /**
+   * The business's assigned Meta accounts.
+   *
+   * Read even when the server already resolved the scope to null, because this
+   * list IS the set `resolveProviderAccountId` authorizes against — asking for
+   * it cannot widen scope, and without it a multi-account business has nothing
+   * to choose from and Automation stays a dead end. Same reasoning, and the
+   * same server-reauthorized model, as Launchpad's own account control.
+   */
+  const [providerAccounts, setProviderAccounts] = useState<MetaHistoryAccount[]>(
+    [],
+  );
+  const [providerAccountsLoading, setProviderAccountsLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [queue, setQueue] = useState<ProposalQueueRead>(UNAVAILABLE_QUEUE);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(
     null,
   );
   const [proposalError, setProposalError] = useState<string | null>(null);
+  /**
+   * Whether the last decision THIS SESSION recorded reached the activity
+   * ledger, or `null` when this session has recorded none.
+   *
+   * It is session state and it stays session state, because it is a fact about
+   * one request. What changed is that it is no longer the ONLY input: a reload
+   * used to reset it to `null` and the view read `null` as "fine", so the
+   * screen went back to promising "every outcome lands in the ledger with a
+   * receipt" with no evidence at all behind the sentence. The view now falls
+   * back to the server read model (`readCompleteness.activityLedger`) and
+   * prints the promise only where one of the two actually proves it.
+   *
+   * Cleared whenever the business or the account changes — a decision recorded
+   * against another scope says nothing about this one.
+   */
+  const [sessionLedgerCompleteness, setSessionLedgerCompleteness] = useState<
+    "complete" | "unavailable" | null
+  >(null);
+
+  // One retry, two invokers: the Tier-0 freshness bar registers it, and the
+  // failure state on this screen calls it directly. Before this the handler was
+  // registered and never reachable, because nothing in the app mounts the bar.
+  const retryRead = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+  /**
+   * Request an account. Never grant one.
+   *
+   * The id goes into the URL and nothing else changes here: the canonical
+   * route re-runs `resolveProviderAccountId` against this business's
+   * assignments on the next render, so an id that is not assigned comes back
+   * as null and the surface stays refused. That is why this is a `replace`
+   * into the address bar rather than a `setProviderAccountId` — a URL
+   * parameter must never become authority on its own.
+   */
+  const selectProviderAccount = useCallback(
+    (nextProviderAccountId: string) => {
+      if (!nextProviderAccountId || typeof window === "undefined") return;
+      const url = new URL(window.location.href);
+      url.searchParams.set("providerAccountId", nextProviderAccountId);
+      router.replace(`${url.pathname}${url.search}`);
+    },
+    [router],
+  );
+
+  // The scope failure is a read failure too: it is the reason no read ran.
+  const surfacedReadFailure = readError ?? scopeFailure;
+
+  /**
+   * Freshness by AGGREGATION, not by guessing from one field.
+   *
+   * The old reason read `businessControl.source !== "persisted"` — which is
+   * true of every workspace that has simply never configured a guardrail, so
+   * a perfectly healthy screen permanently reported itself partial, and the
+   * one thing that made it partial (a section whose read actually failed) was
+   * invisible behind it. `source` is a fact about configuration; completeness
+   * is a fact about the read, and only the second one belongs here.
+   */
+  const partialReason = useMemo(() => {
+    if (!providerAccountId) return "provider account scope unresolved";
+    const incomplete = (
+      [
+        ["businessControl", "automation control state"],
+        ["rules", "automation rules"],
+        ["activity", "activity ledger"],
+        ["promotionRecords", "promotion records"],
+        ["decisionModes", "decision-type modes"],
+        ["anchors", "commercial anchors"],
+        ["readiness", "readiness ladder"],
+      ] as const
+    ).filter(([key]) => sectionState(payload, key) !== "complete");
+    const queueIncomplete = queue.readCompleteness !== "complete";
+    if (incomplete.length === 0 && !queueIncomplete) return null;
+    const names = [
+      ...incomplete.map(([, label]) => label),
+      ...(queueIncomplete ? ["confirmation queue"] : []),
+    ];
+    return `${names.join(", ")} not proven`;
+  }, [payload, providerAccountId, queue.readCompleteness]);
 
   useTierZeroFreshness({
     surface: "automation",
     isLoading: readLoading && !payload,
     isFetching: readLoading,
-    error: readError,
+    error: surfacedReadFailure,
     asOf: null,
-    partialReason:
-      payload?.businessControl.source !== "persisted"
-        ? "persisted business control not proven"
-        : !providerAccountId
-          ? "provider account scope unresolved"
-          : payload?.readCompleteness?.rules !== "complete"
-            ? "automation rules read not proven"
-            : null,
+    partialReason,
     businessId,
-    onRetry: () => setRefreshKey((value) => value + 1),
+    onRetry: retryRead,
   });
 
   useEffect(() => {
@@ -1208,38 +1876,114 @@ export default function MetaAutomationPage({
 
   useEffect(() => {
     if (accountScopeIsServerAuthorized) {
-      setProviderAccountId(authorizedProviderAccountId?.trim() || null);
-      return;
+      const authorized = authorizedProviderAccountId?.trim() || null;
+      setProviderAccountId(authorized);
+      // The server resolved the scope and got nothing. That null is
+      // authoritative — `provider-scope-server.ts` returns it whenever the
+      // catalog does not hold exactly one account — so it is a stated reason,
+      // not a loading state.
+      setScopeFailure(authorized ? null : "provider_account_scope_unresolved");
+      if (authorized || !businessId) {
+        setProviderAccounts([]);
+        return;
+      }
+      // Unresolved on the server: fetch the assignment list so the operator
+      // can name one. The client never SELECTS here — it writes the id into
+      // the URL and the server authorizes it again on the next render.
+      const scopeController = new AbortController();
+      setProviderAccountsLoading(true);
+      fetchMetaHistoryAccounts({ businessId, signal: scopeController.signal })
+        .then((accounts) => {
+          if (scopeController.signal.aborted) return;
+          setProviderAccounts(accounts);
+          if (accounts.length === 0) {
+            setScopeFailure("provider_account_none_assigned");
+          }
+        })
+        .catch(() => {
+          if (scopeController.signal.aborted) return;
+          // A failed assignment read is not "no accounts".
+          setProviderAccounts([]);
+          setScopeFailure("provider_account_scope_unavailable");
+        })
+        .finally(() => {
+          if (!scopeController.signal.aborted) {
+            setProviderAccountsLoading(false);
+          }
+        });
+      return () => scopeController.abort();
     }
     if (!businessId) {
       setProviderAccountId(null);
+      setProviderAccounts([]);
+      setScopeFailure(null);
       return;
     }
 
     const controller = new AbortController();
     setProviderAccountId(null);
+    setScopeFailure(null);
+    setProviderAccountsLoading(true);
     fetchMetaHistoryAccounts({ businessId, signal: controller.signal })
       .then((accounts) => {
         if (controller.signal.aborted) return;
+        setProviderAccounts(accounts);
         const requested = requestedProviderAccountId
           ? accounts.find(
               (account) => account.id === requestedProviderAccountId,
             )
           : null;
-        setProviderAccountId(
-          requested?.id ?? (accounts.length === 1 ? accounts[0]!.id : null),
+        const resolved =
+          requested?.id ?? (accounts.length === 1 ? accounts[0]!.id : null);
+        setProviderAccountId(resolved);
+        if (resolved) {
+          setScopeFailure(null);
+          return;
+        }
+        // Three different facts, and the operator can act on only one of them.
+        setScopeFailure(
+          accounts.length === 0
+            ? "provider_account_none_assigned"
+            : requestedProviderAccountId
+              ? "provider_account_not_assigned"
+              : "provider_account_scope_unresolved",
         );
       })
       .catch(() => {
-        if (!controller.signal.aborted) setProviderAccountId(null);
+        if (controller.signal.aborted) return;
+        setProviderAccountId(null);
+        setProviderAccounts([]);
+        // A failed assignment read is not "no accounts". Saying so would turn
+        // a read failure into a claim about the workspace.
+        setScopeFailure("provider_account_scope_unavailable");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProviderAccountsLoading(false);
       });
     return () => controller.abort();
   }, [
     accountScopeIsServerAuthorized,
     authorizedProviderAccountId,
     businessId,
+    // Retry re-runs the scope resolution too. Without this the Retry control
+    // was dead in exactly the state it most needed to work: an unresolved
+    // scope never reaches the read whose refresh key it bumps.
+    refreshKey,
     requestedProviderAccountId,
   ]);
+
+  /**
+   * Stale session state does not travel across scopes.
+   *
+   * `sessionLedgerCompleteness` answers "did the last decision reach the
+   * ledger", and "the last decision" is only meaningful within one business and
+   * one ad account. Carrying it across a switch would either withhold a true
+   * promise on a healthy workspace or, worse, keep a `complete` from the
+   * previous account standing in as evidence for this one.
+   */
+  useEffect(() => {
+    setSessionLedgerCompleteness(null);
+  }, [businessId, providerAccountId]);
 
   useEffect(() => {
     if (!businessId || !providerAccountId) {
@@ -1293,6 +2037,12 @@ export default function MetaAutomationPage({
   const onProposalControl = useCallback(
     (proposalId: string, control: ProposalControl, note?: string) => {
       if (!businessId || !providerAccountId || pendingProposalId) return;
+      // The server's refusal, restated before the request rather than after it.
+      // Every one of these controls is rendered disabled for a refused viewer,
+      // so reaching this line means something bypassed the DOM — and a POST
+      // issued from here would still be refused by the route, but it would also
+      // put a real approval attempt on a demo or reviewer session's wire.
+      if (!viewer.canMutate) return;
       setPendingProposalId(proposalId);
       setProposalError(null);
       const query = new URLSearchParams({ businessId, providerAccountId });
@@ -1316,7 +2066,27 @@ export default function MetaAutomationPage({
           const body = (await response.json().catch(() => null)) as {
             ok?: boolean;
             error?: { message?: string };
+            ledgerCompleteness?: "complete" | "unavailable";
           } | null;
+          // Recorded from BOTH arms: a decision that reached the provider and
+          // failed to reach the ledger still has to stop the footnote from
+          // promising a receipt trail.
+          //
+          // Three cases, and only one of them used to be handled. A body that
+          // is not JSON at all is `null` here, and the old code turned that into
+          // `null` state — i.e. straight back to the promise, off a response
+          // nobody could read. It is `unavailable` now. A valid JSON body that
+          // simply carries no `ledgerCompleteness` (a 409 claim conflict, where
+          // nothing was dispatched and nothing was written) is not a new ledger
+          // fact and must not overwrite the one already held.
+          if (body === null) {
+            setSessionLedgerCompleteness("unavailable");
+          } else if (
+            body.ledgerCompleteness === "complete" ||
+            body.ledgerCompleteness === "unavailable"
+          ) {
+            setSessionLedgerCompleteness(body.ledgerCompleteness);
+          }
           if (!response.ok || body?.ok !== true) {
             // The server's own refusal, verbatim. Re-wording it here would
             // describe a guard this surface does not own.
@@ -1334,10 +2104,14 @@ export default function MetaAutomationPage({
             "The confirmation queue could not record that decision.",
           );
           setQueue(UNAVAILABLE_QUEUE);
+          // The request left the browser and no answer came back, so whether
+          // anything reached the ledger is unknown. Unknown is not a receipt
+          // trail, and the footnote must stop claiming one.
+          setSessionLedgerCompleteness("unavailable");
         })
         .finally(() => setPendingProposalId(null));
     },
-    [businessId, pendingProposalId, providerAccountId],
+    [businessId, pendingProposalId, providerAccountId, viewer.canMutate],
   );
 
   return (
@@ -1347,6 +2121,7 @@ export default function MetaAutomationPage({
       proposals={buildAutomationProposalsModel({
         readCompleteness: queue.readCompleteness,
         proposals: queue.proposals,
+        holds: queue.holds,
         now: new Date(),
       })}
       onProposalControl={onProposalControl}
@@ -1354,6 +2129,13 @@ export default function MetaAutomationPage({
       proposalError={proposalError}
       businessId={businessId}
       onRulesChanged={setPayload}
+      readError={surfacedReadFailure}
+      onRetryRead={retryRead}
+      providerAccounts={providerAccounts}
+      providerAccountsLoading={providerAccountsLoading}
+      onSelectProviderAccount={selectProviderAccount}
+      ledgerCompleteness={sessionLedgerCompleteness}
+      viewer={viewer}
     />
   );
 }

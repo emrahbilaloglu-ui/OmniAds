@@ -63,6 +63,21 @@ export function LaunchpadProgress({
       result?.adIds?.length ||
       steps.some((step) => step.status === "success" && step.id),
   );
+  /**
+   * Did the response actually carry object evidence?
+   *
+   * A transport failure after the POST reached the server, and a countless
+   * server refusal, both arrive here with no counts and no id arrays. Printing
+   * `0` for them asserts that nothing was created at the exact moment the
+   * client cannot know — and an operator who reads "0 ad sets · 0 ads" may
+   * resubmit and duplicate whatever really landed. An unsupplied count renders
+   * as an em-dash instead.
+   */
+  const reportedCounts =
+    result?.successCount != null ||
+    result?.failedCount != null ||
+    result?.adsetIds != null ||
+    result?.adIds != null;
   const partialHalt = Boolean(
     result && !result.ok && mode === "new_campaign" && !inFlight && !validationBlocked && hasCreatedEvidence,
   );
@@ -109,24 +124,28 @@ export function LaunchpadProgress({
             )}
             <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[12px] text-[var(--muted)] tabular-nums">
               {(inFlight || validationBlocked) && !hasCreatedEvidence ? (
+                // The server said the write never started, so "none" is a fact.
                 <span>No provider objects reported.</span>
+              ) : !reportedCounts && !hasCreatedEvidence ? (
+                // Nothing came back to count. The outcome is unknown, not zero.
+                <span>Provider objects not reported.</span>
               ) : mode === "manage_existing" ? (
                 <>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? 0}</strong> updated
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? "—"}</strong> updated
                   <span className="text-[var(--muted-2)]">·</span>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? 0}</strong> failed
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? "—"}</strong> failed
                 </>
               ) : mode === "add_to_existing" ? (
                 <>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? result.adIds?.length ?? 0}</strong> ads created
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.successCount ?? result.adIds?.length ?? "—"}</strong> ads created
                   <span className="text-[var(--muted-2)]">·</span>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? 0}</strong> failed
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.failedCount ?? "—"}</strong> failed
                 </>
               ) : (
                 <>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adsetIds?.length ?? 0}</strong> ad sets
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adsetIds?.length ?? "—"}</strong> ad sets
                   <span className="text-[var(--muted-2)]">·</span>
-                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adIds?.length ?? 0}</strong> ads
+                  <strong className="text-[16px] font-[650] text-[var(--ink)]">{result.adIds?.length ?? "—"}</strong> ads
                 </>
               )}
             </p>

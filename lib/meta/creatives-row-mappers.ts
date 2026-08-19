@@ -13,6 +13,7 @@ import type {
   RawCreativeRow,
   SortKey,
 } from "@/lib/meta/creatives-types";
+import { intersectCreativeMetricPresence } from "@/lib/meta/creatives-types";
 import {
   aggregateCreativeTaxonomy,
   classifyMetaCreative,
@@ -375,6 +376,24 @@ export function resolvePreviewOrigin(input: {
   return "snapshot";
 }
 
+/**
+ * The LIVE insights path deliberately publishes no `metric_presence`.
+ *
+ * Not an oversight, and not a gap to be filled later by pattern-matching the
+ * warehouse path. Meta's insights endpoint OMITS `actions`, `action_values` and
+ * the video arrays when the count for the window is zero, so on this path an
+ * absent array is a measured zero — the exact opposite of what absence means in
+ * `meta_ad_daily`, where a null column or a missing `payload_json` key means the
+ * sync never captured the field. Stamping `false` for every array this payload
+ * happens not to carry would replace real zeros with em dashes across every
+ * live-served row.
+ *
+ * A row from here therefore carries no map, `isCreativeMetricAvailable` defaults
+ * to available, and the numbers stand exactly as they do today. The one field
+ * this path genuinely cannot establish, `frequency`, already leaves as `null`
+ * (`parseFloat(...) || null` below) and reaches the surface as an em dash
+ * without any sidecar.
+ */
 export function toRawRow(
   insight: {
     ad_id?: string;
@@ -1062,6 +1081,13 @@ export function groupRows(
       video50: impressions > 0 ? r2((video50Views / impressions) * 100) : 0,
       video75: impressions > 0 ? r2((video75Views / impressions) * 100) : 0,
       video100: impressions > 0 ? r2((video100Views / impressions) * 100) : 0,
+      // Every figure above is a sum, a weighted mean or a share over `list`.
+      // One member that never supplied a field makes the aggregate over that
+      // field an understatement rather than a measurement, so availability is
+      // the intersection, not the union. Each member's `?? 0` above still
+      // happened — the numbers are unchanged — and this is what stops the
+      // surface reading the shortfall as a result.
+      metric_presence: intersectCreativeMetricPresence(list),
     });
   }
 

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { readMetaHistoryAccounts } from "@/lib/meta/history-read-model";
+import {
+  readMetaHistoryAccounts,
+  readMetaHistoryAssignedAccountIds,
+} from "@/lib/meta/history-read-model";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +32,21 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   try {
-    const accounts = await readMetaHistoryAccounts(businessId);
+    // The same intersection the journal endpoint applies, for the same reason:
+    // this list is what an account picker offers, and offering a deselected
+    // account would let the operator pick a scope the journal read then refuses
+    // — or, before `is_selected` was honoured, silently served.
+    const [accounts, assignedAccountIds] = await Promise.all([
+      readMetaHistoryAccounts(businessId),
+      readMetaHistoryAssignedAccountIds(businessId),
+    ]);
+    const currentlyAssigned = new Set(assignedAccountIds);
     return NextResponse.json(
-      { mode: "read_only", businessId, accounts },
+      {
+        mode: "read_only",
+        businessId,
+        accounts: accounts.filter((account) => currentlyAssigned.has(account.id)),
+      },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {

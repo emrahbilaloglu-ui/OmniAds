@@ -57,6 +57,7 @@ const baseQuery = {
   kind: null,
   entity: null,
   label: null,
+  outcome: null,
   from: null,
   to: null,
   q: null,
@@ -84,7 +85,7 @@ describe("Meta History read model", () => {
   });
 
   it("returns typed entries, redacts payload secrets, and emits the next tuple cursor", async () => {
-    queryMock.mockResolvedValueOnce([
+    queryMock.mockResolvedValue([
       historyRow(),
       historyRow({
         source_key: "engine_v3_decision_events",
@@ -159,11 +160,18 @@ describe("Meta History read model", () => {
       null,
       null,
       3,
+      // No outcome filter selected: the predicate is fully disabled rather
+      // than defaulting to a group, so an unrecognised status stays visible.
+      null,
+      false,
+      // The slice floor. The read starts bounded and widens only if the page
+      // comes back short, so a full page never scans the whole journal.
+      expect.any(String),
     ]);
   });
 
   it("withholds monetary values when the account currency is unavailable", async () => {
-    queryMock.mockResolvedValueOnce([
+    queryMock.mockResolvedValue([
       historyRow({
         source_key: "engine_v3_decision_snapshots_daily",
         source_id: "snapshot_1",
@@ -204,7 +212,7 @@ describe("Meta History read model", () => {
         ).toISOString(),
       }),
     );
-    queryMock.mockResolvedValueOnce(rows);
+    queryMock.mockResolvedValue(rows);
 
     const payload = await readMetaHistoryJournal({
       query: { ...baseQuery, limit: 40 },
@@ -225,7 +233,11 @@ describe("Meta History read model", () => {
       source: "meta_ads_action_log",
       sourceId: "log_40",
     });
-    expect(queryMock.mock.calls[0]?.[1]?.at(-1)).toBe(41);
+    // limit + 1 is the over-read that proves another page exists; it is no
+    // longer the last parameter now that the outcome predicate follows it.
+    expect(queryMock.mock.calls[0]?.[1]?.at(-4)).toBe(41);
+    // A full first slice answers the read outright; it must not widen.
+    expect(queryMock).toHaveBeenCalledTimes(1);
   });
 
   it("never correlates journals with text or fingerprint substring matching", () => {
@@ -268,5 +280,55 @@ describe("Meta History read model", () => {
       url: "https://example.test/?access_token=[redacted]&x=1",
     });
     expect(String(detail.long)).toHaveLength(4_000);
+  });
+});
+
+describe("the journal read is bounded before it is widened", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.getDb).mockReturnValue({ query: queryMock } as never);
+  });
+
+  const account = {
+    id: "act_1",
+    name: "Primary",
+    currency: "EUR",
+    timezone: "UTC",
+  };
+
+  it("widens the slice when a page comes back short, and proves the end", async () => {
+    // Two rows for a page of 40: the read cannot tell "that is everything" from
+    // "the slice was too narrow", so it has to look further before saying so.
+    queryMock.mockResolvedValue([historyRow({ source_id: "log_1" })]);
+
+    await readMetaHistoryJournal({
+      query: { ...baseQuery, limit: 40 },
+      account,
+    });
+
+    const floors = queryMock.mock.calls.map((call) => (call[1] as unknown[]).at(-1));
+    expect(floors.length).toBeGreaterThan(1);
+    // Each slice reaches strictly further back than the last...
+    for (let index = 1; index < floors.length - 1; index += 1) {
+      expect(
+        Date.parse(String(floors[index])),
+        `slice ${index} must reach further back than slice ${index - 1}`,
+      ).toBeLessThan(Date.parse(String(floors[index - 1])));
+    }
+    // ...and the last one is unbounded, so "nothing older" is proven, not assumed.
+    expect(floors.at(-1)).toBeNull();
+  });
+
+  it("never widens past a from-date the caller asked for", async () => {
+    queryMock.mockResolvedValue([]);
+
+    await readMetaHistoryJournal({
+      query: { ...baseQuery, limit: 40, from: "2026-08-01" },
+      account,
+    });
+
+    // Widening past an explicit floor would read rows the caller excluded.
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect((queryMock.mock.calls[0]?.[1] as unknown[]).at(-1)).toBe("2026-08-01");
   });
 });

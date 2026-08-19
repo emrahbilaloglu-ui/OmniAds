@@ -28,6 +28,18 @@ vi.mock("@/lib/meta/cleanup", () => ({
   pruneMetaCreativeMediaOutsideRetention: vi.fn(),
 }));
 
+/**
+ * Stands in for the `MAX(updated_at)` read behind `warehouse_observed_at`.
+ *
+ * Mocked rather than left to fail by accident: without it the reader's own
+ * catch would swallow a connection error and every assertion below would pass
+ * against a null nobody had to produce.
+ */
+const dbQuery = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/db", () => ({
+  getDb: () => ({ query: dbQuery }),
+}));
+
 const creativeFetchers = await import("@/lib/meta/creatives-fetchers");
 const creativesService = await import("@/lib/meta/creatives-service");
 const cleanup = await import("@/lib/meta/cleanup");
@@ -35,6 +47,7 @@ const requestModelStore = await import("@/lib/meta/request-model-store");
 const warehouse = await import("@/lib/meta/warehouse");
 const {
   getMetaCreativesWarehousePayload,
+  readMetaCreativesWarehouseObservedAt,
   resolveMetaCreativesAccountScope,
   syncMetaCreativesWarehouseDay,
 } = await import("@/lib/meta/creatives-warehouse");
@@ -1159,5 +1172,79 @@ describe("meta creatives warehouse", () => {
     });
     if (payload.status !== "ok") throw new Error("expected scoped warehouse payload");
     expect(payload.media_hydrated).toBe(true);
+  });
+});
+
+describe("readMetaCreativesWarehouseObservedAt", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  /**
+   * WHY: the age of a table is a property of the write that produced it, not of
+   * the request that read it. The Assets bar used to be dated from the briefing
+   * snapshot's `observedAt` — when a decision computation ran — and on a live
+   * account the two were a day apart, so the chip aged the rows by a day they
+   * had not aged. This reads `MAX(updated_at)` over the exact rows the payload
+   * was built from and nothing else.
+   */
+  it("dates creative groupings from meta_creative_daily", async () => {
+    dbQuery.mockResolvedValue([{ observed_at: "2026-08-18T04:34:04.744Z" }]);
+
+    const observedAt = await readMetaCreativesWarehouseObservedAt({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      start: "2026-07-21",
+      end: "2026-08-17",
+      groupBy: "creative",
+    });
+
+    expect(observedAt).toBe("2026-08-18T04:34:04.744Z");
+    const [text, params] = dbQuery.mock.calls[0]!;
+    expect(text).toContain("FROM meta_creative_daily");
+    expect(params).toEqual(["biz_1", "act_1", "2026-07-21", "2026-08-17"]);
+  });
+
+  /**
+   * WHY: `getMetaCreativesWarehousePayload` builds ad and adName groupings from
+   * `meta_ad_daily` and creative/adSet groupings from `meta_creative_daily`.
+   * Reading the other table would date the rows from a sync that did not
+   * produce them — the Landing Pages surface reads `groupBy=ad`.
+   */
+  it("dates ad groupings from meta_ad_daily", async () => {
+    dbQuery.mockResolvedValue([{ observed_at: new Date("2026-08-18T04:59:40.635Z") }]);
+
+    const observedAt = await readMetaCreativesWarehouseObservedAt({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      start: "2026-07-21",
+      end: "2026-08-17",
+      groupBy: "ad",
+    });
+
+    expect(observedAt).toBe("2026-08-18T04:59:40.635Z");
+    expect(dbQuery.mock.calls[0]![0]).toContain("FROM meta_ad_daily");
+  });
+
+  /**
+   * WHY: an unreadable timestamp is an unknown age, never a fresh one. Both an
+   * empty window and a failed read must produce null so the surface says "age
+   * unknown" instead of implying a currency it cannot support.
+   */
+  it.each([
+    ["no rows in the window", async () => dbQuery.mockResolvedValue([{ observed_at: null }])],
+    ["a failed read", async () => dbQuery.mockRejectedValue(new Error("connection reset"))],
+  ])("returns null for %s", async (_label, arrange) => {
+    await arrange();
+
+    await expect(
+      readMetaCreativesWarehouseObservedAt({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        start: "2026-07-21",
+        end: "2026-08-17",
+        groupBy: "creative",
+      }),
+    ).resolves.toBeNull();
   });
 });

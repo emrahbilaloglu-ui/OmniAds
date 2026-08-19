@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
-import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
 import { buildCreativeStudioTabHrefs } from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
 import {
+  describeCopiesRowsClock,
   mapApiRowToCopyRow,
+  resolveCopiesFreshness,
   type CopyMotionRow,
+  type MetaCopiesResponse,
 } from "@/app/(dashboard)/platforms/meta/copies/page-support";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
@@ -25,26 +27,22 @@ import { formatMoney } from "@/components/creatives/money";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { hasDateWindowParams } from "@/lib/dashboard/date-window-url";
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import type { CreativeRouteWindow } from "@/lib/zero-base/creative/route-scope";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
-import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useAppStore } from "@/store/app-store";
-
-interface MetaCopiesResponse {
-  status?: string;
-  message?: string;
-  rows: MetaCopyApiRow[];
-  meta?: {
-    unresolved_filtered_count?: number;
-    generatedAt?: string;
-    warehouseObservedAt?: string | null;
-    provider_account_id?: string;
-  };
-}
 
 export interface CopiesPageProps {
   businessId?: string;
   providerAccountId?: string | null;
+  /**
+   * The window the canonical route parsed out of `?start`/`?end`, validated on
+   * the server. `null`/absent means the request named no window, which is not
+   * the same as asking for a default — the shell's range stays in charge.
+   */
+  serverDateWindow?: CreativeRouteWindow | null;
 }
 
 function hasMessage(payload: unknown): payload is { message: string } {
@@ -86,6 +84,25 @@ async function fetchCopyRows(params: {
     throw new Error("Invalid copies response received from backend.");
   }
   return payload as MetaCopiesResponse;
+}
+
+interface CommercialTargetsResponse {
+  snapshot?: {
+    targetPack?: { targetRoas?: number | null } | null;
+  } | null;
+}
+
+async function fetchCommercialTargetRoas(
+  businessId: string,
+): Promise<CommercialTargetsResponse> {
+  const response = await fetch(
+    `/api/business-commercial-settings?businessId=${encodeURIComponent(businessId)}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Commercial targets could not be read (${response.status}).`);
+  }
+  return (await response.json()) as CommercialTargetsResponse;
 }
 
 function toCsvCell(value: string | number | null | undefined): string {
@@ -135,32 +152,86 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
-function launchpadHref(input: {
-  pathname: string | null;
-  businessId: string;
-  providerAccountId: string;
-}) {
-  if (input.pathname?.startsWith("/c/")) {
-    const query = input.providerAccountId
-      ? `?providerAccountId=${encodeURIComponent(input.providerAccountId)}`
-      : "";
-    return `/c/${encodeURIComponent(input.businessId)}/meta/launchpad${query}`;
-  }
-  if (input.pathname?.startsWith("/app/")) {
-    const query = input.providerAccountId
-      ? `?providerAccountId=${encodeURIComponent(input.providerAccountId)}`
-      : "";
-    return `/app/meta/launchpad${query}`;
-  }
-  return buildMetaScopedHref("/platforms/meta/launchpad", {
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-  });
+/**
+ * There is still no `launchpadHref` here, and there will not be one.
+ *
+ * It built `/…/meta/launchpad?providerAccountId=…` and the drawer put that one
+ * URL on every alternate's "Draft" control under a footnote claiming the line's
+ * evidence was attached. The URL carried no copy id, no alternate text, no
+ * evidence window and no lineage, and a URL parameter cannot mint any of them.
+ *
+ * What carries the line now is `mintCopyLaunchpadHandoff` below: a POST the
+ * SERVER answers by re-reading the served copy for that creative and window,
+ * refusing any line Meta did not serve, and persisting an account-scoped,
+ * single-use record. Only the resulting reference travels in the URL, and the
+ * Launchpad route re-verifies and burns it server-side.
+ */
+
+interface CopyHandoffMintResult {
+  ok: boolean;
+  handoff: string | null;
+  message: string | null;
 }
 
+/**
+ * Asks the server to prepare a Launchpad draft for one alternate line.
+ *
+ * The body NAMES a creative, a window and a line. It asserts nothing: the
+ * server decides whether that line was served, what the selection is, and what
+ * authority (none) the resulting record carries.
+ */
+async function mintCopyLaunchpadHandoff(input: {
+  businessId: string;
+  providerAccountId: string;
+  creativeId: string;
+  alternateText: string;
+  start: string;
+  end: string;
+}): Promise<CopyHandoffMintResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/meta/launchpad-handoff/copy", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return {
+      ok: false,
+      handoff: null,
+      message: "The launch handoff service could not be reached.",
+    };
+  }
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = (await response.json()) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+  const message =
+    typeof payload?.message === "string" && payload.message.trim()
+      ? payload.message
+      : null;
+  const handoff =
+    typeof payload?.handoff === "string" && payload.handoff.trim()
+      ? payload.handoff
+      : null;
+  if (!response.ok || !handoff) {
+    // Never invent a success sentence for a refusal, and never invent a reason
+    // the server did not give.
+    return {
+      ok: false,
+      handoff: null,
+      message: message ?? "The launch draft was refused.",
+    };
+  }
+  return { ok: true, handoff, message };
+}
 export default function CopiesPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
+  serverDateWindow = null,
 }: CopiesPageProps = {}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -177,9 +248,28 @@ export default function CopiesPage({
     requestedProviderAccountId,
   );
   const [dashboardDateRange] = usePersistentDateRange();
-  const { start, end } = resolveCreativeDateRange(
+  const shellWindow = resolveCreativeDateRange(
     standardDateRangeToCreative(dashboardDateRange),
   );
+  // A link that names a window renders that window — but only when the shell is
+  // not already naming one.
+  //
+  // The shell's date control states its window on the URL as
+  // `?window`/`?startDate`/`?endDate` (`lib/dashboard/date-window-url.ts`) and
+  // `usePersistentDateRange` reads that back, so whenever those params are
+  // present the range above IS the URL's answer and this prop can only repeat
+  // it. What the prop adds is the Creative Studio's own `?start`/`?end`
+  // spelling, which the shell does not read: those links used to render
+  // whatever range this browser had stored. It steps aside the instant the
+  // operator moves the control, because moving it states a window on the URL.
+  //
+  // This is the one Studio surface whose preset is resolved with no reference
+  // date, i.e. against the browser clock, so before this the same "28d" link
+  // could open on two different windows for two operators. A stated window
+  // removes the clock from the answer entirely.
+  const linkWindow = hasDateWindowParams(searchParams) ? null : serverDateWindow;
+  const start = linkWindow?.start ?? shellWindow.start;
+  const end = linkWindow?.end ?? shellWindow.end;
   const [detailRowId, setDetailRowId] = useState<string | null>(null);
 
   const providerAccountsQuery = useQuery({
@@ -244,6 +334,44 @@ export default function CopiesPage({
     placeholderData: (previousData) => previousData,
   });
 
+  // The drawer's ROAS tile reads "target —" unless the operator's own target
+  // pack is read. This is the same authority every other target-aware surface
+  // uses (`/api/business-commercial-settings` → snapshot.targetPack), and it is
+  // business-scoped, so it is not gated on the account scope. A failed or
+  // unconfigured read stays null and the tile keeps its honest em dash.
+  const commercialTargetsQuery = useQuery<CommercialTargetsResponse>({
+    queryKey: ["copies-commercial-targets", businessId],
+    enabled: Boolean(businessId),
+    queryFn: () => fetchCommercialTargetRoas(businessId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const rawTargetRoas = commercialTargetsQuery.data?.snapshot?.targetPack?.targetRoas;
+  const targetRoas =
+    typeof rawTargetRoas === "number" && Number.isFinite(rawTargetRoas) && rawTargetRoas > 0
+      ? rawTargetRoas
+      : null;
+
+  // ITEM 16 — the endpoint's freshness lineage, bound to the bar.
+  //
+  // The page used to declare its own narrower `MetaCopiesResponse` carrying
+  // only `warehouseObservedAt`, and read exactly that. Four facts
+  // `/api/meta/copies` publishes were therefore dropped on the floor —
+  // `isPartial`, `notReadyReason`, `readSource` and `rowsObservedAt` — and
+  // `resolveCopiesFreshness` had no importer at all outside its own test, so
+  // the endpoint half reached no pixel.
+  //
+  // TWO CLOCKS, KEPT APART, which is why `warehouseObservedAt` is not read here
+  // any more. It is `MAX(updated_at)` over the warehouse for this window. The
+  // copies route builds its rows from `/api/meta/creatives`, and on the
+  // current-day and fallback paths that reads Meta LIVE and touches no
+  // warehouse row — so on those paths the warehouse instant is the age of
+  // DIFFERENT data than the table shows. `rowsObservedAt` is the warehouse
+  // instant only when `readSource === "warehouse"`, and null otherwise; null
+  // renders "age unknown", and the surface says which clock it is using by
+  // appending the live-read note to the partial reason.
+  const copiesFreshness = resolveCopiesFreshness(copiesQuery.data);
+
   useTierZeroFreshness({
     surface: "creative_studio",
     isLoading:
@@ -253,7 +381,13 @@ export default function CopiesPage({
       (!hasAuthorizedProviderScope && providerAccountsQuery.isFetching) ||
       copiesQuery.isFetching,
     error: copiesQuery.error ?? providerAccountsQuery.error,
-    asOf: measuredAsOf(copiesQuery.data?.meta?.warehouseObservedAt ?? null),
+    // `resolveCopiesFreshness` already refuses anything that is not a measured
+    // instant, and this restates that law at the surface boundary — the same
+    // sentence every other Tier-0 surface writes, and the one
+    // `lib/tier-zero-as-of.test.ts` reads back. `measuredAsOf` is idempotent on
+    // an ISO instant, so this narrows and never widens.
+    asOf: measuredAsOf(copiesFreshness.asOf),
+    partialReason: copiesFreshness.partialReason,
     businessId: businessId || null,
     onRetry: () => {
       if (!hasAuthorizedProviderScope && providerAccountsQuery.isError) {
@@ -263,6 +397,9 @@ export default function CopiesPage({
     },
   });
 
+  // No client-side ad counting. `?groupBy=copy` already merged the per-ad rows,
+  // so grouping the served rows again could only ever answer 1; the count
+  // travels on each row as `associated_ads_count` and the mapper reads it.
   const rows = useMemo(
     () =>
       (copiesQuery.data?.rows ?? [])
@@ -307,6 +444,15 @@ export default function CopiesPage({
             : rows.length === 0
               ? "No copy performance is available for this account and date range."
               : null;
+  // The lineage sentence the operator can actually read, in the Copy
+  // performance header pill. The shell's age pill is one number and cannot say
+  // whose clock it is; `partialReason` is the server's own words about an
+  // incomplete window, and the clock note names the source when the window is
+  // complete. Nothing here invents a reason — both strings come from the
+  // endpoint's published metadata.
+  const copiesLineageNote =
+    copiesFreshness.partialReason ?? describeCopiesRowsClock(copiesQuery.data);
+
   const model = useMemo(() => {
     const base = buildCreativeStudioCopiesModel({
       rows,
@@ -329,14 +475,77 @@ export default function CopiesPage({
         usage: null,
       });
     }
-    return { ...base, angles: angles.slice(0, 4) };
-  }, [message, rows, state]);
+    return {
+      ...base,
+      angles: angles.slice(0, 4),
+      insight: copiesLineageNote,
+      // The subtitle names the window these rows were measured over, which is
+      // the window the request carried. It used to be the literal "28d".
+      windowLabel: start && end ? `${start} → ${end}` : null,
+    };
+  }, [copiesLineageNote, end, message, rows, start, state]);
   const activeDetailRow = useMemo(
     () => rows.find((row) => row.id === detailRowId) ?? null,
     [detailRowId, rows],
   );
   const closeDetailDrawer = useCallback(() => setDetailRowId(null), []);
   const drawerPeers = useMemo(() => rows.map(toCopyDrawerRow), [rows]);
+
+  /**
+   * Preparing a Launchpad draft for one alternate line.
+   *
+   * All three scope facts have to be established before the control is offered:
+   * without a business, an assigned account and a window there is nothing to
+   * name to the endpoint, and offering the control would promise a refusal.
+   */
+  const [draftPending, setDraftPending] = useState(false);
+  const [draftStatusMessage, setDraftStatusMessage] = useState<string | null>(
+    null,
+  );
+  const draftingAvailable = Boolean(businessId && providerAccountId && start && end);
+  const handleDraftAlternate = useCallback(
+    (alternate: { text?: string | number | null }) => {
+      const creativeId = activeDetailRow?.creativeId?.trim() ?? "";
+      const alternateText =
+        typeof alternate.text === "string" ? alternate.text.trim() : "";
+      if (!draftingAvailable || !creativeId || !alternateText) return;
+      setDraftPending(true);
+      setDraftStatusMessage(null);
+      void mintCopyLaunchpadHandoff({
+        businessId,
+        providerAccountId,
+        creativeId,
+        alternateText,
+        start,
+        end,
+      })
+        .then((result) => {
+          if (!result.ok || !result.handoff) {
+            setDraftStatusMessage(result.message);
+            return;
+          }
+          // Only the reference travels. No copy text, no creative id, no window
+          // and no lineage ride in the URL — Launchpad reads all of that back
+          // out of the record it re-verifies server-side.
+          window.location.assign(
+            buildMetaScopedHref(
+              "/platforms/meta/launchpad",
+              { businessId, providerAccountId },
+              { handoff: result.handoff },
+            ),
+          );
+        })
+        .finally(() => setDraftPending(false));
+    },
+    [
+      activeDetailRow?.creativeId,
+      businessId,
+      draftingAvailable,
+      end,
+      providerAccountId,
+      start,
+    ],
+  );
   const tabHrefs = buildCreativeStudioTabHrefs({
     pathname,
     businessId,
@@ -363,16 +572,15 @@ export default function CopiesPage({
         />
         {activeDetailRow ? (
           <CopyDetailDrawerExact
+            draftPending={draftPending}
             onClose={closeDetailDrawer}
+            onDraftAlternate={draftingAvailable ? handleDraftAlternate : undefined}
             viewModel={buildCopyDetailDrawerExactViewModel({
               row: toCopyDrawerRow(activeDetailRow),
               peers: drawerPeers,
-              targetRoas: null,
-              draftHref: launchpadHref({
-                pathname,
-                businessId,
-                providerAccountId,
-              }),
+              targetRoas,
+              draftingAvailable,
+              draftStatusMessage,
             })}
           />
         ) : null}
@@ -390,6 +598,9 @@ export default function CopiesPage({
 function toCopyDrawerRow(row: CopyMotionRow): CopyDetailDrawerExactRow {
   return {
     id: row.id,
+    // The provider creative, which is what the handoff endpoint names. The row
+    // id is a synthetic copy-bucket key and names no provider object.
+    creativeId: row.creativeId ?? null,
     text: row.copyText ?? null,
     assetType: row.copyAssetType ?? null,
     angle: row.copyAngle ?? null,

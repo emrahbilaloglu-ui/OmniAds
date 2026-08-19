@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import styles from "./MetaDecisionCenterExact.module.css";
 
@@ -122,6 +122,7 @@ export interface MetaDecisionCenterExactHealthyGroupViewModel {
 }
 
 export interface MetaDecisionCenterExactNonSalesViewModel {
+  id?: string;
   name?: MetaDecisionCenterExactDisplayValue;
   level?: MetaDecisionCenterExactDisplayValue;
   contextLabel?: MetaDecisionCenterExactDisplayValue;
@@ -208,8 +209,17 @@ export interface MetaDecisionCenterExactViewModel {
   watchSegments?: readonly MetaDecisionCenterExactWatchSegmentViewModel[];
   watchingRows?: readonly MetaDecisionCenterExactWatchingRowViewModel[];
   healthyGroups?: readonly MetaDecisionCenterExactHealthyGroupViewModel[];
-  nonSales?: MetaDecisionCenterExactNonSalesViewModel | null;
+  nonSales?: readonly MetaDecisionCenterExactNonSalesViewModel[] | null;
   archiveRows?: readonly MetaDecisionCenterExactArchiveRowViewModel[];
+  /**
+   * Why the Creatives scope has nothing to show, when that is knowable.
+   *
+   * An empty queue and a refused decision source look identical, and the second
+   * is the one an operator needs to know about. Rendered in place rather than as
+   * a page banner: the question is asked inside this scope, so it is answered
+   * there.
+   */
+  creativesNotice?: MetaDecisionCenterExactDisplayValue;
   creativePosture?: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   creativeDecisions?: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   inspector?: MetaDecisionCenterExactInspectorViewModel | null;
@@ -230,6 +240,13 @@ export interface MetaDecisionCenterExactProps {
   onManageLabels?: () => void;
   onSortChange?: (sort: MetaDecisionCenterExactSort) => void;
   onSearchChange?: (query: string) => void;
+  /**
+   * The search term restored from the deep link. The queue is filtered by
+   * the page against this same value, so if the box did not show it the
+   * operator saw a filtered queue, an empty search box, and no explanation
+   * for the rows that were missing.
+   */
+  initialQuery?: string;
   onOpenCreativeStudio?: () => void;
 }
 
@@ -259,6 +276,10 @@ function display(value: MetaDecisionCenterExactDisplayValue): string {
   return value.trim() || EM_DASH;
 }
 
+function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function toneClass(tone: MetaDecisionCenterExactTone | null | undefined): string {
   return TONE_CLASS[tone ?? "neutral"];
 }
@@ -285,12 +306,48 @@ function callWithPropagationStopped(event: MouseEvent, callback?: () => void) {
   callback?.();
 }
 
+/**
+ * Keyboard operation for the controls the design draws as spans and divs.
+ *
+ * The reference pins these as non-button elements and the geometry tests pin
+ * that back, so they keep their tag. What they cannot keep is being unreachable:
+ * a scope tab, a lane tab, a window segment and the row overflow glyph were all
+ * plain `onClick` spans, which meant the entire queue was mouse-only. Role,
+ * tab stop and Enter/Space go on without moving a pixel.
+ */
+function activate(event: KeyboardEvent, callback?: () => void) {
+  if (!callback) return;
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  callback();
+}
+
+/** Props that turn a design-pinned span/div into a real, named control. */
+function controlProps(callback: (() => void) | undefined, label?: string) {
+  return {
+    role: "button" as const,
+    tabIndex: callback ? 0 : -1,
+    "aria-disabled": callback ? undefined : true,
+    "aria-label": label,
+    onClick: callback,
+    onKeyDown: (event: KeyboardEvent) => activate(event, callback),
+  };
+}
+
 function ExactKpiBand({
   kpis,
   onManageLabels,
+  activeWindow,
 }: {
   kpis?: MetaDecisionCenterExactKpisViewModel;
   onManageLabels?: () => void;
+  /**
+   * The window the header control shows as pressed. Used ONLY while the
+   * served label is absent — during loading the window is already known from
+   * the control, so an em-dash here would contradict the pill beside it,
+   * while a hardcoded "28d" would assert a window nobody selected.
+   */
+  activeWindow: string;
 }) {
   const modeChips = slots(kpis?.mode?.chips, 2);
   return (
@@ -306,7 +363,7 @@ function ExactKpiBand({
 
       <article className={styles.kpiCard}>
         <p className={styles.kpiLabel}>
-          {display(kpis?.roas?.label ?? "ROAS · 28d")}
+          {display(kpis?.roas?.label ?? `ROAS · ${activeWindow}`)}
         </p>
         <p className={styles.kpiValue}>
           {display(kpis?.roas?.value)}{" "}
@@ -347,7 +404,7 @@ function ExactKpiBand({
           {display(kpis?.labels?.coverage)}{" "}
           <span className={styles.labelPercentage}>{display(kpis?.labels?.percentage)}</span>
         </p>
-        <p className={styles.manageLabels} onClick={onManageLabels}>
+        <p className={styles.manageLabels} {...controlProps(onManageLabels)}>
           Manage labels →
         </p>
       </article>
@@ -414,7 +471,10 @@ function ActionLane({ rows }: { rows: readonly MetaDecisionCenterExactActionRowV
           >
             {display(row.actionLabel)}
           </button>
-          <span className={styles.moreAction} onClick={row.onMenu}>
+          <span
+            className={styles.moreAction}
+            {...controlProps(row.onMenu, `Open evidence for ${display(row.name)}`)}
+          >
             ⋯
           </span>
         </article>
@@ -487,10 +547,20 @@ function HealthyLane({ groups }: { groups: readonly MetaDecisionCenterExactHealt
   );
 }
 
-function NonSalesLane({ card }: { card?: MetaDecisionCenterExactNonSalesViewModel | null }) {
+function NonSalesCard({
+  card,
+  id,
+}: {
+  card?: MetaDecisionCenterExactNonSalesViewModel | null;
+  id?: string;
+}) {
   const metrics = slots(card?.metrics, 4);
   return (
-    <article className={styles.nonSalesCard} data-meta-exact-nonsales>
+    <article
+      className={styles.nonSalesCard}
+      data-meta-exact-nonsales
+      data-meta-exact-nonsales-row={id}
+    >
       <div className={styles.nonSalesHeading}>
         <span className={styles.nonSalesName}>{display(card?.name)}</span>
         <span className={styles.nonSalesLevel}>{display(card?.level)}</span>
@@ -509,7 +579,37 @@ function NonSalesLane({ card }: { card?: MetaDecisionCenterExactNonSalesViewMode
   );
 }
 
-function ArchiveLane({ rows }: { rows: readonly MetaDecisionCenterExactArchiveRowViewModel[] }) {
+/**
+ * Every non-sales entity, not just the first.
+ *
+ * The lane tab counts them all and the queue used to render exactly one card,
+ * so an account with four upper-funnel campaigns showed `Non-sales 4` above a
+ * single campaign and silently dropped three.
+ */
+function NonSalesLane({
+  cards,
+}: {
+  cards: readonly MetaDecisionCenterExactNonSalesViewModel[];
+}) {
+  if (cards.length === 0) return <NonSalesCard card={null} />;
+  return (
+    <>
+      {cards.map((card, index) => (
+        <NonSalesCard card={card} id={card.id ?? `non-sales-${index}`} key={card.id ?? index} />
+      ))}
+    </>
+  );
+}
+
+function ArchiveLane({
+  rows,
+  windowLabel,
+}: {
+  rows: readonly MetaDecisionCenterExactArchiveRowViewModel[];
+  // The window is selectable from the header, so a fixed "28d" in this
+  // column is a claim about which days were summed.
+  windowLabel: string;
+}) {
   return (
     <article className={styles.archiveCard} data-meta-exact-archive>
       <table className={styles.archiveTable}>
@@ -517,7 +617,7 @@ function ArchiveLane({ rows }: { rows: readonly MetaDecisionCenterExactArchiveRo
           <tr>
             <th>Entity</th>
             <th>Status</th>
-            <th>Spend · 28d</th>
+            <th>{`Spend · ${windowLabel}`}</th>
             <th>Note</th>
             <th aria-label="Action" />
           </tr>
@@ -556,10 +656,12 @@ function ArchiveLane({ rows }: { rows: readonly MetaDecisionCenterExactArchiveRo
 function CreativesScope({
   posture,
   decisions,
+  notice,
   onOpenCreativeStudio,
 }: {
   posture: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
+  notice?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
   return (
@@ -581,10 +683,21 @@ function CreativesScope({
         const stripeB = row.stripeB?.trim() || "#F7F9FC";
         return (
           <article
+            aria-label={
+              row.onOpen ? `Open evidence for ${display(row.name)}` : undefined
+            }
             className={`${styles.creativeCard} ${toneClass(row.edgeTone)}`}
             data-meta-exact-creative-row={row.id}
             key={row.id}
-            onClick={row.onOpen}
+            {...(row.onOpen
+              ? {
+                  role: "button" as const,
+                  tabIndex: 0,
+                  onClick: row.onOpen,
+                  onKeyDown: (event: KeyboardEvent) =>
+                    activate(event, row.onOpen),
+                }
+              : {})}
           >
             <span
               className={styles.creativeThumb}
@@ -637,17 +750,35 @@ function CreativesScope({
             >
               {display(row.actionLabel)}
             </button>
-            <span className={styles.evidenceLink}>Evidence →</span>
+            <span
+              className={styles.evidenceLink}
+              {...controlProps(
+                row.onOpen
+                  ? () => row.onOpen?.()
+                  : undefined,
+                `Evidence for ${display(row.name)}`,
+              )}
+              onClick={(event) => callWithPropagationStopped(event, row.onOpen)}
+            >
+              Evidence →
+            </span>
           </article>
         );
       })}
+      {decisions.length === 0 && nonBlankDisplay(notice) ? (
+        <p className={styles.creativeNotice} data-meta-exact-creative-notice role="status">
+          {display(notice)}
+        </p>
+      ) : null}
       <div className={styles.creativeFootnote}>
         <p>
           The engine makes only three ad-level calls — refresh, retire, scale winner. Click a row
           for the evidence window; metric deep-dives and side-by-side comparison live in Creative
           Studio.
         </p>
-        <span onClick={onOpenCreativeStudio}>Open Creative Studio →</span>
+        <span {...controlProps(onOpenCreativeStudio)}>
+          Open Creative Studio →
+        </span>
       </div>
     </>
   );
@@ -764,12 +895,13 @@ export function MetaDecisionCenterExact({
   onManageLabels,
   onSortChange,
   onSearchChange,
+  initialQuery = "",
   onOpenCreativeStudio,
 }: MetaDecisionCenterExactProps) {
   const [internalScope, setInternalScope] = useState<MetaDecisionCenterExactScope>(defaultScope);
   const [internalLane, setInternalLane] = useState<MetaDecisionCenterExactLane>(defaultLane);
   const [sort, setSort] = useState<MetaDecisionCenterExactSort>("money");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
 
   const activeScope = scope ?? internalScope;
   const activeLane = lane ?? internalLane;
@@ -777,7 +909,15 @@ export function MetaDecisionCenterExact({
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
   const identity = viewModel.identity;
-  const showInspector = inspectorOpen && activeScope === "structure" && activeLane === "action";
+  // The reference resolves the two-column grid for the Action state, and that
+  // is where the inspector always sits. Watching gets it too, but only once a
+  // row has actually been reviewed: its "Review" button had nowhere to put the
+  // evidence on desktop, so pressing it changed nothing at all.
+  const showInspector =
+    inspectorOpen &&
+    activeScope === "structure" &&
+    (activeLane === "action" ||
+      (activeLane === "watching" && viewModel.inspector != null));
 
   function selectScope(nextScope: MetaDecisionCenterExactScope) {
     if (scope === undefined) setInternalScope(nextScope);
@@ -806,12 +946,16 @@ export function MetaDecisionCenterExact({
           <span className={styles.windowControl}>
             {WINDOWS.map((window) => (
               <span
+                aria-pressed={activeWindow === window}
                 className={`${styles.windowOption} ${
                   activeWindow === window ? styles.windowOptionActive : ""
                 }`}
                 data-meta-exact-window={window}
                 key={window}
-                onClick={() => onWindowChange?.(window)}
+                {...controlProps(
+                  onWindowChange ? () => onWindowChange(window) : undefined,
+                  `Metrics window ${window}`,
+                )}
               >
                 {window}
               </span>
@@ -836,26 +980,28 @@ export function MetaDecisionCenterExact({
         </div>
       </div>
 
-      <ExactKpiBand kpis={viewModel.kpis} onManageLabels={onManageLabels} />
+      <ExactKpiBand kpis={viewModel.kpis} onManageLabels={onManageLabels} activeWindow={activeWindow ?? EM_DASH} />
 
       <div className={styles.scopeRow}>
         <span className={styles.scopeControl}>
           <span
+            aria-pressed={activeScope === "structure"}
             className={`${styles.scopeOption} ${
               activeScope === "structure" ? styles.scopeOptionActive : ""
             }`}
             data-meta-exact-scope="structure"
-            onClick={() => selectScope("structure")}
+            {...controlProps(() => selectScope("structure"))}
           >
             Campaigns &amp; Ad sets
             <span>{display(counts?.structure)}</span>
           </span>
           <span
+            aria-pressed={activeScope === "creatives"}
             className={`${styles.scopeOption} ${
               activeScope === "creatives" ? styles.scopeOptionActive : ""
             }`}
             data-meta-exact-scope="creatives"
-            onClick={() => selectScope("creatives")}
+            {...controlProps(() => selectScope("creatives"))}
           >
             Creatives
             <span>{display(counts?.creatives)}</span>
@@ -871,12 +1017,13 @@ export function MetaDecisionCenterExact({
         <div className={styles.laneToolbar} data-meta-exact-lane-toolbar>
           {LANES.map((item) => (
             <span
+              aria-pressed={activeLane === item.id}
               className={`${styles.laneOption} ${
                 activeLane === item.id ? styles.laneOptionActive : ""
               }`}
               data-meta-exact-lane={item.id}
               key={item.id}
-              onClick={() => selectLane(item.id)}
+              {...controlProps(() => selectLane(item.id))}
             >
               {item.label}
               <span>{display(counts?.[item.id])}</span>
@@ -927,14 +1074,15 @@ export function MetaDecisionCenterExact({
             <HealthyLane groups={viewModel.healthyGroups ?? []} />
           ) : null}
           {activeScope === "structure" && activeLane === "nonsales" ? (
-            <NonSalesLane card={viewModel.nonSales} />
+            <NonSalesLane cards={viewModel.nonSales ?? []} />
           ) : null}
           {activeScope === "structure" && activeLane === "archive" ? (
-            <ArchiveLane rows={viewModel.archiveRows ?? []} />
+            <ArchiveLane rows={viewModel.archiveRows ?? []} windowLabel={activeWindow ?? EM_DASH} />
           ) : null}
           {activeScope === "creatives" ? (
             <CreativesScope
               decisions={viewModel.creativeDecisions ?? []}
+              notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
             />

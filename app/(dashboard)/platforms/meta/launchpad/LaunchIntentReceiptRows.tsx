@@ -27,13 +27,39 @@ export function launchIntentDisplayName(intent: MetaLaunchIntent) {
   return targetName || "—";
 }
 
-function adsManagerLink(intent: MetaLaunchIntent) {
+/**
+ * The campaign the intent's ads actually landed in.
+ *
+ * `add_to_existing` never creates a campaign, so `buildMetaLaunchIntentResultReceipt`
+ * stores `campaignId: null` for it and every such receipt used to be dropped from
+ * this card. Its campaign is the persisted request target instead. It is only
+ * surfaced once at least one ad really landed, so the link can never open a
+ * campaign this intent did not touch.
+ */
+export function landedCampaignId(intent: MetaLaunchIntent) {
   const receipt = intent.resultReceipt ?? intent.errorReceipt?.partialResult;
+  if (!receipt) return null;
+  const createdCampaignId = receipt.campaignId?.trim();
+  if (createdCampaignId) return createdCampaignId;
+  if (intent.operation !== "add_to_existing") return null;
+  if (receipt.adIds.length === 0) return null;
+  const payload = record(intent.requestPayload);
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const firstTarget = record(targets[0]);
+  const targetCampaignId =
+    typeof firstTarget?.targetCampaignId === "string"
+      ? firstTarget.targetCampaignId.trim()
+      : "";
+  return targetCampaignId || null;
+}
+
+function adsManagerLink(intent: MetaLaunchIntent) {
+  const campaignId = landedCampaignId(intent);
   const account = intent.providerAccountId?.replace(/^act_/, "").trim();
-  if (!receipt?.campaignId || !account) return null;
+  if (!campaignId || !account) return null;
   const params = new URLSearchParams({
     act: account,
-    selected_campaign_ids: receipt.campaignId,
+    selected_campaign_ids: campaignId,
   });
   return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?${params.toString()}`;
 }
@@ -46,6 +72,24 @@ function isLandedReceipt(intent: MetaLaunchIntent) {
       intent.status === "silent_failure") &&
     adsManagerLink(intent) != null
   );
+}
+
+/**
+ * The provider state this receipt can actually prove.
+ *
+ * The row used to print `intent.requestedStatus`, which is always "PAUSED" —
+ * what we *asked* for, not what happened. A `silent_failure` intent is one the
+ * surface itself defines as unverified ("the provider call returned success,
+ * but verification could not confirm the entity"), and a `failed` intent's
+ * partial objects were never confirmed either. Both stay listed and linkable,
+ * because a real provider object exists and needs reconciling in Meta — but
+ * their status cell must not claim a state verification never established. An
+ * unverified state is an unsupplied fact, so it renders as an em-dash.
+ */
+export function receiptStatusLabel(intent: MetaLaunchIntent) {
+  return intent.status === "succeeded" || intent.status === "partially_succeeded"
+    ? intent.requestedStatus
+    : "—";
 }
 
 function formatTimestamp(value: string | null, actor: string | null) {
@@ -72,7 +116,10 @@ function terminalTimestamp(intent: MetaLaunchIntent) {
   );
 }
 
-/** Canonical Launchpad receipt row: id, name, PAUSED, time and provider link. */
+/**
+ * Canonical Launchpad receipt row: id, name, provider state, time and link.
+ * The state cell is `receiptStatusLabel`, not the requested status.
+ */
 export function LaunchIntentReceiptRows({
   intents,
 }: {
@@ -94,8 +141,16 @@ export function LaunchIntentReceiptRows({
               <span className={styles.exactReceiptName}>
                 {launchIntentDisplayName(intent)}
               </span>
-              <span className={styles.exactReceiptStatus}>
-                {intent.requestedStatus}
+              {/* Same single chip, same five-field row. `data-empty` is the
+                  existing "this cell has no value" treatment — reused rather
+                  than a new style, so the layout is untouched. */}
+              <span
+                className={styles.exactReceiptStatus}
+                data-empty={
+                  receiptStatusLabel(intent) === "—" ? "true" : undefined
+                }
+              >
+                {receiptStatusLabel(intent)}
               </span>
               <span className={styles.exactReceiptTime}>
                 {formatTimestamp(terminalTimestamp(intent), null)}

@@ -51,6 +51,20 @@ export interface CopyDetailDrawerExactViewModel {
 export interface CopyDetailDrawerExactProps {
   viewModel: CopyDetailDrawerExactViewModel;
   onClose: () => void;
+  /**
+   * Ask the host to prepare a Launchpad draft for one alternate.
+   *
+   * A CALLBACK rather than an href, because preparing a draft is a POST that
+   * the server has to answer: it re-reads the served copy for this creative and
+   * this window and refuses a line Meta never served. A link could only have
+   * carried claims, which is exactly what the removed `draftHref` did.
+   *
+   * Absent means the host cannot prepare one, and the control stays disabled
+   * rather than becoming a link to a generic Launchpad URL.
+   */
+  onDraftAlternate?: (alternate: CopyDetailDrawerExactAlternate) => void;
+  /** True while a draft is being prepared, so the control cannot be double-fired. */
+  draftPending?: boolean;
 }
 
 const TONE_CLASS: Record<CopyDetailDrawerExactTone, string> = {
@@ -80,7 +94,12 @@ function stopPropagation(event: MouseEvent) {
   event.stopPropagation();
 }
 
-export function CopyDetailDrawerExact({ viewModel, onClose }: CopyDetailDrawerExactProps) {
+export function CopyDetailDrawerExact({
+  viewModel,
+  onClose,
+  onDraftAlternate,
+  draftPending = false,
+}: CopyDetailDrawerExactProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -195,7 +214,20 @@ export function CopyDetailDrawerExact({ viewModel, onClose }: CopyDetailDrawerEx
                           Draft →
                         </a>
                       ) : (
-                        <button className={styles.draftButton} disabled type="button">
+                        // Same element and same class in both states; only
+                        // `disabled` and the handler differ. Enabled exactly
+                        // when a host can actually prepare a draft for this
+                        // line — never as a link to a generic Launchpad URL.
+                        <button
+                          className={styles.draftButton}
+                          disabled={!onDraftAlternate || draftPending || !alternate.text}
+                          onClick={
+                            onDraftAlternate
+                              ? () => onDraftAlternate(alternate)
+                              : undefined
+                          }
+                          type="button"
+                        >
                           Draft →
                         </button>
                       )}

@@ -1,29 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  ArrowRight,
-  ChevronDown,
-  History,
-  ImageOff,
-  PanelLeft,
-  Plus,
-  RefreshCw,
-  Rocket,
-  TrendingUp,
-  X,
-} from "lucide-react";
-import {
-  CompareDrawer,
   TrackingConfirmModal,
   useDeferState,
-  type CompareDrawerItem,
 } from "@/components/common/briefing";
 import {
-  DateRangePicker,
   dateWindowToRangeValue,
   getTodayIsoForTimeZone,
   normalizeDateWindowBounds,
@@ -34,7 +18,6 @@ import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type {
   MetaCanonicalDecision,
-  MetaDecisionQueueSection,
 } from "@/lib/meta/decisions-workspace-contract";
 import {
   describeDecisionWorkspaceFailure,
@@ -42,16 +25,23 @@ import {
 } from "@/lib/meta/workspace-failure";
 import type {
   MetaOsAdDecision,
-  MetaOsDecisionsPresentation,
 } from "@/lib/meta/decisions-os-contract";
-import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import {
+  describeLaunchpadHandoffRefusal,
+  parseLaunchpadHandoffRefusal,
+} from "@/lib/meta/launchpad-handoff-contract";
+import {
+  DATE_WINDOW_INCLUDES_CURRENT_DAY,
+  resolveDateWindowFromParams,
+} from "@/lib/dashboard/date-window-url";
 import { cn } from "@/lib/utils";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import {
   MetaDecisionCenterExact,
   type MetaDecisionCenterExactLane,
+  type MetaDecisionCenterExactScope,
   type MetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactWindow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
@@ -74,22 +64,19 @@ import {
   structuredMetricsForRec,
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
-import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
+import { formatCurrency } from "@/lib/briefing/utils";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type {
-  MetaArchivedEntity,
   MetaDecisionsWorkspacePayload,
   MetaDecisionsWorkspaceBanner as MetaWorkspaceBanner,
   MetaDrillItem,
-  MetaHealthyEntity,
-  MetaLanePayload,
   MetaLaunchMode,
   MetaPulsePayload,
-  MetaWatchingSegment,
   MetaWindowKey,
 } from "@/components/meta/redesign/types";
 
@@ -97,6 +84,29 @@ interface MetaPlatformPageProps {
   businessId: string;
   businessName?: string | null;
   currency?: string | null;
+  /**
+   * The provider account the server already resolved, assignment-verified.
+   *
+   * Used as a fallback when the client's own accounts read produced nothing.
+   * `resolveProviderAccountId` refuses an unassigned requested id and refuses
+   * to choose for a multi-account business, so this can never widen scope — it
+   * only keeps the workspace readable when `/api/meta/history/accounts` is the
+   * one read that is down.
+   *
+   * CORRECTION (this file previously stated the opposite):
+   * `/api/meta/decisions-workspace` DOES re-verify the requested account
+   * against the business's assignments. `canonicalDecisionReadModel()` in
+   * `app/api/meta/decisions-workspace/route.ts` calls
+   * `getProviderAccountAssignments(businessId, "meta")` and returns
+   * `403 provider_account_not_assigned` when the requested id is not in
+   * `account_ids`; the GET handler propagates that status for the whole
+   * response. An unreadable assignment source degrades to the
+   * `provider_account_scope_unverified` unavailable model rather than to a
+   * read. So the endpoint is not the reason a raw URL value is unacceptable
+   * here — the reason is that this prop is the surface's own fail-closed scope
+   * and a client must not mint scope it has not had verified.
+   */
+  serverProviderAccountId?: string | null;
 }
 
 interface AnomaliesPayload {
@@ -112,8 +122,6 @@ interface OverlayState {
 }
 
 const EMPTY_OVERLAY: OverlayState = { open: false, mode: "rebuild", rec: null };
-export const META_MONITOR_PAGE_SIZE = 48;
-
 export function resolveMetaDecisionMoneyCurrency(
   decisionCurrency: string | null | undefined,
   providerCurrency: string | null | undefined,
@@ -152,70 +160,41 @@ export function interpretMetaSnapshotRunResponse(
   return { ok: false, message };
 }
 
-export function paginateMetaMonitorRows<T>(rows: T[], page: number): T[] {
-  const safePage = Math.max(1, Math.trunc(page) || 1);
-  const start = (safePage - 1) * META_MONITOR_PAGE_SIZE;
-  return rows.slice(start, start + META_MONITOR_PAGE_SIZE);
-}
-
-type LocalResponseState = "acted" | "deferred" | "ignored";
-type PrimaryActionFeedback = {
-  recId: string;
-  tone: "success" | "error" | "info";
+/**
+ * The one place the screen speaks back.
+ *
+ * Every refusal and every outcome used to be written into a second state that
+ * nothing rendered, so a read-only viewer, a review-only verdict and a failed
+ * snapshot all looked identical: a click that did nothing. They all land here
+ * now, in the banner the design already reserves for exceptional states.
+ */
+type MetaDecisionNotice = {
+  tone: "info" | "warning" | "danger" | "success";
   title: string;
   detail?: string | null;
 };
+function metaNoticeToneClass(tone: MetaDecisionNotice["tone"]): string {
+  if (tone === "danger") return "danger";
+  if (tone === "success") return "success";
+  if (tone === "warning") return "warn";
+  return "info";
+}
+
 type MetaLaneView = "action" | "watching" | "healthy" | "nonSales" | "archive";
-type MetaLevelFilter = "campaign" | "adset";
 
-interface MetaScopeAdset {
-  id: string;
-  name: string;
-  label: string | null;
-}
-
-interface MetaScopeCampaign {
-  id: string;
-  name: string;
-  actionCount: number;
-  watchingCount: number;
-  adsets: MetaScopeAdset[];
-}
-
-// Client-only queue-local filter: hide rows whose server-supplied spend is
-// below this window threshold. Rows with a null spend stay HIDDEN when the
-// toggle is on - they are never coerced to 0 (honesty law).
-const META_MIN_SPEND_THRESHOLD = 50;
-
-function passesMetaMinSpend(
-  rec: MetaRecommendation,
-  enabled: boolean,
-): boolean {
-  if (!enabled) return true;
-  const spend = rec.metrics?.spend;
-  return (
-    typeof spend === "number" &&
-    Number.isFinite(spend) &&
-    spend >= META_MIN_SPEND_THRESHOLD
-  );
-}
-
-// Fixed render order for the Watching lane segmentation. Any segment the
-// server did not describe still renders (header + count only) so no row is
-// silently dropped, but the ordering stays stable across snapshots.
-type MetaWatchingSegmentKey = MetaWatchingSegment["key"];
-const META_WATCHING_SEGMENT_ORDER: MetaWatchingSegmentKey[] = [
-  "issues",
-  "missing_target",
-  "unlabeled",
-  "learning",
-  "mid_confidence",
-  "insufficient_signal",
-  "recently_changed",
-  "deferred",
-  "other",
-];
-
+/**
+ * Two lane vocabularies reach this screen and only one is current.
+ *
+ * The live one is `watching|healthy|nonSales|archive` (plus the implicit
+ * `action`). The retired one is `act|test|watch`, from the decommissioned
+ * decisions URL contract in `lib/zero-base/meta/decisions-url-state.ts`; links
+ * carrying it still exist in pasted URLs and bookmarks. Those used to fall
+ * through the default and render Action Now — a link that says `lane=watch`
+ * silently showing a different lane is a lie about what the recipient is
+ * looking at. `watch` maps; `act` is Action Now; `test` had no lane in this
+ * taxonomy at all (it was a campaign label, not a queue lane), so it resolves
+ * to the default by an explicit decision rather than by omission.
+ */
 function parseMetaLaneView(value: string | null): MetaLaneView {
   if (
     value === "watching" ||
@@ -224,6 +203,8 @@ function parseMetaLaneView(value: string | null): MetaLaneView {
     value === "archive"
   )
     return value;
+  if (value === "watch") return "watching";
+  if (value === "act" || value === "test") return "action";
   return "action";
 }
 
@@ -238,6 +219,178 @@ function parseMetaWorkspaceLane(params: {
   if (segment === "out_of_scope") return "nonSales";
   if (segment === "structures") return "archive";
   return "watching";
+}
+
+/**
+ * The scope half of the queue's URL state.
+ *
+ * The lane was already deep-linkable and the scope was not, so a pasted link to
+ * a creative decision reopened on Campaigns & Ad sets and the operator had to
+ * find their way back. `structure` is the reference's resting scope and stays
+ * out of the query string.
+ */
+function parseMetaScope(
+  params: { get(name: string): string | null },
+): MetaDecisionCenterExactScope {
+  if (params.get("scope") === "creatives") return "creatives";
+  // The live "Open in Decisions" link on a creative row still speaks the
+  // retired vocabulary (`creativeId` + `row=ad:<adId>`, minted by
+  // lib/zero-base/creative/performance-adapter.ts). It named a creative and
+  // landed on Campaigns & Ad sets — exactly the failure that adapter's own
+  // comment says it is guarding against. A link that names a creative opens on
+  // creatives.
+  return parseMetaCreativeSelection(params) ? "creatives" : "structure";
+}
+
+/**
+ * The creative a link names, in either vocabulary.
+ *
+ * `row` is the retired contract's selected-row key and is only meaningful here
+ * in its `ad:<adId>` form; anything else names a structure row that the
+ * creative scope cannot open, so it is ignored rather than half-honoured.
+ * Returns null when the URL names no creative at all.
+ */
+function parseMetaCreativeSelection(params: {
+  get(name: string): string | null;
+}): { adId: string | null; creativeId: string | null } | null {
+  const row = params.get("row")?.trim() ?? "";
+  const adId = row.startsWith("ad:") ? row.slice(3).trim() || null : null;
+  const creativeId = params.get("creativeId")?.trim() || null;
+  if (!adId && !creativeId) return null;
+  return { adId, creativeId };
+}
+
+/**
+ * The row search term a link carries.
+ *
+ * `q` is the retired Decisions contract's search parameter
+ * (`lib/zero-base/meta/decisions-url-state.ts`) and it is still minted. The
+ * live surface has exactly the control it names — the queue's row search — so
+ * `q` is restored rather than reported as unsupported. Bounded to the same
+ * 128 characters the old contract bounded it to: an unbounded term is not a
+ * search, and it would ride into every link this screen mints back out.
+ */
+export const META_DEEP_LINK_SEARCH_MAX_LENGTH = 128;
+
+export function parseMetaRowSearch(params: {
+  get(name: string): string | null;
+}): string {
+  return (params.get("q") ?? "").trim().slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
+}
+
+export interface MetaDeepLinkCompatibilityEntry {
+  param: string;
+  value: string;
+  behaviour: string;
+}
+
+/**
+ * What this screen did with the parts of a link it cannot honour.
+ *
+ * A deep link is a promise. The retired contract minted `lane=act|test|watch`,
+ * `levels`, `q` and `row`; this screen serves a different lane set, has no
+ * level filter, and can only open a `row` that names an ad. Quietly falling
+ * back left an operator staring at an unfiltered Action now list convinced
+ * they were looking at the filtered view they pasted — the parameter was
+ * dropped and the screen said nothing.
+ *
+ * So: every parameter this screen cannot restore is named here with the
+ * behaviour that replaced it, and the screen states it. Parameters it CAN
+ * restore (`q`, `scope=creatives`, `entity`, `creativeId`, `row=ad:<id>`,
+ * `lane=act|watch`) are absent from this report precisely because they were
+ * honoured — silence here means "restored", never "ignored".
+ */
+export function describeMetaDeepLinkCompatibility(params: {
+  get(name: string): string | null;
+}): MetaDeepLinkCompatibilityEntry[] {
+  const entries: MetaDeepLinkCompatibilityEntry[] = [];
+
+  const rawLane = params.get("lane")?.trim() ?? "";
+  if (rawLane) {
+    const lane = rawLane.toLowerCase();
+    const restorable = new Set([
+      "act",
+      "action",
+      "watch",
+      "watching",
+      "healthy",
+      "nonsales",
+      "archive",
+    ]);
+    if (lane === "test") {
+      entries.push({
+        param: "lane",
+        value: rawLane,
+        behaviour:
+          "opened Action now — this queue has no separate Test lane, and test decisions are served inside Action now",
+      });
+    } else if (!restorable.has(lane)) {
+      entries.push({
+        param: "lane",
+        value: rawLane,
+        behaviour: "not a lane this queue serves; opened Action now",
+      });
+    }
+  }
+
+  const rawLevels = params.get("levels")?.trim() ?? "";
+  if (rawLevels) {
+    entries.push({
+      param: "levels",
+      value: rawLevels,
+      behaviour:
+        "no level filter exists here; campaign, ad set and ad rows are all shown",
+    });
+  }
+
+  const rawRow = params.get("row")?.trim() ?? "";
+  if (rawRow && !rawRow.startsWith("ad:")) {
+    entries.push({
+      param: "row",
+      value: rawRow,
+      behaviour:
+        "only row=ad:<adId> names a row this queue can open; no row was selected",
+    });
+  } else if (rawRow.startsWith("ad:") && !rawRow.slice(3).trim()) {
+    entries.push({
+      param: "row",
+      value: rawRow,
+      behaviour: "names no ad id; no row was selected",
+    });
+  }
+
+  const rawScope = params.get("scope")?.trim() ?? "";
+  if (rawScope && rawScope !== "creatives" && rawScope !== "structure") {
+    entries.push({
+      param: "scope",
+      value: rawScope,
+      behaviour:
+        "not a scope this queue serves; opened Campaigns & ad sets",
+    });
+  }
+
+  return entries;
+}
+
+export function metaDeepLinkCompatibilityDetail(
+  entries: readonly MetaDeepLinkCompatibilityEntry[],
+): string {
+  return entries
+    .map((entry) => `${entry.param}=${entry.value} — ${entry.behaviour}.`)
+    .join(" ");
+}
+
+/** Does a served canonical decision answer the creative the URL named? */
+function matchesMetaCreativeSelection(
+  decision: MetaCanonicalDecision,
+  selection: { adId: string | null; creativeId: string | null },
+): boolean {
+  const decisionAdId = decision.parentChain.ad?.id?.trim() || null;
+  const decisionCreativeId = decision.parentChain.creative?.id?.trim() || null;
+  if (selection.adId && decisionAdId === selection.adId) return true;
+  return Boolean(
+    selection.creativeId && decisionCreativeId === selection.creativeId,
+  );
 }
 
 function parseMetaWindow(value: string | null): MetaWindowKey {
@@ -282,41 +435,48 @@ function metaOsCreativeSearchMatch(
   ].some((value) => value?.toLowerCase().includes(normalized));
 }
 
+/**
+ * The window this page measures — resolved once, by the shared authority.
+ *
+ * This used to be the second of three disagreeing resolvers. It honoured
+ * `startDate`/`endDate` only when the preset key happened to read `custom`, so
+ * `?window=7d&startDate=2026-08-11&endDate=2026-08-17` threw the stated dates
+ * away and re-expanded "7d" with `includeCurrentDay: true` — against the
+ * provider account's clock, not the workspace clock the shell had used. The
+ * shell had written 08-11..08-17; this produced 08-12..08-18, and the ads
+ * series was fetched for that second window while the caption still said the
+ * first. See `DATE_WINDOW_INCLUDES_CURRENT_DAY` in
+ * `lib/dashboard/date-window-url` for the intent both now obey: stated dates
+ * are the window, verbatim, whatever the preset key says; a bare preset
+ * expands to completed days ending yesterday.
+ */
 function metaDateRangeFromParams(
   params: URLSearchParams,
   referenceDate?: string,
 ): DateWindowValue {
   const selected = parseMetaWindow(params.get("window"));
-  if (selected === "custom") {
-    const start = params.get("startDate") ?? "";
-    const end = params.get("endDate") ?? "";
-    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
-      return normalizeDateWindowBounds(
-        { window: "custom", start, end },
-        { maxDate: referenceDate },
-      );
-    }
-  }
-  return rangeValueToDateWindow(
-    dateWindowToRangeValue({ window: selected, start: "", end: "" }),
-    referenceDate,
-    { includeCurrentDay: true },
+  const resolved = resolveDateWindowFromParams(
+    params,
+    referenceDate ?? "",
+    // A URL with no dates on it still names a preset, and the Meta vocabulary
+    // is the one this page parses.
+    { rangePreset: selected === "custom" ? "custom" : selected, customStart: "", customEnd: "" },
   );
-}
-
-function recMatchesMetaFilters(
-  rec: MetaRecommendation,
-  input: {
-    level: MetaLevelFilter;
-    campaignId: string;
-    adsetId: string;
-  },
-) {
-  if (input.level === "adset" && rec.level !== "adset") return false;
-  if (input.campaignId !== "all" && rec.campaignId !== input.campaignId)
-    return false;
-  if (input.adsetId !== "all" && rec.adsetId !== input.adsetId) return false;
-  return true;
+  if (!resolved) {
+    return rangeValueToDateWindow(
+      dateWindowToRangeValue({ window: selected, start: "", end: "" }),
+      referenceDate,
+    );
+  }
+  // The window key stays the URL's, so the caption keeps naming the preset the
+  // operator picked; `start`/`end` are the days that will actually be measured.
+  // The only bound applied is the calendar itself — no window can run past the
+  // day the account is currently in — which is the clamp the custom branch
+  // already carried.
+  return normalizeDateWindowBounds(
+    { window: selected, start: resolved.start, end: resolved.end },
+    { maxDate: referenceDate },
+  );
 }
 
 export function campaignKindMatchesMetaLabelFilter(
@@ -328,30 +488,6 @@ export function campaignKindMatchesMetaLabelFilter(
   return normalized === label;
 }
 
-function healthyMatchesMetaFilters(
-  row: MetaHealthyEntity,
-  input: {
-    level: MetaLevelFilter;
-    campaignId: string;
-    adsetId: string;
-  },
-) {
-  if (input.level === "adset" && row.level !== "adset") return false;
-  if (input.campaignId !== "all") {
-    const rowCampaignId = row.level === "campaign" ? row.id : row.campaignId;
-    if (rowCampaignId !== input.campaignId) return false;
-  }
-  if (
-    input.adsetId !== "all" &&
-    (row.level !== "adset" || row.id !== input.adsetId)
-  )
-    return false;
-  return true;
-}
-
-function todayPlusHours(hours: number) {
-  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
-}
 
 async function readJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
@@ -386,7 +522,13 @@ function fetchDecisionsWorkspace(
     window,
     status_filter: statusFilter,
   });
-  if (window === "custom" && range) {
+  // The dates travel for EVERY window, not just `custom`. Sending a bare
+  // `window=7d` handed the route the job of picking an end date, and it picked
+  // a different one (its own `resolveWorkspaceEndDate`) than the page had
+  // already resolved and captioned — one click, two windows. The window key
+  // still travels so the route can name what it served; the dates are what it
+  // measures.
+  if (range) {
     params.set("startDate", range.start);
     params.set("endDate", range.end);
   }
@@ -395,10 +537,17 @@ function fetchDecisionsWorkspace(
   );
 }
 
+/**
+ * The preset key is deliberately NOT a parameter here.
+ *
+ * This read is scoped by a date, and taking the window key alongside it was
+ * what let the old `window === "custom"` guard exist. Dropping it makes it
+ * impossible to reintroduce a branch where the label decides whether the date
+ * travels.
+ */
 function fetchAnomalies(
   businessId: string,
   providerAccountId: string,
-  window: MetaWindowKey,
   statusFilter: BriefingStatusFilter,
   range?: Pick<DateWindowValue, "start" | "end">,
 ) {
@@ -412,24 +561,50 @@ function fetchAnomalies(
   // ranges do not surface today's anomalies. Status filtering runs against
   // the entity status captured at anomaly write time; snapshots written
   // before that field existed fail open (see anomalyMatchesStatusFilter).
-  if (window === "custom" && range) {
+  //
+  // This used to be gated on `window === "custom"`: picking "Last 7 days" over
+  // a historical week left the request undated, so the banner showed TODAY's
+  // anomalies above last week's decisions. A preset names a window just as
+  // exactly as a custom range does.
+  if (range) {
     params.set("endDate", range.end);
   }
   return readJson<AnomaliesPayload>(`/api/meta/anomalies?${params.toString()}`);
 }
 
-function postResponse(input: {
+/**
+ * Record a decision response.
+ *
+ * This is a write, and a write that fails must never read as success. The raw
+ * `Response` used to be returned unchecked, so a 403 (authority revoked) or a
+ * 500 resolved normally: the operator was routed on to Launchpad while nothing
+ * was recorded, and the decision reappeared in Action Now on the next
+ * snapshot. Same failure contract as every read on this surface — a non-2xx
+ * throws carrying the server's own reason when it gave one.
+ */
+async function postResponse(input: {
   businessId: string;
   recId: string;
   action: "acted" | "deferred" | "undeferred" | "ignored";
   actionSubtype?: string;
   reappearAt?: string;
-}) {
-  return fetch("/api/meta/recommendations/respond", {
+}): Promise<void> {
+  const response = await fetch("/api/meta/recommendations/respond", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     cache: "no-store",
     body: JSON.stringify(input),
+  });
+  if (response.ok) return;
+  const payload = await response.json().catch(() => null);
+  const serverMessage =
+    payload && typeof payload === "object" && "message" in payload
+      ? String((payload as { message?: unknown }).message)
+      : null;
+  throw new MetaRequestFailure({
+    message: serverMessage ?? `Request failed (${response.status})`,
+    status: response.status,
+    hasServerReason: Boolean(serverMessage && serverMessage.trim()),
   });
 }
 
@@ -500,40 +675,33 @@ export function metaBidApplyNotice(
   };
 }
 
+/**
+ * Where a structure-level Rebuild/Duplicate actually goes.
+ *
+ * It used to go to
+ * `?mode=duplicate&fromMetaBriefing=true&campaignIds=…&adsetIds=…`, which is a
+ * lineage claim with nothing behind it. Launchpad reads `fromMetaBriefing=true`
+ * as "this is a decision handoff", finds no verifiable lineage
+ * (`hasCompleteLaunchpadLineageIdentifiers` is false without a decision id AND
+ * a snapshot id), refuses it, strips every id and lands on "Source & mode"
+ * announcing incomplete lineage. So the old link's only observable effect was
+ * to make the wizard start empty while blaming the operator's link.
+ *
+ * A campaign-or-ad-set recommendation has no canonical ad-grain decision to
+ * mint a handoff from, and picking one of the ads underneath it would be the
+ * screen choosing a subject the server never named. So this link stops
+ * claiming lineage it cannot prove and asks for the manual start it can
+ * honour: the requested mode, the resolved account, nothing else. The caller
+ * states the missing-lineage part in words instead of encoding it as a broken
+ * handoff.
+ */
 function launchpadHrefForRec(rec: MetaRecommendation, mode: MetaLaunchMode) {
+  void rec;
   const params = new URLSearchParams({
-    mode,
-    fromMetaBriefing: "true",
+    launchpadMode: mode === "duplicate" ? "add_to_existing" : "new_campaign",
+    launchpadStep: "source",
   });
-  if (rec.campaignId) params.set("campaignIds", rec.campaignId);
-  if (rec.adsetId) params.set("adsetIds", rec.adsetId);
   return `/platforms/meta/launchpad?${params.toString()}`;
-}
-
-export function compareItemForRec(rec: MetaRecommendation): CompareDrawerItem {
-  const trail = rec.evidenceTrail;
-  // Numbers come ONLY from the server's structured metrics (and the typed
-  // evidence trail); formatted evidence display strings are never parsed
-  // back into math. Missing metrics stay null and the entity is excluded
-  // from numeric ranking rather than silently becoming zero.
-  const metrics = structuredMetricsForRec(rec);
-  const peerValue = trail?.peer_comparison?.this_value;
-  return {
-    id: rec.id,
-    name: scopeNameForRec(rec),
-    brand: rec.campaignName ?? "Meta",
-    label: decisionLabelForRec(rec),
-    spend: metrics?.spend ?? undefined,
-    roas:
-      typeof peerValue === "number" ? peerValue : (metrics?.roas ?? undefined),
-    cpa: metrics?.cpa ?? undefined,
-    ctr: metrics?.ctr ?? undefined,
-    purchases: metrics?.purchases ?? undefined,
-    frequency: metrics?.frequency ?? undefined,
-    sparkline: Array.isArray(trail?.roas_history)
-      ? trail.roas_history.map(Number)
-      : undefined,
-  };
 }
 
 export type MetaRowSort = "money" | "priority" | "age";
@@ -608,42 +776,6 @@ export function sortMetaRecs(
   });
 }
 
-function groupAdsetRollups(recs: MetaRecommendation[]) {
-  const groups = new Map<string, MetaRecommendation[]>();
-  for (const rec of recs) {
-    if (rec.level !== "adset" || !rec.campaignId) continue;
-    groups.set(rec.campaignId, [...(groups.get(rec.campaignId) ?? []), rec]);
-  }
-  return [...groups.entries()]
-    .filter(([, items]) => items.length >= 2)
-    .filter(([, items]) => new Set(items.map(decisionLabelForRec)).size > 1)
-    .map(([campaignId, items]) => ({
-      campaignId,
-      campaignName: items[0]?.campaignName ?? campaignId,
-      items,
-    }));
-}
-
-function shortRelativeTime(value: string | null | undefined) {
-  if (!value) return null;
-  const parsed = new Date(value).getTime();
-  if (!Number.isFinite(parsed)) return null;
-  const diffSeconds = Math.max(0, Math.round((Date.now() - parsed) / 1000));
-  if (diffSeconds < 60) return `${Math.max(1, diffSeconds)}s ago`;
-  const diffMinutes = Math.round(diffSeconds / 60);
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 48) return `${diffHours}h ago`;
-  return `${Math.round(diffHours / 24)}d ago`;
-}
-
-function formatSignedPercent(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
-  const rounded = Math.round(value);
-  if (rounded === 0) return "0%";
-  return `${rounded > 0 ? "+" : ""}${rounded}%`;
-}
-
 /**
  * Tracking confirm label from the server-owned actionKind. The old ternary
  * keyed on rec.type and defaulted to "Rebuild anyway", so once execute_bid
@@ -683,30 +815,6 @@ export function isTrackingWriteBlocked(
     (pulse?.trackingHealth.status === "blocked" ||
       pulse?.trackingHealth.status === "degraded"),
   );
-}
-
-function percentDelta(
-  current: number | null | undefined,
-  previous: number | null | undefined,
-) {
-  if (
-    current == null ||
-    previous == null ||
-    !Number.isFinite(current) ||
-    !Number.isFinite(previous) ||
-    previous <= 0
-  ) {
-    return null;
-  }
-  return ((current - previous) / previous) * 100;
-}
-
-function trackingClass(
-  status: MetaPulsePayload["trackingHealth"]["status"] | undefined,
-) {
-  if (status === "healthy") return "chip--healthy";
-  if (status === "degraded" || status === "blocked") return "chip--action";
-  return "chip--ghost";
 }
 
 function titleCaseCompact(value: string | null | undefined) {
@@ -1072,294 +1180,8 @@ function MetaMobileDecisionsScreen({
   );
 }
 
-function FinalMetaPulse({
-  pulse,
-  window,
-  onManageLabels,
-  moneyCurrency,
-  laneAsOf,
-  loading = false,
-  error = null,
-}: {
-  pulse?: MetaPulsePayload | null;
-  window: MetaWindowKey;
-  onManageLabels: () => void;
-  moneyCurrency?: string | null;
-  laneAsOf?: {
-    snapshotDate: string | null;
-    snapshotCreatedAt?: string | null;
-  } | null;
-  loading?: boolean;
-  error?: Error | null;
-}) {
-  if (loading || error) {
-    const unavailable = Boolean(error);
-    const status = unavailable ? "Unavailable" : "Loading";
-    const detail = unavailable
-      ? (error?.message ?? "Meta briefing failed.")
-      : "Waiting for the Meta briefing payload.";
-    return (
-      <div
-        className="pulse pulse--thin"
-        data-testid={unavailable ? "meta-pulse-error" : "meta-pulse-loading"}
-        role="status"
-      >
-        <span>
-          Business strip <b>{status}</b>
-        </span>
-        <span>{detail}</span>
-        <span>tones from this business&apos;s server targets</span>
-      </div>
-    );
-  }
-
-  const endIsToday =
-    !pulse?.endDate || pulse.endDate === new Date().toISOString().slice(0, 10);
-  const dailySpend =
-    pulse?.pacing.spendToday ??
-    (pulse?.pacing.dayPace != null && pulse?.pacing.dailyTarget != null
-      ? pulse.pacing.dayPace * pulse.pacing.dailyTarget
-      : null);
-  const avg7dSpend = pulse?.pacing.avg7dSpend ?? null;
-  const spendVs7dAvg = formatSignedPercent(
-    percentDelta(dailySpend, avg7dSpend),
-  );
-  const roasValue =
-    window === "custom"
-      ? pulse?.roas.selected
-      : window === "7d"
-        ? pulse?.roas.d7
-        : window === "14d"
-          ? pulse?.roas.d14
-          : pulse?.roas.d28;
-
-  return (
-    <div className="pulse pulse--thin" data-testid="meta-business-strip">
-      <span>
-        {endIsToday
-          ? "Spend · today"
-          : `Spend · ${pulse?.endDate ?? "last day"}`}{" "}
-        <b>
-          {dailySpend == null ? "—" : formatMoney(dailySpend, moneyCurrency)}
-        </b>
-        {" vs 7d avg "}
-        {avg7dSpend == null
-          ? "—"
-          : `${formatMoney(avg7dSpend, moneyCurrency)}/day`}
-        {spendVs7dAvg ? ` · ${spendVs7dAvg}` : ""}
-      </span>
-      <span>
-        ROAS · {window === "90d" ? "28d" : window}{" "}
-        <b>{formatRoas(roasValue)}</b>
-        {" vs target "}
-        {pulse?.roas.target == null ? "—" : formatRoas(pulse.roas.target)}
-      </span>
-      <span
-        className={cn("chip", trackingClass(pulse?.trackingHealth?.status))}
-      >
-        <span className="dot" />
-        {pulse?.trackingHealth?.status ?? "unknown"}
-      </span>
-      <span>
-        {pulse?.campaignContextMode === "automatic"
-          ? "automatic context"
-          : pulse?.campaignContextMode === "legacy_labels"
-            ? "legacy context"
-            : "context withheld"}
-        {pulse?.labelCoverage
-          ? ` · ${pulse.labelCoverage.labeledCampaigns} overrides`
-          : ""}
-        {" · "}
-        <button
-          type="button"
-          className="linklike"
-          aria-label="Review campaign context exceptions"
-          onClick={onManageLabels}
-        >
-          Review exceptions
-        </button>
-      </span>
-      <span data-target-freshness={pulse?.roas.targetFreshness ?? "unknown"}>
-        {pulse?.roas.target_source === "commercial_truth_stale" ? (
-          pulse.roas.targetFreshness === "stale" ? (
-            <>
-              Target review due - authority unchanged ·{" "}
-              <a href="/commercial-truth">Review target pack</a>
-            </>
-          ) : (
-            <>
-              Target timestamp unavailable - Scale/Cut authority withheld ·{" "}
-              <a href="/commercial-truth">Review target pack</a>
-            </>
-          )
-        ) : (
-          "tones from this business's server targets"
-        )}
-      </span>
-    </div>
-  );
-}
-
-function MetaOvernightDigest({
-  snapshotDate,
-  digest,
-  actionStates,
-  anomaliesCount,
-  deferredCount,
-}: {
-  snapshotDate: string | null;
-  digest?: MetaDecisionsWorkspacePayload["digest"] | null;
-  actionStates?: MetaDecisionsWorkspacePayload["queue"]["actionStates"] | null;
-  anomaliesCount: number;
-  deferredCount: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const executable =
-    (actionStates?.executablePause ?? 0) +
-    (actionStates?.executableBid ?? 0) +
-    (actionStates?.executableResume ?? 0);
-  const routes = actionStates?.launchpadRoutes ?? 0;
-  const reviewOnly = actionStates?.reviewOnly ?? 0;
-  const missing = actionStates?.missingActionKind ?? 0;
-  const labelFlipText = digest
-    ? `${countPhrase(digest.labelFlips.count, "label flip")} (${digest.labelFlips.publishedCount} published)`
-    : "label flips unavailable";
-  const actionText = digest
-    ? `${countPhrase(digest.actions.verifiedCount, "action")} verified${digest.actions.silentFailureCount > 0 ? ` · ${digest.actions.silentFailureCount} silent_failure` : ""}`
-    : `actions ready ${executable}`;
-  const anomalyText = digest
-    ? `${countPhrase(digest.anomalies.openedCount, "anomaly")} opened`
-    : `anomalies ${anomaliesCount}`;
-  const deferralText = digest
-    ? `${countPhrase(digest.deferrals.dueCount, "deferral")} due back`
-    : `deferrals due ${deferredCount}`;
-  return (
-    <div className="meta-digest" data-testid="meta-overnight-digest">
-      <button
-        type="button"
-        className="meta-digest__toggle"
-        aria-expanded={open}
-        aria-controls="meta-digest-details"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronDown
-          className={cn("meta-digest__chevron", open && "open")}
-          size={13}
-          aria-hidden="true"
-        />
-        <span className="meta-digest__title">Since last snapshot</span>
-        <b>{snapshotDate ?? "snapshot —"}</b>
-        <span className="meta-digest__summary">
-          {labelFlipText} · {actionText} · {anomalyText} · {deferralText}
-        </span>
-      </button>
-      {open ? (
-        <div id="meta-digest-details" className="meta-digest__details">
-          {digest?.unavailableReason ? (
-            <div className="meta-digest__line muted">
-              Digest details unavailable: {digest.unavailableReason}
-            </div>
-          ) : null}
-          <div className="meta-digest__line">
-            <span>Label flips:</span>{" "}
-            {digest && digest.labelFlips.items.length > 0
-              ? digest.labelFlips.items.slice(0, 3).map((item, index) => (
-                  <span key={item.id} className="meta-digest__item">
-                    {index > 0 ? "; " : null}
-                    <b>{item.title}</b> {item.previousLabel} -&gt;{" "}
-                    {item.currentLabel} <em>{item.status}</em>
-                  </span>
-                ))
-              : "none in the served snapshot window"}
-          </div>
-          <div className="meta-digest__line">
-            <span>Actions:</span>{" "}
-            {digest && digest.actions.items.length > 0
-              ? digest.actions.items.slice(0, 4).map((item, index) => (
-                  <span key={item.id} className="meta-digest__item">
-                    {index > 0 ? " · " : null}
-                    {item.action} <b>{item.target}</b>
-                    {item.actor ? ` by ${item.actor}` : ""}{" "}
-                    <em
-                      className={
-                        item.status === "silent_failure" ? "danger" : "success"
-                      }
-                    >
-                      {item.status === "silent_failure"
-                        ? `silent_failure${item.detail ? ` - ${item.detail}` : ""}`
-                        : `verified${formatDigestTime(item.occurredAt) ? ` ${formatDigestTime(item.occurredAt)}` : ""}`}
-                    </em>
-                  </span>
-                ))
-              : digest
-                ? "no verified action logs in the served window"
-                : `ready ${executable} · routes ${routes} · review-only ${reviewOnly}`}
-          </div>
-          <div className="meta-digest__line">
-            <span>Anomalies:</span>{" "}
-            {digest && digest.anomalies.items.length > 0
-              ? digest.anomalies.items.slice(0, 3).map((item, index) => (
-                  <span key={item.id} className="meta-digest__item">
-                    {index > 0 ? " · " : null}
-                    <b>{item.title}</b> {item.status}
-                    {formatDigestTime(item.occurredAt)
-                      ? ` ${formatDigestTime(item.occurredAt)}`
-                      : ""}
-                  </span>
-                ))
-              : `${anomaliesCount} counted separately`}
-          </div>
-          <div className="meta-digest__line">
-            <span>Deferrals due back:</span>{" "}
-            {digest && digest.deferrals.items.length > 0
-              ? digest.deferrals.items.slice(0, 3).map((item, index) => (
-                  <span key={item.id} className="meta-digest__item">
-                    {index > 0 ? " · " : null}
-                    <b>{item.title}</b>
-                    {formatDigestTime(item.dueAt)
-                      ? ` (${formatDigestTime(item.dueAt)})`
-                      : ""}
-                    {item.detail ? ` · ${item.detail}` : ""}
-                  </span>
-                ))
-              : `${deferredCount} deferred rows in local state`}
-          </div>
-          {missing > 0 ? (
-            <div className="meta-digest__line muted">
-              Missing action kind: {missing}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function formatDigestTime(value: string | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  }).format(date);
-}
-
-function countPhrase(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
 // Bounded triage-board helpers. These render only server-structured evidence;
 // unavailable preview, hierarchy, and metric fields remain explicit.
-
-function humanizeDecisionToken(value: string | null | undefined) {
-  if (!value) return "Unavailable";
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
 
 function canonicalCreativeSearchMatch(
   decision: MetaCanonicalDecision,
@@ -1380,107 +1202,6 @@ function canonicalCreativeSearchMatch(
   ]
     .filter((value): value is string => Boolean(value))
     .some((value) => value.toLowerCase().includes(query));
-}
-
-function MetaCreativeDecisionCard({
-  decision,
-  onOpen,
-}: {
-  decision: MetaCanonicalDecision;
-  onOpen: () => void;
-}) {
-  const previewUrl = decision.media.thumbnail.url;
-  const adName =
-    decision.parentChain.ad?.name ??
-    decision.parentChain.ad?.id ??
-    decision.parentChain.creative?.name ??
-    decision.parentChain.creative?.id ??
-    "Ad identity unavailable";
-  const creativeName =
-    decision.parentChain.creative?.name ??
-    decision.parentChain.creative?.id ??
-    null;
-  const action = decision.classification.executionAction
-    ? `${decision.classification.buyerLabel} · ${humanizeDecisionToken(decision.classification.executionAction)}`
-    : decision.classification.buyerLabel;
-
-  return (
-    <button
-      type="button"
-      className={cn(
-        styles.creativeCard,
-        previewUrl && styles.creativeCardWithPreview,
-      )}
-      data-testid="meta-creative-call"
-      data-ad-id={decision.parentChain.ad?.id ?? undefined}
-      data-creative-id={decision.parentChain.creative?.id ?? undefined}
-      data-decision-id={decision.decisionId}
-      data-preview-state={previewUrl ? "ready" : "missing"}
-      onClick={onOpen}
-      aria-label={`Open ad evidence for ${adName}`}
-    >
-      <span className={styles.creativeMedia}>
-        {previewUrl ? (
-          // The server-projected media envelope owns this URL; no client
-          // preview fallback is invented.
-          <img src={previewUrl} alt="" />
-        ) : (
-          <>
-            <ImageOff size={16} aria-hidden="true" />
-            <small>Preview unavailable</small>
-          </>
-        )}
-      </span>
-      <span className={styles.creativeBody}>
-        <span className={styles.creativeTopline}>
-          <span className="chip chip--info">{action}</span>
-          <span className={styles.microChip}>
-            {humanizeDecisionToken(decision.classification.lifecycleRole.value)}
-          </span>
-          <span className={styles.microChip}>
-            {decision.sourceDecision.confidenceBand} confidence
-          </span>
-        </span>
-        <strong title={adName}>{adName}</strong>
-        <small>
-          {decision.parentChain.campaign?.name ?? "Campaign unavailable"} ·{" "}
-          {humanizeDecisionToken(decision.classification.assessment.value)}
-        </small>
-        {creativeName ? (
-          <small>Creative group · {creativeName}</small>
-        ) : (
-          <small>Creative grouping unavailable</small>
-        )}
-        <span className={styles.creativeReason}>
-          {decision.sourceDecision.reason ||
-            "Creative engine evidence is available."}
-        </span>
-      </span>
-      <span className={styles.creativeMetrics}>
-        <span>
-          <small>Spend</small>
-          <b>
-            {formatMoney(decision.metrics.spend, decision.metrics.currency)}
-          </b>
-        </span>
-        <span>
-          <small>ROAS</small>
-          <b>
-            {decision.metrics.roas == null
-              ? "—"
-              : formatRoas(decision.metrics.roas)}
-          </b>
-        </span>
-        <span>
-          <small>Purchases</small>
-          <b>{decision.metrics.purchases ?? "—"}</b>
-        </span>
-      </span>
-      <span className={styles.creativeOpen}>
-        Evidence <ArrowRight size={12} aria-hidden="true" />
-      </span>
-    </button>
-  );
 }
 
 /**
@@ -1542,6 +1263,49 @@ async function fetchCreativeEvidenceAdRows(input: {
  * cards drew an empty path. `/api/meta/ads/series` is that read path and keeps
  * its own `requireBusinessAccess` gate.
  */
+/**
+ * The same daily trail, kept per ad, for the creative queue's row sparklines.
+ *
+ * The reference draws a CTR spark on every creative row and the adapter had no
+ * series to give it, so each row rendered an empty box. The merged series the
+ * evidence window uses would draw every row the same shape, so this asks the
+ * route to group by ad. Capped by the route at 25 ads.
+ */
+async function fetchMetaQueueCtrSeries(input: {
+  businessId: string;
+  adIds: string[];
+  start: string;
+  end: string;
+}): Promise<Map<string, number[]>> {
+  if (input.adIds.length === 0) return new Map();
+  const query = new URLSearchParams({
+    businessId: input.businessId,
+    adIds: input.adIds.join(","),
+    start: input.start,
+    end: input.end,
+    groupBy: "ad",
+  });
+  const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("The per-ad daily series is unavailable.");
+  const payload = (await response.json()) as {
+    series?: Array<{ adId: string; points?: Array<{ ctr?: number | null }> }>;
+  };
+  const byAdId = new Map<string, number[]>();
+  for (const entry of payload.series ?? []) {
+    // The card is captioned "CTR · 28d" and the row beside it shows the
+    // engine's `ctr_28d`, so the trail has to be the same all-clicks CTR.
+    // `linkCtr` is a different measure and is currently 0 on every stored row.
+    const values = (entry.points ?? [])
+      .map((point) => point.ctr)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    // A single point is not a trend and the spark helper refuses it anyway.
+    if (values.length >= 2) byAdId.set(entry.adId, values);
+  }
+  return byAdId;
+}
+
 async function fetchCreativeEvidenceAdSeries(input: {
   businessId: string;
   adIds: string[];
@@ -1572,32 +1336,108 @@ function numberOrNull(value: number | null | undefined): number | null {
 }
 
 /**
- * The evidence window's primary carries the server decision's own caption. It
- * only gets a destination when that decision routes to a draft; execute-intent
- * decisions keep their confirmation ceremony on the decision row and are not
- * given a second, unguarded trigger here.
+ * Does the served decision offer a Launchpad route at all?
+ *
+ * This reads the SERVED presentation code and nothing else. It does not decide
+ * whether the route is authorized — that is the server's answer, given when the
+ * handoff is minted. Keeping the two apart is the point: the screen may offer
+ * the control the server captioned, and the server may still refuse it.
  */
-function creativeEvidenceLaunchpadHref(input: {
+function creativeEvidenceOffersLaunchpadRoute(input: {
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision;
-  pathname: string | null;
-}): string | null {
+}): boolean {
   const code = input.decision?.action.code ?? null;
-  const mode =
-    code === "plan_promotion"
-      ? "duplicate"
-      : code === "refresh_creative"
-        ? "rebuild"
-        : null;
-  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
-  if (!mode || !creativeId) return null;
+  if (code !== "plan_promotion" && code !== "refresh_creative") return false;
+  return Boolean(input.canonical.parentChain.creative?.id?.trim());
+}
+
+export interface MetaLaunchpadHandoffMintResult {
+  ok: boolean;
+  handoff: string | null;
+  mode: string | null;
+  message: string | null;
+}
+
+/**
+ * Asks the server for a Launchpad handoff.
+ *
+ * The body NAMES a decision — business, account, decision id, snapshot id — and
+ * asserts nothing about it. The authorized action, the mode, the eligibility
+ * and the lineage all come back from the server, which re-reads the canonical
+ * decision itself. This is the entire difference from the query string it
+ * replaces: that URL carried claims, this one carries a question.
+ */
+export async function mintMetaLaunchpadHandoff(input: {
+  businessId: string;
+  providerAccountId: string;
+  decisionId: string;
+  sourceSnapshotId: string;
+}): Promise<MetaLaunchpadHandoffMintResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/meta/launchpad-handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(input),
+    });
+  } catch {
+    return {
+      ok: false,
+      handoff: null,
+      mode: null,
+      message: "The launch handoff service could not be reached.",
+    };
+  }
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = (await response.json()) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+  const message =
+    typeof payload?.message === "string" && payload.message.trim()
+      ? payload.message
+      : null;
+  const handoff =
+    typeof payload?.handoff === "string" && payload.handoff.trim()
+      ? payload.handoff
+      : null;
+  if (!response.ok || !handoff) {
+    return {
+      ok: false,
+      handoff: null,
+      mode: null,
+      // Never invent a success sentence for a refusal, and never invent a
+      // reason the server did not give.
+      message: message ?? "The launch handoff was refused.",
+    };
+  }
+  return {
+    ok: true,
+    handoff,
+    mode: typeof payload?.mode === "string" ? payload.mode : null,
+    message,
+  };
+}
+
+/**
+ * The Launchpad destination for a verified handoff.
+ *
+ * Only the reference travels. No mode, no step, no creative/campaign/ad-set
+ * ids, no `fromMetaBriefing=true` — every one of those was a claim the URL had
+ * no standing to make, and Launchpad was right to refuse them. What the launch
+ * is FOR is read out of the handoff record server-side.
+ */
+function launchpadHandoffHref(input: {
+  handoff: string;
+  providerAccountId: string;
+  pathname: string | null;
+}): string {
   const params = new URLSearchParams({
-    fromMetaBriefing: "true",
-    providerAccountId: input.canonical.providerAccountId,
-    sourceDecisionId: input.canonical.decisionId,
-    sourceDecisionSnapshotId: input.canonical.sourceSnapshotId,
-    creativeIds: creativeId,
-    mode,
+    providerAccountId: input.providerAccountId,
+    handoff: input.handoff,
   });
   return dashboardHrefForRouteFamily(
     `/platforms/meta/launchpad?${params.toString()}`,
@@ -1617,490 +1457,6 @@ function creativeEvidenceStudioHref(input: {
   return dashboardHrefForRouteFamily(
     `/platforms/meta/creatives?${params.toString()}`,
     input.pathname ?? "",
-  );
-}
-
-function MetaLaneSectionHeader({
-  title,
-  note,
-  count,
-}: {
-  title: string;
-  note?: ReactNode;
-  count?: number | string;
-}) {
-  return (
-    <div
-      className={styles.sectionHeader}
-      data-testid="meta-lane-section-header"
-    >
-      <div>
-        <strong>{title}</strong>
-        {count !== undefined ? <span>{count}</span> : null}
-      </div>
-      {note ? <small>{note}</small> : null}
-    </div>
-  );
-}
-
-function MetaRevealReceipt({
-  visible,
-  total,
-  noun,
-  onReveal,
-}: {
-  visible: number;
-  total: number;
-  noun: string;
-  onReveal: () => void;
-}) {
-  const hidden = Math.max(0, total - visible);
-  if (hidden === 0) return null;
-  return (
-    <div className={styles.revealReceipt} data-testid="meta-reveal-receipt">
-      <span>
-        Showing {visible} of {total} {noun} · {hidden} hidden to keep this view
-        bounded
-      </span>
-      <button type="button" onClick={onReveal}>
-        Show more
-      </button>
-    </div>
-  );
-}
-
-function MetaMonitorPager({
-  page,
-  total,
-  noun,
-  onPage,
-}: {
-  page: number;
-  total: number;
-  noun: string;
-  onPage: (page: number) => void;
-}) {
-  const pageCount = Math.max(1, Math.ceil(total / META_MONITOR_PAGE_SIZE));
-  if (pageCount <= 1) return null;
-  const start = (page - 1) * META_MONITOR_PAGE_SIZE + 1;
-  const end = Math.min(page * META_MONITOR_PAGE_SIZE, total);
-  return (
-    <nav
-      className={styles.revealReceipt}
-      aria-label={`${noun} pages`}
-      data-testid="meta-monitor-pager"
-    >
-      <span>
-        Showing {start}-{end} of {total} {noun} · page {page} of {pageCount}
-      </span>
-      <div className={styles.monitorPagerActions}>
-        <button
-          type="button"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={page >= pageCount}
-          onClick={() => onPage(page + 1)}
-        >
-          Next
-        </button>
-      </div>
-    </nav>
-  );
-}
-
-function MetaServerSuppressionReceipt({
-  section,
-}: {
-  section: MetaDecisionQueueSection | null;
-}) {
-  if (!section) {
-    return (
-      <div className={styles.revealReceipt} data-testid="meta-server-receipt">
-        <span>
-          Creative selection unavailable · no client fallback or fabricated zero
-          is shown
-        </span>
-      </div>
-    );
-  }
-  const receipt = section.suppressionReceipt;
-  return (
-    <div className={styles.revealReceipt} data-testid="meta-server-receipt">
-      <span>
-        Server selected {receipt.selectedCount} of {receipt.preCapCount} · top{" "}
-        {receipt.topN} · {receipt.suppressedCount} suppressed
-        {section.unrankablePreCapCount > 0
-          ? ` · ${section.unrankablePreCapCount} unrankable`
-          : ""}
-      </span>
-    </div>
-  );
-}
-
-function MetaQuietEntityRow({
-  row,
-  moneyCurrency,
-}: {
-  row: MetaHealthyEntity;
-  moneyCurrency: string | null;
-}) {
-  return (
-    <div className={styles.quietRow} data-quiet-row="healthy">
-      <span className={styles.quietGrain}>
-        {row.level === "adset" ? "SET" : "CMP"}
-      </span>
-      <span className={styles.quietIdentity}>
-        <strong>{row.name}</strong>
-        <small>
-          {row.level === "adset"
-            ? (row.campaignName ?? "Ad set")
-            : (row.campaignKind ?? "Campaign")}
-        </small>
-      </span>
-      <span className={styles.quietMetrics}>
-        <span>
-          <small>Spend</small>
-          <b>{formatMoney(row.spend, moneyCurrency)}</b>
-        </span>
-        <span>
-          <small>ROAS</small>
-          <b>{row.roas == null ? "—" : formatRoas(row.roas)}</b>
-        </span>
-        <span>
-          <small>CPA</small>
-          <b>{row.cpa == null ? "—" : formatMoney(row.cpa, moneyCurrency)}</b>
-        </span>
-      </span>
-      <span className={styles.quietStatus} data-tone="healthy">
-        Healthy
-      </span>
-    </div>
-  );
-}
-
-function MetaInactiveStructureRow({
-  row,
-  moneyCurrency,
-}: {
-  row: MetaArchivedEntity;
-  moneyCurrency: string | null;
-}) {
-  return (
-    <div className={styles.quietRow} data-quiet-row="inactive-structure">
-      <span className={styles.quietGrain}>
-        {row.level === "adset" ? "SET" : "CMP"}
-      </span>
-      <span className={styles.quietIdentity}>
-        <strong>{row.name}</strong>
-        <small>
-          {row.level === "adset"
-            ? (row.campaignName ?? "Ad set")
-            : (row.campaignKind ?? "Campaign")}
-        </small>
-        {row.advisory ? (
-          <small title={row.advisory.why}>
-            Advisory · {row.advisory.primaryActionLabel}
-          </small>
-        ) : null}
-      </span>
-      <span className={styles.quietMetrics}>
-        <span>
-          <small>Spend</small>
-          <b>{formatMoney(row.spend, moneyCurrency)}</b>
-        </span>
-        <span>
-          <small>ROAS</small>
-          <b>{formatRoas(row.roas)}</b>
-        </span>
-        <span>
-          <small>Purchases</small>
-          <b>{row.purchases}</b>
-        </span>
-      </span>
-      <span className={styles.quietStatus} data-tone="inactive">
-        {row.statusLabel}
-      </span>
-    </div>
-  );
-}
-
-function MetaInactiveAdRow({
-  decision,
-  moneyCurrency,
-  onOpen,
-}: {
-  decision: MetaCanonicalDecision;
-  moneyCurrency: string | null;
-  onOpen: () => void;
-}) {
-  const ad = decision.parentChain.ad;
-  const status =
-    decision.deliveryScope?.adStatus ??
-    decision.deliveryScope?.adsetStatus ??
-    decision.deliveryScope?.campaignStatus ??
-    "Unknown";
-  return (
-    <div
-      className={styles.quietRow}
-      data-quiet-row="inactive-ad"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <span className={styles.quietGrain}>AD</span>
-      <span className={styles.quietIdentity}>
-        <strong>{ad?.name ?? ad?.id ?? "Ad identity unavailable"}</strong>
-        <small>
-          {decision.parentChain.campaign?.name ?? "Campaign unavailable"} ·{" "}
-          {decision.parentChain.adset?.name ?? "Ad set unavailable"}
-        </small>
-        <small title={decision.sourceDecision.reason}>
-          Advisory · {decision.sourceDecision.label.replaceAll("_", " ")}
-        </small>
-      </span>
-      <span className={styles.quietMetrics}>
-        <span>
-          <small>Spend</small>
-          <b>
-            {decision.metrics.spend == null
-              ? "—"
-              : formatMoney(decision.metrics.spend, moneyCurrency)}
-          </b>
-        </span>
-        <span>
-          <small>ROAS</small>
-          <b>
-            {decision.metrics.roas == null
-              ? "—"
-              : formatRoas(decision.metrics.roas)}
-          </b>
-        </span>
-        <span>
-          <small>Confidence</small>
-          <b>{decision.sourceDecision.confidenceBand}</b>
-        </span>
-      </span>
-      <span className={styles.quietStatus} data-tone="inactive">
-        {status.replaceAll("_", " ")}
-      </span>
-    </div>
-  );
-}
-
-function buildMetaScopeCampaigns(input: {
-  actionNow: MetaRecommendation[];
-  watching: MetaRecommendation[];
-  nonSales: MetaRecommendation[];
-  healthy: MetaHealthyEntity[];
-}): MetaScopeCampaign[] {
-  const campaigns = new Map<
-    string,
-    MetaScopeCampaign & { adsetMap: Map<string, MetaScopeAdset> }
-  >();
-  const ensureCampaign = (id: string, name: string) => {
-    const current = campaigns.get(id);
-    if (current) return current;
-    const created = {
-      id,
-      name,
-      actionCount: 0,
-      watchingCount: 0,
-      adsets: [],
-      adsetMap: new Map<string, MetaScopeAdset>(),
-    };
-    campaigns.set(id, created);
-    return created;
-  };
-  const addRec = (
-    rec: MetaRecommendation,
-    lane: "action" | "watching" | "context",
-  ) => {
-    const campaignId = rec.campaignId?.trim();
-    if (!campaignId) return;
-    const campaign = ensureCampaign(
-      campaignId,
-      rec.campaignName ?? rec.title ?? campaignId,
-    );
-    if (lane === "action") campaign.actionCount += 1;
-    if (lane === "watching") campaign.watchingCount += 1;
-    if (rec.adsetId) {
-      const existing = campaign.adsetMap.get(rec.adsetId);
-      campaign.adsetMap.set(rec.adsetId, {
-        id: rec.adsetId,
-        name: rec.adsetName ?? rec.title,
-        label:
-          lane === "action" || !existing?.label
-            ? decisionLabelForRec(rec)
-            : existing.label,
-      });
-    }
-  };
-  input.actionNow.forEach((rec) => addRec(rec, "action"));
-  input.watching.forEach((rec) => addRec(rec, "watching"));
-  input.nonSales.forEach((rec) => addRec(rec, "context"));
-  for (const row of input.healthy) {
-    const campaignId = row.level === "campaign" ? row.id : row.campaignId;
-    if (!campaignId) continue;
-    const campaign = ensureCampaign(
-      campaignId,
-      row.level === "campaign" ? row.name : (row.campaignName ?? row.name),
-    );
-    if (row.level === "adset")
-      campaign.adsetMap.set(row.id, {
-        id: row.id,
-        name: row.name,
-        label: "keep",
-      });
-  }
-  return [...campaigns.values()]
-    .map(({ adsetMap, ...campaign }) => ({
-      ...campaign,
-      adsets: [...adsetMap.values()].sort((left, right) =>
-        left.name.localeCompare(right.name),
-      ),
-    }))
-    .sort(
-      (left, right) =>
-        right.actionCount - left.actionCount ||
-        right.watchingCount - left.watchingCount ||
-        left.name.localeCompare(right.name),
-    );
-}
-
-function MetaScopeRail({
-  campaigns,
-  selectedCampaignId,
-  selectedAdsetId,
-  disabled,
-  onSelectCampaign,
-  onSelectAdset,
-}: {
-  campaigns: MetaScopeCampaign[];
-  selectedCampaignId: string;
-  selectedAdsetId: string;
-  disabled: boolean;
-  onSelectCampaign: (id: string) => void;
-  onSelectAdset: (campaignId: string, adsetId: string) => void;
-}) {
-  const selectedCampaign =
-    campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
-  return (
-    <aside
-      className={styles.scopeRail}
-      data-testid="meta-scope-rail"
-      data-disabled={disabled ? "true" : "false"}
-    >
-      <header>
-        <div>
-          <strong>{disabled ? "Creative scope" : "Account structure"}</strong>
-          <span>
-            {disabled ? "account-wide" : `${campaigns.length} campaigns`}
-          </span>
-        </div>
-        <small>
-          {disabled
-            ? "This engine has no parent mapping."
-            : "Selection filters decisions. It never hides account-wide calls."}
-        </small>
-      </header>
-      {disabled ? (
-        <div className={styles.scopeDisabledNote}>
-          Creative calls are account-wide because this engine does not provide
-          campaign or ad-set mapping.
-        </div>
-      ) : null}
-      {!disabled ? (
-        <div
-          className={styles.scopeList}
-          aria-label="Campaign and ad set scope"
-        >
-          <button
-            type="button"
-            className={cn(
-              styles.scopeCampaign,
-              selectedCampaignId === "all" && styles.scopeSelected,
-            )}
-            onClick={() => onSelectCampaign("all")}
-          >
-            <span>
-              <strong>All decisions</strong>
-              <small>Full account</small>
-            </span>
-            <b>ALL</b>
-          </button>
-          {campaigns.map((campaign) => (
-            <div key={campaign.id} className={styles.scopeGroup}>
-              <button
-                type="button"
-                className={cn(
-                  styles.scopeCampaign,
-                  selectedCampaignId === campaign.id &&
-                    selectedAdsetId === "all" &&
-                    styles.scopeSelected,
-                )}
-                onClick={() => onSelectCampaign(campaign.id)}
-                title={campaign.name}
-              >
-                <span>
-                  <strong>{campaign.name}</strong>
-                  <small>{campaign.adsets.length} ad sets</small>
-                </span>
-                <b>
-                  {campaign.actionCount > 0
-                    ? `${campaign.actionCount} act`
-                    : campaign.watchingCount > 0
-                      ? `${campaign.watchingCount} watch`
-                      : "context"}
-                </b>
-              </button>
-              {selectedCampaignId === campaign.id ? (
-                <div className={styles.scopeAdsets}>
-                  {campaign.adsets.length > 0 ? (
-                    campaign.adsets.map((adset) => (
-                      <button
-                        key={adset.id}
-                        type="button"
-                        className={cn(
-                          selectedAdsetId === adset.id &&
-                            styles.scopeAdsetSelected,
-                        )}
-                        onClick={() => onSelectAdset(campaign.id, adset.id)}
-                        title={adset.name}
-                      >
-                        <span>{adset.name}</span>
-                        <small>{adset.label ?? "—"}</small>
-                      </button>
-                    ))
-                  ) : (
-                    <p>No ad-set rows in the loaded decision lanes.</p>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {selectedCampaign && !disabled ? (
-        <button
-          type="button"
-          className={styles.clearScope}
-          onClick={() => onSelectCampaign("all")}
-        >
-          Clear scope
-        </button>
-      ) : null}
-    </aside>
   );
 }
 
@@ -2132,40 +1488,6 @@ function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
     return `${banner.detail} The queue stays readable; execute and route actions are locked until an Admin releases it.`;
   }
   return banner.detail;
-}
-
-function MetaDecisionSourceHealthBanner({
-  source,
-}: {
-  source: MetaOsDecisionsPresentation["source"] | null | undefined;
-}) {
-  if (source?.adsSource !== "legacy_creative_review_only") {
-    return null;
-  }
-  const fallbackReason = source.fallbackReason ?? "native_fallback_unspecified";
-  const detail = metaDecisionSourceFallbackDetail(fallbackReason);
-
-  return (
-    <div
-      className="banner warn"
-      data-testid="meta-decision-source-health"
-      data-source-health="degraded"
-      data-fallback-reason={fallbackReason}
-      data-blocking="true"
-      role="alert"
-    >
-      <div className="icon">
-        <AlertTriangle size={15} aria-hidden="true" />
-      </div>
-      <div className="msg">
-        <b>Native Ad decisions are degraded.</b>
-        <span className="sub">
-          {detail} Legacy decisions remain visible for review only; exact Ad
-          actions are blocked. Source: {fallbackReason}.
-        </span>
-      </div>
-    </div>
-  );
 }
 
 function MetaWorkspacePostureBanners({
@@ -2242,82 +1564,16 @@ function MetaWorkspacePostureBanners({
   );
 }
 
-function formatEngineRunTime(value: string | null | undefined) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return `${parsed.toISOString().slice(11, 16)} UTC`;
-}
-
 /**
  * Header as-of cluster. Surfaces the divergent as-of contract already carried
  * by the payloads: ingest freshness (pulse.lastSyncAt), the served lane
  * snapshot date (lane-classify), and the engine version + run time (pulse).
  * Each value is real or an honest em dash — never fabricated "now".
  */
-function MetaAsOfCluster({
-  pulse,
-  laneSnapshotDate,
-  loading = false,
-  error = null,
-}: {
-  pulse?: MetaPulsePayload | null;
-  laneSnapshotDate?: string | null;
-  loading?: boolean;
-  error?: Error | null;
-}) {
-  if (loading || error) {
-    return (
-      <div
-        className="meta-asof"
-        data-testid="meta-asof-cluster"
-        title="The briefing payload is not available yet; as-of values are withheld instead of fabricated."
-      >
-        <span>{error ? "briefing unavailable" : "briefing loading"}</span>
-        <span className="sep" aria-hidden="true">
-          ·
-        </span>
-        <span>snapshot —</span>
-        <span className="sep" aria-hidden="true">
-          ·
-        </span>
-        <span>engine —</span>
-      </div>
-    );
-  }
-  const synced = pulse?.lastSyncAt
-    ? `synced ${shortRelativeTime(pulse.lastSyncAt)}`
-    : "sync unknown";
-  const snapshot = laneSnapshotDate
-    ? `snapshot ${laneSnapshotDate}`
-    : "snapshot —";
-  const engineVersion = pulse?.engineVersion ?? "—";
-  const runTime = formatEngineRunTime(pulse?.engineLastRun);
-  return (
-    <div
-      className="meta-asof"
-      data-testid="meta-asof-cluster"
-      title="Ingest, decision snapshot, and engine run each carry their own as-of; they can legitimately diverge."
-    >
-      <span>{synced}</span>
-      <span className="sep" aria-hidden="true">
-        ·
-      </span>
-      <span>{snapshot}</span>
-      <span className="sep" aria-hidden="true">
-        ·
-      </span>
-      <span>
-        engine {engineVersion}
-        {runTime ? ` · ${runTime}` : ""}
-      </span>
-    </div>
-  );
-}
-
 export function MetaPlatformPage({
   businessId,
   businessName,
+  serverProviderAccountId = null,
 }: MetaPlatformPageProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -2326,45 +1582,73 @@ export function MetaPlatformPage({
   const selectedWindow = parseMetaWindow(searchParams.get("window"));
   const selectedStatusFilter: BriefingStatusFilter = "active";
   const initialLane = parseMetaWorkspaceLane(searchParams);
+  const initialScope = parseMetaScope(searchParams);
   const requestedProviderAccountId =
     searchParams.get("providerAccountId")?.trim() || null;
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(EMPTY_OVERLAY);
-  const [compareOpen, setCompareOpen] = useState(false);
   const [pendingPrimaryRec, setPendingPrimaryRec] =
     useState<MetaRecommendation | null>(null);
-  const [localDeferredIds, setLocalDeferredIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const [localResponseStates, setLocalResponseStates] = useState<
-    Record<string, LocalResponseState>
-  >({});
   const [trackingDismissed, setTrackingDismissed] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [primaryActionFeedback, setPrimaryActionFeedback] =
-    useState<PrimaryActionFeedback | null>(null);
+  /**
+   * The compatibility answer is computed from the URL the operator arrived
+   * with, once, so it states what THIS link did rather than re-announcing
+   * itself every time the screen rewrites its own query string.
+   */
+  const arrivalCompatibility = useState(() =>
+    describeMetaDeepLinkCompatibility(searchParams),
+  )[0];
+  /**
+   * The Launchpad read site sends a refused handoff back here with its code.
+   *
+   * The code is validated against the closed refusal vocabulary and turned
+   * into a sentence on this side; the URL never carries the sentence, so a
+   * hand-edited link cannot put words on the screen. A refused handoff that
+   * silently landed the operator on an empty Launchpad would read as success —
+   * this is the half of the fail-closed path the operator can actually see.
+   */
+  const arrivalHandoffRefusal = useState(() =>
+    parseLaunchpadHandoffRefusal(searchParams.get("handoffRefused")),
+  )[0];
+  const [notice, setNotice] = useState<MetaDecisionNotice | null>(
+    arrivalHandoffRefusal
+      ? {
+          tone: "warning",
+          title: "Launchpad handoff refused.",
+          detail: describeLaunchpadHandoffRefusal(arrivalHandoffRefusal),
+        }
+      : arrivalCompatibility.length > 0
+        ? {
+            tone: "info",
+            title:
+              arrivalCompatibility.length === 1
+                ? "One part of that link could not be restored."
+                : `${arrivalCompatibility.length} parts of that link could not be restored.`,
+            detail: metaDeepLinkCompatibilityDetail(arrivalCompatibility),
+          }
+        : null,
+  );
   const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
   const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
-  const [levelFilter, setLevelFilter] = useState<MetaLevelFilter>("campaign");
-  const [campaignFilter, setCampaignFilter] = useState("all");
-  const [adsetFilter, setAdsetFilter] = useState("all");
+  const [activeScope, setActiveScope] =
+    useState<MetaDecisionCenterExactScope>(initialScope);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
-  const [rowSearch, setRowSearch] = useState("");
-  const [minSpendOnly, setMinSpendOnly] = useState(false);
-  const [visibleLimit, setVisibleLimit] = useState(6);
-  const [monitorPage, setMonitorPage] = useState(1);
+  // `q` is restored, not dropped: the retired contract's search parameter names
+  // a control this surface actually has.
+  const [rowSearch, setRowSearch] = useState(() =>
+    parseMetaRowSearch(searchParams),
+  );
   const [creativeDrill, setCreativeDrill] = useState<{
     decision: MetaOsAdDecision | null;
     canonical: MetaCanonicalDecision;
   } | null>(null);
-  const [scopeRailOpen, setScopeRailOpen] = useState(false);
   const latestSearchParamsRef = useRef(searchParams.toString());
 
   useEffect(() => {
     latestSearchParamsRef.current = searchParams.toString();
     setActiveLane(parseMetaWorkspaceLane(searchParams));
+    setActiveScope(parseMetaScope(searchParams));
   }, [searchParams]);
 
   useEffect(() => {
@@ -2375,18 +1659,6 @@ export function MetaPlatformPage({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [labelModalOpen]);
-
-  useEffect(() => {
-    setVisibleLimit(activeLane === "action" ? 6 : 12);
-    setMonitorPage(1);
-  }, [
-    activeLane,
-    adsetFilter,
-    campaignFilter,
-    minSpendOnly,
-    rowSearch,
-    rowSort,
-  ]);
 
   const providerAccountsQuery = useQuery({
     queryKey: ["meta-provider-accounts", businessId],
@@ -2406,7 +1678,29 @@ export function MetaPlatformPage({
     }
     return providerAccounts.length === 1 ? providerAccounts[0]! : null;
   }, [providerAccounts, requestedProviderAccountId]);
-  const providerAccountId = selectedProviderAccount?.id ?? null;
+  /**
+   * Provider scope survives a failing accounts read.
+   *
+   * Every workspace read below is gated on this id, so when
+   * `/api/meta/history/accounts` 500s the whole surface used to go empty even
+   * for a business with exactly one assigned account the server had already
+   * resolved. The server's answer is the fallback — it agrees with the client
+   * rule (an unassigned requested id is refused, a multi-account business is
+   * not chosen for), so it can only fill in, never widen. Presentation that
+   * needs the account record (name, currency, timezone) still finds none and
+   * stays on its honest em-dash path rather than inventing one.
+   */
+  const providerAccountId =
+    selectedProviderAccount?.id ?? serverProviderAccountId ?? null;
+  // KNOWN GAP, recorded rather than papered over. This clock only decides how
+  // a BARE preset expands; a URL that states startDate/endDate wins outright,
+  // and the shell states them on every navigation, so this is the first-load
+  // edge. When the account record is unreadable the page falls to UTC while
+  // the shell falls to the workspace timezone (app-topbar.tsx:259-263), so on
+  // that edge the two can name different days. Closing it means forwarding the
+  // business timezone as a server-owned prop through the shared shim; this
+  // component deliberately has no client-store access, and reaching for one
+  // here would rebuild the store-vs-server scope split just removed.
   const selectedAccountTimeZone = selectedProviderAccount?.timezone || "UTC";
   const selectedReferenceDate = getTodayIsoForTimeZone(selectedAccountTimeZone);
   const selectedDateRange = metaDateRangeFromParams(
@@ -2496,6 +1790,41 @@ export function MetaPlatformPage({
     retry: 2,
     retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 6000),
   });
+  /**
+   * The CTR trail behind every creative row's sparkline.
+   *
+   * Keyed on the served ad ids so it refetches when the queue changes and not
+   * when the operator types in the search box. Bounded to the route's own
+   * 25-ad cap; rows beyond it keep the honest empty path rather than borrowing
+   * another row's shape.
+   */
+  const queueCreativeAdIds = Array.from(
+    new Set(
+      (workspaceQuery.data?.os?.ads?.items ?? [])
+        .map((decision) => decision.adId?.trim())
+        .filter((adId): adId is string => Boolean(adId)),
+    ),
+  ).slice(0, 25);
+  const queueCtrSeriesQuery = useQuery({
+    queryKey: [
+      "meta-queue-ctr-series",
+      businessId,
+      selectedDateRange.start,
+      selectedDateRange.end,
+      queueCreativeAdIds.join(","),
+    ],
+    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0,
+    queryFn: () =>
+      fetchMetaQueueCtrSeries({
+        businessId,
+        adIds: queueCreativeAdIds,
+        start: selectedDateRange.start,
+        end: selectedDateRange.end,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   const pulseQuery = {
     data: workspaceQuery.data?.pulse,
     isLoading: workspaceQuery.isLoading,
@@ -2512,6 +1841,12 @@ export function MetaPlatformPage({
   );
   const targetRoas = pulseQuery.data?.roas.target ?? null;
   const entityParam = searchParams.get("entity");
+  const creativeSelection = parseMetaCreativeSelection(searchParams);
+  // Stable dependency: `searchParams` is a fresh object every render, so the
+  // restore effect keys on the identifiers themselves.
+  const creativeSelectionKey = creativeSelection
+    ? `${creativeSelection.adId ?? ""}|${creativeSelection.creativeId ?? ""}`
+    : "";
 
   const anomalyQuery = useQuery({
     queryKey: [
@@ -2528,7 +1863,6 @@ export function MetaPlatformPage({
       fetchAnomalies(
         businessId,
         providerAccountId!,
-        selectedWindow,
         selectedStatusFilter,
         selectedDateRange,
       ),
@@ -2542,15 +1876,68 @@ export function MetaPlatformPage({
     businessId,
     onRetry: () => void workspaceQuery.refetch(),
   });
-  const briefingLoading =
-    providerAccountsQuery.isLoading ||
-    (Boolean(providerAccountId) &&
-      (pulseQuery.isLoading || laneQuery.isLoading));
-  const briefingError = (providerAccountsQuery.error ??
-    pulseQuery.error ??
+  /**
+   * The accounts read describes an account; it does not authorize a workspace.
+   *
+   * `/api/meta/history/accounts` supplies presentation metadata — display
+   * name, currency, time zone. Scope authority comes from
+   * `serverProviderAccountId` (assignment-verified server-side) or from a
+   * picker selection made out of that same assignment-scoped list. Folding
+   * this query's error and loading flags into the global briefing state meant
+   * one failing metadata read blanked a Decisions surface whose workspace had
+   * already loaded, and printed "Decision workspace could not load" over a
+   * screen full of loaded decisions.
+   *
+   * LAW: when a provider account id exists, the workspace read proceeds and
+   * owns the loading and error state alone. A metadata failure then downgrades
+   * to the narrow warning below and the account's label/currency stay on their
+   * honest em-dash path — never a fabricated name and never a default currency.
+   * Only when there is no account id at all — nothing to read a workspace for —
+   * does the metadata failure remain the blocking answer, because in that case
+   * it genuinely is the reason nothing can be read.
+   */
+  const providerAccountMetadataError = (providerAccountsQuery.error ??
+    null) as Error | null;
+  const workspaceReadError = (pulseQuery.error ??
     laneQuery.error ??
     null) as Error | null;
-  const briefingUnavailable = briefingLoading || Boolean(briefingError);
+  const briefingLoading =
+    (providerAccountsQuery.isLoading && !providerAccountId) ||
+    (Boolean(providerAccountId) &&
+      (pulseQuery.isLoading || laneQuery.isLoading));
+  const briefingError =
+    workspaceReadError ??
+    (providerAccountId ? null : providerAccountMetadataError);
+  /**
+   * Metadata degraded, workspace intact.
+   *
+   * Shown only when the workspace is readable, so it never competes with the
+   * blocking banner. It states what is missing (the account record) rather
+   * than implying the decisions on screen are suspect.
+   */
+  const providerAccountMetadataDegraded = Boolean(
+    providerAccountMetadataError && providerAccountId,
+  );
+  /**
+   * Retry is only a control if it retries the read that failed.
+   *
+   * The accounts read gates the workspace read whenever no server-authorized
+   * account exists, so in that case refetching the workspace re-fires a
+   * disabled query with a null account and changes nothing. Refetch accounts
+   * first there; the workspace query re-enables itself the moment an account
+   * exists. When an account id does exist, the blocking banner is the
+   * workspace's own failure and the workspace is what must be retried.
+   */
+  const accountsReadIsTheBlockingFailure = Boolean(
+    providerAccountMetadataError && !providerAccountId,
+  );
+  const briefingRetryPending = accountsReadIsTheBlockingFailure
+    ? providerAccountsQuery.isFetching
+    : workspaceQuery.isFetching;
+  const retryBriefingRead = () =>
+    accountsReadIsTheBlockingFailure
+      ? providerAccountsQuery.refetch()
+      : workspaceQuery.refetch();
   const campaignDefer = useDeferState({
     businessId,
     scopeType: "campaign",
@@ -2568,99 +1955,21 @@ export function MetaPlatformPage({
   const nonSales = laneQuery.data?.nonSales ?? [];
   const anomalies = anomalyQuery.data?.anomalies ?? [];
 
-  useEffect(() => {
-    const payload = laneQuery.data;
-    if (!payload) return;
-    const serverRecs = new Map(
-      [...payload.actionNow, ...payload.watching, ...payload.nonSales].map(
-        (rec) => [rec.id, rec],
-      ),
-    );
-    setLocalResponseStates((current) => {
-      let changed = false;
-      const next = { ...current };
-      for (const [recId, localState] of Object.entries(current)) {
-        const serverRec = serverRecs.get(recId);
-        if (!serverRec) continue;
-        if (
-          serverRec.operatorResponseState === localState ||
-          (localState === "acted" && !serverRec.operatorResponseState)
-        ) {
-          delete next[recId];
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-  }, [laneQuery.data]);
-
-  const scopeCampaigns = useMemo(
-    () => buildMetaScopeCampaigns({ actionNow, watching, nonSales, healthy }),
-    [actionNow, healthy, nonSales, watching],
-  );
-  const selectCampaignScope = (campaignId: string) => {
-    setCampaignFilter(campaignId);
-    setAdsetFilter("all");
-    setLevelFilter("campaign");
-  };
-  const selectAdsetScope = (campaignId: string, adsetId: string) => {
-    setCampaignFilter(campaignId);
-    setAdsetFilter(adsetId);
-    setLevelFilter("adset");
-  };
-  const metaFilterInput = useMemo(
-    () => ({
-      level: levelFilter,
-      campaignId: campaignFilter,
-      adsetId: adsetFilter,
-    }),
-    [adsetFilter, campaignFilter, levelFilter],
-  );
-  const filteredActionNow = useMemo(
-    () =>
-      actionNow.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)),
-    [actionNow, metaFilterInput],
-  );
-  const filteredWatching = useMemo(
-    () => watching.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)),
-    [metaFilterInput, watching],
-  );
-  const filteredHealthy = useMemo(
-    () =>
-      healthy.filter((row) =>
-        healthyMatchesMetaFilters(row, {
-          level: levelFilter,
-          campaignId: campaignFilter,
-          adsetId: adsetFilter,
-        }),
-      ),
-    [adsetFilter, campaignFilter, healthy, levelFilter],
-  );
-  const filteredNonSales = useMemo(
-    () => nonSales.filter((rec) => recMatchesMetaFilters(rec, metaFilterInput)),
-    [metaFilterInput, nonSales],
-  );
   // Row search + sort over structured server truth; missing-metric rows kept
   // last. Applied to the rendered rec lists only (tab counts stay lane totals).
   const visibleActionRecs = useMemo(
     () =>
       sortMetaRecs(
-        filteredActionNow.filter(
-          (rec) =>
-            metaRecSearchMatch(rec, rowSearch) &&
-            passesMetaMinSpend(rec, minSpendOnly),
-        ),
+        actionNow.filter((rec) => metaRecSearchMatch(rec, rowSearch)),
         rowSort,
       ),
-    [filteredActionNow, rowSearch, rowSort, minSpendOnly],
+    [actionNow, rowSearch, rowSort],
   );
   const canonicalDecisionModel = workspaceQuery.data?.decisionReadModel ?? null;
   const creativeDecisionSection =
     canonicalDecisionModel?.status === "available"
       ? canonicalDecisionModel.queue.sections.creative_rotation
       : null;
-  const nativeAdDecisionAuthority =
-    canonicalDecisionModel?.source.authority === "native_ad";
   const inactiveStructureRows = laneQuery.data?.archive ?? [];
   const inactiveAdDecisions =
     canonicalDecisionModel?.queue.inactiveAssets?.items ?? [];
@@ -2674,16 +1983,9 @@ export function MetaPlatformPage({
             value.toLowerCase().includes(query),
           ),
       )
-      .filter((row) => !minSpendOnly || row.spend >= META_MIN_SPEND_THRESHOLD)
       .map((row) => ({ kind: "structure" as const, row, spend: row.spend }));
     const ads = inactiveAdDecisions
       .filter((decision) => canonicalCreativeSearchMatch(decision, rowSearch))
-      .filter(
-        (decision) =>
-          !minSpendOnly ||
-          (decision.metrics.spend != null &&
-            decision.metrics.spend >= META_MIN_SPEND_THRESHOLD),
-      )
       .map((decision) => ({
         kind: "ad" as const,
         decision,
@@ -2692,48 +1994,26 @@ export function MetaPlatformPage({
     return [...structures, ...ads].sort(
       (left, right) => right.spend - left.spend,
     );
-  }, [inactiveAdDecisions, inactiveStructureRows, minSpendOnly, rowSearch]);
+  }, [inactiveAdDecisions, inactiveStructureRows, rowSearch]);
   // Presentation-only filters run over the server-selected top-N. They never
   // reclassify, rerank, or pull suppressed decisions into the client.
   const creativeActionDecisions = useMemo(() => {
     if (!creativeDecisionSection) return [] as MetaCanonicalDecision[];
-    return creativeDecisionSection.items
-      .filter((decision) => canonicalCreativeSearchMatch(decision, rowSearch))
-      .filter(
-        (decision) =>
-          !minSpendOnly ||
-          (decision.metrics.spend != null &&
-            decision.metrics.spend >= META_MIN_SPEND_THRESHOLD),
-      );
-  }, [creativeDecisionSection, rowSearch, minSpendOnly]);
+    return creativeDecisionSection.items.filter((decision) =>
+      canonicalCreativeSearchMatch(decision, rowSearch),
+    );
+  }, [creativeDecisionSection, rowSearch]);
   const visibleWatchingRecs = useMemo(
     () =>
       sortMetaRecs(
-        filteredWatching.filter(
-          (rec) =>
-            metaRecSearchMatch(rec, rowSearch) &&
-            passesMetaMinSpend(rec, minSpendOnly),
-        ),
+        watching.filter((rec) => metaRecSearchMatch(rec, rowSearch)),
         rowSort,
       ),
-    [filteredWatching, rowSearch, rowSort, minSpendOnly],
+    [watching, rowSearch, rowSort],
   );
-  const visibleNonSalesRecs = useMemo(
-    () =>
-      sortMetaRecs(
-        filteredNonSales.filter(
-          (rec) =>
-            metaRecSearchMatch(rec, rowSearch) &&
-            passesMetaMinSpend(rec, minSpendOnly),
-        ),
-        rowSort,
-      ),
-    [filteredNonSales, rowSearch, rowSort, minSpendOnly],
-  );
-  const rowSearchActive = rowSearch.trim().length > 0;
   const allRecs = useMemo(
-    () => [...filteredActionNow, ...filteredWatching],
-    [filteredActionNow, filteredWatching],
+    () => [...actionNow, ...watching],
+    [actionNow, watching],
   );
   const adsetRecsByCampaign = useMemo(() => {
     const next = new Map<string, MetaRecommendation[]>();
@@ -2743,10 +2023,6 @@ export function MetaPlatformPage({
     }
     return next;
   }, [allRecs]);
-  const selectedRecs = useMemo(
-    () => allRecs.filter((rec) => selectedIds.has(rec.id)),
-    [allRecs, selectedIds],
-  );
 
   const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
   const viewerReadOnlyReason = !workspaceQuery.data?.viewer
@@ -2823,10 +2099,7 @@ export function MetaPlatformPage({
   }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
-  const deferredCount =
-    localDeferredIds.size +
-    campaignDefer.deferredCount +
-    adsetDefer.deferredCount;
+  const deferredCount = campaignDefer.deferredCount + adsetDefer.deferredCount;
 
   const currentUrlParams = () =>
     new URLSearchParams(
@@ -2861,13 +2134,12 @@ export function MetaPlatformPage({
     } else {
       params.set("window", nextWindow);
     }
-    if (nextWindow === "custom") {
-      params.set("startDate", next.start);
-      params.set("endDate", next.end);
-    } else {
-      params.delete("startDate");
-      params.delete("endDate");
-    }
+    // Always state the dates, for presets too. Deleting them left the URL
+    // saying only "7d" and every reader downstream re-resolving that name
+    // against its own clock — which is how one picked preset became three
+    // windows. The URL now carries the answer, not the question.
+    params.set("startDate", next.start);
+    params.set("endDate", next.end);
     const query = params.toString();
     const nextHref = `${metaDecisionsHref}${query ? `?${query}` : ""}`;
     if (typeof window !== "undefined") {
@@ -2882,7 +2154,11 @@ export function MetaPlatformPage({
       rangeValueToDateWindow(
         dateWindowToRangeValue({ window: nextWindow, start: "", end: "" }),
         selectedReferenceDate,
-        { includeCurrentDay: true },
+        // Completed days only — the same expansion the shell picker uses. This
+        // read `includeCurrentDay: true`, so the in-page window tabs and the
+        // shell picker disagreed by one day on the same preset name, and
+        // today's part-day was counted as a whole one.
+        { includeCurrentDay: DATE_WINDOW_INCLUDES_CURRENT_DAY },
       ),
     );
   };
@@ -2895,11 +2171,33 @@ export function MetaPlatformPage({
       params.delete("providerAccountId");
     }
     params.delete("entity");
-    setSelectedIds(new Set());
     setDrillItem(null);
     setCreativeDrill(null);
-    setCampaignFilter("all");
-    setAdsetFilter("all");
+    replaceMetaParams(params);
+  };
+
+  /**
+   * The search term is state the link carries, so it is written back.
+   *
+   * Restoring `q` on arrival but never re-minting it would make the URL lie
+   * the other way: the operator filters, copies the address bar and sends a
+   * colleague the unfiltered view. `replace` (not `push`) so typing does not
+   * fill the history stack.
+   */
+  const setRowSearchParam = (next: string) => {
+    setRowSearch(next);
+    const params = currentUrlParams();
+    const trimmed = next.trim().slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
+    if (trimmed) params.set("q", trimmed);
+    else params.delete("q");
+    replaceMetaParams(params);
+  };
+
+  const selectScope = (next: MetaDecisionCenterExactScope) => {
+    setActiveScope(next);
+    const params = currentUrlParams();
+    if (next === "creatives") params.set("scope", "creatives");
+    else params.delete("scope");
     replaceMetaParams(params);
   };
 
@@ -2920,15 +2218,6 @@ export function MetaPlatformPage({
     replaceMetaParams(params);
   };
 
-  const selectRec = (id: string, selected: boolean) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (selected) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
-
   const refreshDecisionData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({
@@ -2943,10 +2232,12 @@ export function MetaPlatformPage({
   const refreshSnapshotNow = async () => {
     if (!businessId || refreshingSnapshot) return;
     if (isViewerReadOnly) {
-      setNotice(
-        viewerReadOnlyReason ??
-          "Current viewer is read-only; snapshot refresh is unavailable.",
-      );
+      setNotice({
+        tone: "info",
+        title: "Snapshot refresh is unavailable.",
+        detail:
+          viewerReadOnlyReason ?? "Current viewer is read-only.",
+      });
       return;
     }
     setRefreshingSnapshot(true);
@@ -2964,116 +2255,64 @@ export function MetaPlatformPage({
       const payload = await response.json().catch(() => null);
       const outcome = interpretMetaSnapshotRunResponse(response.ok, payload);
       if (!outcome.ok) throw new Error(outcome.message);
-      setNotice(
-        outcome.status === "cooldown"
-          ? "Decision snapshot refresh is in cooldown."
-          : outcome.status === "already_running"
-            ? "Decision snapshot refresh is already running."
-            : "Decision snapshot refreshed.",
-      );
+      setNotice({
+        tone: outcome.status === "ran" ? "success" : "info",
+        title:
+          outcome.status === "cooldown"
+            ? "Decision snapshot refresh is in cooldown."
+            : outcome.status === "already_running"
+              ? "Decision snapshot refresh is already running."
+              : "Decision snapshot refreshed.",
+      });
       await refreshDecisionData();
     } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "Decision snapshot refresh failed.",
-      );
+      setNotice({
+        tone: "danger",
+        title: "Decision snapshot refresh failed.",
+        detail: error instanceof Error ? error.message : null,
+      });
     } finally {
       setRefreshingSnapshot(false);
     }
   };
 
-  const markActed = async (rec: MetaRecommendation, subtype: string) => {
-    if (isViewerReadOnly) return;
-    setLocalResponseStates((current) => ({ ...current, [rec.id]: "acted" }));
-    await postResponse({
-      businessId,
-      recId: rec.id,
-      action: "acted",
-      actionSubtype: subtype,
-    }).catch(() => null);
-  };
-
-  const deferRec = async (rec: MetaRecommendation) => {
-    if (isViewerReadOnly) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
-        tone: "info",
-        title: "Read-only access.",
-        detail: viewerReadOnlyReason,
-      });
-      openDrillForRec(rec);
-      return;
-    }
-    const scopeId = scopeIdForRec(rec);
-    const state = rec.level === "adset" ? adsetDefer : campaignDefer;
-    setLocalDeferredIds((current) => new Set(current).add(rec.id));
-    setLocalResponseStates((current) => ({ ...current, [rec.id]: "deferred" }));
-    await state.defer(scopeId);
-    await postResponse({
-      businessId,
-      recId: rec.id,
-      action: "deferred",
-      actionSubtype: "let_cook_24h",
-      reappearAt: todayPlusHours(24),
-    }).catch(() => null);
-  };
-
-  const undeferRec = async (rec: MetaRecommendation) => {
-    if (isViewerReadOnly) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
-        tone: "info",
-        title: "Read-only access.",
-        detail: viewerReadOnlyReason,
-      });
-      openDrillForRec(rec);
-      return;
-    }
-    const scopeId = scopeIdForRec(rec);
-    const state = rec.level === "adset" ? adsetDefer : campaignDefer;
-    setLocalDeferredIds((current) => {
-      const next = new Set(current);
-      next.delete(rec.id);
-      return next;
-    });
-    setLocalResponseStates((current) => {
-      const next = { ...current };
-      delete next[rec.id];
-      return next;
-    });
-    await state.undefer(scopeId);
-    await postResponse({
-      businessId,
-      recId: rec.id,
-      action: "undeferred",
-      actionSubtype: "undo_defer",
-    }).catch(() => null);
-  };
-
-  const isDeferred = (rec: MetaRecommendation) => {
-    const state = rec.level === "adset" ? adsetDefer : campaignDefer;
-    return (
-      rec.operatorResponseState === "deferred" ||
-      localDeferredIds.has(rec.id) ||
-      state.isDeferred(scopeIdForRec(rec))
-    );
-  };
-
-  const responseStateForRec = (
+  /**
+   * True only when the response was actually recorded.
+   *
+   * The blanket `.catch(() => null)` this replaces absorbed transport errors
+   * and never looked at the status at all, so a refused write was
+   * indistinguishable from a stored one. The caller decides what to do with a
+   * false; what it may not do is carry on as if the decision were recorded.
+   */
+  const markActed = async (
     rec: MetaRecommendation,
-  ): LocalResponseState | null => {
-    return (
-      localResponseStates[rec.id] ??
-      rec.operatorResponseState ??
-      (isDeferred(rec) ? "deferred" : null)
-    );
+    subtype: string,
+  ): Promise<boolean> => {
+    if (isViewerReadOnly) return false;
+    try {
+      await postResponse({
+        businessId,
+        recId: rec.id,
+        action: "acted",
+        actionSubtype: subtype,
+      });
+      return true;
+    } catch (error) {
+      setNotice({
+        tone: "danger",
+        title: "Decision could not be recorded.",
+        detail:
+          error instanceof Error
+            ? error.message
+            : "The decision response endpoint refused the write.",
+      });
+      return false;
+    }
   };
 
   const openOverlayForRec = (rec: MetaRecommendation, mode: MetaLaunchMode) => {
     if (mode === "apply_bid") {
-      setPrimaryActionFeedback({
-        recId: rec.id,
+      setNotice({
         tone: "info",
         title: "Recommendation is review-only.",
         detail:
@@ -3096,6 +2335,13 @@ export function MetaPlatformPage({
   };
 
   const openDrillForRec = (rec: MetaRecommendation) => {
+    emitProductInstrumentation({
+      eventName: "decision_opened",
+      surface: "meta_decisions",
+      outcome: "ok",
+      scope: "business",
+      businessId,
+    });
     setDrillItem({
       mode: "decision",
       rec,
@@ -3105,11 +2351,6 @@ export function MetaPlatformPage({
     });
     // Deep-link the open entity (a selection, not a drawer-local control).
     setEntityParam(rec.id);
-  };
-
-  const compareRec = (rec: MetaRecommendation) => {
-    setSelectedIds((current) => new Set(current).add(rec.id));
-    setCompareOpen(true);
   };
 
   // Deep-link restore: open the drawer for ?entity=<id> once lanes are loaded.
@@ -3129,14 +2370,127 @@ export function MetaPlatformPage({
     }
   }, [entityParam, laneQuery.data]);
 
+  /**
+   * Deep-link restore for a creative the URL names.
+   *
+   * `decisionsHrefForCreative` (lib/zero-base/creative/creative performance
+   * rows) is a live producer of `creativeId` and `row=ad:<adId>`, and nothing
+   * on this screen read either one — "Open in Decisions" landed on the queue
+   * with the wrong scope and nothing selected, which is precisely the failure
+   * that link's own contract says it is guarding against.
+   *
+   * Same law as the `?entity=` restore above: match only against decisions the
+   * server actually served, and when the named row is not in the served
+   * universe do nothing. A named-but-unserved creative gets no drill rather
+   * than a fabricated one.
+   */
+  const findSelectedCanonicalDecision = () =>
+    creativeSelection
+      ? ([
+          ...(creativeDecisionSection?.items ?? []),
+          ...inactiveAdDecisions,
+        ].find((decision) =>
+          matchesMetaCreativeSelection(decision, creativeSelection),
+        ) ?? null)
+      : null;
+
+  useEffect(() => {
+    if (!creativeSelection || creativeDrill) return;
+    const canonical = findSelectedCanonicalDecision();
+    if (!canonical) return;
+    // The presentation decision carries CTR, frequency and ad-set identity the
+    // canonical envelope does not; null when the queue served no counterpart,
+    // exactly as the review callback allows.
+    const presentation =
+      (workspaceQuery.data?.os?.ads?.items ?? []).find(
+        (item) =>
+          item.decisionId === canonical.decisionId &&
+          item.sourceSnapshotId === canonical.sourceSnapshotId,
+      ) ?? null;
+    setCreativeDrill({ decision: presentation, canonical });
+  }, [creativeSelectionKey, workspaceQuery.data]);
+
+  /**
+   * A selection the server did not serve is still a dropped parameter.
+   *
+   * The two restore effects above correctly refuse to fabricate a row for an
+   * id the workspace did not serve — but refusing silently is the same
+   * experience as ignoring the parameter: the operator pasted a link naming a
+   * row and got the unfiltered queue with no explanation, and could not tell
+   * whether the link was wrong, the window was wrong, or the screen was
+   * broken. State it. The report is keyed and fires once per named selection,
+   * so dismissing it stays dismissed and the screen does not nag.
+   *
+   * Deliberately computed from the served universe rather than from
+   * `drillItem`/`creativeDrill`: those are set by the effects above during the
+   * same commit, so reading them here would report a false miss on first pass.
+   */
+  const unservedSelectionReportedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspaceQuery.data || workspaceQuery.isLoading || workspaceQuery.error)
+      return;
+    const unresolved: MetaDeepLinkCompatibilityEntry[] = [];
+    const entityServed =
+      !entityParam ||
+      [...actionNow, ...watching, ...nonSales].some(
+        (candidate) => candidate.id === entityParam,
+      );
+    if (entityParam && !entityServed) {
+      unresolved.push({
+        param: "entity",
+        value: entityParam,
+        behaviour:
+          "the workspace did not serve that decision in this window, so no evidence drawer was opened",
+      });
+    }
+    if (creativeSelection && !findSelectedCanonicalDecision()) {
+      if (creativeSelection.adId) {
+        unresolved.push({
+          param: "row",
+          value: `ad:${creativeSelection.adId}`,
+          behaviour:
+            "the workspace served no decision for that ad in this window, so no creative was selected",
+        });
+      }
+      if (creativeSelection.creativeId) {
+        unresolved.push({
+          param: "creativeId",
+          value: creativeSelection.creativeId,
+          behaviour:
+            "the workspace served no decision for that creative in this window, so no creative was selected",
+        });
+      }
+    }
+    if (unresolved.length === 0) return;
+    const reportKey = unresolved
+      .map((entry) => `${entry.param}=${entry.value}`)
+      .join("|");
+    if (unservedSelectionReportedRef.current === reportKey) return;
+    unservedSelectionReportedRef.current = reportKey;
+    const combined = [...arrivalCompatibility, ...unresolved];
+    setNotice({
+      tone: "info",
+      title:
+        combined.length === 1
+          ? "One part of that link could not be restored."
+          : `${combined.length} parts of that link could not be restored.`,
+      detail: metaDeepLinkCompatibilityDetail(combined),
+    });
+  }, [
+    entityParam,
+    creativeSelectionKey,
+    workspaceQuery.data,
+    workspaceQuery.isLoading,
+    workspaceQuery.error,
+  ]);
+
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
     return rec.actionKind === "route_launchpad_rebuild";
   };
 
   const performPrimary = async (rec: MetaRecommendation) => {
     if (isViewerReadOnly) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
+      setNotice({
         tone: "info",
         title: "Read-only access.",
         detail: viewerReadOnlyReason,
@@ -3144,7 +2498,7 @@ export function MetaPlatformPage({
       openDrillForRec(rec);
       return;
     }
-    setPrimaryActionFeedback(null);
+    setNotice(null);
     // Campaign/ad-set recommendation cards are advisory until they carry a
     // canonical decision-origin execution contract. launchModeForRec fails
     // closed for stale/injected execute_* values, so this path has no provider
@@ -3159,12 +2513,11 @@ export function MetaPlatformPage({
       rec.actionKind === "execute_resume" ||
       rec.actionKind === "execute_bid"
     ) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
+      setNotice({
         tone: "info",
         title: "Recommendation is review-only.",
         detail:
-          "This legacy execution hint is not a canonical provider-write authority.",
+          "The served hint carries no canonical provider-write authority; the evidence inspector holds what is known.",
       });
     }
     openDrillForRec(rec);
@@ -3182,18 +2535,11 @@ export function MetaPlatformPage({
     await performPrimary(rec);
   };
 
-  const deferSelectedRecs = async () => {
-    for (const rec of selectedRecs) {
-      await deferRec(rec);
-    }
-  };
-
   const confirmOverlay = async () => {
     const rec = overlay.rec;
     if (!rec) return;
     if (isViewerReadOnly) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
+      setNotice({
         tone: "info",
         title: "Read-only access.",
         detail: viewerReadOnlyReason,
@@ -3202,10 +2548,9 @@ export function MetaPlatformPage({
       openDrillForRec(rec);
       return;
     }
-    setPrimaryActionFeedback(null);
+    setNotice(null);
     if (overlay.mode === "apply_bid") {
-      setPrimaryActionFeedback({
-        recId: rec.id,
+      setNotice({
         tone: "info",
         title: "Recommendation is review-only.",
         detail:
@@ -3216,143 +2561,99 @@ export function MetaPlatformPage({
       return;
     }
     const href = launchpadHrefForRec(rec, overlay.mode);
-    await markActed(
+    const recorded = await markActed(
       rec,
       overlay.mode === "rebuild" ? "rebuild_clicked" : "audience_swap_clicked",
     );
+    // Navigating on a refused write presented a failure as success: the
+    // operator landed on Launchpad believing the decision was taken while it
+    // was still queued in Action Now. Close the overlay so the danger notice
+    // markActed just set is readable, and let the operator confirm again.
+    if (!recorded) {
+      setOverlay(EMPTY_OVERLAY);
+      return;
+    }
+    // Say what did NOT travel. A campaign/ad-set recommendation has no
+    // canonical ad-grain decision, so there is nothing to mint a
+    // server-verified handoff from — Launchpad opens as a manual start in the
+    // requested mode, and the decision stays where the evidence for it is.
+    setNotice({
+      tone: "info",
+      title: "Launchpad opened without decision lineage.",
+      detail:
+        "This recommendation is at campaign/ad-set level, so no canonical ad decision could be carried into the launch. The wizard starts manually in the requested mode; the decision itself stays in Action now with its evidence.",
+    });
     router.push(dashboardHrefForRouteFamily(href, pathname));
   };
 
-  const handleBulkAction = (action: string) => {
-    if (action === "clear") {
-      setSelectedIds(new Set());
-      return;
-    }
-    if (action === "compare") {
-      setCompareOpen(true);
-      return;
-    }
-    const first = selectedRecs[0];
-    if (!first) return;
-    if (isViewerReadOnly && action !== "compare") {
-      openDrillForRec(first);
-      return;
-    }
-    if (action === "rebuild") openOverlayForRec(first, "rebuild");
-    if (action === "duplicate") openOverlayForRec(first, "duplicate");
-  };
-
-  const selectedRecByRoas = (direction: "weakest" | "strongest") => {
-    // Only entities with server-supplied ROAS participate in destructive
-    // ranking; unknown metrics must never rank as zero (which made every
-    // metrics-less entity "the weakest").
-    const ranked = selectedRecs
-      .map((rec) => ({ rec, roas: compareItemForRec(rec).roas }))
-      .filter(
-        (item): item is { rec: MetaRecommendation; roas: number } =>
-          typeof item.roas === "number" && Number.isFinite(item.roas),
-      )
-      .sort((left, right) => left.roas - right.roas);
-    const item = direction === "strongest" ? ranked.at(-1) : ranked[0];
-    return item?.rec ?? null;
-  };
-
-  const openLaunchpadForSelectedRecs = () => {
-    if (selectedRecs.length === 0) return;
-    const params = new URLSearchParams({
-      mode: "duplicate",
-      fromMetaBriefing: "true",
-      providerAccountId: providerAccountId ?? "",
-    });
-    const campaignIds = selectedRecs
-      .map((rec) => rec.campaignId)
-      .filter((id): id is string => Boolean(id));
-    const adsetIds = selectedRecs
-      .map((rec) => rec.adsetId)
-      .filter((id): id is string => Boolean(id));
-    if (campaignIds.length > 0)
-      params.set("campaignIds", Array.from(new Set(campaignIds)).join(","));
-    if (adsetIds.length > 0)
-      params.set("adsetIds", Array.from(new Set(adsetIds)).join(","));
-    router.push(
-      dashboardHrefForRouteFamily(
-        `/platforms/meta/launchpad?${params.toString()}`,
-        pathname,
-      ),
-    );
-  };
-
-  const handleCompareDrawerAction = async (
-    action: "pause_weakest" | "scale_strongest" | "launch_selected",
+  /**
+   * The one real Decisions -> Launchpad handoff on this screen.
+   *
+   * The old primary was an `<a href>` into
+   * `?fromMetaBriefing=true&sourceDecisionId=…&creativeIds=…&mode=…`. Every
+   * one of those values was a claim written by the page that emitted the link,
+   * so Launchpad refused all of it and the link did nothing.
+   *
+   * Now the click asks the server, which re-reads the canonical decision and
+   * either mints a single-use handoff record or refuses with a reason. The
+   * screen navigates only on `ok` — a refusal stays on the evidence window and
+   * says why. Nothing here executes: a verified handoff opens a Launchpad
+   * draft.
+   */
+  const [handoffPending, setHandoffPending] = useState(false);
+  const openLaunchpadFromCanonicalDecision = async (
+    canonical: MetaCanonicalDecision,
   ) => {
+    if (handoffPending) return;
     if (isViewerReadOnly) {
-      const first = selectedRecs[0];
-      if (first) openDrillForRec(first);
+      setNotice({
+        tone: "info",
+        title: "Read-only access.",
+        detail: viewerReadOnlyReason,
+      });
       return;
     }
-    if (action === "launch_selected") {
-      openLaunchpadForSelectedRecs();
+    if (!providerAccountId) {
+      setNotice({
+        tone: "warning",
+        title: "No Meta ad account is in scope.",
+        detail:
+          "A launch handoff is minted against an assigned provider account; none is resolved for this workspace.",
+      });
       return;
     }
-    const rec = selectedRecByRoas(
-      action === "scale_strongest" ? "strongest" : "weakest",
-    );
-    if (!rec) return;
-    await handlePrimary(rec);
+    setHandoffPending(true);
+    setNotice(null);
+    try {
+      const minted = await mintMetaLaunchpadHandoff({
+        businessId,
+        providerAccountId,
+        decisionId: canonical.decisionId,
+        sourceSnapshotId: canonical.sourceSnapshotId,
+      });
+      if (!minted.ok || !minted.handoff) {
+        setNotice({
+          tone: "warning",
+          title: "Launchpad handoff refused.",
+          detail: minted.message ?? "The launch handoff was refused.",
+        });
+        return;
+      }
+      router.push(
+        launchpadHandoffHref({
+          handoff: minted.handoff,
+          providerAccountId,
+          pathname,
+        }),
+      );
+    } finally {
+      setHandoffPending(false);
+    }
   };
 
   const loading = briefingLoading;
   const error = briefingError ?? ((anomalyQuery.error ?? null) as Error | null);
 
-  const boundedActionRecs = visibleActionRecs.slice(0, visibleLimit);
-  const healthyRowsForView = filteredHealthy.filter((row) => {
-    const searchMatch =
-      !rowSearch.trim() ||
-      [row.name, row.campaignName ?? ""].some((value) =>
-        value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
-      );
-    const spendMatch =
-      !minSpendOnly ||
-      (typeof row.spend === "number" && row.spend >= META_MIN_SPEND_THRESHOLD);
-    return searchMatch && spendMatch;
-  });
-  const activeMonitorTotal =
-    activeLane === "watching"
-      ? visibleWatchingRecs.length
-      : activeLane === "healthy"
-        ? healthyRowsForView.length
-        : activeLane === "nonSales"
-          ? visibleNonSalesRecs.length
-          : activeLane === "archive"
-            ? inactiveViewItems.length
-          : 0;
-  const activeMonitorPageCount = Math.max(
-    1,
-    Math.ceil(activeMonitorTotal / META_MONITOR_PAGE_SIZE),
-  );
-  const effectiveMonitorPage = Math.min(monitorPage, activeMonitorPageCount);
-  const boundedWatchingRecs = paginateMetaMonitorRows(
-    visibleWatchingRecs,
-    effectiveMonitorPage,
-  );
-  const boundedNonSalesRecs = paginateMetaMonitorRows(
-    visibleNonSalesRecs,
-    effectiveMonitorPage,
-  );
-  const boundedHealthyRows = paginateMetaMonitorRows(
-    healthyRowsForView,
-    effectiveMonitorPage,
-  );
-  const boundedInactiveItems = paginateMetaMonitorRows(
-    inactiveViewItems,
-    effectiveMonitorPage,
-  );
-
-  useEffect(() => {
-    setMonitorPage((current) => Math.min(current, activeMonitorPageCount));
-  }, [activeMonitorPageCount]);
-  const boundedCreativeDecisions = creativeActionDecisions;
-  const creativeActionTotal = creativeDecisionSection?.preCapCount ?? null;
   const exactCanonicalKeys = new Set(
     creativeActionDecisions.map(
       (decision) => `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
@@ -3363,48 +2664,36 @@ export function MetaPlatformPage({
       exactCanonicalKeys.has(
         `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
       ) &&
-      metaOsCreativeSearchMatch(decision, rowSearch) &&
-      (!minSpendOnly ||
-        (typeof decision.metrics.spend === "number" &&
-          decision.metrics.spend >= META_MIN_SPEND_THRESHOLD)),
+      metaOsCreativeSearchMatch(decision, rowSearch),
   );
   const exactArchiveRows = inactiveViewItems.flatMap((item) =>
     item.kind === "structure" ? [item.row] : [],
   );
   const exactActionRows = sortMetaRecs(
     actionNow.filter(
-      (recommendation) =>
-        metaRecSearchMatch(recommendation, rowSearch) &&
-        passesMetaMinSpend(recommendation, minSpendOnly),
+      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
   const exactWatchingRows = sortMetaRecs(
     watching.filter(
-      (recommendation) =>
-        metaRecSearchMatch(recommendation, rowSearch) &&
-        passesMetaMinSpend(recommendation, minSpendOnly),
+      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
   const exactNonSalesRows = sortMetaRecs(
     nonSales.filter(
-      (recommendation) =>
-        metaRecSearchMatch(recommendation, rowSearch) &&
-        passesMetaMinSpend(recommendation, minSpendOnly),
+      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
-  const exactHealthyRows = healthy.filter((row) => {
-    const searchMatch =
+  const exactHealthyRows = healthy.filter(
+    (row) =>
       !rowSearch.trim() ||
       [row.name, row.campaignName ?? ""].some((value) =>
         value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
-      );
-    const spendMatch =
-      !minSpendOnly || row.spend >= META_MIN_SPEND_THRESHOLD;
-    return searchMatch && spendMatch;
-  });
+      ),
+  );
   const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
     ? buildMetaDecisionCenterExactViewModel({
         workspace: workspaceQuery.data,
@@ -3425,6 +2714,7 @@ export function MetaPlatformPage({
           archive: exactArchiveRows,
           creatives: exactCreativeDecisions,
           canonicalDecisions: creativeActionDecisions,
+          creativeCtrSeriesByAdId: queueCtrSeriesQuery.data,
           deferredCount,
         },
         callbacks: {
@@ -3441,10 +2731,22 @@ export function MetaPlatformPage({
               // The presentation decision carries CTR, frequency and the ad
               // set identity the canonical envelope does not; the evidence
               // window needs both.
+              emitProductInstrumentation({
+                eventName: "decision_evidence_viewed",
+                surface: "meta_decisions",
+                outcome: "ok",
+                scope: "business",
+                businessId,
+              });
               setCreativeDrill({ decision, canonical: canonicalDecision });
               return;
             }
-            setNotice("Canonical creative evidence is unavailable.");
+            setNotice({
+              tone: "warning",
+              title: "Canonical creative evidence is unavailable.",
+              detail:
+                "The served decision has no canonical envelope, so the evidence window cannot be opened for it.",
+            });
           },
         },
       })
@@ -3491,7 +2793,15 @@ export function MetaPlatformPage({
       )}
 
       <div className={styles.metaOsDesktop} data-testid="meta-os-decisions">
-        {!providerAccountsQuery.isLoading && !providerAccountId ? (
+        {/*
+          A failed accounts read is not "no assigned account". Offering the
+          picker with "No assigned account" while the read that would have
+          filled it is broken presents a read failure as an empty success; the
+          blocking banner below states the failure instead.
+        */}
+        {!providerAccountsQuery.isLoading &&
+        !providerAccountId &&
+        !providerAccountMetadataError ? (
           <div className="banner warn" data-testid="meta-account-required">
             <div className="icon">i</div>
             <div className="msg">
@@ -3543,10 +2853,52 @@ export function MetaPlatformPage({
               type="button"
               className="btn btn--sm"
               data-testid="meta-briefing-retry"
-              disabled={workspaceQuery.isFetching}
-              onClick={() => void workspaceQuery.refetch()}
+              disabled={briefingRetryPending}
+              // Retry the read that actually failed. This button always
+              // refetched the workspace query, but when the accounts read is
+              // the one that broke, `providerAccountId` is null and the
+              // workspace query is disabled — so Retry re-fired a query that
+              // could not succeed and only a full page reload recovered the
+              // surface.
+              onClick={() => void retryBriefingRead()}
             >
-              {workspaceQuery.isFetching ? "Retrying..." : "Retry"}
+              {briefingRetryPending ? "Retrying..." : "Retry"}
+            </button>
+          </div>
+        ) : null}
+
+        {/*
+          Narrow, and narrow on purpose: the account RECORD is missing, not the
+          workspace. Same `banner warn` presentation as the integrity-scan
+          notice, so nothing new is introduced to the layout; what changed is
+          that this failure no longer escalates into the blocking banner above.
+        */}
+        {providerAccountMetadataDegraded ? (
+          <div
+            className="banner warn"
+            data-testid="meta-account-metadata-warning"
+            role="status"
+          >
+            <div className="icon">i</div>
+            <div className="msg">
+              <b>Account details are unavailable.</b>
+              <span className="sub">
+                The assigned account is in scope and its decisions loaded, but
+                the account record could not be read, so its name and currency
+                show as &quot;—&quot; rather than a guess.
+                {providerAccountMetadataError
+                  ? ` ${providerAccountMetadataError.message}`
+                  : ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn--sm"
+              data-testid="meta-account-metadata-retry"
+              disabled={providerAccountsQuery.isFetching}
+              onClick={() => void providerAccountsQuery.refetch()}
+            >
+              {providerAccountsQuery.isFetching ? "Retrying..." : "Retry"}
             </button>
           </div>
         ) : null}
@@ -3566,16 +2918,28 @@ export function MetaPlatformPage({
         ) : null}
 
         {notice ? (
-          <div className="banner warn" role="status">
-            <div className="icon">i</div>
+          <div
+            className={cn("banner", metaNoticeToneClass(notice.tone))}
+            data-testid="meta-decision-notice"
+            role={notice.tone === "danger" ? "alert" : "status"}
+          >
+            <div className="icon">{notice.tone === "danger" ? "!" : "i"}</div>
             <div className="msg">
-              <b>{notice}</b>
+              <b>{notice.title}</b>
               <span className="sub">
-                {selectedProviderAccount?.name ??
+                {notice.detail ??
+                  selectedProviderAccount?.name ??
                   selectedProviderAccount?.id ??
                   "Selected account"}
               </span>
             </div>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => setNotice(null)}
+            >
+              Dismiss
+            </button>
           </div>
         ) : null}
 
@@ -3596,10 +2960,6 @@ export function MetaPlatformPage({
           </div>
         ) : null}
 
-        <MetaDecisionSourceHealthBanner
-          source={workspaceQuery.data?.os?.source}
-        />
-
         <MetaWorkspacePostureBanners
           banners={workspaceBanners}
           trackingDismissed={trackingDismissed}
@@ -3614,6 +2974,12 @@ export function MetaPlatformPage({
         <MetaDecisionCenterExact
           viewModel={exactViewModel}
           lane={exactLaneForMetaLane(activeLane)}
+          scope={activeScope}
+          onScopeChange={selectScope}
+          // Action Now keeps the reference's resting two-column state. Watching
+          // opens the column only after Review picked a row, so the button has
+          // somewhere to put the evidence instead of doing nothing.
+          inspectorOpen={activeLane !== "watching" || drillItem !== null}
           onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
           onWindowChange={selectExactWindow}
           onRunSnapshot={
@@ -3624,10 +2990,22 @@ export function MetaPlatformPage({
           onNewCampaign={
             providerAccountId && !isViewerReadOnly
               ? () => {
+                  // "+ New campaign" is a manual start, not a decision
+                  // handoff. Sending `fromMetaBriefing=true&mode=duplicate`
+                  // made Launchpad read the URL as decision lineage, and
+                  // Launchpad deliberately fails that closed
+                  // (hasServerAuthorizedLaunchpadHandoff is always false:
+                  // URL identifiers are not execution authority). The handoff
+                  // then suppressed launchpadMode/launchpadStep, so the button
+                  // landed on "Source & mode" announcing missing lineage with
+                  // the Duplicate card disabled — it never started anything.
+                  // A real Duplicate needs a server-authorized lineage
+                  // contract, not an opened gate; this button asks for the
+                  // manual new-campaign start it is named after.
                   const params = new URLSearchParams({
-                    fromMetaBriefing: "true",
-                    mode: "duplicate",
                     providerAccountId,
+                    launchpadMode: "new_campaign",
+                    launchpadStep: "source",
                   });
                   router.push(
                     dashboardHrefForRouteFamily(
@@ -3644,7 +3022,8 @@ export function MetaPlatformPage({
               : undefined
           }
           onSortChange={setRowSort}
-          onSearchChange={setRowSearch}
+          onSearchChange={setRowSearchParam}
+          initialQuery={rowSearch}
           onOpenCreativeStudio={() => {
             const query = providerAccountId
               ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
@@ -3668,12 +3047,25 @@ export function MetaPlatformPage({
             adRows: creativeEvidenceQuery.data,
             adSeries: creativeEvidenceSeriesQuery.data,
             fallbackCurrency: moneyCurrency,
+            // The primary is a control, not a link, because the destination
+            // does not exist until the server mints it. Same slot, same label,
+            // same styling — what changed is that clicking it now produces a
+            // verified handoff or a stated refusal instead of a URL Launchpad
+            // was always going to throw away.
+            callbacks: creativeEvidenceOffersLaunchpadRoute({
+              decision: creativeDrill.decision,
+              canonical: creativeDrill.canonical,
+            })
+              ? {
+                  onPrimary: () => {
+                    void openLaunchpadFromCanonicalDecision(
+                      creativeDrill.canonical,
+                    );
+                  },
+                }
+              : undefined,
             hrefs: {
-              primary: creativeEvidenceLaunchpadHref({
-                decision: creativeDrill.decision,
-                canonical: creativeDrill.canonical,
-                pathname,
-              }),
+              primary: null,
               compareInStudio: creativeEvidenceStudioHref({
                 canonical: creativeDrill.canonical,
                 pathname,
@@ -3741,72 +3133,6 @@ export function MetaPlatformPage({
         }}
         onClose={() => setOverlay(EMPTY_OVERLAY)}
         onConfirm={confirmOverlay}
-      />
-
-      <CompareDrawer
-        open={compareOpen}
-        items={selectedRecs.map(compareItemForRec)}
-        onClose={() => setCompareOpen(false)}
-        entityLabel="Meta entities"
-        trendLabel={`${selectedWindow === "custom" ? "Custom" : selectedWindow} ROAS trend`}
-        actionBar={
-          <>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-danger-fg)] bg-[var(--adc-danger-fg)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-s2)] hover:brightness-95"
-              disabled={isViewerReadOnly}
-              title={
-                isViewerReadOnly
-                  ? (viewerReadOnlyReason ?? "Current viewer is read-only.")
-                  : undefined
-              }
-              onClick={() => void handleCompareDrawerAction("pause_weakest")}
-            >
-              <AlertTriangle
-                className="inline-block shrink-0"
-                size={13}
-                aria-hidden="true"
-              />{" "}
-              Review weakest
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-pos-fg)] bg-[var(--adc-pos-fg)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-s2)] hover:brightness-95"
-              disabled={isViewerReadOnly}
-              title={
-                isViewerReadOnly
-                  ? (viewerReadOnlyReason ?? "Current viewer is read-only.")
-                  : undefined
-              }
-              onClick={() => void handleCompareDrawerAction("scale_strongest")}
-            >
-              <TrendingUp
-                className="inline-block shrink-0"
-                size={13}
-                aria-hidden="true"
-              />{" "}
-              Review strongest
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-[6px] border border-[var(--adc-info-bd)] bg-[var(--adc-s2)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--adc-info-fg)] hover:bg-[var(--adc-info-bg)]"
-              disabled={isViewerReadOnly}
-              title={
-                isViewerReadOnly
-                  ? (viewerReadOnlyReason ?? "Current viewer is read-only.")
-                  : undefined
-              }
-              onClick={() => void handleCompareDrawerAction("launch_selected")}
-            >
-              <Rocket
-                className="inline-block shrink-0"
-                size={13}
-                aria-hidden="true"
-              />{" "}
-              Send selected to Launchpad
-            </button>
-          </>
-        }
       />
 
       <TrackingConfirmModal

@@ -627,7 +627,12 @@ export function ReportsExactContainer({
           ? buildBlockInspector({ widget: selectedWidget, compareOn })
           : buildReportInspector({
               clientName: business?.name ?? null,
-              clientOptions: businesses.map((item) => ({ id: item.id, name: item.name })),
+              // A workspace whose name could not be read is offered as the
+              // unavailable mark, never as its own identifier.
+              clientOptions: businesses.map((item) => ({
+                id: item.id,
+                name: item.name ?? "—",
+              })),
             }),
         saveEnabled: saveState !== "saving",
         saveLabel: "Save & schedule",

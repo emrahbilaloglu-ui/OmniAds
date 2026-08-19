@@ -160,10 +160,13 @@ export function CommandPalette({
       .filter((business) => business.id !== selectedBusinessId)
       .map((business) => ({
         id: `business:${business.id}`,
-        label: business.name,
+        label: business.name ?? "—",
         group: t.switchBusiness,
         kind: "business",
-        hint: business.currency,
+        // A workspace with no configured currency shows the unavailable mark
+        // in the same slot. It must not borrow "USD" from a neighbour
+        // (INVARIANTS.md: missing currency must not silently become USD).
+        hint: business.currency ?? "—",
         run: async () => {
           if (!(await switchBusinessForNavigation(business.id))) return;
           const scopedMatch = pathname.match(/^\/c\/[^/]+(\/.*)?$/);

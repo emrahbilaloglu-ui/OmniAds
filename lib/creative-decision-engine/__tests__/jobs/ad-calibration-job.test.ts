@@ -2798,6 +2798,236 @@ async function proveLateSourceRowIsolation(pool: Pool) {
   }
 }
 
+/**
+ * THE ENGINE EQUIVALENCE SEAM — the load-bearing proof of the link_clicks
+ * null-versus-zero change.
+ *
+ * THE CLAIM UNDER TEST. `meta_ad_daily.link_clicks` used to be
+ * `BIGINT NOT NULL DEFAULT 0`, and the only production writer of it typed a
+ * literal `0` because the sync holds no link-click value at all. Storage was
+ * widened so an unsupplied count can be stored as NULL instead of that
+ * fabricated zero. The engine must not notice: every number it produced from a
+ * row storing 0 it must still produce from the same row storing NULL.
+ *
+ * WHY THIS TEST AND NOT A SMALLER ONE. `mapNativeAdCalibrationSourceRow` read
+ * this column through `dbRequiredNumber`, which THROWS on NULL — so the first
+ * unsupplied ad-day would have aborted the whole native ad calibration job, and
+ * a unit test over a hand-built row object could not show it because the row
+ * never came from a database that could hold a NULL. Both worlds here are read
+ * out of a REAL PostgreSQL through the REAL exported query
+ * (`READ_NATIVE_AD_CALIBRATION_SOURCE_SQL`), mapped by the REAL mapper and
+ * folded by the REAL `computeNativeAdCalibrationBatch`.
+ *
+ * HOW EQUIVALENCE IS ESTABLISHED. One fixture, written once. It is read as the
+ * ZERO world, then the single column is flipped 0 -> NULL by an UPDATE that
+ * touches nothing else, and it is read again as the NULL world. Every other
+ * byte of every row is identical by construction, so any difference in the two
+ * batches can only come from this column. The comparison is a deep equality on
+ * the whole computed batch — every cell, every count, every ratio, every
+ * provenance field — not a spot-check of the metrics someone remembered to
+ * name.
+ *
+ * WHAT THIS TEST IS NOT. It is not a test that link clicks are being supplied.
+ * Supplying a real count from the provider payload would CHANGE these numbers
+ * and is a different change with a different proof; this file asserts the
+ * opposite — that nothing moved.
+ */
+describe.runIf(postgresAvailable)(
+  "native ad calibration link_clicks null-versus-zero equivalence",
+  () => {
+    it("produces byte-identical engine output for an unsupplied link_clicks and a stored zero", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+
+        // A spread of shapes, because equivalence has to hold for all of them:
+        // an ad with spend and impressions, an ad that delivered nothing, and
+        // an ad with conversions and revenue. Every one of them stores
+        // link_clicks = 0 to begin with, which is exactly what production
+        // stores for all 192,464 of its zero rows.
+        const day = "2026-08-10";
+        const observedAt = "2026-08-11T00:00:00.000Z";
+        const fixture = [
+          { adId: "eq-ad-spending", spend: 120.5, impressions: 5000, clicks: 90, conversions: 3, revenue: 410.25 },
+          { adId: "eq-ad-silent", spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+          { adId: "eq-ad-converting", spend: 88.75, impressions: 2400, clicks: 61, conversions: 7, revenue: 933.4 },
+        ];
+
+        await pool.query(
+          `INSERT INTO meta_campaign_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             campaign_id, objective, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign',
+             'OUTCOME_SALES', 'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+        );
+        await pool.query(
+          `INSERT INTO meta_adset_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             adset_id, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-adset',
+             'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+        );
+        for (const row of fixture) {
+          await pool.query(
+            `INSERT INTO meta_ad_daily (
+               business_ref_id, provider_account_ref_id, provider_account_id, date,
+               campaign_id, adset_id, ad_id, account_timezone, account_currency,
+               spend, impressions, clicks, link_clicks, conversions, revenue,
+               payload_json, truth_state, validation_status, finalized_at,
+               created_at, updated_at
+             ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
+               $5, 'UTC', 'USD', $6, $7, $8, 0, $9, $10,
+               '{}'::jsonb, 'finalized', 'passed', $11, $11, $11)`,
+            [
+              BUSINESS_ID,
+              PROVIDER_ACCOUNT_REF_ID,
+              PROVIDER_ACCOUNT_ID,
+              day,
+              row.adId,
+              row.spend,
+              row.impressions,
+              row.clicks,
+              row.conversions,
+              row.revenue,
+              observedAt,
+            ],
+          );
+        }
+
+        const readWorld = async () =>
+          inRepeatableRead(pool, async (client, receipt) => {
+            const source = await client.query(
+              READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
+              [
+                BUSINESS_ID,
+                day,
+                PROVIDER_ACCOUNT_REF_ID,
+                PROVIDER_ACCOUNT_ID,
+                receipt,
+              ],
+            );
+            const mapped = source.rows.map(mapNativeAdCalibrationSourceRow);
+            // The receipt is a wall-clock value and differs between the two
+            // reads, so the batch is computed against ONE fixed receipt. Any
+            // difference that survives is attributable to link_clicks alone.
+            return {
+              linkClicks: mapped.map((mappedRow) => mappedRow.linkClicks),
+              rowCount: source.rowCount,
+              batch: computeForReceipt(mapped, `${day}T12:00:00.000Z`, null),
+            };
+          });
+
+        const zeroWorld = await readWorld();
+        expect(zeroWorld.rowCount).toBe(fixture.length);
+        expect(zeroWorld.linkClicks).toEqual([0, 0, 0]);
+
+        // The ONLY mutation: the stored zero becomes an unsupplied absence.
+        const flipped = await pool.query(
+          `UPDATE meta_ad_daily SET link_clicks = NULL WHERE business_ref_id = $1::uuid`,
+          [BUSINESS_ID],
+        );
+        expect(flipped.rowCount).toBe(fixture.length);
+        const remainingZeros = await pool.query(
+          `SELECT count(*)::int AS count FROM meta_ad_daily WHERE link_clicks IS NOT NULL`,
+        );
+        expect(remainingZeros.rows[0]?.count).toBe(0);
+
+        const nullWorld = await readWorld();
+
+        // 1. The mapper survives the NULL at all. Before the null-safety change
+        //    this line threw `link_clicks must be finite.` and took the entire
+        //    calibration job with it.
+        expect(nullWorld.rowCount).toBe(fixture.length);
+
+        // 2. It yields the SAME number the stored zero yielded — 0, not null,
+        //    not NaN. This is the whole (A)-not-(B) distinction: the engine saw
+        //    0 before and sees 0 now.
+        expect(nullWorld.linkClicks).toEqual(zeroWorld.linkClicks);
+
+        // 3. And the engine's actual output is unchanged, in full. Deep
+        //    equality over the entire computed batch, so a moved threshold, a
+        //    reclassified cell, a changed confidence or a different count would
+        //    all fail here rather than hiding behind a named-metric spot check.
+        expect(nullWorld.batch).toEqual(zeroWorld.batch);
+      });
+    }, 120_000);
+
+    /**
+     * The SQL half, on the exact expressions that were changed.
+     *
+     * PostgreSQL SUM IGNORES nulls, so `SUM(link_clicks)` over an all-null
+     * window returns NULL where it returns 0 today — a real behaviour change,
+     * and the one thing the widening could genuinely have broken. The fix is
+     * `SUM(COALESCE(link_clicks, 0))`, and the coalesce is INSIDE the SUM on
+     * purpose: `COALESCE(SUM(x), 0)` would ALSO turn "no rows matched this
+     * window" from NULL into 0, which is a different answer than today's.
+     *
+     * All three window shapes are checked against real PostgreSQL, because this
+     * is a claim about the aggregate's null semantics and no amount of reading
+     * settles it:
+     *   - rows present, all unsupplied  -> 0    (matches today's stored zeros)
+     *   - rows present, mixed           -> sum  (unchanged)
+     *   - no rows at all                -> NULL (unchanged; NOT coerced to 0)
+     */
+    it("keeps every changed aggregate identical to the pre-change expression over stored zeros", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await pool.query(`
+          CREATE TABLE eq_zero  (bucket TEXT NOT NULL, link_clicks BIGINT NOT NULL);
+          CREATE TABLE eq_null  (bucket TEXT NOT NULL, link_clicks BIGINT);
+          INSERT INTO eq_zero VALUES ('all', 0), ('all', 0), ('mixed', 0), ('mixed', 7);
+          INSERT INTO eq_null VALUES ('all', NULL), ('all', NULL), ('mixed', NULL), ('mixed', 7);
+        `);
+
+        // Pre-change expression over the zero world vs post-change expression
+        // over the null world. Same rows, same grouping, same everything else.
+        const before = await pool.query(
+          `SELECT bucket, SUM(link_clicks)::text AS total FROM eq_zero GROUP BY bucket ORDER BY bucket`,
+        );
+        const after = await pool.query(
+          `SELECT bucket, SUM(COALESCE(link_clicks, 0))::text AS total FROM eq_null GROUP BY bucket ORDER BY bucket`,
+        );
+        expect(after.rows).toEqual(before.rows);
+        expect(before.rows).toEqual([
+          { bucket: "all", total: "0" },
+          { bucket: "mixed", total: "7" },
+        ]);
+
+        // The empty window must stay NULL on both sides. This is the assertion
+        // that rules out `COALESCE(SUM(x), 0)`, which would answer 0 here and
+        // silently invent a measured zero for a window with no rows in it.
+        const emptyBefore = await pool.query(
+          `SELECT SUM(link_clicks) AS total FROM eq_zero WHERE bucket = 'absent'`,
+        );
+        const emptyAfter = await pool.query(
+          `SELECT SUM(COALESCE(link_clicks, 0)) AS total FROM eq_null WHERE bucket = 'absent'`,
+        );
+        expect(emptyBefore.rows[0]?.total).toBeNull();
+        expect(emptyAfter.rows[0]?.total).toBeNull();
+
+        // The row-level coalesce used where the raw column leaves the table
+        // (historical_source in data-source.ts and lifecycle-job.ts) so the
+        // guarded ratio below it stays textually and numerically identical.
+        const ratioBefore = await pool.query(
+          `SELECT CASE WHEN SUM(link_clicks) > 0
+                       THEN 100::numeric / NULLIF(SUM(link_clicks), 0) END AS rate
+             FROM eq_zero WHERE bucket = 'all'`,
+        );
+        const ratioAfter = await pool.query(
+          `SELECT CASE WHEN SUM(link_clicks) > 0
+                       THEN 100::numeric / NULLIF(SUM(link_clicks), 0) END AS rate
+             FROM (SELECT COALESCE(link_clicks, 0) AS link_clicks
+                     FROM eq_null WHERE bucket = 'all') coalesced`,
+        );
+        expect(ratioAfter.rows[0]?.rate).toEqual(ratioBefore.rows[0]?.rate);
+        expect(ratioBefore.rows[0]?.rate).toBeNull();
+      });
+    }, 120_000);
+  },
+);
+
 async function createEphemeralSchema(pool: Pool) {
   await pool.query(`
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -2890,7 +3120,12 @@ async function createEphemeralSchema(pool: Pool) {
       spend DOUBLE PRECISION NOT NULL,
       impressions DOUBLE PRECISION NOT NULL,
       clicks DOUBLE PRECISION NOT NULL,
-      link_clicks DOUBLE PRECISION NOT NULL,
+      -- NULLABLE, mirroring the production column after the 2026-08-19
+      -- widening. It was NOT NULL here, which meant the "unsupplied link
+      -- clicks" case could not even be expressed in this harness -- the exact
+      -- blind spot that let the engine's per-row read keep a dbRequiredNumber
+      -- that throws on NULL. See the equivalence seam below.
+      link_clicks DOUBLE PRECISION,
       conversions DOUBLE PRECISION NOT NULL,
       revenue DOUBLE PRECISION NOT NULL,
       payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,

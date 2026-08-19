@@ -197,7 +197,11 @@
     "zero-base:preview:off": "ZERO_BASE_UI_MODE=off next dev --turbopack --hostname 127.0.0.1 --port 3000",
     "test:zero-base:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_SERVER_ENV_FILE=playwright/fixtures/zero-base-local-production.env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 playwright test --project=zero-base-local-production-chromium",
     "test:zero-base:perf:local": "PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_SERVER_ENV_FILE=playwright/fixtures/zero-base-local-production.env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 ZERO_BASE_SMOKE_URL=http://127.0.0.1:3100 playwright test --project=zero-base-perf-chromium && npm run zero-base:perf:bundles",
-    "test:zero-base:fidelity": "npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-fidelity.ts"
+    "test:zero-base:fidelity": "npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-fidelity.ts",
+    "test:automation-claim-race-seam": "node --import tsx scripts/ephemeral-postgres-automation-claim-race-seam.ts",
+    "test:breakdown-dimension-seam": "node --import tsx scripts/ephemeral-postgres-breakdown-dimension-seam.ts",
+    "test:meta-history-assignment-seam": "node --import tsx scripts/ephemeral-postgres-meta-history-assignment-seam.ts",
+    "test:launchpad-handoff-seam": "node --import tsx scripts/ephemeral-postgres-launchpad-handoff-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

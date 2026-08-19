@@ -90,4 +90,45 @@ describe("LaunchpadProgress", () => {
     expect(html).toContain("billing_not_ok — Billing is not ready");
     expect(html).not.toContain(">Retry<");
   });
+
+  // A transport failure after the POST already reached the server arrives with
+  // no counts and no id arrays. Printing 0 asserts that nothing was created at
+  // the exact moment the client cannot know — the operator then closes the
+  // wizard believing the account is untouched, and may resubmit and duplicate
+  // whatever really landed. An unreported outcome is unknown, never zero.
+  it("never prints zero for counts a countless response did not supply", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadProgress
+        loading={false}
+        onDone={vi.fn()}
+        result={{
+          ok: false,
+          error: {
+            code: "launch_request_failed",
+            message: "Failed to fetch",
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain("Provider objects not reported.");
+    expect(html).not.toContain("0</strong> ad sets");
+    expect(html).not.toContain("0</strong> ads");
+  });
+
+  // The counts that *were* supplied still render as numbers, including a real
+  // zero the server actually reported.
+  it("prints supplied counts, and an em-dash only for the ones withheld", () => {
+    const html = renderToStaticMarkup(
+      <LaunchpadProgress
+        mode="manage_existing"
+        loading={false}
+        onDone={vi.fn()}
+        result={{ ok: false, successCount: 0, campaignId: "cmp_1" }}
+      />,
+    );
+
+    expect(html).toContain("0</strong> updated");
+    expect(html).toContain("—</strong> failed");
+  });
 });

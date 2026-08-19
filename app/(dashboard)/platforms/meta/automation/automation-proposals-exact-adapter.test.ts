@@ -41,6 +41,12 @@ function proposal(
     decidedAt: null,
     decisionNote: null,
     receipt: null,
+    // Claim fields are part of the row now. A fixture that omitted them would
+    // let a test assert on a proposal shape the database can no longer produce.
+    claimToken: null,
+    claimedBy: null,
+    claimedAt: null,
+    dispatchStartedAt: null,
     createdAt: "2026-08-16T18:00:00.000Z",
     updatedAt: "2026-08-16T18:00:00.000Z",
     ...overrides,
@@ -96,15 +102,93 @@ describe("the confirmation queue view model", () => {
     expect(model.rows).toEqual([]);
   });
 
-  it("reports a proven empty queue as zero, not as unknown", () => {
+  /**
+   * REWRITTEN, not deleted. The law it pinned — "a proven empty queue is `0`,
+   * not `—`" — still holds and is still asserted. What changed is what counts
+   * as PROVEN. A completed queue read only proves that no proposal needs
+   * confirmation; it says nothing about the rows this account is holding open
+   * without being approvable. The server has always sent those counts beside
+   * the queue (`holds`), and the adapter used to drop them, so a queue with a
+   * live dispatch in flight reported `0`.
+   */
+  it("reports a proven empty queue as zero once nothing is held either", () => {
     const model = buildAutomationProposalsModel({
       readCompleteness: "complete",
       proposals: [],
+      holds: { claimed: 0, reconcile: 0 },
       now: NOW,
     });
 
     expect(model.count).toBe("0");
     expect(model.rows).toEqual([]);
+    expect(model.provenEmpty).toBe(true);
+    // A MEASURED zero stays a zero. This is the whole point of the field.
+    expect(model.holds).toEqual({ claimed: 0, reconcile: 0 });
+  });
+
+  it("refuses to call the queue empty while a dispatch is in flight", () => {
+    const model = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [],
+      holds: { claimed: 1, reconcile: 0 },
+      now: NOW,
+    });
+
+    expect(model.count).toBe(UNKNOWN);
+    expect(model.provenEmpty).toBe(false);
+    expect(model.holds).toEqual({ claimed: 1, reconcile: 0 });
+  });
+
+  it("refuses to call the queue empty while a row awaits reconciliation", () => {
+    // The invariant: an unsafe-to-terminalize row "stays pending ...
+    // reconciliation required, and retry forbidden". It is not approvable, so
+    // it is not a row here — and it is emphatically not nothing.
+    const model = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [],
+      holds: { claimed: 0, reconcile: 2 },
+      now: NOW,
+    });
+
+    expect(model.count).toBe(UNKNOWN);
+    expect(model.provenEmpty).toBe(false);
+  });
+
+  it("treats an unread hold count as unknown, never as nothing held", () => {
+    const unread = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [],
+      holds: null,
+      now: NOW,
+    });
+    // A server that sends no `holds` field at all is the same statement: the
+    // fact was not forwarded, so it was not proven.
+    const absent = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [],
+      now: NOW,
+    });
+
+    expect(unread.count).toBe(UNKNOWN);
+    expect(unread.provenEmpty).toBe(false);
+    expect(unread.holds).toBeNull();
+    expect(absent.count).toBe(UNKNOWN);
+    expect(absent.provenEmpty).toBe(false);
+  });
+
+  it("counts approvable rows only and never folds holds into the badge", () => {
+    const model = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [proposal()],
+      holds: { claimed: 3, reconcile: 4 },
+      now: NOW,
+    });
+
+    // "Needs your confirmation" is a count of what the operator can act on.
+    // Holds are carried beside it and stated separately, never added in.
+    expect(model.count).toBe("1");
+    expect(model.holds).toEqual({ claimed: 3, reconcile: 4 });
+    expect(model.provenEmpty).toBe(false);
   });
 
   it("uses the design's expiry granularity and never counts down past zero", () => {

@@ -311,7 +311,10 @@ export default function SelectBusinessPage() {
                     </span>
                   </span>
                   <span className="ad-auth-mono">
-                    {business.currency} · {accountCount} {accountCount === 1 ? "account" : "accounts"}
+                    {/* A workspace with no configured currency prints the
+                        unavailable mark, not a borrowed code. */}
+                    {business.currency ?? "—"} · {accountCount}{" "}
+                    {accountCount === 1 ? "account" : "accounts"}
                     {isSelected ? " · current" : ""}
                   </span>
                 </button>
@@ -325,7 +328,9 @@ export default function SelectBusinessPage() {
                       setConfirmBusinessId(null);
                       setConfirmInput("");
                       setEditBusinessId(business.id);
-                      setEditName(business.name);
+                      // An unreadable name opens the form empty rather than
+                      // pre-filling an id; the form refuses to save it blank.
+                      setEditName(business.name ?? "");
                       setEditCurrency(ISO_4217_ALPHABETIC.test(stored) ? stored : "");
                       setFeedback(null);
                     }}

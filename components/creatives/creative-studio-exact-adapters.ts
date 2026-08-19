@@ -1,6 +1,9 @@
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import type { CopyMotionRow } from "@/app/(dashboard)/platforms/meta/copies/page-support";
-import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type {
+  MetaCreativeRow,
+  MetaObservedMetricKey,
+} from "@/components/creatives/metricConfig";
 import type {
   CreativeStudioAssetRow,
   CreativeStudioAssetsModel,
@@ -20,6 +23,23 @@ function finite(value: unknown): number | null {
 function divide(numerator: number | null, denominator: number | null, scale = 1) {
   if (numerator === null || denominator === null || denominator <= 0) return null;
   return (numerator / denominator) * scale;
+}
+
+/**
+ * A ratio someone else computed, withheld when its denominator makes it
+ * undefined.
+ *
+ * The value is passed through untouched — this is not a formula. It removes
+ * only the substitution: zero purchases does not make acquisition free, zero
+ * impressions does not make the cost per thousand zero, and printing 0 for
+ * either is a measurement the provider never made.
+ */
+function ratioWithDenominator(
+  value: number | null,
+  denominator: number | null,
+): number | null {
+  if (denominator === null || denominator <= 0) return null;
+  return value;
 }
 
 function titleCaseStatus(value: string | null | undefined): string | null {
@@ -52,20 +72,37 @@ function previewUrl(row: MetaCreativeRow) {
   );
 }
 
+/**
+ * NOTE: no route mounts this builder.
+ *
+ * `rg -n 'buildCreativeStudioAssetsModel' app components lib` finds this
+ * definition and its unit test and nothing else; the live Assets surface
+ * projects its rows with `toCreativeStudioAssetRows` in
+ * app/(dashboard)/platforms/meta/creatives/legacy-page.tsx. Fixes made only
+ * here would not reach a pixel, so the null-versus-zero work for Assets was
+ * done there and this builder is only kept consistent with it.
+ */
 export function buildCreativeStudioAssetsModel(input: {
   rows: MetaCreativeRow[];
   state: CreativeStudioDataState;
   message?: string | null;
-  onOpenRow?: (rowId: string) => void;
 }): CreativeStudioAssetsModel {
   const rows: CreativeStudioAssetRow[] = input.rows.map((row) => {
-    const available = row.metricsAvailability === "available";
-    const metric = (value: number | null | undefined) =>
-      available ? finite(value) : null;
-    const purchases = metric(row.purchases);
-    const linkClicks = metric(row.linkClicks);
-    const addToCart = metric(row.addToCart);
-    const purchaseValue = metric(row.purchaseValue);
+    const metric = (
+      key: MetaObservedMetricKey,
+      value: number | null | undefined,
+    ) =>
+      row.observedMetrics
+        ? finite(row.observedMetrics[key])
+        : row.metricsAvailability === "available"
+          ? finite(value)
+          : null;
+    const purchases = metric("purchases", row.purchases);
+    const linkClicks = metric("linkClicks", row.linkClicks);
+    const addToCart = metric("addToCart", row.addToCart);
+    const purchaseValue = metric("purchaseValue", row.purchaseValue);
+    const impressions = metric("impressions", row.impressions);
+    const spend = metric("spend", row.spend);
     const status = titleCaseStatus(row.effectiveStatus);
 
     return {
@@ -82,20 +119,27 @@ export function buildCreativeStudioAssetsModel(input: {
       marketingAngle: row.aiTags.messagingAngle?.find((value) => value.trim()) ?? null,
       currency: row.currency?.trim() || null,
       metrics: {
-        spend: metric(row.spend),
-        impressions: metric(row.impressions),
-        clicks: metric(row.clicks),
+        spend,
+        impressions,
+        clicks: metric("clicks", row.clicks),
         purchases,
-        roas: metric(row.roas),
-        cpa: metric(row.cpa),
-        cpm: metric(row.cpm),
+        // Producer-computed ratios, withheld when their denominator makes them
+        // undefined. `normalizeCreativeMetricFields` ends each of these with
+        // `: 0`, so a creative with zero purchases published `cpa: 0` — the
+        // best possible value in a lower-is-better column.
+        roas: ratioWithDenominator(metric("roas", row.roas), spend),
+        cpa: ratioWithDenominator(metric("cpa", row.cpa), purchases),
+        cpm: ratioWithDenominator(metric("cpm", row.cpm), impressions),
         aov: divide(purchaseValue, purchases),
-        ctr: metric(row.ctrAll),
-        thumbstop: metric(row.thumbstop),
+        ctr: ratioWithDenominator(metric("ctrAll", row.ctrAll), impressions),
+        thumbstop: ratioWithDenominator(
+          metric("thumbstop", row.thumbstop),
+          impressions,
+        ),
         // The current creative payload has no Hold 15s field. Video-completion
         // rates are not a valid proxy for the canonical metric.
         hold: null,
-        frequency: metric(row.frequency),
+        frequency: metric("frequency", row.frequency),
         atcRate: divide(addToCart, linkClicks, 100),
         cvr: divide(purchases, linkClicks, 100),
       },
@@ -105,21 +149,38 @@ export function buildCreativeStudioAssetsModel(input: {
   return {
     state: input.state,
     message: input.message ?? null,
-    syncedCount: input.state === "loading" || input.state === "error" ? null : rows.length,
+    // A count is only a count when a read produced one. `unavailable` means no
+    // read happened, so it reports the same unknown as `loading` and `error`
+    // rather than the 0 rows it happens to be holding.
+    syncedCount:
+      input.state === "loading" ||
+      input.state === "error" ||
+      input.state === "unavailable"
+        ? null
+        : rows.length,
     rows,
-    onOpenRow: input.onOpenRow,
   };
 }
 
-function copyHasObservedMetrics(row: CopyMotionRow) {
-  return [
-    row.spend,
-    row.purchaseValue,
-    row.purchases,
-    row.impressions,
-    row.linkClicks,
-    row.addToCart,
-  ].some((value) => (finite(value) ?? 0) !== 0);
+/**
+ * REMOVED: `copyHasObservedMetrics`, the "if any metric is non-zero then all
+ * metrics are observed" heuristic.
+ *
+ * It answered a question no payload asks. A copy line that ran and delivered
+ * nothing — paused before spend, or never entered delivery — is a real all-zero
+ * row, and the heuristic declared every one of its numbers unknown, so the
+ * surface printed em dashes over facts the provider had actually measured.
+ * Reading it the other way was just as wrong: one non-zero field licensed every
+ * other field on the row, including ones the response never carried.
+ *
+ * Availability is per field now. `mapApiRowToCopyRow`
+ * (app/(dashboard)/platforms/meta/copies/page-support.ts) passes `spend`,
+ * `roas`, `cpa`, `cpm`, `cpc_link` and `ctr_all` straight through without a
+ * `?? 0`, so `finite()` is the honest test: a number is a measurement, absence
+ * is absence, and 0 is a number.
+ */
+function copyMetric(value: number | null | undefined) {
+  return finite(value);
 }
 
 function copyKind(row: CopyMotionRow) {
@@ -131,10 +192,9 @@ function copyKind(row: CopyMotionRow) {
 }
 
 function buildCopyAngles(rows: CopyMotionRow[]): CreativeStudioCopyAngle[] {
-  const totalSpend = rows.reduce(
-    (sum, row) => sum + (copyHasObservedMetrics(row) ? finite(row.spend) ?? 0 : 0),
-    0,
-  );
+  // Only served numbers enter a total. A row that carried no `spend` adds
+  // nothing and, unlike a row that carried 0, was never counted as evidence.
+  const totalSpend = rows.reduce((sum, row) => sum + (copyMetric(row.spend) ?? 0), 0);
   const groups = new Map<string, CopyMotionRow[]>();
   for (const row of rows) {
     const angle = row.copyAngle?.trim();
@@ -146,23 +206,24 @@ function buildCopyAngles(rows: CopyMotionRow[]): CreativeStudioCopyAngle[] {
 
   return [...groups.entries()]
     .map(([name, bucket]) => {
-      const observed = bucket.filter(copyHasObservedMetrics);
-      const spend = observed.reduce((sum, row) => sum + (finite(row.spend) ?? 0), 0);
-      const value = observed.reduce(
-        (sum, row) => sum + (finite(row.purchaseValue) ?? 0),
+      const spend = bucket.reduce((sum, row) => sum + (copyMetric(row.spend) ?? 0), 0);
+      const value = bucket.reduce(
+        (sum, row) => sum + (copyMetric(row.purchaseValue) ?? 0),
         0,
       );
-      const impressions = observed.reduce(
-        (sum, row) => sum + (finite(row.impressions) ?? 0),
+      const impressions = bucket.reduce(
+        (sum, row) => sum + (copyMetric(row.impressions) ?? 0),
         0,
       );
-      const linkClicks = observed.reduce(
-        (sum, row) => sum + (finite(row.linkClicks) ?? 0),
+      const linkClicks = bucket.reduce(
+        (sum, row) => sum + (copyMetric(row.linkClicks) ?? 0),
         0,
       );
-      const best = observed
-        .filter((row) => finite(row.roas) !== null)
-        .sort((left, right) => (finite(right.roas) ?? 0) - (finite(left.roas) ?? 0))[0];
+      const best = bucket
+        .filter((row) => copyMetric(row.roas) !== null)
+        .sort(
+          (left, right) => (copyMetric(right.roas) ?? 0) - (copyMetric(left.roas) ?? 0),
+        )[0];
 
       return {
         id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || name,
@@ -187,11 +248,11 @@ export function buildCreativeStudioCopiesModel(input: {
   onOpenRow?: (rowId: string) => void;
 }): CreativeStudioCopiesModel {
   const rows: CreativeStudioCopyRow[] = input.rows.map((row) => {
-    const available = copyHasObservedMetrics(row);
-    const metric = (value: number | null | undefined) =>
-      available ? finite(value) : null;
+    const metric = copyMetric;
     const purchases = metric(row.purchases);
     const linkClicks = metric(row.linkClicks);
+    const impressions = metric(row.impressions);
+    const spend = metric(row.spend);
     return {
       id: row.id,
       text: row.copyText?.trim() || "—",
@@ -201,13 +262,16 @@ export function buildCreativeStudioCopiesModel(input: {
       tone: "neutral",
       ads: row.associatedAdsCountAvailable ? row.associatedAdsCount : null,
       currency: row.currency?.trim() || null,
-      spend: metric(row.spend),
+      spend,
       // These fields are not present in the typed Meta copies response.
       seeMore: null,
-      ctr: metric(row.linkCtr),
+      // `linkCtr` is computed in `mapApiRowToCopyRow` as
+      // `impressions > 0 ? … : 0`, so with no impressions it is a fabricated 0
+      // rather than a measured rate.
+      ctr: ratioWithDenominator(metric(row.linkCtr), impressions),
       engagement: null,
       cvr: divide(purchases, linkClicks, 100),
-      roas: metric(row.roas),
+      roas: ratioWithDenominator(metric(row.roas), spend),
     };
   });
   const angleCount = rows.filter((row) => row.angle).length;
@@ -251,8 +315,25 @@ export function buildCreativeStudioLandingModel(input: {
 
   const rows: CreativeStudioLandingRow[] = [...grouped.entries()]
     .map(([destination, bucket]) => {
-      const sum = (read: (row: MetaCreativeApiRow) => number | null) =>
-        bucket.reduce((total, row) => total + (read(row) ?? 0), 0);
+      /**
+       * A total of what was actually served — or nothing at all.
+       *
+       * `total + (read(row) ?? 0)` treated an unserved field as a contribution
+       * of zero, so a destination whose ads carried no `spend` at all summed to
+       * a confident `0` and rendered as a real, measured "this destination cost
+       * nothing". Null now means no ad in the bucket reported the field, which
+       * the table renders as an em dash. A bucket where every ad reported 0
+       * still totals 0, because that is a measurement.
+       */
+      const sum = (read: (row: MetaCreativeApiRow) => number | null) => {
+        let total: number | null = null;
+        for (const row of bucket) {
+          const value = read(row);
+          if (value === null) continue;
+          total = (total ?? 0) + value;
+        }
+        return total;
+      };
       const spend = sum((row) => finite(row.spend));
       const purchaseValue = sum((row) => finite(row.purchase_value));
       const purchases = sum((row) => finite(row.purchases));

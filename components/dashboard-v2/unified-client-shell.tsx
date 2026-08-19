@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
 import { DashboardFrame } from "@/components/layout/dashboard-frame";
 import { WorkspaceContextProvider } from "@/components/workspace/workspace-context-provider";
+import { readDateWindowFromParams } from "@/lib/dashboard/date-window-url";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
 import { QueryProvider } from "@/providers/query-provider";
@@ -52,15 +53,25 @@ function isCreativeEvidencePath(pathname: string): boolean {
 /**
  * The path identifies the route family; the authorized business id always
  * comes from the server envelope, never from the client-controlled segment.
+ *
+ * Both canonical families are gated, not just `/c/**`. `/app/**` states no
+ * business in its URL, which was read as "nothing to reconcile" — so the
+ * `/app/**` shell mounted its rail and topbar query hooks against whatever the
+ * persisted store still held. Between localStorage rehydration and
+ * AuthBootstrap that is the previous session's workspace, and the operator saw
+ * the switcher name one workspace while the rail links and the freshness pill
+ * named another. Having no business in the URL is not the same as having no
+ * business: the envelope still carries the one the server authorized for this
+ * request, and it is the one that must win.
  */
 export function scopedEnvelopeBusinessId(
   pathname: string,
   envelope: WorkspaceContextEnvelope,
 ): string | null {
   const segments = routeSegments(pathname);
-  return segments[0] === "c" && segments.length >= 2
-    ? (envelope.business?.id ?? null)
-    : null;
+  const scopedFamily =
+    (segments[0] === "c" && segments.length >= 2) || segments[0] === "app";
+  return scopedFamily ? (envelope.business?.id ?? null) : null;
 }
 
 /**
@@ -85,15 +96,33 @@ export function buildEffectiveDashboardEnvelope(input: {
     catalog?.accounts.find((account) => account.id === requestedAccountId) ??
     (catalog?.accounts.length === 1 ? catalog.accounts[0] : null);
 
+  /**
+   * The caption names the window that was actually stated, or names nothing.
+   *
+   * It used to print the literal "Last 28 days" on any creative path with no
+   * window in the URL — a measurement asserted by a constant, on a shell that
+   * had no idea what the body below it read. A caption is evidence about
+   * evidence: when none was stated, the honest label is the server's own, and
+   * when the server has none either it stays null and renders as unavailable
+   * rather than as a confident wrong number of days.
+   *
+   * Both spellings are accepted because both are in the tree: the shell control
+   * states `startDate`/`endDate`, and the Creative Studio links carry
+   * `start`/`end`.
+   */
   const creativeEvidencePath = isCreativeEvidencePath(input.pathname);
-  const start = input.searchParams.get("start");
-  const end = input.searchParams.get("end");
+  const statedWindow = readDateWindowFromParams(input.searchParams) ?? {
+    customStart: input.searchParams.get("start") ?? "",
+    customEnd: input.searchParams.get("end") ?? "",
+  };
+  const statedLabel =
+    statedWindow.customStart && statedWindow.customEnd
+      ? `${statedWindow.customStart} → ${statedWindow.customEnd}`
+      : null;
   const evidenceWindowLabel =
-    creativeEvidencePath && start && end
-      ? `${start} → ${end}`
-      : creativeEvidencePath
-        ? "Last 28 days"
-        : input.envelope.evidence.windowLabel;
+    creativeEvidencePath && statedLabel
+      ? statedLabel
+      : input.envelope.evidence.windowLabel;
 
   return {
     ...input.envelope,

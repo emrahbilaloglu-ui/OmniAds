@@ -86,6 +86,108 @@ export type MetaHistoryEntryStatus =
   | "partially_succeeded"
   | "unknown";
 
+/**
+ * The three outcome words the History surface offers as a filter.
+ *
+ * Every source publishes its own status vocabulary — a decision is `published`,
+ * a brief is `reviewed`, a provider write is `verified_success` or
+ * `silent_failure` — and the surface asks one question across all of them: did
+ * it land, did it fail, or is it still in the air. This is the grouping, in one
+ * place, so the filter and the read cannot drift apart.
+ *
+ * `unknown_outcome` and `silent_failure` sit on the failed side deliberately.
+ * A write we sent and cannot confirm is not "still pending"; treating it as
+ * unsettled would let a silent provider failure age quietly out of view.
+ */
+export const META_HISTORY_OUTCOME_GROUPS = {
+  confirmed: [
+    "published",
+    "recorded",
+    "verified_success",
+    "succeeded",
+    "resolved",
+    "closed",
+    "improved",
+    "positive",
+  ],
+  failed: [
+    "failed",
+    "silent_failure",
+    "unknown_outcome",
+    "validation_blocked",
+    "write_blocked",
+    "regressed",
+    "negative",
+  ],
+  unsettled: [
+    "pending",
+    "open",
+    "draft",
+    "reviewed",
+    "prepared",
+    "ready",
+    "executing",
+    "partially_succeeded",
+    "flat",
+    "inconclusive",
+    "neutral",
+    "unknown",
+  ],
+} as const satisfies Record<string, readonly MetaHistoryEntryStatus[]>;
+
+export type MetaHistoryOutcomeFilter = keyof typeof META_HISTORY_OUTCOME_GROUPS;
+
+export function isMetaHistoryOutcomeFilter(
+  value: string | null | undefined,
+): value is MetaHistoryOutcomeFilter {
+  return value != null && value in META_HISTORY_OUTCOME_GROUPS;
+}
+
+/**
+ * Raw column values that normalize into a published status.
+ *
+ * The read stores what each source wrote and normalizes on the way out
+ * (`success` becomes `recorded`, `failure` becomes `failed`, `ambiguous`
+ * becomes `unknown_outcome`). A filter that compared the stored column against
+ * the published words alone would quietly drop every row written in the older
+ * vocabulary, which is the failure mode this whole surface exists to prevent.
+ */
+const META_HISTORY_STATUS_ALIASES: Record<string, MetaHistoryEntryStatus> = {
+  success: "recorded",
+  failure: "failed",
+  ambiguous: "unknown_outcome",
+  "unknown outcome": "unknown_outcome",
+};
+
+/**
+ * How to express one outcome filter against the stored `status_raw` column.
+ *
+ * `confirmed` and `failed` are closed sets and are matched by inclusion.
+ * `unsettled` cannot be: any value the read does not recognise publishes as
+ * `unknown`, and there is no way to enumerate what a future source might write.
+ * So it is everything that is not confirmed and not failed — which keeps an
+ * unrecognised status visible under a filter rather than invisible under all
+ * three.
+ */
+export function metaHistoryOutcomeRawValues(
+  filter: MetaHistoryOutcomeFilter,
+): { values: string[]; negate: boolean } {
+  const rawFor = (group: MetaHistoryOutcomeFilter): string[] => {
+    const published = new Set<string>(META_HISTORY_OUTCOME_GROUPS[group]);
+    const aliases = Object.entries(META_HISTORY_STATUS_ALIASES)
+      .filter(([, target]) => published.has(target))
+      .map(([alias]) => alias);
+    return [...published, ...aliases].map((value) => value.toLowerCase());
+  };
+  if (filter === "unsettled") {
+    return {
+      values: [...rawFor("confirmed"), ...rawFor("failed")],
+      negate: true,
+    };
+  }
+  return { values: rawFor(filter), negate: false };
+}
+
 export type MetaHistorySourceIdKind =
   | "persisted_uuid"
   | "persisted_composite_key";
@@ -174,6 +276,8 @@ export interface MetaHistoryQuery {
   kind: MetaHistoryKind | null;
   entity: MetaHistoryEntityType | null;
   label: string | null;
+  /** Groups the sources' own status words; see META_HISTORY_OUTCOME_GROUPS. */
+  outcome: MetaHistoryOutcomeFilter | null;
   from: string | null;
   to: string | null;
   q: string | null;
@@ -355,6 +459,9 @@ export function parseMetaHistoryQuery(params: URLSearchParams): MetaHistoryQuery
     businessId,
     providerAccountId,
     kind: optionalEnum({ params, key: "kind", values: META_HISTORY_KINDS }),
+    outcome: isMetaHistoryOutcomeFilter(params.get("outcome")?.trim() || null)
+      ? (params.get("outcome")!.trim() as MetaHistoryOutcomeFilter)
+      : null,
     entity: optionalEnum({
       params,
       key: "entity",

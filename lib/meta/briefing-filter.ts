@@ -13,7 +13,21 @@ export const BRIEFING_STATUS_FILTER_LABELS: Record<BriefingStatusFilter, string>
 };
 
 const RECENT_PAUSED_WINDOW_MS = 24 * 60 * 60 * 1000;
-const ARCHIVE_ONLY_STATUSES = new Set(["PAUSED", "ARCHIVED", "DELETED", "UNKNOWN"]);
+/**
+ * Statuses that put an entity in the archive rather than the briefing.
+ *
+ * UNKNOWN is deliberately NOT one of them. `normalizeBriefingStatus` returns it
+ * for a null column, so listing it here made "we did not capture a status" mean
+ * the same thing as "the operator archived this" — and the two are opposites.
+ *
+ * On a real account that hid the money: five campaigns carried $34,612 of a
+ * $36,451 window while `meta_campaign_daily.campaign_status` was null for every
+ * one of their rows (the system knew they were ACTIVE — `meta_entity_state_history`
+ * said so — the daily table just never carried it). The active filter dropped
+ * all five, and the Decision Center reported ROAS 0.00 and $0 spend for an
+ * account spending well over a thousand dollars a day.
+ */
+const ARCHIVE_ONLY_STATUSES = new Set(["PAUSED", "ARCHIVED", "DELETED"]);
 
 export interface BriefingStatusEntity {
   status?: string | null;
@@ -86,6 +100,11 @@ export function isInBriefing(
   const status = briefingStatusForEntity(entity);
   if (filter === "all") return true;
   if (status === "ACTIVE") return true;
+  // An unknown status is not a pause. This filter exists to hide what the
+  // operator turned off, so it may only exclude what it knows is off; treating
+  // a missing column as "off" removed spending entities from every rollup and
+  // left the surface reporting zeros for an account that was spending.
+  if (status === "UNKNOWN") return true;
   return filter === "active_plus_recent_paused" && isRecentlyPaused(entity, now);
 }
 

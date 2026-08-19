@@ -10,7 +10,10 @@ import {
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
-import { AppTopbar } from "@/components/layout/v2/app-topbar";
+import {
+  AppTopbar,
+  useScopedEnvelopeBusiness,
+} from "@/components/layout/v2/app-topbar";
 import { CommandPalette } from "@/components/layout/v2/command-palette";
 import { useAppStore } from "@/store/app-store";
 
@@ -195,10 +198,20 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const claimsMobileReadOnly = shouldClaimMobileReadOnly(pathname);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
-  const selectedBusiness =
-    businesses.find((business) => business.id === selectedBusinessId) ??
-    businesses[0] ??
-    null;
+  const scopedBusiness = useScopedEnvelopeBusiness(pathname ?? "");
+  /**
+   * The same business the switcher names, resolved the same way.
+   *
+   * This held a second, different rule — `businesses[0]` when the selection
+   * did not match — so the mobile surface could name one workspace and print
+   * another's currency while the topbar named a third. A shell must not have
+   * two answers to "which business", and a currency must never be borrowed
+   * from whichever workspace happens to sort first.
+   */
+  const selectedBusiness = scopedBusiness
+    ? { name: scopedBusiness.name, currency: scopedBusiness.configuredCurrency }
+    : (businesses.find((business) => business.id === selectedBusinessId) ??
+      null);
 
   useEffect(() => {
     setNavOpen(false);

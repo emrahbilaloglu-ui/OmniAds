@@ -35,13 +35,31 @@ export async function getMetaCanonicalOverviewSummary(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  /**
+   * Narrow the summary to ONE assigned account.
+   *
+   * Omitted, this reads every assigned account, which is correct for the
+   * workspace overview. Account Intelligence asks a different question — it
+   * puts an account name in its header — and without this it had to withhold
+   * the whole Summary section for any business holding more than one
+   * account, because the alternative was pooling A+B under B's name.
+   *
+   * Fail-closed: an id that is not currently assigned narrows to NOTHING
+   * rather than falling back to the full set, so a stale or guessed id can
+   * never widen the answer.
+   */
+  providerAccountId?: string | null;
 }): Promise<MetaCanonicalOverviewSummary> {
   const [assignment, rangeContext, integration] = await Promise.all([
     getProviderAccountAssignments(input.businessId, "meta").catch(() => null),
     getMetaRangePreparationContext(input),
     getIntegration(input.businessId, "meta").catch(() => null),
   ]);
-  const providerAccountIds = assignment?.account_ids ?? [];
+  const assignedAccountIds = assignment?.account_ids ?? [];
+  const requestedAccountId = input.providerAccountId?.trim() || null;
+  const providerAccountIds = requestedAccountId
+    ? assignedAccountIds.filter((id) => id === requestedAccountId)
+    : assignedAccountIds;
   const effectiveEndDate =
     !rangeContext.isSelectedCurrentDay &&
     rangeContext.selectedRangeTruthEndDate &&
@@ -49,7 +67,8 @@ export async function getMetaCanonicalOverviewSummary(input: {
       ? rangeContext.selectedRangeTruthEndDate
       : input.endDate;
   const warehouseSummary = await getMetaWarehouseSummary({
-    ...input,
+    businessId: input.businessId,
+    startDate: input.startDate,
     endDate: effectiveEndDate,
     providerAccountIds,
   });

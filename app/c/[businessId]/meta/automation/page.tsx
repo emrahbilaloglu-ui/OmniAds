@@ -1,6 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 
 import MetaAutomationPage from "@/app/(dashboard)/platforms/meta/automation/automation-view";
+import { buildAutomationViewerEnvelope } from "@/app/(dashboard)/platforms/meta/automation/viewer-envelope";
+import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { getSessionFromCookies } from "@/lib/auth";
 import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
@@ -41,6 +43,29 @@ export default async function MetaAutomationRoute({
     providerAccountId,
   }).catch(() => null);
 
+  /**
+   * Who is looking, and whether the server will accept a write from them.
+   *
+   * This route already had every fact — `requireBusinessPageContext` returns
+   * the role and the reviewer posture — and threw all of it away, so the
+   * surface had nothing to render and fell back to "an account resolved,
+   * therefore write". A guest and a reviewer both got live Approve / Modify /
+   * Dismiss / + New rule / rule-toggle controls whose only refusal was the 403
+   * that arrived after the click.
+   *
+   * The demo flag is read from the table rather than reused from
+   * `access.context.demo`, which only compares the well-known demo id and would
+   * miss a workspace flagged `is_demo_business`. The read fails closed: an
+   * unreadable flag is `unverified` and refuses, because a Meta pause must not
+   * be offered on an unproven claim that this workspace is real.
+   */
+  const writeAuthority = await readLaunchpadWriteAuthority(businessId);
+  const viewer = buildAutomationViewerEnvelope({
+    role: access.context.role,
+    reviewerReadOnly: access.context.reviewerReadOnly,
+    writeAuthority,
+  });
+
   // When several assigned accounts require an explicit choice, the business
   // control remains readable but account-owned provider action rows do not.
   // This prevents a missing selection from becoming an implicit all-account
@@ -60,6 +85,7 @@ export default async function MetaAutomationRoute({
       businessId={businessId}
       providerAccountId={providerAccountId}
       initialPayload={scopedControl}
+      viewer={viewer}
     />
   );
 }

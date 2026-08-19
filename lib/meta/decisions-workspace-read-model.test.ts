@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { gzipSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 import * as db from "@/lib/db";
 import {
   buildNativeMetaCanonicalDecisionInventory,
@@ -2395,5 +2396,58 @@ describe("Meta Decisions workspace canonical read model", () => {
       preAuthorityLabel: null,
       authorityBlocker: null,
     });
+  });
+});
+
+describe("the native snapshot read stays inside its query budget", () => {
+  const source = readFileSync(
+    "lib/meta/decisions-workspace-read-model.ts",
+    "utf8",
+  );
+
+  /**
+   * The episode lateral has to be index-addressable, not merely correct.
+   *
+   * It looks up an ad's own decision history, and it used to name only
+   * `history.ad_id`. That left `decision_entity_type` and `decision_entity_id`
+   * unconstrained in the middle of `engine_v3_ad_snapshots_ad_identity_unique`,
+   * so Postgres scanned ~15k history rows per snapshot row and discarded them:
+   * 309 million buffer hits, 258 seconds, against an 8 second query timeout.
+   *
+   * The read caught the timeout, reported `native_schema_or_generation_read_failed`
+   * and fell back to `legacy_creative`. Nothing looked broken — the Decision
+   * Center simply served an empty Creatives scope on every real account, and
+   * had done since the native path shipped. A correctness test cannot see this;
+   * only the predicate shape can be pinned.
+   */
+  it("constrains the episode lookup on the decision entity, not the ad id alone", () => {
+    const lateral = source.slice(
+      source.indexOf("SELECT MIN(history.as_of_date) AS episode_started_at"),
+      source.indexOf(") episode ON TRUE"),
+    );
+    expect(lateral).not.toBe("");
+
+    for (const alias of ["history", "changed"]) {
+      expect(
+        lateral,
+        `${alias} must pin decision_entity_type so the unique index is usable`,
+      ).toContain(`AND ${alias}.decision_entity_type = snapshot.decision_entity_type`);
+      expect(
+        lateral,
+        `${alias} must pin decision_entity_id so the unique index is usable`,
+      ).toContain(`AND ${alias}.decision_entity_id = snapshot.decision_entity_id`);
+    }
+  });
+
+  it("keeps the lifecycle lineage join the creative surfaces read from", () => {
+    // Format, 28d CTR, 28d frequency and fatigue status come from the exact
+    // lifecycle row the engine decided from. Dropping this join silently empties
+    // the creative posture band and the media-kind badge.
+    expect(source).toContain(
+      "LEFT JOIN engine_v3_creative_lifecycle_daily lifecycle",
+    );
+    expect(source).toContain(
+      "ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id",
+    );
   });
 });

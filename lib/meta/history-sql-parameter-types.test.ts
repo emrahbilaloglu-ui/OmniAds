@@ -49,6 +49,25 @@ function aliasTables(sql: string): Map<string, string> {
       byAlias.set(alias, table);
     }
   }
+
+  // A branch may now read from a CTE rather than the table itself — the
+  // configuration branches select from a window CTE that resolves each row's
+  // predecessor in one pass. A CTE has no CREATE TABLE, so follow it to the
+  // table it reads from; otherwise the scan reports "no DDL found" and stops
+  // checking the very predicates it exists to check.
+  const cteSources = new Map<string, string>();
+  for (const [, cte, table] of sql.matchAll(
+    /\b([a-z0-9_]+)\s+AS\s*\(\s*SELECT[\s\S]*?\bFROM\s+([a-z0-9_]+)\b/gi,
+  )) {
+    cteSources.set(cte, table);
+  }
+  for (const [alias, table] of byAlias) {
+    let resolved = table;
+    for (let hop = 0; hop < 4 && cteSources.has(resolved); hop += 1) {
+      resolved = cteSources.get(resolved) as string;
+    }
+    byAlias.set(alias, resolved);
+  }
   return byAlias;
 }
 

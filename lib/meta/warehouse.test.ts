@@ -804,7 +804,22 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget)");
   });
 
-  it("writes zero link_clicks for sparse meta ad rows", async () => {
+  /**
+   * THE LAW, restated because this test used to assert its opposite.
+   *
+   * It was called "writes zero link_clicks for sparse meta ad rows" and it
+   * expected the bound parameter to be `0` for a row whose `linkClicks` is
+   * `null`. That is the defect, pinned as a guarantee: `meta_ad_daily.link_clicks`
+   * carries real measurements (on production, 122,825 of 315,289 rows are
+   * positive), so writing 0 for a field the provider never supplied makes an
+   * unsupplied field and a measured zero the same stored value forever, and
+   * every ratio divided by it — CTR, ATC rate, CVR — inherits the ambiguity.
+   *
+   * The test is rewritten rather than deleted, and the assertion is inverted:
+   * an absent link-click count binds as NULL. A SUPPLIED zero still binds as 0
+   * (the case below it), because a measured zero is a fact the operator needs.
+   */
+  it("binds an unsupplied link_clicks as NULL, never as a measured zero", async () => {
     const capturedValues: unknown[][] = [];
     const queries: string[] = [];
     const sql = vi.fn(async () => []);
@@ -858,7 +873,22 @@ describe("meta warehouse ownership safety", () => {
       query.includes("INSERT INTO meta_ad_daily"),
     );
     expect(adDailyQueryIndex).toBeGreaterThanOrEqual(0);
-    expect(capturedValues[adDailyQueryIndex]?.[31]).toBe(0);
+    // Parameter 32 (index 31) is `link_clicks`.
+    expect(capturedValues[adDailyQueryIndex]?.[31]).toBeNull();
+    // And the conflict clause must not put the fabrication back on a re-sync.
+    // The old three-argument form `COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks)`
+    // could never reach its third argument — the literal 0 is never NULL — so a
+    // re-sync that supplied nothing OVERWROTE a stored measurement with 0.
+    expect(queries[adDailyQueryIndex]).toContain(
+      "link_clicks = COALESCE(EXCLUDED.link_clicks, meta_ad_daily.link_clicks)",
+    );
+    // The three-argument form is still QUOTED in the SQL comment that explains
+    // why it is gone, so the negative has to look at executable lines only.
+    const executableSql = (queries[adDailyQueryIndex] ?? "")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    expect(executableSql).not.toContain("COALESCE(EXCLUDED.link_clicks, 0");
     expect(JSON.parse(String(capturedValues[adDailyQueryIndex]?.[39]))).toEqual({
       spend: "12",
       nested: { objective: "SALES" },
@@ -874,6 +904,65 @@ describe("meta warehouse ownership safety", () => {
     expect(insertColumns.at(-1)).toBe("updated_at");
     expect(capturedValues[adDailyQueryIndex]).toHaveLength(40);
     expect(authoritativeInsert).toContain("$40::jsonb,now())");
+  });
+
+  /**
+   * The other half of the same law, and the reason `?? null` is not simply
+   * "withhold anything empty": a provider that REPORTS zero link clicks has
+   * measured something, and that zero must survive as 0 all the way to the
+   * cell. Only an absent field becomes NULL.
+   */
+  it("binds a supplied link_clicks of 0 as a measured zero", async () => {
+    const capturedValues: unknown[][] = [];
+    const queries: string[] = [];
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, {
+      query: vi.fn(async (query: string, values: unknown[]) => {
+        queries.push(query);
+        capturedValues.push(values);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAdDailyRows(
+      [
+        {
+          businessId: "biz-1",
+          providerAccountId: "acct-1",
+          date: "2026-04-03",
+          campaignId: "cmp-1",
+          adsetId: "adset-1",
+          adId: "ad-measured-zero",
+          adNameCurrent: "Ad 1",
+          adNameHistorical: "Ad 1",
+          adStatus: "PAUSED",
+          accountTimezone: "UTC",
+          accountCurrency: "USD",
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          reach: 0,
+          frequency: 0,
+          conversions: 0,
+          revenue: 0,
+          roas: 0,
+          cpa: null,
+          ctr: null,
+          cpc: null,
+          linkClicks: 0,
+          sourceSnapshotId: "snapshot-1",
+          payloadJson: null,
+        },
+      ] as never,
+      { writeMode: "authoritative_fact" },
+    );
+
+    const adDailyQueryIndex = queries.findIndex((query) =>
+      query.includes("INSERT INTO meta_ad_daily"),
+    );
+    expect(adDailyQueryIndex).toBeGreaterThanOrEqual(0);
+    expect(capturedValues[adDailyQueryIndex]?.[31]).toBe(0);
   });
 
   it("rejects creative enrichment before it can mutate historical Meta Ad facts", async () => {

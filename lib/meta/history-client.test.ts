@@ -61,6 +61,7 @@ describe("Meta History client", () => {
         kind: "writes",
         entity: "ad",
         label: "cut",
+        outcome: null,
         from: "2026-07-01",
         to: "2026-07-10",
         q: "ad 42",

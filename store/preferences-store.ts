@@ -27,6 +27,18 @@ export type OperatorSurfacePreset = "action_first" | "creative_rich" | "media_li
 export type ThemePreferenceValue = ThemePreference;
 
 interface PreferencesState {
+  /**
+   * False until the persisted values have been read back from localStorage.
+   *
+   * Anything that CANONICALIZES a preference into the URL has to wait for
+   * this. Before rehydration the store still holds its defaults, so a reader
+   * that acted immediately wrote the DEFAULT window into the URL, and the URL
+   * then counted as an exact stated window — so when the real 90-day
+   * selection arrived a moment later it was already too late to state it.
+   * The operator picked 90 days, pressed reload, and silently got 28.
+   */
+  hasHydrated: boolean;
+  setHasHydrated: (value: boolean) => void;
   language: AppLanguagePreference;
   /** system | light | dark. What renders is resolved separately. */
   theme: ThemePreferenceValue;
@@ -66,6 +78,8 @@ interface PreferencesState {
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
+      hasHydrated: false,
+      setHasHydrated: (value: boolean) => set({ hasHydrated: value }),
       language: "en",
       theme: DEFAULT_THEME_PREFERENCE,
       defaultDateRange: "30d",
@@ -184,6 +198,14 @@ export const usePreferencesStore = create<PreferencesState>()(
     {
       name: "omniads-preferences-store-v1",
       storage: createJSONStorage(() => localStorage),
+      // `hasHydrated` describes THIS run, so it is never persisted; and it is
+      // set even when rehydration fails, because a reader that waits forever
+      // is the same defect as one that acts too early.
+      partialize: ({ hasHydrated: _ignored, setHasHydrated: _also, ...rest }) =>
+        rest as PreferencesState,
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

@@ -68,14 +68,90 @@ export const META_AUTOMATION_PROPOSAL_ORIGINS = [
 export type MetaAutomationProposalOrigin =
   (typeof META_AUTOMATION_PROPOSAL_ORIGINS)[number];
 
+/**
+ * The row's life, including the two states the execution claim needs.
+ *
+ * `claimed` is held by exactly one approval attempt between the compare-and-set
+ * that wins the row and the settle that records what happened. It exists
+ * because a provider pause cannot be taken back: without it the only guard
+ * between two concurrent approvals ran AFTER the provider call, so both could
+ * dispatch and only one could be recorded.
+ *
+ * `reconcile` is the honest terminal state for an attempt whose provider
+ * outcome is unknown — the dispatch started and no answer came back. It is
+ * never auto-approved (that would call an unknown a success) and never
+ * requeued (that would risk a second write), so it waits for a human.
+ */
 export const META_AUTOMATION_PROPOSAL_STATUSES = [
   "pending",
+  "claimed",
   "approved",
   "failed",
   "modified",
   "dismissed",
   "expired",
+  "reconcile",
 ] as const;
+
+/**
+ * Statuses that occupy an entity's one action slot.
+ *
+ * A claimed row is mid-dispatch, so the slot is taken: raising a second pause
+ * for the same entity while the first is on its way to Meta would be two writes
+ * for one decision. This list is the code-side twin of the partial unique index
+ * `uq_meta_automation_proposals_open_slot`.
+ *
+ * `reconcile` is in this list, and leaving it out was a hole. A reconcile row
+ * means "a dispatch for this entity/action began and its provider outcome is
+ * UNKNOWN". While the pending-and-claimed-only version of this list was in
+ * force, a stale claim swept into `reconcile` freed the slot, so the next
+ * snapshot projection or rule firing could raise a NEW proposal for the same
+ * entity and action — a second dispatch path for work whose provider outcome
+ * nobody has established. An unknown outcome is not an absent outcome, so the
+ * slot stays held until a human resolves it against a fresh provider read.
+ */
+export const META_AUTOMATION_PROPOSAL_OPEN_STATUSES = [
+  "pending",
+  "claimed",
+  "reconcile",
+] as const;
+
+/**
+ * Statuses that mean "this snapshot day's proposal has NOT been decided yet".
+ *
+ * Deliberately narrower than the open list, and the difference is the point.
+ * `reconcile` is both DECIDED (an operator already acted on it; that attempt is
+ * over) and OPEN (its slot is still held). Widening this list to match the open
+ * one would let the projection re-raise the same rec type for the same snapshot
+ * day after a reconcile; narrowing the open list to match this one is the bug
+ * this pair replaces.
+ */
+export const META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES = [
+  "pending",
+  "claimed",
+] as const;
+
+/**
+ * Render a fixed status list as a SQL literal list.
+ *
+ * The lists above are `as const` compile-time constants, so nothing external
+ * reaches this; the reason it exists is drift. Two hand-written copies of
+ * `IN ('pending', 'claimed')` in this file already disagreed with the partial
+ * unique index they were supposed to mirror.
+ */
+function sqlStatusList(statuses: readonly string[]): string {
+  return statuses.map((status) => `'${status}'`).join(", ");
+}
+
+/** `'pending', 'claimed', 'reconcile'` — the open-slot predicate, once. */
+export const META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL = sqlStatusList(
+  META_AUTOMATION_PROPOSAL_OPEN_STATUSES,
+);
+
+/** `'pending', 'claimed'` — the not-yet-decided predicate, once. */
+const META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL = sqlStatusList(
+  META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
+);
 export type MetaAutomationProposalStatus =
   (typeof META_AUTOMATION_PROPOSAL_STATUSES)[number];
 
@@ -100,6 +176,81 @@ export interface MetaAutomationProposalReceipt {
   endpoint: string | null;
   /** Why nothing was dispatched, when the dispatch contract withheld the body. */
   withheld: string | null;
+  /**
+   * The attempt's claim token, carried into the receipt so a ledger row, a
+   * queue row and a response envelope can be joined to ONE attempt.
+   *
+   * Optional in the type because receipts written before the claim existed do
+   * not have one, and a missing key must read as missing rather than as some
+   * other attempt's key.
+   */
+  receiptKey?: string | null;
+  /**
+   * Set when the dispatch started and no provider answer was obtained. An
+   * ambiguous attempt is never presented as PAUSED or as success.
+   */
+  ambiguous?: boolean;
+}
+
+/**
+ * What this attempt actually established about the provider — in three facts,
+ * not one boolean.
+ *
+ * A single `providerWrite: boolean` cannot express this path's real outcomes.
+ * The record that says in its own message "the pause may have happened at Meta"
+ * used to be written to the ledger as `providerWrite: false`, which reads —
+ * and filters, and aggregates — as "nothing was sent". That is the one thing
+ * the record does not know.
+ *
+ * - `providerDispatchStarted` — did this attempt enter the provider handler at
+ *   all? The durable evidence is `dispatch_started_at`, written BEFORE the call.
+ * - `providerOutcomeKnown` — did a provider answer come back and get read? An
+ *   exception, a timeout, or a settle that died before recording the answer all
+ *   leave this `false`.
+ * - `providerWriteVerified` — did an answer come back that PROVES a write
+ *   landed at Meta? A dry run is `false` here and always will be: nothing left
+ *   the building. `false` with `providerOutcomeKnown: false` means UNKNOWN, and
+ *   the two fields must be read together — that pairing is the whole contract.
+ *
+ * There is no fourth field for "no write happened". Absence is
+ * `providerDispatchStarted: false`, which is a fact this path can actually
+ * prove; "the write definitely did not land" after a dispatch is not.
+ */
+export interface MetaAutomationProviderDispatchFacts {
+  providerDispatchStarted: boolean;
+  providerOutcomeKnown: boolean;
+  providerWriteVerified: boolean;
+}
+
+/** Nothing was dispatched at all — modify, dismiss, a refusal before dispatch. */
+export const NO_PROVIDER_DISPATCH: MetaAutomationProviderDispatchFacts = {
+  providerDispatchStarted: false,
+  providerOutcomeKnown: true,
+  providerWriteVerified: false,
+};
+
+/**
+ * Derive the three facts from what an attempt actually observed.
+ *
+ * One function so the ledger row, the response envelope and the reconciliation
+ * receipt cannot disagree about the same attempt.
+ */
+export function providerDispatchFacts(input: {
+  /** True once `dispatch_started_at` was stamped for this attempt. */
+  dispatchStarted: boolean;
+  /** True when a provider answer was obtained AND read by this request. */
+  outcomeKnown: boolean;
+  /** The handler's own success verdict. Only meaningful when the outcome is known. */
+  ok: boolean;
+  /** A dry run never leaves the building, so it can never verify a write. */
+  dryRun: boolean;
+}): MetaAutomationProviderDispatchFacts {
+  return {
+    providerDispatchStarted: input.dispatchStarted,
+    providerOutcomeKnown: input.outcomeKnown,
+    providerWriteVerified:
+      input.dispatchStarted && input.outcomeKnown && input.ok && !input.dryRun,
+  };
 }
 
 export interface MetaAutomationProposal {
@@ -137,6 +288,19 @@ export interface MetaAutomationProposal {
   decidedAt: string | null;
   decisionNote: string | null;
   receipt: MetaAutomationProposalReceipt | null;
+  /**
+   * The current (or last) execution claim.
+   *
+   * `null` on a database that has not run the claim migration yet, which is a
+   * different fact from "no attempt has been made" — see
+   * {@link claimMetaAutomationProposal}, which refuses to execute at all in
+   * that state rather than dispatching unclaimed.
+   */
+  claimToken: string | null;
+  claimedBy: string | null;
+  claimedAt: string | null;
+  /** Stamped immediately before the provider handler is entered. */
+  dispatchStartedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -329,6 +493,11 @@ interface ProposalDbRow {
   decided_at: string | null;
   decision_note: string | null;
   receipt_json: unknown;
+  /** Absent (undefined) on a database that predates the claim migration. */
+  claim_token?: string | null;
+  claimed_by?: string | null;
+  claimed_at?: string | null;
+  dispatch_started_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -368,12 +537,18 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
     receipt: isRecord(row.receipt_json)
       ? (row.receipt_json as unknown as MetaAutomationProposalReceipt)
       : null,
+    claimToken: row.claim_token ?? null,
+    claimedBy: row.claimed_by ?? null,
+    claimedAt: row.claimed_at ? new Date(row.claimed_at).toISOString() : null,
+    dispatchStartedAt: row.dispatch_started_at
+      ? new Date(row.dispatch_started_at).toISOString()
+      : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
-const PROPOSAL_COLUMNS = `
+const PROPOSAL_BASE_COLUMNS = `
   id, business_id, provider_account_id, origin, rule_id, dedupe_key,
   decision_key, scope_type, scope_id,
   rec_id, rec_type, snapshot_date::text AS snapshot_date, engine_version,
@@ -381,6 +556,62 @@ const PROPOSAL_COLUMNS = `
   reason, evidence_label, evidence_ref, expires_at, status, decided_by,
   decided_at, decision_note, receipt_json, created_at, updated_at
 `;
+
+/** The claim columns, cast to text so a UUID arrives as the key it is used as. */
+const PROPOSAL_CLAIM_COLUMNS = `
+  claim_token::text AS claim_token, claimed_by::text AS claimed_by,
+  claimed_at, dispatch_started_at
+`;
+
+const PROPOSAL_COLUMNS = `${PROPOSAL_BASE_COLUMNS}, ${PROPOSAL_CLAIM_COLUMNS}`;
+
+/** PostgreSQL's `undefined_column`. */
+function isUndefinedColumnError(error: unknown): boolean {
+  return (
+    Boolean(error) &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "42703"
+  );
+}
+
+/**
+ * Run a read that names the claim columns, and fall back to the pre-claim
+ * column list when the migration has not run yet.
+ *
+ * READS degrade; the CLAIM does not. A row read without its claim columns is
+ * still an honest queue row (the fields come back null), but an approval that
+ * cannot claim must refuse rather than dispatch — see
+ * {@link claimMetaAutomationProposal}.
+ */
+async function withClaimColumnFallback<T>(
+  modern: () => Promise<T>,
+  legacy: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await modern();
+  } catch (error) {
+    if (!isUndefinedColumnError(error)) throw error;
+    return legacy();
+  }
+}
+
+async function selectProposalRows(
+  where: string,
+  params: unknown[],
+): Promise<ProposalDbRow[]> {
+  return withClaimColumnFallback(
+    async () =>
+      (await getDb().query<ProposalDbRow>(
+        `SELECT ${PROPOSAL_COLUMNS} FROM meta_automation_proposals ${where}`,
+        params,
+      )) as ProposalDbRow[],
+    async () =>
+      (await getDb().query<ProposalDbRow>(
+        `SELECT ${PROPOSAL_BASE_COLUMNS} FROM meta_automation_proposals ${where}`,
+        params,
+      )) as ProposalDbRow[],
+  );
+}
 
 async function proposalsReady() {
   const readiness = await getDbSchemaReadiness({
@@ -416,6 +647,101 @@ export async function expireStaleMetaAutomationProposals(input: {
   return rows.length;
 }
 
+/**
+ * How long one approval may hold a claimed row.
+ *
+ * Deliberately NOT the proposal's own 24h expiry: the expiry is about the
+ * evidence, the lease is about a request that may have died. It is far longer
+ * than any dispatch this path performs (one guarded HTTP handler call under the
+ * 8s web DB timeout), so a live approval can never be swept out from under
+ * itself, and short enough that a crashed one does not hold the entity's slot
+ * for a day.
+ */
+export const META_AUTOMATION_PROPOSAL_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+export interface SweepMetaAutomationProposalClaimsResult {
+  /** Claims proven never to have dispatched, returned to the queue. */
+  requeued: number;
+  /** Claims proven never to have dispatched whose evidence had also aged out. */
+  expired: number;
+  /** Claims whose dispatch started and whose outcome is unknown. */
+  reconcile: number;
+  ran: boolean;
+}
+
+/**
+ * Age out claims that outlived their lease — WITHOUT ever guessing.
+ *
+ * Three branches, and the split between them is the whole point:
+ *
+ * - `dispatch_started_at IS NULL` means the claim holder never entered the
+ *   provider handler, because that column is written first. Nothing reached
+ *   Meta, so the row may go back to `pending` (or to `expired` if its evidence
+ *   aged out meanwhile). This is a *proven* requeue, not a blind one.
+ * - `dispatch_started_at IS NOT NULL` means a provider write may exist. It is
+ *   moved to `reconcile` and left there: requeueing it could pause the same
+ *   entity twice, and calling it `approved` would report a success nobody
+ *   observed. Both are guesses; a human resolves this one.
+ */
+export async function sweepStaleMetaAutomationProposalClaims(input: {
+  businessId: string;
+  now?: Date;
+}): Promise<SweepMetaAutomationProposalClaimsResult> {
+  if (!(await proposalsReady())) {
+    return { requeued: 0, expired: 0, reconcile: 0, ran: false };
+  }
+  const now = input.now ?? new Date();
+  const leaseCutoff = new Date(
+    now.getTime() - META_AUTOMATION_PROPOSAL_CLAIM_LEASE_MS,
+  ).toISOString();
+  try {
+    const rows = (await getDb().query<{ next_status: string }>(
+      `
+        UPDATE meta_automation_proposals
+        SET status = CASE
+              WHEN dispatch_started_at IS NOT NULL THEN 'reconcile'
+              WHEN expires_at <= $2::timestamptz THEN 'expired'
+              ELSE 'pending'
+            END,
+            -- The claim itself is released only where it is provably spent.
+            -- A row moved to 'reconcile' keeps its token, because that token
+            -- is the receipt key an operator will reconcile against.
+            claim_token = CASE
+              WHEN dispatch_started_at IS NOT NULL THEN claim_token
+              ELSE NULL
+            END,
+            claimed_by = CASE
+              WHEN dispatch_started_at IS NOT NULL THEN claimed_by
+              ELSE NULL
+            END,
+            claimed_at = CASE
+              WHEN dispatch_started_at IS NOT NULL THEN claimed_at
+              ELSE NULL
+            END,
+            updated_at = NOW()
+        WHERE business_id = $1::uuid
+          AND status = 'claimed'
+          AND claimed_at <= $3::timestamptz
+        RETURNING status AS next_status
+      `,
+      [input.businessId, now.toISOString(), leaseCutoff],
+    )) as Array<{ next_status: string }>;
+    return {
+      requeued: rows.filter((row) => row.next_status === "pending").length,
+      expired: rows.filter((row) => row.next_status === "expired").length,
+      reconcile: rows.filter((row) => row.next_status === "reconcile").length,
+      ran: true,
+    };
+  } catch (error) {
+    // An unmigrated database has no claims to sweep, and it must not be
+    // reported as a sweep that ran and found nothing.
+    if (isUndefinedColumnError(error)) {
+      return { requeued: 0, expired: 0, reconcile: 0, ran: false };
+    }
+    throw error;
+  }
+}
+
 export interface ProjectMetaAutomationProposalsResult {
   projected: number;
   expired: number;
@@ -447,13 +773,25 @@ export interface ProjectMetaAutomationProposalsResult {
  *   same one.
  * - The `NOT EXISTS` against a decided row for the same entity and day. Without
  *   it, a different rec type winning the tiebreak on a later run would re-raise
- *   a proposal the operator had already dismissed that same day.
- * - The `NOT EXISTS` against a *pending* row already occupying this entity's
- *   action slot — whatever raised it. A rule that has already queued a pause on
- *   this ad set makes the projection's row redundant: two rows would be two
- *   chances to do the same thing, and the header count would say `2` for one
- *   pause. The clause exempts the exact row this statement upserts onto (same
- *   rec type, same snapshot day), so refresh-in-place still works.
+ *   a proposal the operator had already dismissed that same day. `claimed`
+ *   counts as NOT decided — a claim is an attempt in flight, and if it is
+ *   released the row goes back to `pending` and is the queue's row again —
+ *   while `reconcile` counts as decided, because re-raising a pause for an
+ *   entity whose last attempt has an unknown provider outcome would offer a
+ *   second write for the same unresolved decision.
+ * - The `NOT EXISTS` against an *open* (pending, claimed or reconcile) row
+ *   already occupying this entity's action slot — whatever raised it. A rule
+ *   that has
+ *   already queued a pause on this ad set makes the projection's row
+ *   redundant: two rows would be two chances to do the same thing, and the
+ *   header count would say `2` for one pause. Claimed is included because a
+ *   row being dispatched right now holds the slot most of all, and `reconcile`
+ *   because a dispatch that began and never answered may ALREADY have paused
+ *   the entity — projecting a fresh pause there offers a second write for an
+ *   outcome nobody has established. Without them the insert would also collide
+ *   with `uq_meta_automation_proposals_open_slot` and throw inside the snapshot
+ *   pipeline. The clause exempts the exact PENDING row this statement upserts
+ *   onto (same rec type, same snapshot day), so refresh-in-place still works.
  * - The operator's ROAS proposal floor. Same guardrail the rule evaluator
  *   applies, at the other producer of a queue row, so a floor an operator
  *   committed cannot be walked around by whichever half raised the proposal.
@@ -485,6 +823,15 @@ export async function projectMetaAutomationProposals(input: {
     businessId: input.businessId,
     now,
   });
+  // A claim whose holder died holds this entity's action slot, and the `held`
+  // clause below honours that — correctly, but forever if nothing ever ages it
+  // out. The sweep runs at BOTH producers (here and the queue read) because
+  // the snapshot pipeline can run for a business nobody has the screen open
+  // for. It never guesses: see its own contract for the three branches.
+  await sweepStaleMetaAutomationProposalClaims({
+    businessId: input.businessId,
+    now,
+  }).catch(() => null);
 
   const ttlInterval = `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`;
   const rows = (await getDb().query<{ id: string }>(
@@ -540,7 +887,7 @@ export async function projectMetaAutomationProposals(input: {
               AND decided.provider_account_id = dim.provider_account_id
               AND decided.decision_key = d.scope_type || ':' || d.scope_id
               AND decided.snapshot_date = d.snapshot_date
-              AND decided.status <> 'pending'
+              AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
           )
           AND NOT EXISTS (
             SELECT 1
@@ -549,9 +896,16 @@ export async function projectMetaAutomationProposals(input: {
               AND held.provider_account_id = dim.provider_account_id
               AND held.decision_key = d.scope_type || ':' || d.scope_id
               AND held.proposed_action = 'pause'
-              AND held.status = 'pending'
+              AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
+              -- The exemption is for the row this statement REFRESHES in place,
+              -- and only a pending row can be refreshed: the upsert's own
+              -- DO UPDATE is guarded on status = 'pending'. Exempting a
+              -- reconcile row here would let the projection attempt an insert
+              -- against a held slot, which the open-slot unique index would
+              -- then reject inside the snapshot pipeline.
               AND NOT (
-                held.origin = 'engine_decision'
+                held.status = 'pending'
+                AND held.origin = 'engine_decision'
                 AND held.rec_type = d.rec_type
                 AND held.snapshot_date = d.snapshot_date
               )
@@ -665,10 +1019,15 @@ export async function readMetaAutomationProposalQueue(input: {
     businessId: input.businessId,
     now,
   }).catch(() => 0);
-  const rows = (await getDb().query<ProposalDbRow>(
+  // A claim whose holder died must not hold the entity's slot forever, and a
+  // claim whose dispatch started must not be silently returned to the queue.
+  // Both are decided by the sweep, never by this read.
+  await sweepStaleMetaAutomationProposalClaims({
+    businessId: input.businessId,
+    now,
+  }).catch(() => null);
+  const rows = await selectProposalRows(
     `
-      SELECT ${PROPOSAL_COLUMNS}
-      FROM meta_automation_proposals
       WHERE business_id = $1::uuid
         AND provider_account_id = $2
         AND status = 'pending'
@@ -676,8 +1035,48 @@ export async function readMetaAutomationProposalQueue(input: {
       ORDER BY expires_at ASC, created_at ASC
     `,
     [input.businessId, input.providerAccountId, now.toISOString()],
-  )) as ProposalDbRow[];
+  );
   return { readCompleteness: "complete", proposals: rows.map(mapProposalRow) };
+}
+
+/**
+ * Rows this account is holding open without being approvable.
+ *
+ * A `claimed` row is being dispatched right now and a `reconcile` row has an
+ * unknown provider outcome; neither belongs in the operator's "needs your
+ * confirmation" list, and neither may be silently forgotten either. The counts
+ * travel in the queue's completeness envelope so the surface can say that
+ * something is in flight without inventing a row for it.
+ */
+export interface MetaAutomationProposalHoldCounts {
+  claimed: number;
+  reconcile: number;
+}
+
+export async function countMetaAutomationProposalHolds(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<MetaAutomationProposalHoldCounts | null> {
+  if (!(await proposalsReady())) return null;
+  try {
+    const rows = (await getDb().query<{ status: string; count: string }>(
+      `
+        SELECT status, COUNT(*)::text AS count
+        FROM meta_automation_proposals
+        WHERE business_id = $1::uuid
+          AND provider_account_id = $2
+          AND status IN ('claimed', 'reconcile')
+        GROUP BY status
+      `,
+      [input.businessId, input.providerAccountId],
+    )) as Array<{ status: string; count: string }>;
+    const at = (status: string) =>
+      Number(rows.find((row) => row.status === status)?.count ?? "0");
+    return { claimed: at("claimed"), reconcile: at("reconcile") };
+  } catch {
+    // Unknown, not zero. The caller reports the section as unavailable.
+    return null;
+  }
 }
 
 /** One proposal, scoped to the authorized business and its resolved account. */
@@ -687,26 +1086,244 @@ export async function readMetaAutomationProposal(input: {
   proposalId: string;
 }): Promise<MetaAutomationProposal | null> {
   if (!(await proposalsReady())) return null;
-  const rows = (await getDb().query<ProposalDbRow>(
+  const rows = await selectProposalRows(
     `
-      SELECT ${PROPOSAL_COLUMNS}
-      FROM meta_automation_proposals
       WHERE business_id = $1::uuid
         AND provider_account_id = $2
         AND id = $3::uuid
       LIMIT 1
     `,
     [input.businessId, input.providerAccountId, input.proposalId],
-  )) as ProposalDbRow[];
+  );
   return rows[0] ? mapProposalRow(rows[0]) : null;
+}
+
+/**
+ * The result of trying to take the execution claim.
+ *
+ * `migration_required` is NOT an error the caller may ignore. It means this
+ * database cannot express a claim, so an approval has no way to be exclusive —
+ * and the only safe answer to "may I write to Meta without exclusivity" is no.
+ */
+export type ClaimMetaAutomationProposalResult =
+  | {
+      status: "claimed";
+      proposal: MetaAutomationProposal;
+      /** Also the receipt key. Unique per attempt. */
+      claimToken: string;
+    }
+  | { status: "conflict"; current: MetaAutomationProposal | null }
+  | { status: "migration_required" }
+  | { status: "unavailable" };
+
+/**
+ * Take the row, atomically, BEFORE anything reaches a provider.
+ *
+ * This is the fix the previous shape of this module owed. The compare-and-set
+ * used to run after `executeMetaAutomationProposal`, which meant it decided who
+ * got to RECORD the outcome, not who got to CAUSE it: two concurrent approvals
+ * both reached the provider handler and only the winner's row said so. Here the
+ * single statement below is the gate — `pending -> claimed ... RETURNING` — and
+ * PostgreSQL guarantees exactly one caller sees a returned row.
+ *
+ * The expiry is re-checked inside the same statement rather than trusted from
+ * the caller's earlier read, because that read happened before every gate the
+ * route runs and a proposal can age out in between.
+ */
+export async function claimMetaAutomationProposal(input: {
+  businessId: string;
+  providerAccountId: string;
+  proposalId: string;
+  claimedBy: string;
+  now?: Date;
+}): Promise<ClaimMetaAutomationProposalResult> {
+  if (!(await proposalsReady())) return { status: "unavailable" };
+  const now = (input.now ?? new Date()).toISOString();
+  let rows: ProposalDbRow[];
+  try {
+    rows = (await getDb().query<ProposalDbRow>(
+      `
+        UPDATE meta_automation_proposals
+        SET status = 'claimed',
+            claim_token = gen_random_uuid(),
+            claimed_by = $4::uuid,
+            claimed_at = NOW(),
+            dispatch_started_at = NULL,
+            updated_at = NOW()
+        WHERE business_id = $1::uuid
+          AND provider_account_id = $2
+          AND id = $3::uuid
+          AND status = 'pending'
+          AND expires_at > $5::timestamptz
+        RETURNING ${PROPOSAL_COLUMNS}
+      `,
+      [
+        input.businessId,
+        input.providerAccountId,
+        input.proposalId,
+        input.claimedBy,
+        now,
+      ],
+    )) as ProposalDbRow[];
+  } catch (error) {
+    // No claim columns means no exclusivity. Refusing here is what keeps an
+    // unmigrated database from running the old both-requests-dispatch race.
+    if (isUndefinedColumnError(error)) return { status: "migration_required" };
+    throw error;
+  }
+
+  const claimed = rows[0] ? mapProposalRow(rows[0]) : null;
+  if (claimed?.claimToken) {
+    return {
+      status: "claimed",
+      proposal: claimed,
+      claimToken: claimed.claimToken,
+    };
+  }
+  // Zero rows updated: someone else holds it, it was already decided, or it
+  // aged out. The caller is told which by the row itself, never by a guess.
+  const current = await readMetaAutomationProposal({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    proposalId: input.proposalId,
+  }).catch(() => null);
+  return { status: "conflict", current };
+}
+
+/**
+ * Stamp the instant the provider handler is entered, as the claim holder.
+ *
+ * Written BEFORE the dispatch, never after, because its whole job is to answer
+ * "might a write exist?" for a request that never came back. `false` means the
+ * claim is no longer held by this token, and the caller must not dispatch.
+ */
+export async function markMetaAutomationProposalDispatchStarted(input: {
+  businessId: string;
+  proposalId: string;
+  claimToken: string;
+}): Promise<boolean> {
+  if (!(await proposalsReady())) return false;
+  try {
+    const rows = (await getDb().query<{ id: string }>(
+      `
+        UPDATE meta_automation_proposals
+        SET dispatch_started_at = NOW(), updated_at = NOW()
+        WHERE business_id = $1::uuid
+          AND id = $2::uuid
+          AND status = 'claimed'
+          AND claim_token = $3::uuid
+        RETURNING id
+      `,
+      [input.businessId, input.proposalId, input.claimToken],
+    )) as Array<{ id: string }>;
+    return rows.length === 1;
+  } catch (error) {
+    if (isUndefinedColumnError(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Give the row back, only where giving it back is provable.
+ *
+ * Guarded on `dispatch_started_at IS NULL`: a claim that never entered the
+ * provider handler can safely become `pending` again, and one that did may not,
+ * because releasing it would offer a second approval for a write that might
+ * already exist.
+ */
+export async function releaseMetaAutomationProposalClaim(input: {
+  businessId: string;
+  proposalId: string;
+  claimToken: string;
+}): Promise<boolean> {
+  if (!(await proposalsReady())) return false;
+  try {
+    const rows = (await getDb().query<{ id: string }>(
+      `
+        UPDATE meta_automation_proposals
+        SET status = 'pending',
+            claim_token = NULL,
+            claimed_by = NULL,
+            claimed_at = NULL,
+            updated_at = NOW()
+        WHERE business_id = $1::uuid
+          AND id = $2::uuid
+          AND status = 'claimed'
+          AND claim_token = $3::uuid
+          AND dispatch_started_at IS NULL
+        RETURNING id
+      `,
+      [input.businessId, input.proposalId, input.claimToken],
+    )) as Array<{ id: string }>;
+    return rows.length === 1;
+  } catch (error) {
+    if (isUndefinedColumnError(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Move a claim this request can no longer settle into `reconcile`.
+ *
+ * The one caller is the approve boundary's post-dispatch failure path: the
+ * provider was already entered, and the settle that was supposed to record its
+ * outcome threw. `settleMetaAutomationProposal` is not reusable there — it is
+ * the thing that just failed — so this is a deliberately minimal statement with
+ * no receipt marshalling, no decided_by, and no jsonb: the fewest moving parts
+ * that can still land on a database that is only partly sick.
+ *
+ * Guarded on `status = 'claimed' AND claim_token = $` so it can only ever move
+ * THIS attempt, and on nothing else: `dispatch_started_at` is deliberately not
+ * required, because the caller has already been inside the provider handler and
+ * a missing stamp there would mean the marking write is the one that failed —
+ * still an unknown outcome, still not a release.
+ *
+ * Returns `false` when nothing moved. `false` is not "it is fine": the caller
+ * must then say the state is unknown rather than report a settled outcome. The
+ * row stays `claimed` with `dispatch_started_at` set, which the stale-claim
+ * sweep resolves to `reconcile` on its own — and which `claimMetaAutomation
+ * Proposal` refuses to re-claim in the meantime, because that statement
+ * requires `status = 'pending'`.
+ */
+export async function forceMetaAutomationProposalReconcile(input: {
+  businessId: string;
+  proposalId: string;
+  claimToken: string;
+}): Promise<boolean> {
+  try {
+    const rows = (await getDb().query<{ id: string }>(
+      `
+        UPDATE meta_automation_proposals
+        SET status = 'reconcile', updated_at = NOW()
+        WHERE business_id = $1::uuid
+          AND id = $2::uuid
+          AND status = 'claimed'
+          AND claim_token = $3::uuid
+        RETURNING id
+      `,
+      [input.businessId, input.proposalId, input.claimToken],
+    )) as Array<{ id: string }>;
+    return rows.length === 1;
+  } catch {
+    // Unknown, never "released". The caller reports reconciliation_required.
+    return false;
+  }
 }
 
 /**
  * Record the outcome of an operator decision.
  *
- * Guarded by `status = 'pending'` in the WHERE clause, so two concurrent
- * approvals cannot both settle the same proposal: the loser updates zero rows
- * and gets `null` back.
+ * Two guarded shapes, one statement:
+ *
+ * - WITHOUT a claim token (modify, dismiss): `status = 'pending'`. A row that
+ *   an approval has already claimed is therefore untouchable by a modification
+ *   or a dismissal — losing the `pending -> claimed` transition here would let
+ *   a dismissal overwrite a row whose provider write is already in flight, and
+ *   the ledger would then carry a dismissal for something that got paused.
+ * - WITH a claim token (approve, fail, reconcile): `status = 'claimed' AND
+ *   claim_token = $`. Only the holder of the claim may record its outcome.
+ *
+ * Either way the loser updates zero rows and gets `null` back.
  */
 export async function settleMetaAutomationProposal(input: {
   businessId: string;
@@ -715,10 +1332,27 @@ export async function settleMetaAutomationProposal(input: {
   decidedBy: string;
   decisionNote?: string | null;
   receipt?: MetaAutomationProposalReceipt | null;
+  /** Present only for a settle that follows a claim. */
+  claimToken?: string | null;
 }): Promise<MetaAutomationProposal | null> {
   if (!(await proposalsReady())) return null;
-  const rows = (await getDb().query<ProposalDbRow>(
-    `
+  const claimToken = input.claimToken?.trim() || null;
+  const guard = claimToken
+    ? `AND status = 'claimed' AND claim_token = $7::uuid`
+    : `AND status = 'pending'`;
+  const params: unknown[] = [
+    input.businessId,
+    input.proposalId,
+    input.status,
+    input.decidedBy,
+    input.decisionNote?.trim() || null,
+    input.receipt ? JSON.stringify(input.receipt) : null,
+  ];
+  if (claimToken) params.push(claimToken);
+
+  const run = (columns: string) =>
+    getDb().query<ProposalDbRow>(
+      `
       UPDATE meta_automation_proposals
       SET status = $3,
           decided_by = $4::uuid,
@@ -728,18 +1362,24 @@ export async function settleMetaAutomationProposal(input: {
           updated_at = NOW()
       WHERE business_id = $1::uuid
         AND id = $2::uuid
-        AND status = 'pending'
-      RETURNING ${PROPOSAL_COLUMNS}
+        ${guard}
+      RETURNING ${columns}
     `,
-    [
-      input.businessId,
-      input.proposalId,
-      input.status,
-      input.decidedBy,
-      input.decisionNote?.trim() || null,
-      input.receipt ? JSON.stringify(input.receipt) : null,
-    ],
-  )) as ProposalDbRow[];
+      params,
+    ) as Promise<ProposalDbRow[]>;
+
+  // A claimed settle cannot degrade: the guard itself names a claim column, so
+  // an unmigrated database has no claim to settle and must return null rather
+  // than fall back to an unguarded update.
+  const rows = claimToken
+    ? await run(PROPOSAL_COLUMNS).catch((error: unknown) => {
+        if (isUndefinedColumnError(error)) return [] as ProposalDbRow[];
+        throw error;
+      })
+    : await withClaimColumnFallback(
+        () => run(PROPOSAL_COLUMNS),
+        () => run(PROPOSAL_BASE_COLUMNS),
+      );
   return rows[0] ? mapProposalRow(rows[0]) : null;
 }
 
@@ -778,11 +1418,21 @@ export type RaiseRuleAutomationProposalResult =
   /** This firing put a new row in the queue. */
   | { status: "inserted"; proposalId: string }
   /**
-   * The entity's pending slot was already held — by this firing's own earlier
+   * The entity's open slot was already held — by this firing's own earlier
    * run, by another rule, or by the engine's projection. The firing still
    * happened and is still counted; it points at the row that represents it.
    */
   | { status: "already_queued"; proposalId: string | null }
+  /**
+   * The slot is held by a row whose provider outcome is UNKNOWN.
+   *
+   * Reported separately from `already_queued` because it is not the same fact:
+   * there is no approvable queue row for this firing, and there will not be one
+   * until a human reconciles the previous attempt against a fresh provider
+   * read. Calling this "queued" would tell the operator a confirmation is
+   * waiting for them when what is actually waiting is a reconciliation.
+   */
+  | { status: "held_for_reconciliation"; proposalId: string | null }
   /** No schema to write into. The caller must not report a queued proposal. */
   | { status: "unavailable"; proposalId: null };
 
@@ -853,9 +1503,9 @@ export async function raiseRuleAutomationProposal(
   // Whoever holds the slot is the queue row this firing is about. Its own
   // dedupe key wins the lookup when it exists, so a re-run reports the row it
   // created rather than an unrelated neighbour.
-  const held = (await getDb().query<{ id: string }>(
+  const held = (await getDb().query<{ id: string; status: string }>(
     `
-      SELECT id
+      SELECT id, status
       FROM meta_automation_proposals
       WHERE business_id = $1::uuid
         AND (
@@ -864,7 +1514,13 @@ export async function raiseRuleAutomationProposal(
             provider_account_id = $3
             AND decision_key = $4
             AND proposed_action = $5
-            AND status = 'pending'
+            -- Claimed holds the slot exactly as pending does; a firing that
+            -- arrives while the entity's pause is being dispatched joins that
+            -- row rather than reporting a queue row that does not exist.
+            -- Reconcile holds it too, and harder: that row's provider outcome
+            -- is unknown, so a firing arriving behind it has no queue row to
+            -- join and must not be told one exists.
+            AND status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
           )
         )
       ORDER BY (dedupe_key = $2) DESC, created_at ASC
@@ -877,8 +1533,11 @@ export async function raiseRuleAutomationProposal(
       decisionKey,
       input.proposedAction,
     ],
-  )) as Array<{ id: string }>;
+  )) as Array<{ id: string; status: string }>;
 
+  if (held[0]?.status === "reconcile") {
+    return { status: "held_for_reconciliation", proposalId: held[0].id };
+  }
   return { status: "already_queued", proposalId: held[0]?.id ?? null };
 }
 

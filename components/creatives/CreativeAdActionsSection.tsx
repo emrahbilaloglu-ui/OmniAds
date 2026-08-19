@@ -190,7 +190,9 @@ export function CreativeAdActionsSection({
         businessId,
         providerAccountId: row.accountId,
         adId,
-        creativeId: row.creativeId,
+        // A row without a creative cannot be acted on; an absent id is sent
+        // as empty rather than fabricated, and the server refuses it.
+        creativeId: row.creativeId ?? "",
       },
     });
 
@@ -230,7 +232,9 @@ export function CreativeAdActionsSection({
         businessId,
         providerAccountId: row.accountId ?? "",
         adId,
-        creativeId: row.creativeId,
+        // A row without a creative cannot be acted on; an absent id is sent
+        // as empty rather than fabricated, and the server refuses it.
+        creativeId: row.creativeId ?? "",
         targetAdsetId: selectedAdsetId,
         nameOverride,
       }),

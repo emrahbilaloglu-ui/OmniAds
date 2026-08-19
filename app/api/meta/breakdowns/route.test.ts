@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/breakdowns/route";
 import { assertMetaBreakdownsPageContract } from "@/lib/meta/page-route-contract.test-helpers";
+import { getDemoMetaStatus } from "@/lib/demo-business";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 }));
 
 const access = await import("@/lib/access");
+const businessMode = await import("@/lib/business-mode.server");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
@@ -267,6 +269,117 @@ describe("GET /api/meta/breakdowns", () => {
     });
   });
 
+  /**
+   * The page sends the one account the operator picked. Reading that parameter
+   * is the whole point: before this, the route ignored it and answered with
+   * every assigned account, so two accounts with different ROAS produced one
+   * blended bar carrying the chosen account's name.
+   */
+  it("narrows the warehouse read to the requested account when it is assigned", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      age: [{ key: "18-24", label: "18-24", spend: 10, revenue: 22 }],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&providerAccountId=act_2&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(serving.getMetaWarehouseBreakdowns).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+      providerAccountIds: ["act_2"],
+    });
+  });
+
+  /**
+   * An id this workspace is not assigned is refused, never widened. Answering
+   * with every assigned account would hand back numbers that belong to accounts
+   * the caller did not ask for, under the label of one it may not even hold.
+   */
+  it("refuses an unassigned account instead of silently widening the read", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1"],
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&providerAccountId=act_9&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(payload.status).toBe("account_not_assigned");
+    expect(payload.notReadyReason).toContain("not assigned");
+    expect(payload.age).toEqual([]);
+    expect(serving.getMetaWarehouseBreakdowns).not.toHaveBeenCalled();
+  });
+
+  it("keeps the account-wide read when no account is requested", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      age: [{ key: "18-24", label: "18-24", spend: 10, revenue: 22 }],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+    } as never);
+
+    await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+
+    expect(serving.getMetaWarehouseBreakdowns).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+      providerAccountIds: ["act_1", "act_2"],
+    });
+  });
+
+  /**
+   * The warehouse already measures when it last observed these rows; the route
+   * used to drop it, which left every reader with no honest as-of and a strong
+   * temptation to invent one from its own clock.
+   */
+  it("serves the warehouse freshness instead of discarding it", async () => {
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      freshness: {
+        dataState: "ready",
+        lastSyncedAt: "2026-04-04T09:15:00.000Z",
+        liveRefreshedAt: null,
+        isPartial: false,
+        missingWindows: [],
+        warnings: [],
+      },
+      age: [{ key: "18-24", label: "18-24", spend: 10, revenue: 22 }],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(payload.freshness?.lastSyncedAt).toBe("2026-04-04T09:15:00.000Z");
+  });
+
   it("degrades to the existing no-accounts contract when assignment schema is not ready", async () => {
     vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
       ready: false,
@@ -291,5 +404,87 @@ describe("GET /api/meta/breakdowns", () => {
     });
     expect(assignments.getProviderAccountAssignments).not.toHaveBeenCalled();
     expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ITEM 17 — THE DEMO BRANCH MUST NOT BYPASS ACCOUNT SCOPING.
+ *
+ * `getMetaBreakdownsForRange` answers demo workspaces from a fixture, and that
+ * branch ran BEFORE the assignment intersection every other caller is subject
+ * to. Audiences sends the operator's chosen `providerAccountId` on every
+ * request, so a demo workspace answered `act_SOMEONE_ELSES` with UrbanTrail's
+ * spend and ROAS under a caption naming the requested account — a fabricated
+ * number wearing a real account's identity, which is exactly what the
+ * non-demo path refuses with `account_not_assigned`.
+ *
+ * The demo workspace is EXPLICITLY SINGLE-ACCOUNT: `getDemoMetaStatus()` — the
+ * same assignment list every other demo Meta surface reads — holds exactly one
+ * id, so the fixture needs no partitioning and is asserted to stay that way. A
+ * second demo account is the point at which the fixture must be partitioned
+ * rather than shared, and the first assertion below is what fails then.
+ */
+describe("GET /api/meta/breakdowns — demo workspace account scoping", () => {
+  const demoAccountIds = getDemoMetaStatus().assignedAccountIds;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: {} as never,
+      membership: {} as never,
+    });
+    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true as never);
+  });
+
+  it("is a single-account fixture, so one shared set of rows is not a pooled one", () => {
+    expect(demoAccountIds).toHaveLength(1);
+  });
+
+  it("serves the fixture for the account the demo workspace actually holds", async () => {
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/breakdowns?businessId=demo&providerAccountId=${demoAccountIds[0]}` +
+          "&startDate=2026-04-01&endDate=2026-04-03",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.status).toBe("ok");
+    expect(payload.age.length).toBeGreaterThan(0);
+    expect(payload.placement.length).toBeGreaterThan(0);
+  });
+
+  it("refuses an account the demo workspace does not hold instead of answering with another account's rows", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=demo&providerAccountId=act_not_assigned" +
+          "&startDate=2026-04-01&endDate=2026-04-03",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "account_not_assigned",
+      age: [],
+      location: [],
+      placement: [],
+      isPartial: false,
+    });
+    expect(payload.notReadyReason).toBe(
+      "The requested Meta ad account is not assigned to this workspace.",
+    );
+  });
+
+  it("keeps the account-wide answer when the request names no account", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=demo&startDate=2026-04-01&endDate=2026-04-03",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.status).toBe("ok");
+    expect(payload.age.length).toBeGreaterThan(0);
   });
 });

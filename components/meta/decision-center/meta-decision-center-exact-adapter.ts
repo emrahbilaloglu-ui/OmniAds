@@ -68,6 +68,13 @@ export interface MetaDecisionCenterExactAdapterOverrides {
   canonicalDecisions?: readonly MetaCanonicalDecision[];
   /** Caller-owned, server-backed deferred count after local filtering. */
   deferredCount?: number;
+  /**
+   * Daily CTR per ad id, for the creative rows' sparklines.
+   *
+   * Supplied by the caller because it is a second read the adapter must not
+   * make. An ad with no entry keeps the honest empty path.
+   */
+  creativeCtrSeriesByAdId?: ReadonlyMap<string, readonly number[]>;
 }
 
 export interface MetaDecisionCenterExactAdapterCallbacks {
@@ -144,6 +151,24 @@ function formatMoney(
 function formatRoas(value: number | null | undefined): string {
   const normalized = finite(value);
   return normalized === null ? EM_DASH : normalized.toFixed(2);
+}
+
+/**
+ * ROAS, or a dash when there was no spend to divide by.
+ *
+ * Return on ad spend is undefined at zero spend, not zero — and the rollup
+ * reports a literal `0` for both "spent nothing" and "summed no rows at all".
+ * Printing `0.00` turned the second into a confident claim that the account
+ * earned nothing, which is how a Decision Center kept saying ROAS 0.00 for an
+ * account spending over a thousand dollars a day.
+ */
+function formatRoasAgainstSpend(
+  roas: number | null | undefined,
+  spend: number | null | undefined,
+): string {
+  const spent = finite(spend);
+  if (spent === null || spent <= 0) return EM_DASH;
+  return formatRoas(roas);
 }
 
 function roasLabel(window: MetaDecisionsWorkspacePayload["window"]): string {
@@ -534,10 +559,54 @@ function healthyGroups(
   });
 }
 
+function targetValueNumber(
+  recommendation: MetaRecommendation | null,
+  key: string,
+): number | null {
+  const target = recommendation?.targetValue;
+  if (!target || typeof target !== "object" || Array.isArray(target)) return null;
+  return finite((target as Record<string, unknown>)[key] as number | null);
+}
+
+/**
+ * The four informational tiles, filled from what the server already enriches.
+ *
+ * Every value was a hardcoded `—`, so the card was four empty boxes on every
+ * account — while `lane-classify` had been attaching `cpm`, `thruplayActions`
+ * and the account calibration percentiles to each upper-funnel row all along.
+ *
+ * `Reach · 28d` stays a dash on purpose. The stored `reach` is a sum over daily
+ * rows, which counts a person seen on three days three times; 28-day unique
+ * reach is a separate provider figure this warehouse does not hold, and a
+ * summed one printed under that caption would be a wrong number wearing a right
+ * label.
+ */
+function nonSalesMetrics(
+  recommendation: MetaRecommendation | null,
+  currency: string | null,
+): NonNullable<MetaDecisionCenterExactNonSalesViewModel["metrics"]> {
+  const thruplay = targetValueNumber(recommendation, "thruplayActions");
+  const cpm = targetValueNumber(recommendation, "cpm");
+  const cpmP50 = targetValueNumber(recommendation, "cpmAccountP50");
+  const values: Record<string, string> = {
+    thruplay: thruplay === null ? EM_DASH : formatNumber(thruplay),
+    cpm: formatMoney(cpm, currency),
+    "cpm-account-p50": formatMoney(cpmP50, currency),
+    "reach-28d": EM_DASH,
+  };
+  return UPPER_FUNNEL_SLOTS.map((slot) => ({
+    id: slot.id,
+    label: slot.label,
+    value: values[slot.id] ?? EM_DASH,
+  }));
+}
+
 function nonSalesCard(
   recommendation: MetaRecommendation | null,
+  currency: string | null,
 ): MetaDecisionCenterExactNonSalesViewModel {
   return {
+    ...(recommendation ? { id: recommendation.id } : {}),
     name: recommendation ? entityName(recommendation) : EM_DASH,
     level: recommendation ? structureLevel(recommendation.level) : EM_DASH,
     contextLabel:
@@ -546,11 +615,7 @@ function nonSalesCard(
         : recommendation?.cohort
           ? `${titleToken(recommendation.cohort)} · informational`
           : EM_DASH,
-    metrics: UPPER_FUNNEL_SLOTS.map((slot) => ({
-      id: slot.id,
-      label: slot.label,
-      value: EM_DASH,
-    })),
+    metrics: nonSalesMetrics(recommendation, currency),
     note:
       nonBlank(recommendation?.why) ??
       nonBlank(recommendation?.summary) ??
@@ -572,18 +637,130 @@ function archiveRows(
       spend: formatMoney(row.spend, fallbackCurrency),
       note:
         nonBlank(row.diagnosticNote) ?? nonBlank(row.advisory?.why) ?? EM_DASH,
-      showResume: paused,
-      // Deliberately no onResume: inactive/archive evidence carries no write authority.
+      // No Resume affordance. The archive lane is evidence: `MetaArchivedEntity`
+      // carries no action tuple and the canonical inactive asset pins
+      // `providerWriteAuthority: "none"`, so there is no callback to give the
+      // button. Drawing it anyway produced a permanently dimmed control on every
+      // paused row — a promise the screen could never keep. The component still
+      // renders it the moment a server action tuple supplies one.
     };
   });
 }
 
-function creativePosture(): MetaDecisionCenterExactViewModel["creativePosture"] {
+/**
+ * The posture band, over the whole served creative scope.
+ *
+ * All four tiles were pinned to `—`, so the band was decorative on every
+ * account. Two of them are plain descriptions of rows the workspace already
+ * serves and are computed here:
+ *
+ * - **Avg frequency · 28d** — the spend-weighted mean of the served
+ *   `metrics.frequency`. Spend-weighted, not a flat mean, because a £4 test ad
+ *   at frequency 9 should not drag the account's number around.
+ * - **Refresh pipeline** — how many served decisions carry the engine's
+ *   `refresh` verdict. A count of a server label, not a client verdict.
+ * - **Fatigued spend share** — the share of served spend sitting on creatives
+ *   the engine marked `fatigued` or `watch` on the lifecycle row it decided
+ *   from. A share over a server label, in the same class as the count above.
+ *   Rows whose fatigue status is `unknown` are excluded from the denominator
+ *   rather than counted as healthy, so a half-covered account reports the share
+ *   of what was actually assessed instead of a diluted number.
+ *
+ * "Winner concentration" stays `—`. There is no served notion of a winner:
+ * deciding that `keep` means winner, or that the top decile does, would mint a
+ * decision rule inside a presentation adapter.
+ *
+ * Deliberately computed over the full served set rather than the filtered rows,
+ * so typing in the search box narrows the queue without appearing to move the
+ * account's posture.
+ */
+function creativePosture(
+  decisions: readonly MetaOsAdDecision[],
+): MetaDecisionCenterExactViewModel["creativePosture"] {
+  let weightedFrequency = 0;
+  let frequencyWeight = 0;
+  let frequencyRows = 0;
+  let refreshCount = 0;
+  let assessedSpend = 0;
+  let fatiguedSpend = 0;
+  let assessedRows = 0;
+
+  for (const decision of decisions) {
+    const frequency = finite(decision.metrics.frequency);
+    const spend = finite(decision.metrics.spend);
+    if (frequency !== null && spend !== null && spend > 0) {
+      weightedFrequency += frequency * spend;
+      frequencyWeight += spend;
+      frequencyRows += 1;
+    }
+    if (decision.publishedLabel.trim().toLowerCase() === "refresh") {
+      refreshCount += 1;
+    }
+    const fatigue = decision.fatigueStatus?.trim().toLowerCase();
+    if (
+      spend !== null &&
+      spend > 0 &&
+      (fatigue === "none" || fatigue === "watch" || fatigue === "fatigued")
+    ) {
+      assessedSpend += spend;
+      assessedRows += 1;
+      if (fatigue !== "none") fatiguedSpend += spend;
+    }
+  }
+
+  const averageFrequency =
+    frequencyWeight > 0 ? weightedFrequency / frequencyWeight : null;
+  const fatiguedShare =
+    assessedSpend > 0 ? (fatiguedSpend / assessedSpend) * 100 : null;
+  const values: Record<string, { value: string; detail: string }> = {
+    "fatigued-spend-share": {
+      value: fatiguedShare === null ? EM_DASH : `${Math.round(fatiguedShare)}%`,
+      detail:
+        fatiguedShare === null
+          ? EM_DASH
+          : `of ${formatNumber(assessedRows)} assessed creatives`,
+    },
+    "winner-concentration": { value: EM_DASH, detail: EM_DASH },
+    "average-frequency": {
+      value: averageFrequency === null ? EM_DASH : averageFrequency.toFixed(1),
+      detail:
+        averageFrequency === null
+          ? EM_DASH
+          : `${frequencyRows} of ${decisions.length} creatives`,
+    },
+    "refresh-pipeline": {
+      value: decisions.length === 0 ? EM_DASH : formatNumber(refreshCount),
+      detail:
+        decisions.length === 0
+          ? EM_DASH
+          : `of ${formatNumber(decisions.length)} served decisions`,
+    },
+  };
+
   return CREATIVE_POSTURE_SLOTS.map((slot) => ({
     ...slot,
-    value: EM_DASH,
-    detail: EM_DASH,
+    ...(values[slot.id] ?? { value: EM_DASH, detail: EM_DASH }),
   }));
+}
+
+/**
+ * The three-letter media kind the reference prints inside the thumb.
+ *
+ * The engine records one of `image`, `video`, `catalog` on the lifecycle row it
+ * decided from. Anything else stays a dash rather than being abbreviated into a
+ * kind nobody defined.
+ */
+function creativeKindShort(format: string | null | undefined): string {
+  switch (nonBlank(format)?.toLowerCase()) {
+    case "image":
+      return "IMG";
+    case "video":
+      return "VID";
+    case "catalog":
+      return "CAT";
+    default:
+      return EM_DASH;
+  }
 }
 
 function creativeChips(decision: MetaOsAdDecision): string[] {
@@ -611,6 +788,7 @@ function creativeRows(input: {
   decisions: readonly MetaOsAdDecision[];
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
   fallbackCurrency: string | null;
+  ctrSeriesByAdId: ReadonlyMap<string, readonly number[]>;
   callbacks: MetaDecisionCenterExactAdapterCallbacks;
 }): MetaDecisionCenterExactCreativeDecisionViewModel[] {
   return input.decisions.map((decision) => {
@@ -629,15 +807,17 @@ function creativeRows(input: {
     return {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
-      // The current contract has identity grain, not media format/aspect.
-      kindShort: EM_DASH,
+      kindShort: creativeKindShort(decision.creativeFormat),
+      // The reference's thumb is a neutral striped placeholder. Colouring it by
+      // verdict would let the strip read as a second opinion beside the label
+      // that already carries the tone, so it keeps the design's default pair.
       stripeA: null,
       stripeB: null,
       edgeTone: tone,
       decisionLabel: nonBlank(decision.action.label) ?? EM_DASH,
       decisionTone: tone,
       chips: creativeChips(decision),
-      sparkPath: null,
+      sparkPath: sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
       money: moneyAndRoas({
         spend: decision.metrics.spend,
         roas: decision.metrics.roas,
@@ -707,7 +887,12 @@ function structureInspector(input: {
     moneyValue: recommendationMoney(recommendation, node, input.fallbackCurrency),
     targetComparison:
       targetRoas === null ? EM_DASH : `vs ${targetRoas.toFixed(2)} target`,
-    moneySparkPath: null,
+    // This entity's own ROAS trail, which the server has been attaching to every
+    // recommendation all along. The chart was pinned to null, so the panel drew
+    // its dashed target baseline and nothing against it. Deliberately not the
+    // account's `pulse.roasHistory`: that is a different entity's line and would
+    // read as this one's.
+    moneySparkPath: sparkPath(recommendation.evidenceTrail?.roas_history),
     moneyDetail:
       nonBlank(node?.expectedImpact) ?? nonBlank(recommendation.expectedImpact) ?? EM_DASH,
     confidence: titleToken(node?.confidence ?? recommendation.confidence),
@@ -791,6 +976,15 @@ function creativeInspector(input: {
 function inspector(input: {
   selection: MetaDecisionCenterExactAdapterSelection | undefined;
   actionRecommendations: readonly MetaRecommendation[];
+  /**
+   * Every structure row the inspector may be pointed at.
+   *
+   * Selection used to resolve against Action Now alone, so a Watching row's
+   * "Review" produced a selection the inspector could not find and returned
+   * null. The default selection still comes from Action Now — the reference's
+   * resting state — but an explicit one resolves across the lanes.
+   */
+  selectableRecommendations: readonly MetaRecommendation[];
   creativeDecisions: readonly MetaOsAdDecision[];
   nodes: ReadonlyMap<string, MetaOsStructureNode>;
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
@@ -809,7 +1003,7 @@ function inspector(input: {
   if (!selection) return null;
 
   if (selection.kind === "structure") {
-    const recommendation = input.actionRecommendations.find(
+    const recommendation = input.selectableRecommendations.find(
       (item) => item.id === selection.recommendationId,
     );
     if (!recommendation) return null;
@@ -838,6 +1032,36 @@ function inspector(input: {
     fallbackCurrency: input.fallbackCurrency,
     callback: input.callbacks.onCreativeReview,
   });
+}
+
+/**
+ * Why the Creatives scope is empty, in the server's own words.
+ *
+ * An empty queue and a refused decision source render identically — nothing —
+ * and only one of them is something the operator can act on. When the native ad
+ * source is not the authority, the payload already carries both the machine
+ * reason and a written limitation; this joins them rather than composing a new
+ * sentence, so the screen cannot claim a cause the server did not give.
+ *
+ * Returns null when the source is healthy: an account that genuinely has no
+ * actionable creative decision today needs no explanation beyond the empty
+ * queue itself.
+ */
+function creativesNotice(
+  workspace: MetaDecisionsWorkspacePayload,
+): string | null {
+  const source = workspace.os?.source;
+  if (!source || source.adsSource === "native_ad_decision") return null;
+  const served = (workspace.os?.limitations ?? []).find(
+    (limitation) =>
+      limitation.code === "legacy_creative_review_only" ||
+      limitation.code === "active_ad_inventory_pending_native_decision",
+  );
+  const reason = nonBlank(source.fallbackReason);
+  const message =
+    nonBlank(served?.message) ??
+    "Ad-level decisions are withheld because the native decision source is not the authority for this account.";
+  return reason ? `${message} Source: ${reason}.` : message;
 }
 
 /**
@@ -924,7 +1148,10 @@ export function buildMetaDecisionCenterExactViewModel(
       },
       roas: {
         label: roasLabel(workspace.window),
-        value: formatRoas(workspace.pulse.roas.selected),
+        value: formatRoasAgainstSpend(
+          workspace.pulse.roas.selected,
+          pacing.windowSpend,
+        ),
         target: targetRoasDisplay(
           workspace.pulse.roas.target,
           workspace.pulse.roas.targetFreshness,
@@ -995,18 +1222,30 @@ export function buildMetaDecisionCenterExactViewModel(
       callbacks,
     }),
     healthyGroups: healthyGroups(healthy, fallbackCurrency),
-    nonSales: nonSalesCard(nonSales[0] ?? null),
+    nonSales:
+      nonSales.length > 0
+        ? nonSales.map((recommendation) =>
+            nonSalesCard(recommendation, fallbackCurrency),
+          )
+        : [nonSalesCard(null, fallbackCurrency)],
     archiveRows: archiveRows(archived, fallbackCurrency),
-    creativePosture: creativePosture(),
+    creativesNotice: creativesNotice(workspace),
+    creativePosture: creativePosture(workspace.os?.ads?.items ?? []),
     creativeDecisions: creativeRows({
       decisions: creativeDecisions,
       canonical,
       fallbackCurrency,
+      ctrSeriesByAdId: overrides.creativeCtrSeriesByAdId ?? new Map(),
       callbacks,
     }),
     inspector: inspector({
       selection: input.selection,
       actionRecommendations,
+      selectableRecommendations: [
+        ...actionRecommendations,
+        ...watchingRecommendations,
+        ...nonSales,
+      ],
       creativeDecisions,
       nodes,
       canonical,

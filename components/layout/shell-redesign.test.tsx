@@ -80,6 +80,9 @@ vi.mock("@/lib/pricing/usePlan", () => ({
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   useMetaActionNowCount: () => state.actionNowCount,
   useGoogleAdvisorCount: () => state.googleAdvisorCount,
+  // The rail mints links only from the business the shell has confirmed; this
+  // suite renders a fully bootstrapped shell, so the selection is confirmed.
+  useConfirmedShellBusinessId: () => state.selectedBusinessId,
   useWorkspaceSyncState: () => ({
     tone: "fresh",
     label: "Synced 12m ago",
@@ -87,19 +90,28 @@ vi.mock("@/components/layout/v2/use-shell-signals", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-persistent-date-range", () => ({
-  usePersistentDateRange: () => [
-    {
-      rangePreset: "28d",
-      customStart: "",
-      customEnd: "",
-      comparisonPreset: "previousPeriod",
-      comparisonStart: "",
-      comparisonEnd: "",
-    },
-    () => {},
-  ],
-}));
+// Only the picker's value is stubbed. `useCanonicalDateWindowUrl` — the shell's
+// single ITEM 10 authority, which states the window on the URL before any
+// surface reads it — stays real, because a shell suite that stubbed it away
+// could not notice the shell had stopped stating a window at all.
+vi.mock("@/hooks/use-persistent-date-range", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/hooks/use-persistent-date-range")>();
+  return {
+    ...actual,
+    usePersistentDateRange: () => [
+      {
+        rangePreset: "28d",
+        customStart: "",
+        customEnd: "",
+        comparisonPreset: "previousPeriod",
+        comparisonStart: "",
+        comparisonEnd: "",
+      },
+      () => {},
+    ],
+  };
+});
 
 describe("dashboard v2 shell", () => {
   beforeEach(() => {

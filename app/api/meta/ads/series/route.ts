@@ -13,6 +13,16 @@ export interface MetaAdSeriesPoint {
   linkClicks: number | null;
   /** Percent, not a fraction: link clicks over impressions × 100. */
   linkCtr: number | null;
+  /**
+   * The provider's all-clicks CTR, as stored.
+   *
+   * Distinct from `linkCtr` and not interchangeable with it: `link_clicks` is
+   * currently 0 on every warehouse row, so a surface captioned plainly "CTR"
+   * that read `linkCtr` drew a flat zero line for every creative. This is the
+   * same definition the engine's own `ctr_28d` uses, so a card showing the
+   * engine's number and a card showing this trail agree.
+   */
+  ctr: number | null;
   frequency: number | null;
 }
 
@@ -20,6 +30,55 @@ export interface MetaAdSeriesResponse {
   /** How many of the requested ads the warehouse actually answered for. */
   adCount: number;
   points: MetaAdSeriesPoint[];
+  /**
+   * The same trail kept per ad, returned only for `groupBy=ad`.
+   *
+   * The merged `points` array answers "how did this one ad move"; the Decision
+   * Center's creative queue asks a different question — one sparkline per row —
+   * and merging would have drawn every row the same shape.
+   */
+  series?: Array<{ adId: string; points: MetaAdSeriesPoint[] }>;
+}
+
+interface SeriesBucket {
+  impressions: number;
+  linkClicks: number | null;
+  frequencyWeighted: number;
+  frequencyWeight: number;
+  ctrWeighted: number;
+  ctrWeight: number;
+}
+
+type SeriesBuckets = Map<string, SeriesBucket>;
+
+function emptySeriesBucket(): SeriesBucket {
+  return {
+    impressions: 0,
+    linkClicks: null,
+    frequencyWeighted: 0,
+    frequencyWeight: 0,
+    ctrWeighted: 0,
+    ctrWeight: 0,
+  };
+}
+
+function pointsFromBuckets(byDate: SeriesBuckets): MetaAdSeriesPoint[] {
+  return Array.from(byDate.entries())
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([date, bucket]) => ({
+      date,
+      impressions: bucket.impressions,
+      linkClicks: bucket.linkClicks,
+      linkCtr:
+        bucket.linkClicks == null || bucket.impressions <= 0
+          ? null
+          : (bucket.linkClicks / bucket.impressions) * 100,
+      ctr: bucket.ctrWeight > 0 ? bucket.ctrWeighted / bucket.ctrWeight : null,
+      frequency:
+        bucket.frequencyWeight > 0
+          ? bucket.frequencyWeighted / bucket.frequencyWeight
+          : null,
+    }));
 }
 
 function parseAdIds(raw: string | null): string[] {
@@ -84,22 +143,18 @@ export async function GET(request: NextRequest) {
     providerAccountIds: assignedAccountIds,
   });
 
-  const byDate = new Map<
-    string,
-    { impressions: number; linkClicks: number | null; frequencyWeighted: number; frequencyWeight: number }
-  >();
+  const byDate: SeriesBuckets = new Map();
   const answeredAdIds = new Set<string>();
   for (const row of rows) {
     answeredAdIds.add(row.adId);
-    const bucket = byDate.get(row.date) ?? {
-      impressions: 0,
-      linkClicks: null,
-      frequencyWeighted: 0,
-      frequencyWeight: 0,
-    };
+    const bucket = byDate.get(row.date) ?? emptySeriesBucket();
     bucket.impressions += row.impressions;
     if (row.linkClicks != null) {
       bucket.linkClicks = (bucket.linkClicks ?? 0) + row.linkClicks;
+    }
+    if (row.ctr != null && row.impressions > 0) {
+      bucket.ctrWeighted += row.ctr * row.impressions;
+      bucket.ctrWeight += row.impressions;
     }
     // One ad per day is the normal case and this is then that ad's own value.
     // With several ads it is the impression-weighted mean of their reported
@@ -112,24 +167,40 @@ export async function GET(request: NextRequest) {
     byDate.set(row.date, bucket);
   }
 
-  const points: MetaAdSeriesPoint[] = Array.from(byDate.entries())
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    .map(([date, bucket]) => ({
-      date,
-      impressions: bucket.impressions,
-      linkClicks: bucket.linkClicks,
-      linkCtr:
-        bucket.linkClicks == null || bucket.impressions <= 0
-          ? null
-          : (bucket.linkClicks / bucket.impressions) * 100,
-      frequency:
-        bucket.frequencyWeight > 0
-          ? bucket.frequencyWeighted / bucket.frequencyWeight
-          : null,
-    }));
+  const points = pointsFromBuckets(byDate);
+
+  let series: MetaAdSeriesResponse["series"];
+  if (params.get("groupBy") === "ad") {
+    const perAd = new Map<string, SeriesBuckets>();
+    for (const row of rows) {
+      const bucketsForAd: SeriesBuckets = perAd.get(row.adId) ?? new Map();
+      const bucket = bucketsForAd.get(row.date) ?? emptySeriesBucket();
+      bucket.impressions += row.impressions;
+      if (row.linkClicks != null) {
+        bucket.linkClicks = (bucket.linkClicks ?? 0) + row.linkClicks;
+      }
+      if (row.ctr != null && row.impressions > 0) {
+        bucket.ctrWeighted += row.ctr * row.impressions;
+        bucket.ctrWeight += row.impressions;
+      }
+      if (row.frequency != null && row.impressions > 0) {
+        bucket.frequencyWeighted += row.frequency * row.impressions;
+        bucket.frequencyWeight += row.impressions;
+      }
+      bucketsForAd.set(row.date, bucket);
+      perAd.set(row.adId, bucketsForAd);
+    }
+    series = Array.from(perAd.entries())
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([adId, buckets]) => ({ adId, points: pointsFromBuckets(buckets) }));
+  }
 
   return NextResponse.json(
-    { adCount: answeredAdIds.size, points } satisfies MetaAdSeriesResponse,
+    {
+      adCount: answeredAdIds.size,
+      points,
+      ...(series ? { series } : {}),
+    } satisfies MetaAdSeriesResponse,
     { headers: { "Cache-Control": "private, no-store" } },
   );
 }

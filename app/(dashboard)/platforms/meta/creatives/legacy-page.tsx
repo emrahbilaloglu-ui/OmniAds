@@ -9,11 +9,11 @@ import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
 import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
+import { buildCreativeStudioTabHrefs } from "@/lib/meta/creative-studio-tab-hrefs";
 import type {
   CreativeStudioAssetRow,
   CreativeStudioAssetsModel,
   CreativeStudioDataState,
-  CreativeStudioTabId,
   CreativeStudioTone,
 } from "@/components/creatives/creative-studio-exact-types";
 import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/CreativesTopSection";
@@ -25,10 +25,15 @@ import {
   calculateCreativeClickToPurchaseRate,
   calculateCreativeLinkCtr,
 } from "@/components/creatives/creative-truth";
-import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type {
+  MetaCreativeRow,
+  MetaObservedMetricKey,
+} from "@/components/creatives/metricConfig";
 import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { hasDateWindowParams } from "@/lib/dashboard/date-window-url";
+import type { CreativeRouteWindow } from "@/lib/zero-base/creative/route-scope";
 import { useAppStore } from "@/store/app-store";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
@@ -39,6 +44,7 @@ import {
 import { standardDateRangeToCreative } from "@/components/creatives/creatives-top-section-support";
 import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 import {
+  describeMetaCreativesSourceHealth,
   fetchMetaCreatives,
   mapApiRowToUiRow,
   toCsv,
@@ -85,52 +91,108 @@ function assetImageUrl(row: MetaCreativeRow): string | null {
 }
 
 /**
+ * One metric, as the producer served it.
+ *
+ * A row that publishes `observedMetrics` answers per field, so one absent
+ * number no longer withholds the whole row — a real measured spend used to
+ * vanish because an unrelated field such as `leads` was missing from the
+ * payload. A row without that map (Launchpad mints some, see
+ * lib/launchpad/recent-ad-actions.ts) still carries only the row-level flag,
+ * and an unflagged row stays withheld: absence of evidence is not a figure.
+ *
+ * A served 0 is returned as 0. That is the point of the whole contract: a
+ * paused, never-delivered creative really did spend nothing, and an em dash
+ * there would hide a fact rather than protect one.
+ */
+function observedMetric(
+  row: MetaCreativeRow,
+  key: MetaObservedMetricKey,
+  legacyValue: number | null | undefined,
+): number | null {
+  if (row.observedMetrics) return finite(row.observedMetrics[key]);
+  return row.metricsAvailability === "available" ? finite(legacyValue) : null;
+}
+
+/**
+ * A ratio the producer computed, withheld when its denominator makes it
+ * undefined.
+ *
+ * No formula changes here: the producer's own value is passed through
+ * untouched. What is removed is the substitution behind it.
+ * `normalizeCreativeMetricFields` (lib/meta/creatives-service-support.ts) ends
+ * every ratio with `: 0`, so a creative that spent ₺33,500 and bought nothing
+ * published `cpa: 0` — and CPA is a lower-is-better column, so the heat map
+ * painted the account's worst waste as its cost-per-purchase *leader*. Zero
+ * purchases does not mean acquisitions were free; it means cost per
+ * acquisition has no value, which is an em dash.
+ *
+ * Both sides must be observed: an unserved denominator cannot license a figure
+ * either.
+ */
+function ratioWithDenominator(
+  value: number | null,
+  denominator: number | null,
+): number | null {
+  if (denominator === null || denominator <= 0) return null;
+  return value;
+}
+
+/**
  * Presentation-only projection for the exact Assets surface.
  *
- * It does not read decision fields. A row whose metric payload is unavailable
- * withholds every numeric cell, even though the legacy row shape contains zero
- * placeholders. Hold intentionally stays absent until Meta serves a dedicated
- * hold metric; video completion is not a substitute.
+ * It does not read decision fields. Availability is per metric, and a ratio
+ * whose denominator was measured as zero is withheld rather than printed as a
+ * zero the provider never measured. Hold intentionally stays absent until Meta
+ * serves a dedicated hold metric; video completion is not a substitute.
  */
 export function toCreativeStudioAssetRows(
   rows: readonly MetaCreativeRow[],
   defaultCurrency: string | null,
 ): CreativeStudioAssetRow[] {
   return rows.map((row) => {
-    const metricsAvailable = row.metricsAvailability === "available";
-    const metrics: CreativeStudioAssetRow["metrics"] = metricsAvailable
-      ? {
-          spend: finite(row.spend),
-          impressions: finite(row.impressions),
-          clicks: finite(row.clicks),
-          purchases: finite(row.purchases),
-          roas: finite(row.roas),
-          cpa: finite(row.cpa),
-          cpm: finite(row.cpm),
-          aov: finite(calculateCreativeAverageOrderValue(row)),
-          ctr: finite(calculateCreativeLinkCtr(row)),
-          thumbstop: finite(row.thumbstop),
-          hold: null,
-          frequency: finite(row.frequency),
-          atcRate: finite(calculateCreativeClickToAddToCartRate(row)),
-          cvr: finite(calculateCreativeClickToPurchaseRate(row)),
-        }
-      : {
-          spend: null,
-          impressions: null,
-          clicks: null,
-          purchases: null,
-          roas: null,
-          cpa: null,
-          cpm: null,
-          aov: null,
-          ctr: null,
-          thumbstop: null,
-          hold: null,
-          frequency: null,
-          atcRate: null,
-          cvr: null,
-        };
+    const spend = observedMetric(row, "spend", row.spend);
+    const purchaseValue = observedMetric(row, "purchaseValue", row.purchaseValue);
+    const purchases = observedMetric(row, "purchases", row.purchases);
+    const impressions = observedMetric(row, "impressions", row.impressions);
+    const linkClicks = observedMetric(row, "linkClicks", row.linkClicks);
+    const addToCart = observedMetric(row, "addToCart", row.addToCart);
+    const metrics: CreativeStudioAssetRow["metrics"] = {
+      spend,
+      impressions,
+      clicks: observedMetric(row, "clicks", row.clicks),
+      purchases,
+      roas: ratioWithDenominator(observedMetric(row, "roas", row.roas), spend),
+      cpa: ratioWithDenominator(observedMetric(row, "cpa", row.cpa), purchases),
+      cpm: ratioWithDenominator(observedMetric(row, "cpm", row.cpm), impressions),
+      aov: ratioWithDenominator(
+        purchaseValue === null
+          ? null
+          : finite(calculateCreativeAverageOrderValue(row)),
+        purchases,
+      ),
+      ctr: ratioWithDenominator(
+        linkClicks === null ? null : finite(calculateCreativeLinkCtr(row)),
+        impressions,
+      ),
+      thumbstop: ratioWithDenominator(
+        observedMetric(row, "thumbstop", row.thumbstop),
+        impressions,
+      ),
+      hold: null,
+      frequency: observedMetric(row, "frequency", row.frequency),
+      atcRate: ratioWithDenominator(
+        addToCart === null
+          ? null
+          : finite(calculateCreativeClickToAddToCartRate(row)),
+        linkClicks,
+      ),
+      cvr: ratioWithDenominator(
+        purchases === null
+          ? null
+          : finite(calculateCreativeClickToPurchaseRate(row)),
+        linkClicks,
+      ),
+    };
     const effectiveStatus = row.effectiveStatus?.trim() || null;
     const marketingAngle =
       row.aiTags.messagingAngle?.map((value) => value.trim()).filter(Boolean).join(", ") || null;
@@ -149,46 +211,19 @@ export function toCreativeStudioAssetRows(
   });
 }
 
-export function buildCreativeStudioTabHrefs(input: {
-  pathname: string | null;
-  businessId: string;
-  providerAccountId: string;
-  start: string;
-  end: string;
-}): Record<CreativeStudioTabId, string> {
-  const inBusinessRoute = Boolean(input.pathname?.startsWith("/c/"));
-  const inSessionRoute = Boolean(input.pathname?.startsWith("/app/"));
-  const prefix = inBusinessRoute
-    ? `/c/${encodeURIComponent(input.businessId)}/creative`
-    : inSessionRoute
-      ? "/app/creative"
-      : null;
-  const paths: Record<CreativeStudioTabId, string> = prefix
-    ? {
-        assets: `${prefix}/performance`,
-        copies: `${prefix}/copies`,
-        "landing-pages": `${prefix}/landing-pages`,
-        inbox: `${prefix}/inbox`,
-        audiences: `${prefix}/audiences`,
-      }
-    : {
-        assets: "/platforms/meta/creatives",
-        copies: "/platforms/meta/copies",
-        "landing-pages": "/platforms/meta/landing-pages",
-        inbox: "/platforms/meta/creative-inbox",
-        audiences: "/platforms/meta/audiences",
-      };
-  const params = new URLSearchParams();
-  if (!prefix && input.businessId) params.set("businessId", input.businessId);
-  if (input.providerAccountId) params.set("providerAccountId", input.providerAccountId);
-  if (input.start) params.set("start", input.start);
-  if (input.end) params.set("end", input.end);
-  const suffix = params.size > 0 ? `?${params.toString()}` : "";
-
-  return Object.fromEntries(
-    Object.entries(paths).map(([key, href]) => [key, `${href}${suffix}`]),
-  ) as Record<CreativeStudioTabId, string>;
-}
+/**
+ * ITEM 17 — re-exported so this page and the Studio's other four tabs mint the
+ * same href.
+ *
+ * The implementation moved to `lib/meta/creative-studio-tab-hrefs.ts` because
+ * two of the five tabs (Landers, Audiences) were building their own links
+ * through `buildMetaScopedHref`, which emits no window at all — so a tab hop
+ * from either of them silently reset the operator's range. A builder that lives
+ * inside one tab's page is a builder the other four can quietly not use.
+ *
+ * The export stays here so every existing importer keeps working.
+ */
+export { buildCreativeStudioTabHrefs };
 
 async function fetchCreativeStudioBriefing(input: {
   businessId: string;
@@ -220,11 +255,20 @@ async function fetchCreativeStudioBriefing(input: {
 interface MetaCreativeStudioPageProps {
   businessId?: string;
   providerAccountId?: string | null;
+  /**
+   * The window the canonical route parsed out of `?start`/`?end`, validated on
+   * the server. `null`/absent means the request named no window — not "use a
+   * default": the shell's range stays in charge in that case. See
+   * `useLinkPinnedDateWindow` for who owns the window once the operator moves
+   * the shell control.
+   */
+  serverDateWindow?: CreativeRouteWindow | null;
 }
 
 export default function MetaCreativeStudioPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
+  serverDateWindow = null,
 }: MetaCreativeStudioPageProps = {}) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -315,10 +359,28 @@ export default function MetaCreativeStudioPage({
     customStart: dashboardWindow.start,
     customEnd: dashboardWindow.end,
   });
-  const { start: drStart, end: drEnd } = resolveCreativeDateRange(
+  const shellWindow = resolveCreativeDateRange(
     dateRangeValue,
     accountReferenceDate,
   );
+  // A link that names a window renders that window — but only when the shell is
+  // not already naming one.
+  //
+  // The shell's date control states its window on the URL as
+  // `?window`/`?startDate`/`?endDate` (`lib/dashboard/date-window-url.ts`) and
+  // `usePersistentDateRange` reads that back, so whenever those params are
+  // present the range above IS the URL's answer and this prop can only repeat
+  // it. What the prop adds is the Creative Studio's own `?start`/`?end`
+  // spelling, which the shell does not read: those links used to render
+  // whatever range this browser had stored. It steps aside the instant the
+  // operator moves the control, because moving it states a window on the URL.
+  //
+  // Everything below reads `drStart`/`drEnd` — the rows, the briefing, the CSV,
+  // the tab links and the range caption — so there is one window per render and
+  // the caption cannot name a range the read did not use.
+  const linkWindow = hasDateWindowParams(searchParams) ? null : serverDateWindow;
+  const drStart = linkWindow?.start ?? shellWindow.start;
+  const drEnd = linkWindow?.end ?? shellWindow.end;
   const accountCurrency = selectedProviderAccount?.currency ?? null;
   const hasExplicitAccountScope = Boolean(businessId && providerAccountId);
 
@@ -360,6 +422,13 @@ export default function MetaCreativeStudioPage({
     refetchOnWindowFocus: false,
   });
 
+  // What the creatives response says about its own source. A 200 carrying
+  // `rows: []` is only an empty window when the status says the read happened;
+  // `no_connection`, `no_access_token` and the account-scope refusals all ship
+  // as 200 with no rows and must never be read as "this account served
+  // nothing".
+  const sourceHealth = describeMetaCreativesSourceHealth(creativesQuery.data);
+
   // One freshness contract across every Tier-0 surface. Derived from the
   // query state this surface already has, so it cannot drift from what is
   // actually on screen.
@@ -368,18 +437,34 @@ export default function MetaCreativeStudioPage({
     isLoading: scopeLoading || creativesQuery.isLoading,
     isFetching: providerAccountsQuery.isFetching || creativesQuery.isFetching,
     error: creativesQuery.error ?? (scopeError ? providerAccountsQuery.error : null),
-    // Decision context failing leaves a workspace that looks complete but is not.
-    partialReason: briefingQuery.error
-      ? "Creative decision context could not be read; this view is incomplete"
-      : null,
-    // When the snapshot rows were computed. Not `source.asOf` (the client's
-    // own request parameter echoed back) and not `asOfDate` (the calendar day
-    // the rows describe) -- a date is not an instant, and using one made the
-    // same data read as a different age depending on the hour.
-    asOf: measuredAsOf(
-      briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest
-        ?.observedAt ?? null,
-    ),
+    // Every stated degradation, in one sentence. Decision context failing
+    // leaves a workspace that looks complete but is not; a server-declared
+    // partial says part of the window is still being prepared. Both are served
+    // surfaces with a gap, which is what "partial" means.
+    partialReason:
+      [
+        sourceHealth.kind === "serving" ? sourceHealth.partialReason : null,
+        briefingQuery.error
+          ? "Creative decision context could not be read; this view is incomplete"
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
+    // When the warehouse rows *in this table* were last written, published by
+    // `/api/meta/creatives` as `warehouse_observed_at`.
+    //
+    // It used to be the briefing snapshot's `observedAt`, which is when a
+    // decision computation ran — a different clock entirely. On a live account
+    // the two were a day apart: the decision snapshot said 2026-08-17 06:01
+    // while `meta_creative_daily` for the same account had been written
+    // 2026-08-18 04:34, so the bar aged the table by a day it had not
+    // actually aged. Neither `source.asOf` (the client's own request parameter
+    // echoed back) nor `asOfDate` (the calendar day the rows describe) is an
+    // instant either.
+    //
+    // Null stays null: a live read has no warehouse write behind it, and the
+    // honest answer there is "age unknown", never the briefing's instant.
+    asOf: measuredAsOf(creativesQuery.data?.warehouse_observed_at ?? null),
     businessId,
     onRetry: () => {
       if (scopeError) void providerAccountsQuery.refetch();
@@ -501,6 +586,10 @@ export default function MetaCreativeStudioPage({
     URL.revokeObjectURL(url);
   };
 
+  // Six outcomes, kept apart. `unavailable` is the one this surface used to
+  // collapse into `empty`: the endpoint answered 200 with no rows because it
+  // never read the account, and "No creative assets were served for this
+  // window." presented that non-read as a fact about the operator's account.
   const assetsState: CreativeStudioDataState = scopeLoading
     ? "loading"
     : scopeError
@@ -511,9 +600,11 @@ export default function MetaCreativeStudioPage({
           ? "error"
           : creativesQuery.isLoading
             ? "loading"
-            : allRows.length === 0
-              ? "empty"
-              : "ready";
+            : sourceHealth.kind === "unavailable"
+              ? "unavailable"
+              : allRows.length === 0
+                ? "empty"
+                : "ready";
   const assetsMessage =
     assetsState === "loading"
       ? scopeLoading
@@ -527,9 +618,13 @@ export default function MetaCreativeStudioPage({
           : creativesQuery.error instanceof Error
             ? creativesQuery.error.message
             : "Creative assets could not be read."
-        : assetsState === "empty"
-          ? "No creative assets were served for this window."
-          : null;
+        : assetsState === "unavailable"
+          ? sourceHealth.kind === "unavailable"
+            ? sourceHealth.message
+            : "Meta creative data could not be read for this scope."
+          : assetsState === "empty"
+            ? "No creative assets were served for this window."
+            : null;
   const assetRows = useMemo(
     () => toCreativeStudioAssetRows(allRows, accountCurrency),
     [accountCurrency, allRows],
@@ -569,6 +664,12 @@ export default function MetaCreativeStudioPage({
         data-testid="creative-studio-page"
         data-creatives-query-status={creativesQuery.status}
         data-creatives-fetch-status={creativesQuery.fetchStatus}
+        // The resolved source verdict, readable without inspecting prose. It
+        // is an attribute, not a new visual element: the surface still says
+        // what it has to say through the existing table message and the shared
+        // freshness bar.
+        data-assets-state={assetsState}
+        data-assets-source-status={creativesQuery.data?.status ?? "unread"}
         data-responsive-studio="true"
         data-provider-writes="none"
       >
@@ -576,7 +677,13 @@ export default function MetaCreativeStudioPage({
           activeTab="assets"
           tabHrefs={tabHrefs}
           counts={buildCreativeStudioTabCounts({ assets: assetsModel.syncedCount })}
-          onExport={handleCsvExport}
+          // The export writes a file only when this tab actually has rows.
+          // Passing the handler unconditionally left Export CSV enabled while
+          // the tab was loading, unreadable, account-gated or empty, where
+          // `handleCsvExport` returns without producing anything — a button
+          // that silently does nothing. Same gate the Copies and Landing Pages
+          // tabs already apply.
+          onExport={allRows.length > 0 ? handleCsvExport : undefined}
           onShare={openShareModal}
           assets={assetsModel}
         />

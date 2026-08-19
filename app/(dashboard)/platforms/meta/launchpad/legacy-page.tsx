@@ -10,14 +10,12 @@ import {
   Cloud,
   Megaphone,
   PlusCircle,
-  Rocket,
   Settings2,
   Shield,
   ShieldCheck,
-  TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -88,6 +86,15 @@ import type {
 } from "@/lib/launchpad/meta-launch-intent";
 import type { MetaLaunchStoreCapability } from "@/lib/launchpad/meta-store-capability";
 import type { MetaLaunchpadManualAuthority } from "@/lib/launchpad/meta-manual-authority";
+import {
+  LAUNCHPAD_HANDOFF_PREFILL_NONE,
+  type LaunchpadHandoffPrefill,
+  type LaunchpadHandoffPrefillEnvelope,
+} from "@/lib/meta/launchpad-handoff-contract";
+import {
+  LAUNCHPAD_VIEWER_NOT_ESTABLISHED,
+  type LaunchpadViewerEnvelope,
+} from "./viewer-envelope";
 import { LaunchIntentReceiptRows } from "./LaunchIntentReceiptRows";
 import styles from "./page.module.css";
 
@@ -140,24 +147,39 @@ const LAUNCH_START_CARDS: Array<{
   mode: LaunchpadMode;
   chip: string;
   cta: string;
+  /**
+   * Static copy from the design, not a served value.
+   *
+   * These two lines rendered as a bare em dash because the card as a whole was
+   * treated as data-bound. Only the title carries a served name; the sentence
+   * under it says what the mode does and needs nothing from the server, so a
+   * dash there stated a missing fact that was never missing.
+   */
+  description: string;
 }> = [
   {
     role: "rebuild",
     mode: "new_campaign",
     chip: "Rebuild",
     cta: "Continue draft",
+    description:
+      "Routed from Decisions with evidence attached. Fresh structure, fatigued creative excluded.",
   },
   {
     role: "duplicate",
     mode: "add_to_existing",
     chip: "Duplicate",
     cta: "Continue draft",
+    description:
+      "Clone the winning structure into a new market with its own budget and target pack.",
   },
   {
     role: "manual",
     mode: "new_campaign",
     chip: "Manual",
     cta: "New blank draft",
+    description:
+      "Blank campaign draft. Validation and the PAUSED boundary apply the same way.",
   },
 ];
 
@@ -327,10 +349,59 @@ function stateFromPayloadAdSet(
   };
 }
 
-async function readLaunchpadJson(url: string) {
-  const response = await fetch(url);
-  if (!response.ok) return null;
-  return response.json().catch(() => null) as Promise<unknown>;
+/**
+ * One library read, with the difference between "the server said none" and
+ * "the server did not say" preserved.
+ *
+ * This used to return `null` for every non-OK response, and `null` flows into
+ * `isLaunchpadArrayPayload`, which answers `[]`. So a 403 became an empty
+ * library — and 403 is the ordinary answer here, not an edge case: every one of
+ * these four GETs goes through `requireLaunchpadBusinessAccess`, which is
+ * hardcoded to `minRole: "collaborator"` (app/api/launchpad/meta/route-utils.ts
+ * line 49). There is no guest-read contract for drafts, templates or intents.
+ * A guest therefore got a page that said, in the same em dashes a real empty
+ * account shows, that this workspace has no drafts and no receipts. That is a
+ * refusal rendered as a measurement.
+ */
+type LaunchpadRead =
+  | { ok: true; payload: unknown }
+  | { ok: false; httpStatus: number | null };
+
+async function readLaunchpadJson(url: string): Promise<LaunchpadRead> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return { ok: false, httpStatus: response.status };
+    const payload = (await response.json().catch(() => null)) as unknown;
+    // A body that will not parse is an unread response, not an empty one.
+    if (payload === null) return { ok: false, httpStatus: null };
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, httpStatus: null };
+  }
+}
+
+export const LAUNCHPAD_LIBRARY_REFUSED_MESSAGE =
+  "Saved drafts, templates and receipts are not readable for this viewer, so none are listed here.";
+
+export const LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE =
+  "Saved drafts, templates and receipts could not be read, so none are listed here.";
+
+/**
+ * The sentence for a library that was not read. `null` means every read
+ * answered, and only then does an empty table mean "there are none".
+ */
+function libraryUnavailableMessage(reads: LaunchpadRead[]): string | null {
+  const refused = reads.find((read) => !read.ok) as
+    | Extract<LaunchpadRead, { ok: false }>
+    | undefined;
+  if (!refused) return null;
+  return refused.httpStatus === 401 || refused.httpStatus === 403
+    ? LAUNCHPAD_LIBRARY_REFUSED_MESSAGE
+    : LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE;
+}
+
+function launchpadReadPayload(read: LaunchpadRead): unknown {
+  return read.ok ? read.payload : null;
 }
 
 function launchStoreCapabilityFromPayload(
@@ -370,15 +441,20 @@ async function loadLaunchpadLibrary(
   providerAccountId: string,
 ) {
   const scope = `businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`;
-  const [manual, recent, drafts, intents] = await Promise.all([
+  const reads = await Promise.all([
     readLaunchpadJson(`/api/launchpad/meta/templates?${scope}`),
     readLaunchpadJson(`/api/launchpad/meta/templates/recent?${scope}`),
     readLaunchpadJson(`/api/launchpad/meta/drafts?${scope}`),
     readLaunchpadJson(`/api/launchpad/meta/intents?${scope}&limit=12`),
   ]);
+  const [manual, recent, drafts, intents] = reads.map(launchpadReadPayload);
   const manualTemplates = isLaunchpadArrayPayload(manual, "templates");
   const recentTemplates = isLaunchpadArrayPayload(recent, "templates");
   return {
+    // Non-null exactly when at least one of the four reads did not answer.
+    // Carried beside the rows rather than folded into them, because an empty
+    // array is the one thing this state must not be mistaken for.
+    unavailableMessage: libraryUnavailableMessage(reads),
     templates: [...recentTemplates, ...manualTemplates].filter(
       (row) =>
         typeof row === "object" &&
@@ -404,6 +480,133 @@ async function loadLaunchpadLibrary(
     draftCapability: launchStoreCapabilityFromPayload(drafts),
     templateCapability: launchStoreCapabilityFromPayload(manual),
   };
+}
+
+/**
+ * One draft's server verdict. A transport failure or an account blocker is
+ * reported as `unavailable`, never as "Ready" and never as a blocker count the
+ * server did not return.
+ */
+export async function readLaunchpadDraftValidation(input: {
+  businessId: string;
+  providerAccountId: string;
+  draft: Pick<LaunchDraft, "payload">;
+}): Promise<LaunchpadDraftValidation> {
+  try {
+    const response = await fetch("/api/launchpad/meta/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        payload: input.draft.payload,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      ok?: unknown;
+      blockers?: unknown;
+    } | null;
+    if (!body || typeof body.ok !== "boolean" || !Array.isArray(body.blockers)) {
+      return { status: "unavailable" };
+    }
+    return {
+      status: "checked",
+      ok: body.ok,
+      blockerCount: body.blockers.length,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+/**
+ * Every draft on the page, in one request.
+ *
+ * A draft that the server did not answer for stays `unavailable` rather than
+ * inheriting a neighbour's verdict, and a transport failure marks the whole
+ * page unavailable — never "Ready".
+ */
+export async function readLaunchpadDraftValidations(input: {
+  businessId: string;
+  providerAccountId: string;
+  drafts: ReadonlyArray<Pick<LaunchDraft, "id" | "payload">>;
+}): Promise<Record<string, LaunchpadDraftValidation>> {
+  const unavailable = () =>
+    Object.fromEntries(
+      input.drafts.map((draft) => [
+        draft.id,
+        { status: "unavailable" } as LaunchpadDraftValidation,
+      ]),
+    );
+  try {
+    const response = await fetch("/api/launchpad/meta/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        payloads: input.drafts.map((draft) => ({
+          key: draft.id,
+          payload: draft.payload,
+        })),
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      ok?: unknown;
+      results?: unknown;
+    } | null;
+    if (!response.ok || body?.ok !== true || !Array.isArray(body.results)) {
+      return unavailable();
+    }
+    const byKey = new Map<string, LaunchpadDraftValidation>();
+    for (const entry of body.results) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as {
+        key?: unknown;
+        ok?: unknown;
+        blockers?: unknown;
+      };
+      if (typeof row.key !== "string") continue;
+      if (typeof row.ok !== "boolean" || !Array.isArray(row.blockers)) {
+        byKey.set(row.key, { status: "unavailable" });
+        continue;
+      }
+      byKey.set(row.key, {
+        status: "checked",
+        ok: row.ok,
+        blockerCount: row.blockers.length,
+      });
+    }
+    return Object.fromEntries(
+      input.drafts.map((draft) => [
+        draft.id,
+        byKey.get(draft.id) ?? { status: "unavailable" },
+      ]),
+    );
+  } catch {
+    return unavailable();
+  }
+}
+
+/**
+ * The business target pack's configured target CPA. It is the only served
+ * cost-per-acquisition target this surface can reach; nothing here derives one
+ * from creative history.
+ */
+export async function readBusinessTargetCpa(
+  businessId: string,
+): Promise<number | null> {
+  const response = await fetch(
+    `/api/business-commercial-settings?businessId=${encodeURIComponent(businessId)}`,
+  );
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => null)) as {
+    snapshot?: { targetPack?: { targetCpa?: unknown } | null } | null;
+  } | null;
+  const targetCpa = body?.snapshot?.targetPack?.targetCpa;
+  return typeof targetCpa === "number" && Number.isFinite(targetCpa) && targetCpa > 0
+    ? targetCpa
+    : null;
 }
 
 async function loadRecentLaunchpadAdActions(
@@ -534,13 +737,40 @@ export interface MetaLaunchpadPageProps {
    * authoritative server result and must never be widened by URL/store state.
    */
   providerAccountId?: string | null;
+  /**
+   * Who is looking, decided entirely by the server: role, reviewer status,
+   * demo status, whether a write may be attempted at all, and the reason when
+   * it may not. This surface renders it; it must never recompute any part of
+   * it. `undefined` is the preserved legacy mount, which establishes none of
+   * these facts — the write routes still refuse on their own authority.
+   *
+   * @see ./viewer-envelope.ts
+   */
+  viewer?: LaunchpadViewerEnvelope;
+  /**
+   * The server's own answer to "was this wizard opened from a verified handoff,
+   * and what did that handoff carry".
+   *
+   * Typed, and read-only from this surface's point of view. Every field in it
+   * was decided server-side — the mode, the authorized action, the eligibility,
+   * the selection, the frozen evidence window and the lineage — and re-verified
+   * at consume time against the CURRENT decision. This body preselects from it
+   * and restates it; it must never re-derive any of it, and it never reads any
+   * of it out of the URL.
+   *
+   * `undefined` is the preserved legacy mount, which establishes nothing.
+   */
+  handoffPrefill?: LaunchpadHandoffPrefillEnvelope;
 }
 
 export default function MetaLaunchpadPage({
   businessId: authorizedBusinessId,
   businessName: authorizedBusinessName,
   providerAccountId: authorizedProviderAccountId,
+  viewer: authorizedViewer,
+  handoffPrefill: authorizedHandoffPrefill,
 }: MetaLaunchpadPageProps = {}) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -552,6 +782,19 @@ export default function MetaLaunchpadPage({
   const businessName =
     authorizedBusinessName?.trim() || activeBusiness?.name || "Meta";
   const hasAuthorizedProviderScope = authorizedProviderAccountId !== undefined;
+  /**
+   * The refusal the server already holds, restated where the operator can see
+   * it *before* clicking. Read, never derived: `viewer.reason` and
+   * `viewer.canMutate` are computed once on the server from role, reviewer
+   * status and demo status together, so this surface cannot drift from the
+   * route that answers the click.
+   *
+   * The legacy mount supplies no envelope. That is not "allowed" — it is "this
+   * caller established nothing", and the write routes still refuse on their own
+   * authority.
+   */
+  const viewer = authorizedViewer ?? LAUNCHPAD_VIEWER_NOT_ESTABLISHED;
+  const writeRefusalReason = viewer.reason;
   const serverProviderAccountId = authorizedProviderAccountId?.trim() || "";
   const requestedProviderAccountId = hasAuthorizedProviderScope
     ? serverProviderAccountId
@@ -579,16 +822,41 @@ export default function MetaLaunchpadPage({
   );
   const serverAuthorizedHandoff =
     hasServerAuthorizedLaunchpadHandoff(legacyHandoff);
-  const requestedMode = launchpadModeFromQuery(
-    legacyHandoff && !serverAuthorizedHandoff
-      ? null
-      : (searchParams?.get("launchpadMode") ?? null),
-  );
-  const requestedStep = launchpadStepFromQuery(
-    legacyHandoff && !serverAuthorizedHandoff
-      ? null
-      : (searchParams?.get("launchpadStep") ?? null),
-  );
+  /**
+   * The server-verified handoff, or nothing.
+   *
+   * `LAUNCHPAD_HANDOFF_PREFILL_NONE` is the legacy mount's value on purpose: an
+   * absent prop means "no server established a handoff for this render", which
+   * is not the same statement as "the operator arrived without one" and must
+   * never be widened into a prefill.
+   */
+  const handoffPrefillEnvelope =
+    authorizedHandoffPrefill ?? LAUNCHPAD_HANDOFF_PREFILL_NONE;
+  const serverPrefill: LaunchpadHandoffPrefill | null =
+    handoffPrefillEnvelope.status === "prefilled"
+      ? handoffPrefillEnvelope.prefill
+      : null;
+  const serverPrefillRefusalMessage =
+    handoffPrefillEnvelope.status === "unavailable"
+      ? handoffPrefillEnvelope.message
+      : null;
+  // The server's mode and step win outright. They were decided from the
+  // authorized action, not from `?launchpadMode=`, so a hand-edited URL cannot
+  // move a verified handoff into a different workflow.
+  const requestedMode = serverPrefill
+    ? serverPrefill.launchpadMode
+    : launchpadModeFromQuery(
+        legacyHandoff && !serverAuthorizedHandoff
+          ? null
+          : (searchParams?.get("launchpadMode") ?? null),
+      );
+  const requestedStep: WizardStep = serverPrefill
+    ? serverPrefill.launchpadStep
+    : launchpadStepFromQuery(
+        legacyHandoff && !serverAuthorizedHandoff
+          ? null
+          : (searchParams?.get("launchpadStep") ?? null),
+      );
 
   const [step, setStep] = useState<WizardStep>(requestedStep);
   const [mode, setMode] = useState<LaunchpadMode>(requestedMode);
@@ -626,7 +894,16 @@ export default function MetaLaunchpadPage({
   const [recentAdActions, setRecentAdActions] = useState<
     LaunchpadRecentAdAction[]
   >([]);
-  const [selectedCreativeIds, setSelectedCreativeIds] = useState<string[]>([]);
+  /**
+   * Seeded from the verified handoff on the FIRST render, not by an effect.
+   *
+   * An effect would leave the wizard rendering an empty picker for one paint
+   * and would never appear at all in a server-rendered pass — which is exactly
+   * how "the selection never reaches the body" looked from the outside.
+   */
+  const [selectedCreativeIds, setSelectedCreativeIds] = useState<string[]>(
+    () => serverPrefill?.selection.creativeIds ?? [],
+  );
   const [campaign, setCampaign] = useState<LaunchpadCampaignBasicsState>({
     name: defaultCampaignName(),
     smartPromotion: false,
@@ -656,6 +933,14 @@ export default function MetaLaunchpadPage({
   const [templateCapability, setTemplateCapability] =
     useState<MetaLaunchStoreCapability | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  /**
+   * Why the library is empty, when it is empty for a reason other than being
+   * empty. `null` means every read answered and an empty table is a measured
+   * zero. Nothing sets this before a read is attempted, so the pre-scope
+   * landing keeps saying nothing rather than claiming a failure.
+   */
+  const [libraryUnavailableMessageState, setLibraryUnavailableMessage] =
+    useState<string | null>(null);
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(
     null,
@@ -663,14 +948,21 @@ export default function MetaLaunchpadPage({
   const [launchLoading, setLaunchLoading] = useState(false);
   const [launchResult, setLaunchResult] =
     useState<LaunchpadProgressResult | null>(null);
-  const [legacyHandoffActive, setLegacyHandoffActive] = useState(false);
   const [sourceDraftId, setSourceDraftId] = useState<string | null>(null);
+  const [draftValidations, setDraftValidations] = useState<
+    Record<string, LaunchpadDraftValidation | undefined>
+  >({});
+  const [expectedCpa, setExpectedCpa] = useState<number | null>(null);
 
   useEffect(() => {
-    if (
-      !businessId ||
-      (hasAuthorizedProviderScope && !serverProviderAccountId)
-    ) {
+    // The assigned-account list is presentation only. It is the very set
+    // `resolveProviderAccountId` authorizes against, so reading it cannot
+    // widen scope — and it has to load even when the server resolved *no*
+    // account, otherwise a business with two or more assigned Meta accounts
+    // is shown "select one assigned Meta ad account" with nothing to select.
+    // The chosen id stays server-owned: `providerAccountId` above still
+    // reads `serverProviderAccountId` on the canonical route.
+    if (!businessId) {
       setProviderAccounts([]);
       setSelectedProviderAccountId("");
       return;
@@ -714,13 +1006,69 @@ export default function MetaLaunchpadPage({
     };
     // freshnessRetryNonce is not read here; it is in the dependency list so the
     // freshness bar's retry re-runs this read.
-  }, [
-    businessId,
-    freshnessRetryNonce,
-    hasAuthorizedProviderScope,
-    requestedProviderAccountId,
-    serverProviderAccountId,
-  ]);
+  }, [businessId, freshnessRetryNonce, requestedProviderAccountId]);
+
+  /**
+   * The server-verified handoff, applied.
+   *
+   * This is the half that was missing: consuming a handoff used to set only a
+   * generic wizard mode, so an operator who clicked Rebuild on a specific
+   * creative landed on an empty picker and had to find it again by hand. The
+   * ids come from the record the server re-verified, never from the URL.
+   *
+   * `unsupported` is restated verbatim. A copy handoff carries an alternate
+   * line that no Launchpad payload field can hold, and saying so beats a draft
+   * that silently drops it.
+   */
+  useEffect(() => {
+    if (!serverPrefill) return;
+    setMode(serverPrefill.launchpadMode);
+    setStep(serverPrefill.launchpadStep);
+    if (serverPrefill.selection.creativeIds.length > 0) {
+      setSelectedCreativeIds(serverPrefill.selection.creativeIds);
+    }
+    setTemplateMessage(
+      [serverPrefill.summary, serverPrefill.unsupported]
+        .filter(Boolean)
+        .join(" · "),
+    );
+  }, [serverPrefill]);
+
+  /**
+   * A handoff that was named and could not be honoured says so — defensively.
+   *
+   * The canonical route refuses an unhonourable record before this body is
+   * mounted (it redirects to Decisions with the code, because a hop-2 failure
+   * lands on the landing, which has no slot for a sentence). This restatement
+   * exists so that ANY other caller handing this body an `unavailable`
+   * envelope still produces a visible reason rather than silence: an
+   * `unavailable` envelope must never be widened into "no handoff was named".
+   */
+  useEffect(() => {
+    if (!serverPrefillRefusalMessage) return;
+    setTemplateMessage(serverPrefillRefusalMessage);
+  }, [serverPrefillRefusalMessage]);
+
+  /**
+   * A `?handoff=` reference that reached this body was never consumed.
+   *
+   * Only the canonical route can burn a handoff token — it needs the session,
+   * the assignment-verified account and a server write. This body is a client
+   * component and can do none of that, so a reference that arrives here has
+   * carried nothing, and it must not be mistaken for a prefill. Said out loud
+   * in the message line that already exists rather than opening a wizard whose
+   * emptiness reads as success.
+   */
+  const unconsumedHandoffReference = Boolean(
+    searchParams?.get("handoff")?.trim(),
+  );
+  useEffect(() => {
+    if (!unconsumedHandoffReference) return;
+    if (handoffPrefillEnvelope.status !== "none") return;
+    setTemplateMessage(
+      "That launch handoff was not consumed here: this page cannot verify one. Open Launchpad from your workspace to use it.",
+    );
+  }, [handoffPrefillEnvelope.status, unconsumedHandoffReference]);
 
   useEffect(() => {
     if (!legacyHandoff) return;
@@ -735,7 +1083,6 @@ export default function MetaLaunchpadPage({
     if (actionEligible && legacyHandoff.creativeIds.length > 0) {
       setSelectedCreativeIds(legacyHandoff.creativeIds);
     }
-    setLegacyHandoffActive(actionEligible && exactWorkflowAvailable);
     if (actionEligible && exactWorkflowAvailable) {
       setMode(nextMode);
       setStep(
@@ -837,8 +1184,14 @@ export default function MetaLaunchpadPage({
     fetchCreativeDecisionEngineV3({
       businessId,
       providerAccountId,
+      // Only rows that actually carry a creative identity. A null here would
+      // ask the engine about a creative that does not exist.
       creativeIds: Array.from(
-        new Set(creatives.map((creative) => creative.creativeId)),
+        new Set(
+          creatives
+            .map((creative) => creative.creativeId)
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+        ),
       ),
     })
       .then((payload) => {
@@ -860,6 +1213,8 @@ export default function MetaLaunchpadPage({
       setLaunchIntentCapability(null);
       setDraftCapability(null);
       setTemplateCapability(null);
+      // No read was attempted, so there is nothing to report as unread.
+      setLibraryUnavailableMessage(null);
       return;
     }
     let cancelled = false;
@@ -873,6 +1228,7 @@ export default function MetaLaunchpadPage({
         setLaunchIntentCapability(library.launchIntentCapability);
         setDraftCapability(library.draftCapability);
         setTemplateCapability(library.templateCapability);
+        setLibraryUnavailableMessage(library.unavailableMessage);
       })
       .catch(() => {
         if (!cancelled) {
@@ -882,10 +1238,66 @@ export default function MetaLaunchpadPage({
           setLaunchIntentCapability(null);
           setDraftCapability(null);
           setTemplateCapability(null);
+          setLibraryUnavailableMessage(LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE);
         }
       })
       .finally(() => {
         if (!cancelled) setLibraryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, providerAccountId]);
+
+  // The Drafts table's Validation column is the server's verdict, never an
+  // inference from the stored payload. One batched request for the whole page:
+  // billing and pixels are properties of the account, not of a draft, so asking
+  // per row cost about a hundred Graph reads for two answers. Rows show
+  // `pending` until the page's answer arrives.
+  useEffect(() => {
+    if (!businessId || !providerAccountId || drafts.length === 0) {
+      setDraftValidations({});
+      return;
+    }
+    let cancelled = false;
+    setDraftValidations(
+      Object.fromEntries(
+        drafts.map((draft) => [
+          draft.id,
+          { status: "pending" } as LaunchpadDraftValidation,
+        ]),
+      ),
+    );
+    void readLaunchpadDraftValidations({
+      businessId,
+      providerAccountId,
+      drafts,
+    }).then((validations) => {
+      if (!cancelled) setDraftValidations(validations);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, drafts, providerAccountId]);
+
+  // "Expected CPA" is the operator's own configured target CPA from the
+  // business target pack, not a figure derived here. When no target is
+  // configured the budget warning stays hidden rather than guessing one. The
+  // read waits for an explicit account scope: the Budget step it feeds is
+  // unreachable before then, and this surface issues no reads while the scope
+  // is withheld.
+  useEffect(() => {
+    if (!businessId || !providerAccountId) {
+      setExpectedCpa(null);
+      return;
+    }
+    let cancelled = false;
+    readBusinessTargetCpa(businessId)
+      .then((targetCpa) => {
+        if (!cancelled) setExpectedCpa(targetCpa);
+      })
+      .catch(() => {
+        if (!cancelled) setExpectedCpa(null);
       });
     return () => {
       cancelled = true;
@@ -903,6 +1315,7 @@ export default function MetaLaunchpadPage({
       setLaunchIntentCapability(library.launchIntentCapability);
       setDraftCapability(library.draftCapability);
       setTemplateCapability(library.templateCapability);
+      setLibraryUnavailableMessage(library.unavailableMessage);
     } catch {
       setTemplates([]);
       setDrafts([]);
@@ -910,6 +1323,7 @@ export default function MetaLaunchpadPage({
       setLaunchIntentCapability(null);
       setDraftCapability(null);
       setTemplateCapability(null);
+      setLibraryUnavailableMessage(LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE);
     } finally {
       setLibraryLoading(false);
     }
@@ -931,7 +1345,18 @@ export default function MetaLaunchpadPage({
           surface:
             mode === "add_to_existing" ? "source_creatives" : "resulting_ads",
         },
-      ),
+      )
+        // A row the provider gave no creative id for cannot be selected,
+        // named, or sent to the engine — every use below keys on that id.
+        // The field used to be typed non-nullable, so the copies mapper
+        // substituted its own row id to satisfy the type and the row then
+        // travelled as if it had a creative. Withheld here instead: an
+        // absent identity is not a usable identity.
+        .filter(
+          (creative): creative is typeof creative & { creativeId: string } =>
+            typeof creative.creativeId === "string" &&
+            creative.creativeId.trim().length > 0,
+        ),
     [creatives, currency, mode, recentAdActions],
   );
   const selectedCreatives = useMemo(() => {
@@ -1064,10 +1489,9 @@ export default function MetaLaunchpadPage({
     selectedExistingTargets,
   ]);
 
-  const activeLegacyHandoff =
-    legacyHandoffActive && hasServerAuthorizedLaunchpadHandoff(legacyHandoff)
-      ? legacyHandoff
-      : null;
+  const activeLegacyHandoff = hasServerAuthorizedLaunchpadHandoff(legacyHandoff)
+    ? legacyHandoff
+    : null;
   const activeSteps = LAUNCH_STEPS;
   const currentStepIndex = activeSteps.findIndex((item) => item.id === step);
   const canGoNext =
@@ -1088,6 +1512,10 @@ export default function MetaLaunchpadPage({
         mode === "manage_existing"
           ? resolveLaunchpadAdActionId(row)
           : row.creativeId;
+      // Nothing to select. The list is already filtered to rows that carry a
+      // creative identity, so this is a guard against a future caller rather
+      // than a reachable branch — and it refuses instead of selecting a null.
+      if (!selectionId) return;
       setSelectedCreativeIds((prev) => {
         if (prev.includes(selectionId)) {
           return prev.filter((id) => id !== selectionId);
@@ -1132,10 +1560,27 @@ export default function MetaLaunchpadPage({
   }
 
   function changeProviderAccount(nextProviderAccountId: string) {
-    // Canonical `/c/**` routes resolve account assignment on the server. A
-    // client URL or store selection cannot replace that authorized result.
-    if (hasAuthorizedProviderScope) return;
     if (nextProviderAccountId === providerAccountId) return;
+    if (hasAuthorizedProviderScope) {
+      // Canonical `/c/**` routes resolve account assignment on the server, so
+      // the client may only *request* an account: it writes the id into the
+      // URL and lets `resolveProviderAccountId` authorize it again on the
+      // next render. An unassigned id still comes back as null, so this
+      // widens nothing — it only makes the choice expressible.
+      if (typeof window === "undefined") return;
+      const url = new URL(window.location.href);
+      if (nextProviderAccountId) {
+        url.searchParams.set("providerAccountId", nextProviderAccountId);
+      } else {
+        url.searchParams.delete("providerAccountId");
+      }
+      // Same law the legacy path holds below: a launch half-built against the
+      // previous account must not follow the operator into the next one.
+      resetLaunchState();
+      setMode("new_campaign");
+      router.replace(`${url.pathname}${url.search}`);
+      return;
+    }
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       if (nextProviderAccountId) {
@@ -1166,19 +1611,20 @@ export default function MetaLaunchpadPage({
     setDrafts([]);
     setLaunchIntents([]);
     setLaunchIntentCapability(null);
+    // Switching accounts discards the previous account's answer; the next read
+    // owns the next verdict, and until it lands nothing is claimed either way.
+    setLibraryUnavailableMessage(null);
     setRecentAdActions([]);
     setDecisions([]);
     setCreatives([]);
     setAppliedTemplateName(null);
     setTemplateMessage(null);
-    setLegacyHandoffActive(false);
     setSelectedProviderAccountId(nextProviderAccountId);
   }
 
   function clearAppliedTemplate() {
     resetLaunchState();
     setMode("new_campaign");
-    setLegacyHandoffActive(false);
     setAppliedTemplateName(null);
     setTemplateMessage(null);
   }
@@ -1190,51 +1636,9 @@ export default function MetaLaunchpadPage({
     }
     setMode(nextMode);
     resetLaunchState();
-    setLegacyHandoffActive(false);
     setAppliedTemplateName(null);
     setTemplateMessage(null);
     setStep("scope");
-  }
-
-  function openLegacyHandoff() {
-    if (!legacyHandoff) return;
-    if (!hasServerAuthorizedLaunchpadHandoff(legacyHandoff)) {
-      setLegacyHandoffActive(false);
-      setSelectedCreativeIds([]);
-      setStep("source");
-      setTemplateMessage(
-        "Lineage identifiers are present, but server-owned action eligibility is unavailable. No launch workflow was opened.",
-      );
-      return;
-    }
-    if (legacyHandoff.requestedMode === "apply_bid") {
-      setLegacyHandoffActive(false);
-      setSelectedCreativeIds(legacyHandoff.creativeIds);
-      setStep("source");
-      setTemplateMessage(
-        "Apply-bid lineage is verified, but Launchpad has no bid-write workflow. Continue from Decisions; no creation payload was inferred.",
-      );
-      return;
-    }
-    const nextMode =
-      legacyHandoff.requestedMode === "duplicate"
-        ? "add_to_existing"
-        : "new_campaign";
-    setMode(nextMode);
-    setLegacyHandoffActive(true);
-    setAppliedTemplateName(null);
-    setLaunchResult(null);
-    setSelectedCreativeIds(legacyHandoff.creativeIds);
-    setStep(
-      nextMode === "add_to_existing"
-        ? "adsets"
-        : legacyHandoff.creativeIds.length > 0
-          ? "basics"
-          : "creatives",
-    );
-    setTemplateMessage(
-      `${legacyHandoff.source === "brief" ? "Reviewed brief" : "Decision snapshot"} server-authorized lineage loaded · the launch record will be persisted before validation`,
-    );
   }
 
   function applyDraft(draft: LaunchDraft) {
@@ -1261,8 +1665,7 @@ export default function MetaLaunchpadPage({
       }, {});
       setMode("add_to_existing");
       setAppliedTemplateName(null);
-      setLegacyHandoffActive(false);
-      setSelectedCreativeIds(next.creativeIds);
+        setSelectedCreativeIds(next.creativeIds);
       setAddToExistingTarget({
         targetCampaign: targetCampaigns[0] ?? null,
         targetAdset: targetCampaigns[0]
@@ -1282,7 +1685,6 @@ export default function MetaLaunchpadPage({
     const next = normalizeMetaLaunchPayload(draft.payload);
     setMode("new_campaign");
     setAppliedTemplateName(null);
-    setLegacyHandoffActive(false);
     setCampaign({
       name: next.campaign.name || campaign.name,
       smartPromotion: next.campaign.smartPromotionType === "GUIDED_CREATION",
@@ -1311,6 +1713,13 @@ export default function MetaLaunchpadPage({
   }
 
   async function saveTemplate() {
+    // The viewer refusal is server-decided and applies before any capability
+    // check: a reviewer, a demo workspace or a sub-collaborator gets the reason,
+    // not a POST that returns 403 with a generic "save failed".
+    if (!viewer.canMutate) {
+      setTemplateMessage(writeRefusalReason ?? "Launchpad writes are unavailable.");
+      return;
+    }
     if (templateCapability?.canWrite !== true) {
       setTemplateMessage(
         templateCapability?.status === "migration_required"
@@ -1340,6 +1749,12 @@ export default function MetaLaunchpadPage({
   }
 
   async function saveDraft() {
+    // Same law as saveTemplate: the server already decided this viewer may not
+    // write, so say so instead of sending a request that will be refused.
+    if (!viewer.canMutate) {
+      setTemplateMessage(writeRefusalReason ?? "Launchpad writes are unavailable.");
+      return;
+    }
     if (draftCapability?.canWrite !== true) {
       setTemplateMessage(
         draftCapability?.status === "migration_required"
@@ -1377,6 +1792,23 @@ export default function MetaLaunchpadPage({
   }
 
   async function launchPaused(authority: MetaLaunchpadManualAuthority) {
+    // `launch` refuses a reviewer, a demo workspace and a sub-collaborator
+    // before it ever reaches the provider. Surface that as a receipt rather
+    // than as an opaque failure after the operator has acknowledged the launch.
+    if (!viewer.canMutate) {
+      setStep("progress");
+      setLaunchResult({
+        ok: false,
+        error: {
+          // Restated from the server envelope, never re-derived here: the
+          // old local ladder answered "insufficient_role" for a workspace
+          // whose demo flag simply could not be read.
+          code: viewer.refusalCode ?? "insufficient_role",
+          message: writeRefusalReason ?? "Launchpad writes are unavailable.",
+        },
+      });
+      return;
+    }
     if (!launchIntentCapability?.canWrite) {
       setStep("progress");
       setLaunchResult({
@@ -1475,6 +1907,24 @@ export default function MetaLaunchpadPage({
   }
 
   async function runBulkStatusAction(action: "pause", rows: MetaCreativeRow[]) {
+    // `bulk-ad-status` refuses a reviewer, a demo workspace and a
+    // sub-collaborator role. State it here rather than letting the operator
+    // watch a 403 arrive as a partial launch receipt. The code mirrors the one
+    // the route would answer with, so the receipt reads the same either way.
+    if (!viewer.canMutate) {
+      setStep("progress");
+      setLaunchResult({
+        ok: false,
+        error: {
+          // Restated from the server envelope, never re-derived here: the
+          // old local ladder answered "insufficient_role" for a workspace
+          // whose demo flag simply could not be read.
+          code: viewer.refusalCode ?? "insufficient_role",
+          message: writeRefusalReason ?? "Launchpad writes are unavailable.",
+        },
+      });
+      return;
+    }
     if (
       rows.some(
         (row) =>
@@ -1548,24 +1998,34 @@ export default function MetaLaunchpadPage({
 
   function resetWizard() {
     resetLaunchState();
-    setLegacyHandoffActive(false);
   }
 
   const appliedTemplateMessageActive =
     appliedTemplateName != null &&
     templateMessage === `Applied ${appliedTemplateName}`;
-  const wizardPrefilled = Boolean(activeLegacyHandoff);
-  const wizardPrefillLabel =
-    wizardPrefilled && legacyHandoff
+  // A server-verified handoff prefills; a URL-shaped one never does.
+  const wizardPrefilled = Boolean(serverPrefill) || Boolean(activeLegacyHandoff);
+  // The chip is the ONLY place a prefill speaks while the wizard is prefilled
+  // (the save-message line renders `templateMessage` exclusively when it is
+  // not), so the "cannot be applied" half has to travel here or it is invisible.
+  const wizardPrefillLabel = serverPrefill
+    ? [serverPrefill.summary, serverPrefill.unsupported]
+        .filter(Boolean)
+        .join(" · ")
+    : wizardPrefilled && legacyHandoff
       ? formatLaunchpadPrefillLabel(legacyHandoff, selectedCreativeIds.length)
       : null;
-  const sourceLineageLabel = sourceDraftId
-    ? `Draft · ${sourceDraftId}`
-    : activeLegacyHandoff
-      ? activeLegacyHandoff.source === "brief"
-        ? "Reviewed Creative Brief"
-        : "Decision snapshot"
-      : "Manual";
+  const sourceLineageLabel = serverPrefill
+    ? serverPrefill.origin === "copy"
+      ? `Copy line · ${serverPrefill.copy?.copyId ?? "unidentified"}`
+      : `Decision snapshot · ${serverPrefill.lineage?.sourceSnapshotId ?? "unidentified"}`
+    : sourceDraftId
+      ? `Draft · ${sourceDraftId}`
+      : activeLegacyHandoff
+        ? activeLegacyHandoff.source === "brief"
+          ? "Reviewed Creative Brief"
+          : "Decision snapshot"
+        : "Manual";
   const verifiedLandingRole: LaunchStartRole | null =
     hasServerAuthorizedLaunchpadHandoff(legacyHandoff) &&
     legacyHandoff?.requestedMode !== "apply_bid"
@@ -1580,6 +2040,7 @@ export default function MetaLaunchpadPage({
       ? creatives
           .find(
             (creative) =>
+              creative.creativeId !== null &&
               legacyHandoff.creativeIds.includes(creative.creativeId) &&
               creative.name?.trim(),
           )
@@ -1587,15 +2048,19 @@ export default function MetaLaunchpadPage({
       : null;
 
   function startLandingRole(role: LaunchStartRole) {
-    if (role !== "manual" && role !== verifiedLandingRole) return;
-    if (role === verifiedLandingRole) {
-      openLegacyHandoff();
-      return;
-    }
+    // Only Manual can start a workflow. Rebuild and Duplicate need a
+    // server-authorized handoff, and hasServerAuthorizedLaunchpadHandoff is
+    // closed by contract, so their cards stay disabled rather than opening a
+    // blank draft under a name that promised a routed source.
+    if (role !== "manual") return;
     const card = LAUNCH_START_CARDS.find((item) => item.role === role);
     if (card) startMode(card.mode);
   }
   const desktopQuery = new URLSearchParams(launchpadQuery);
+  // A single-use bearer reference must never be copied into another link, burnt
+  // or not. The record id (`handoffDraft`) may travel: it names a row that is
+  // re-checked against the session on every read.
+  desktopQuery.delete("handoff");
   if (legacyHandoff && !serverAuthorizedHandoff) {
     for (const key of [
       "sourceDecisionId",
@@ -1632,6 +2097,15 @@ export default function MetaLaunchpadPage({
     Boolean(providerAccountsError) ||
     !providerAccountId ||
     !currency;
+  // The scope-blocked state asks the operator to "select one assigned Meta ad
+  // account". It may only say that while a selection is actually expressible,
+  // so the surface's own account control is mounted here — the same
+  // `LaunchpadContextBar` the wizard uses, not a second picker.
+  const providerScopeChoicePending =
+    !providerAccountsLoading &&
+    !providerAccountsError &&
+    !providerAccountId &&
+    providerAccounts.length > 0;
 
   if (accountScopeBlocked) {
     const scopeMessage = !businessId
@@ -1656,6 +2130,10 @@ export default function MetaLaunchpadPage({
           selectedCount={selectedCreativeIds.length}
           draftCount={drafts.length}
           templateCount={templates.length}
+          libraryReadable={
+            draftCapability?.canRead === true &&
+            templateCapability?.canRead === true
+          }
           libraryLoading={libraryLoading}
           creativeLoading={creativeLoading}
           providerAccountId={providerAccountId}
@@ -1664,6 +2142,17 @@ export default function MetaLaunchpadPage({
           statusMessage={scopeMessage}
         />
         <div className={styles.desktopSurface}>
+          {providerScopeChoicePending ? (
+            <LaunchpadContextBar
+              businessId={businessId}
+              businessName={businessName}
+              currency={currency}
+              providerAccounts={providerAccounts}
+              providerAccountId={providerAccountId}
+              accountLoading={providerAccountsLoading}
+              onProviderAccountChange={changeProviderAccount}
+            />
+          ) : null}
           <LaunchpadExactLanding
             drafts={[]}
             intents={[]}
@@ -1671,6 +2160,7 @@ export default function MetaLaunchpadPage({
             scopeReady={false}
             verifiedRole={verifiedLandingRole}
             verifiedHandoffName={verifiedHandoffName}
+            draftValidations={draftValidations}
             onStartRole={startLandingRole}
             onApplyDraft={applyDraft}
           />
@@ -1692,6 +2182,10 @@ export default function MetaLaunchpadPage({
         selectedCount={selectedCreativeIds.length}
         draftCount={drafts.length}
         templateCount={templates.length}
+        libraryReadable={
+          draftCapability?.canRead === true &&
+          templateCapability?.canRead === true
+        }
         libraryLoading={libraryLoading}
         creativeLoading={creativeLoading}
         providerAccountId={providerAccountId}
@@ -1704,8 +2198,10 @@ export default function MetaLaunchpadPage({
             drafts={drafts}
             intents={launchIntents}
             loading={libraryLoading}
+            libraryUnavailableReason={libraryUnavailableMessageState}
             verifiedRole={verifiedLandingRole}
             verifiedHandoffName={verifiedHandoffName}
+            draftValidations={draftValidations}
             onStartRole={startLandingRole}
             onApplyDraft={applyDraft}
           />
@@ -1781,11 +2277,15 @@ export default function MetaLaunchpadPage({
                       type="button"
                       className="btn btn--ghost btn--sm"
                       onClick={saveTemplate}
-                      disabled={templateCapability?.canWrite !== true}
+                      disabled={
+                        templateCapability?.canWrite !== true ||
+                        writeRefusalReason != null
+                      }
                       title={
-                        templateCapability?.canWrite === false
+                        writeRefusalReason ??
+                        (templateCapability?.canWrite === false
                           ? "Pending account-scope database migration"
-                          : undefined
+                          : undefined)
                       }
                     >
                       <Bookmark className="h-3.5 w-3.5" />
@@ -1854,7 +2354,11 @@ export default function MetaLaunchpadPage({
                       getSelectionId={(row) =>
                         mode === "manage_existing"
                           ? resolveLaunchpadAdActionId(row)
-                          : row.creativeId
+                          : // The list is filtered to rows carrying a creative
+                            // identity, so this coalesce never fires; it keeps
+                            // the selection key a string rather than inventing
+                            // one, and an empty key selects nothing.
+                            (row.creativeId ?? "")
                       }
                       onToggleCreative={toggleCreative}
                       onSetSelectedCreativeIds={setSelectedCreativeIds}
@@ -1870,7 +2374,7 @@ export default function MetaLaunchpadPage({
                         <LaunchpadBudget
                           value={budget}
                           currency={currency}
-                          expectedCpa={null}
+                          expectedCpa={expectedCpa}
                           onChange={setBudget}
                         />
                       </div>
@@ -1899,6 +2403,7 @@ export default function MetaLaunchpadPage({
                       <LaunchpadAdSets
                         value={adSets}
                         businessId={businessId}
+                        providerAccountId={providerAccountId}
                         campaignName={campaign.name}
                         budget={budget}
                         currency={currency}
@@ -1907,10 +2412,15 @@ export default function MetaLaunchpadPage({
                     ) : mode === "add_to_existing" ? (
                       <LaunchpadAddToExistingTarget
                         businessId={businessId}
+                        providerAccountId={providerAccountId}
                         value={addToExistingTarget}
                         selectedCreatives={selectedCreatives}
                         currency={currency}
                         onChange={setAddToExistingTarget}
+                        preselectedCampaignIds={
+                          serverPrefill?.selection.campaignIds
+                        }
+                        preselectedAdsetIds={serverPrefill?.selection.adsetIds}
                       />
                     ) : (
                       <LaunchpadBoundaryStep
@@ -1993,16 +2503,25 @@ export default function MetaLaunchpadPage({
                           : null
                       }
                       onSaveTemplate={
-                        mode === "new_campaign" && templateCapability?.canWrite
+                        mode === "new_campaign" &&
+                        templateCapability?.canWrite &&
+                        viewer.canMutate
                           ? saveTemplate
                           : undefined
                       }
                       onSaveDraft={
-                        draftCapability?.canWrite ? saveDraft : undefined
+                        draftCapability?.canWrite && viewer.canMutate
+                          ? saveDraft
+                          : undefined
                       }
+                      // A viewer the backend will refuse keeps the control on
+                      // screen and disabled with the reason, instead of
+                      // watching it disappear with no explanation.
+                      viewerWriteRefusalReason={writeRefusalReason}
                       onLaunch={launchPaused}
                       executionBlockedReason={
-                        mode === "add_to_existing" &&
+                        writeRefusalReason ??
+                        (mode === "add_to_existing" &&
                         addToExistingPayload.copyMode === "rebuild_creative"
                           ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."
                           : launchIntentCapability?.canWrite
@@ -2010,7 +2529,7 @@ export default function MetaLaunchpadPage({
                             : launchIntentCapability?.status ===
                                 "migration_required"
                               ? "LaunchIntent storage migration is required before PAUSED creation can run."
-                              : "LaunchIntent storage capability is still being verified."
+                              : "LaunchIntent storage capability is still being verified.")
                       }
                     />
                   ) : null}
@@ -2106,6 +2625,7 @@ function LaunchpadMobileSurface({
   selectedCount,
   draftCount,
   templateCount,
+  libraryReadable,
   libraryLoading,
   creativeLoading,
   sourceLineageLabel,
@@ -2120,6 +2640,8 @@ function LaunchpadMobileSurface({
   selectedCount: number;
   draftCount: number;
   templateCount: number;
+  /** False when the store could not be read; a count would then be a guess. */
+  libraryReadable: boolean;
   libraryLoading: boolean;
   creativeLoading: boolean;
   sourceLineageLabel: string;
@@ -2172,7 +2694,14 @@ function LaunchpadMobileSurface({
             <dd>
               {loading
                 ? "Loading"
-                : `${draftCount} drafts · ${templateCount} templates`}
+                : libraryReadable
+                  ? `${draftCount} drafts · ${templateCount} templates`
+                  : // The drafts route answers an unreadable store with
+                    // `{ok: true, drafts: [], capability}`, so the array is
+                    // empty for "none stored" and for "could not read" alike.
+                    // Printing 0 for the second is a zero standing in for an
+                    // unknown, on the one line that claims to state the library.
+                    "Library unavailable"}
             </dd>
           </div>
         </dl>
@@ -2436,8 +2965,37 @@ function draftLandingMode(draft: LaunchDraft) {
   return "—";
 }
 
-function draftLandingValidation() {
-  return "—";
+/**
+ * One draft's verdict from `/api/launchpad/meta/validate`. `pending` means the
+ * server has not answered for this draft yet; `unavailable` means it answered
+ * with something that carries no verdict (transport failure, account blocker).
+ * Neither is rendered as a verdict.
+ */
+export type LaunchpadDraftValidation =
+  | { status: "pending" }
+  | { status: "unavailable" }
+  | { status: "checked"; ok: boolean; blockerCount: number };
+
+export function draftLandingValidation(
+  draft: LaunchDraft,
+  validations: Record<string, LaunchpadDraftValidation | undefined>,
+) {
+  const validation = validations[draft.id];
+  if (!validation || validation.status !== "checked") return "—";
+  if (validation.blockerCount > 0) {
+    return `${validation.blockerCount} blocker${validation.blockerCount === 1 ? "" : "s"}`;
+  }
+  return validation.ok ? "Ready" : "—";
+}
+
+function draftLandingValidationStatus(
+  draft: LaunchDraft,
+  validations: Record<string, LaunchpadDraftValidation | undefined>,
+) {
+  const validation = validations[draft.id];
+  if (!validation || validation.status !== "checked") return "unknown";
+  if (validation.blockerCount > 0) return "failed";
+  return validation.ok ? "ready" : "unknown";
 }
 
 export function LaunchpadExactLanding({
@@ -2445,8 +3003,10 @@ export function LaunchpadExactLanding({
   intents,
   loading,
   scopeReady = true,
+  libraryUnavailableReason = null,
   verifiedRole,
   verifiedHandoffName,
+  draftValidations = {},
   onStartRole,
   onApplyDraft,
 }: {
@@ -2454,8 +3014,17 @@ export function LaunchpadExactLanding({
   intents: MetaLaunchIntent[];
   loading: boolean;
   scopeReady?: boolean;
+  /**
+   * Why this table is empty, when it is empty because the library was not read
+   * rather than because there is nothing in it. `null` means the reads
+   * answered. It is rendered in the existing empty row's first cell — the same
+   * element, the same layout — because a refusal shown as an em dash is
+   * indistinguishable from a real empty account.
+   */
+  libraryUnavailableReason?: string | null;
   verifiedRole: LaunchStartRole | null;
   verifiedHandoffName: string | null;
+  draftValidations?: Record<string, LaunchpadDraftValidation | undefined>;
   onStartRole: (role: LaunchStartRole) => void;
   onApplyDraft: (draft: LaunchDraft) => void;
 }) {
@@ -2485,14 +3054,17 @@ export function LaunchpadExactLanding({
             card.role === verifiedRole && Boolean(verifiedHandoffName);
           const roleReady =
             card.role === "manual" || card.role === verifiedRole;
+          // A quoted em dash is not a name. These two cards title themselves
+          // after the entity Decisions routed here, and until one arrives there
+          // is no entity — so the card carries its own name rather than a pair
+          // of quotes around a dash, which reads as a value that failed to load.
           const title =
             card.role === "manual"
               ? "Start from scratch"
-              : `${card.chip} “${hasVerifiedName ? verifiedHandoffName : "—"}”`;
-          const description =
-            card.role === "manual"
-              ? "Blank campaign draft. Validation and the PAUSED boundary apply the same way."
-              : "—";
+              : hasVerifiedName
+                ? `${card.chip} “${verifiedHandoffName}”`
+                : card.chip;
+          const description = card.description;
           return (
             <article
               key={card.role}
@@ -2508,6 +3080,26 @@ export function LaunchpadExactLanding({
                 onClick={() => onStartRole(card.role)}
                 className={styles.exactStartAction}
                 disabled={!scopeReady || !roleReady}
+                // A dimmed control with no name announces as "button" and
+                // explains nothing. Rebuild and Duplicate are fail-closed by
+                // contract — the handoff does not forward server-owned
+                // authority, so they stay inert until Decisions routes one —
+                // and the reason belongs on the control, not only in a doc
+                // comment nobody reading the screen can see.
+                aria-label={
+                  !scopeReady
+                    ? `${card.cta}: select a Meta ad account first`
+                    : !roleReady
+                      ? `${card.cta}: nothing has been routed here from Decisions yet`
+                      : undefined
+                }
+                title={
+                  roleReady && scopeReady
+                    ? undefined
+                    : !scopeReady
+                      ? "Select a Meta ad account first."
+                      : "Start this from a decision in the Decision Center; it carries the evidence this draft needs."
+                }
               >
                 {card.cta} →
               </button>
@@ -2534,7 +3126,10 @@ export function LaunchpadExactLanding({
           <tbody>
             {drafts.length > 0 ? (
               drafts.map((draft) => {
-                const validation = draftLandingValidation();
+                const validation = draftLandingValidation(
+                  draft,
+                  draftValidations,
+                );
                 const resumable =
                   scopeReady &&
                   (draft.status === "draft" || draft.status === "failed");
@@ -2551,7 +3146,10 @@ export function LaunchpadExactLanding({
                     <td>
                       <span
                         className={styles.exactValidationChip}
-                        data-status="unknown"
+                        data-status={draftLandingValidationStatus(
+                          draft,
+                          draftValidations,
+                        )}
                       >
                         {validation}
                       </span>
@@ -2572,8 +3170,11 @@ export function LaunchpadExactLanding({
                 );
               })
             ) : (
-              <tr data-testid="launchpad-draft-empty">
-                <td>—</td>
+              <tr
+                data-testid="launchpad-draft-empty"
+                data-unread={libraryUnavailableReason ? "true" : undefined}
+              >
+                <td>{libraryUnavailableReason ?? "—"}</td>
                 <td>—</td>
                 <td>—</td>
                 <td>—</td>

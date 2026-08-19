@@ -139,35 +139,33 @@ business is always represented — never a fabricated entry.
   are never summed." There is no "All businesses" affordance — no cross-business
   route exists, so none is shown.
 
-### FinalMetaPulse — 5-cell strip (`MetaPlatformPage.tsx:1002`)
+### KPI band — 5 cards (`MetaDecisionCenterExact.tsx`, fed by the exact adapter)
 
-Rendered inline at the top of the queue column (right of the scope rail) from
-`MetaPulsePayload`; five cells:
+The pre-redesign `FinalMetaPulse` strip is gone. The reference's five KPI cards
+are rendered by `ExactKpiBand` and every value is projected by
+`buildMetaDecisionCenterExactViewModel` from `MetaPulsePayload`; nothing on the
+band is computed in the component.
 
-1. **Spend** — `pacing.spendToday` vs `pacing.avg7dSpend` (+ signed % delta)
-   and today's conversions vs 7d avg. Honest historical labeling: when
-   `pulse.endDate` is not today, the label reads `Spend · {endDate}` instead of
-   `Spend · today` (`MetaPlatformPage.tsx:1013-1014, 1046`).
-2. **ROAS · window** — window-matched `roas.d7|d14|d28|selected` vs
-   `roas.target`, plus a 28-point sparkline from `roasHistory`.
-3. **Snapshot** — decision-snapshot freshness chip
-   (`fresh | stale | missing | engine_version_mismatch`), snapshot age, engine
-   version, engine run time, and the ingest freshness label: real
-   `lastSyncAt` rendered as `synced Xm/h/d ago`, or the literal text
-   **"sync unknown"** when null (`MetaPlatformPage.tsx:1086-1088`). The server
-   never fabricates "now" (`account-pulse/route.ts:380-392`).
-4. **Labels** — `labelCoverage.labeledCampaigns / activeCampaigns` with a
-   coverage-percent chip and a "Manage labels" trigger for the label modal.
-5. **Mode** — `operatingMode` value plus `seasonalRegime` and
-   `trackingHealth.status` chips.
+1. **Spend · today** — `pacing.spendToday`, with `percentageDelta(spendToday,
+   avg7dSpend)` as the signed `% vs 7d avg`, and today's conversions against the
+   7d average as the detail line.
+2. **ROAS · window** — `pulse.roas.selected` against `pulse.roas.target`
+   (annotated `· stale` / `· freshness unknown` from `targetFreshness`), plus a
+   sparkline built from `pulse.roasHistory`.
+3. **Snapshot** — `system.snapshotHealth.status` and its age in hours, with the
+   engine version and the real `lastSyncAt` rendered as `synced Xm/h/d ago`. A
+   null sync age renders `synced —`; the server never fabricates "now"
+   (`account-pulse/route.ts:380-392`).
+4. **Labels** — `labelCoverage.labeledCampaigns / activeCampaigns` with the
+   coverage percent and the "Manage labels →" trigger for the label modal.
+5. **Mode** — `operatingMode` plus `seasonalRegime` and `trackingHealth.status`
+   chips.
 
-Money is currency-aware: `formatMoney` uses `pulse.currency` (the decision
-payload's cutoff-safe ad-account currency) first, then the selected provider
-account currency only when the decision payload has no currency. It never
-defaults to USD; when both are unknown the copy says `Currency unavailable`.
-The campaign-label table formats each campaign's spend with that row's
-server-returned `currency`; it does not drop the row currency or borrow a
-different selected-account symbol.
+Money is currency-aware: the adapter's `formatMoney` takes the scoped provider
+account currency first, then `system.currency`, and renders `—` rather than
+guessing a symbol. It never defaults to USD. The campaign-label table formats
+each campaign's spend with that row's server-returned `currency`; it does not
+drop the row currency or borrow a different selected-account symbol.
 
 ### MetaWorkspacePostureBanners
 

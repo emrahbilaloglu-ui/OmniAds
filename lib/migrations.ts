@@ -12,6 +12,7 @@ import {
   requireIntegrationSecretKey,
 } from "@/lib/integration-secrets";
 import { verifyMigrationSchemaContract } from "@/lib/migration-verification";
+import { assertMetaAutomationClaimSchema } from "@/lib/meta/automation-claim-schema-verification";
 import {
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
@@ -4759,8 +4760,27 @@ export async function runMigrations(options?: {
           evidence_label TEXT,
           evidence_ref JSONB NOT NULL DEFAULT '{}'::jsonb,
           expires_at TIMESTAMPTZ NOT NULL,
+          -- 'claimed' is the execution claim, and it exists because the
+          -- provider call is not undoable. An approval takes the row from
+          -- 'pending' to 'claimed' in ONE compare-and-set BEFORE any provider
+          -- handler runs, so a second concurrent approval loses the row rather
+          -- than the receipt. 'reconcile' is the state for an attempt whose
+          -- provider outcome is genuinely unknown: it is never auto-approved
+          -- and never requeued, because both would be a guess about whether a
+          -- pause reached Meta.
           status TEXT NOT NULL DEFAULT 'pending'
-            CHECK (status IN ('pending', 'approved', 'failed', 'modified', 'dismissed', 'expired')),
+            CHECK (status IN ('pending', 'claimed', 'approved', 'failed', 'modified', 'dismissed', 'expired', 'reconcile')),
+          -- The per-attempt claim. claim_token is also the receipt key that
+          -- links a queue row to its ledger entry and to the receipt envelope,
+          -- and it is unique, so the link is auditable rather than narrative.
+          claim_token UUID,
+          claimed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          claimed_at TIMESTAMPTZ,
+          -- Written by the claim holder immediately BEFORE the provider
+          -- handler is entered. Its presence is what separates "nothing was
+          -- dispatched, requeueing is provable" from "a write may be in Meta,
+          -- only reconciliation can say".
+          dispatch_started_at TIMESTAMPTZ,
           decided_by UUID REFERENCES users(id) ON DELETE SET NULL,
           decided_at TIMESTAMPTZ,
           decision_note TEXT,
@@ -4865,6 +4885,267 @@ export async function runMigrations(options?: {
           ON meta_automation_proposals (business_id, provider_account_id, status, expires_at DESC)`.catch(
               () => {},
             ),
+          // ── The execution claim (additive upgrade for an existing database) ─
+          //
+          // Everything below is `ADD COLUMN IF NOT EXISTS`, a CHECK widening,
+          // and an index that is strictly stronger than the one it replaces.
+          // Nothing drops a column, and no existing row changes value: a
+          // database that has only ever held `pending` rows satisfies every new
+          // constraint the moment it is created.
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS claim_token UUID`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS claimed_by UUID REFERENCES users(id) ON DELETE SET NULL`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE meta_automation_proposals
+          ADD COLUMN IF NOT EXISTS dispatch_started_at TIMESTAMPTZ`.catch(
+              () => {},
+            ),
+          // Widening the status vocabulary, never narrowing it. The old
+          // constraint is found by its own definition rather than by a name,
+          // because the original was written inline in CREATE TABLE and
+          // therefore carries whatever name PostgreSQL generated for it.
+          () =>
+            sql`DO $$
+          DECLARE
+            legacy_status_constraint TEXT;
+          BEGIN
+            SELECT c.conname
+            INTO legacy_status_constraint
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = 'meta_automation_proposals'
+              AND c.contype = 'c'
+              AND pg_get_constraintdef(c.oid) LIKE '%dismissed%'
+              AND pg_get_constraintdef(c.oid) NOT LIKE '%claimed%'
+            LIMIT 1;
+
+            IF legacy_status_constraint IS NOT NULL THEN
+              EXECUTE format(
+                'ALTER TABLE meta_automation_proposals DROP CONSTRAINT %I',
+                legacy_status_constraint
+              );
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'meta_automation_proposals'
+                AND c.contype = 'c'
+                AND pg_get_constraintdef(c.oid) LIKE '%claimed%'
+            ) THEN
+              ALTER TABLE meta_automation_proposals
+                ADD CONSTRAINT meta_automation_proposals_status_claim_check
+                CHECK (status IN (
+                  'pending', 'claimed', 'approved', 'failed',
+                  'modified', 'dismissed', 'expired', 'reconcile'
+                ));
+            END IF;
+          END $$;`.catch(() => {}),
+          // The claim token is the receipt key. Unique, so a ledger row or a
+          // receipt envelope naming one identifies exactly one attempt.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_claim_token
+          ON meta_automation_proposals (claim_token)
+          WHERE claim_token IS NOT NULL`.catch(() => {}),
+          // The entity's action slot is held by an OPEN row — pending, claimed
+          // or reconcile. The pending-only predicate let the projection raise a
+          // second pause for an entity whose first pause was already being
+          // dispatched, which is exactly the duplicate this table exists to
+          // prevent.
+          //
+          // `reconcile` joined the predicate afterwards, and it is the one that
+          // matters most: a reconcile row is an attempt that ENTERED the
+          // provider and never came back with an answer. A pending-plus-claimed
+          // predicate freed the slot the moment the stale-claim sweep moved a
+          // dead claim to `reconcile`, so the next snapshot could queue a second
+          // pause for an entity that may already be paused at Meta.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_proposals_open_slot
+          ON meta_automation_proposals (business_id, provider_account_id, decision_key, proposed_action)
+          WHERE status IN ('pending', 'claimed', 'reconcile')`.catch(() => {}),
+          // `CREATE INDEX IF NOT EXISTS` does NOT widen an index that already
+          // exists under that name, so a database carrying the earlier
+          // pending+claimed predicate would keep it and report success. This
+          // replaces it in ONE statement's implicit transaction, so there is
+          // never an instant with no slot index at all, and it only fires when
+          // the predicate is actually the narrow one.
+          //
+          // If the widened unique index cannot be built because live rows
+          // already violate it, this DO block raises, the `.catch` below
+          // swallows it, the narrow index survives — and the post-migration
+          // verifier then FAILS the release rather than letting the deploy
+          // proceed over a slot guard that does not hold.
+          () =>
+            sql`DO $$
+          DECLARE
+            current_predicate TEXT;
+          BEGIN
+            SELECT pg_get_expr(i.indpred, i.indrelid)
+            INTO current_predicate
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_index i ON i.indexrelid = c.oid
+            WHERE n.nspname = current_schema()
+              AND c.relname = 'uq_meta_automation_proposals_open_slot';
+
+            IF current_predicate IS NOT NULL
+               AND current_predicate NOT LIKE '%reconcile%' THEN
+              DROP INDEX uq_meta_automation_proposals_open_slot;
+              CREATE UNIQUE INDEX uq_meta_automation_proposals_open_slot
+                ON meta_automation_proposals
+                   (business_id, provider_account_id, decision_key, proposed_action)
+                WHERE status IN ('pending', 'claimed', 'reconcile');
+            END IF;
+          END $$;`.catch(() => {}),
+          // Only once the stronger index exists. The open-slot index implies
+          // the pending-slot one (every pending row is an open row), so this
+          // removes a redundant duplicate — never a live guarantee. Guarded so
+          // a failed CREATE above can never leave the table with neither.
+          () =>
+            sql`DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = current_schema()
+                AND c.relname = 'uq_meta_automation_proposals_open_slot'
+            ) THEN
+              DROP INDEX IF EXISTS uq_meta_automation_proposals_pending_slot;
+            END IF;
+          END $$;`.catch(() => {}),
+          // ── The reconciliation outbox ─────────────────────────────────────
+          //
+          // A second, deliberately tiny table for one moment: the provider was
+          // reached and the write that had to RECORD its answer failed. The
+          // proposal row cannot be that record — it is the row that could not be
+          // updated — so the attempt's facts land here instead, in one INSERT of
+          // already-serialized values with no dependency on that update.
+          //
+          // Three booleans, not one. `provider_write_verified = false` is NOT
+          // "no write happened": read it together with `provider_outcome_known`,
+          // and `false/false` means the outcome is unknown. A single
+          // `provider_write` boolean is exactly how "the pause may have happened
+          // at Meta" got recorded as "nothing was sent".
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS meta_automation_reconciliation_receipts (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          proposal_id UUID REFERENCES meta_automation_proposals(id) ON DELETE SET NULL,
+          provider_account_id TEXT,
+          decision_key TEXT,
+          proposed_action TEXT,
+          claim_token UUID NOT NULL,
+          reason TEXT NOT NULL
+            CHECK (reason IN (
+              'dispatch_no_answer',
+              'settle_failed_after_dispatch',
+              'claim_lease_expired_after_dispatch'
+            )),
+          provider_dispatch_started BOOLEAN NOT NULL,
+          provider_outcome_known BOOLEAN NOT NULL,
+          provider_write_verified BOOLEAN NOT NULL,
+          receipt_json JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          resolution TEXT
+            CHECK (resolution IS NULL OR resolution IN (
+              'provider_write_confirmed', 'provider_write_absent'
+            )),
+          resolved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+          resolved_at TIMESTAMPTZ,
+          resolution_evidence_json JSONB,
+          -- A verified write is a KNOWN outcome. The pairing is enforced here
+          -- rather than trusted to callers, because the whole point of the
+          -- three columns is that they cannot be set to a combination that
+          -- claims more than the attempt established.
+          CONSTRAINT meta_automation_reconciliation_facts_coherent
+            CHECK (
+              (provider_write_verified = FALSE OR provider_outcome_known = TRUE)
+              AND (provider_write_verified = FALSE OR provider_dispatch_started = TRUE)
+            ),
+          -- A resolution is a statement by a person at a time. All three or none.
+          CONSTRAINT meta_automation_reconciliation_resolution_complete
+            CHECK (
+              (resolution IS NULL AND resolved_at IS NULL)
+              OR (resolution IS NOT NULL AND resolved_at IS NOT NULL)
+            )
+        )`.catch(() => {}),
+          // One receipt per attempt. The claim token IS the attempt, so this is
+          // also what makes the append idempotent under `ON CONFLICT DO NOTHING`.
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_automation_reconciliation_claim_token
+          ON meta_automation_reconciliation_receipts (claim_token)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_reconciliation_open
+          ON meta_automation_reconciliation_receipts (business_id, provider_account_id, created_at ASC)
+          WHERE resolution IS NULL`.catch(() => {}),
+          // Append-only, enforced BELOW the application.
+          //
+          // The facts of an attempt are what they were. A later reconciliation
+          // adds a resolution beside them; it never rewrites them, and it never
+          // re-resolves a row that is already resolved. Written as a trigger
+          // rather than as a convention because the convention is exactly what
+          // fails at 3am: an UPDATE that "just fixes" a provider_write_verified
+          // flag would erase the only durable evidence that the outcome was
+          // never established.
+          () =>
+            sql`CREATE OR REPLACE FUNCTION meta_automation_reconciliation_append_only()
+          RETURNS TRIGGER AS $$
+          BEGIN
+            IF OLD.resolution IS NOT NULL THEN
+              RAISE EXCEPTION 'meta_automation_reconciliation_receipts is append-only: % is already resolved', OLD.id
+                USING ERRCODE = 'check_violation';
+            END IF;
+            IF NEW.id IS DISTINCT FROM OLD.id
+               OR NEW.business_id IS DISTINCT FROM OLD.business_id
+               OR NEW.proposal_id IS DISTINCT FROM OLD.proposal_id
+               OR NEW.provider_account_id IS DISTINCT FROM OLD.provider_account_id
+               OR NEW.decision_key IS DISTINCT FROM OLD.decision_key
+               OR NEW.proposed_action IS DISTINCT FROM OLD.proposed_action
+               OR NEW.claim_token IS DISTINCT FROM OLD.claim_token
+               OR NEW.reason IS DISTINCT FROM OLD.reason
+               OR NEW.provider_dispatch_started IS DISTINCT FROM OLD.provider_dispatch_started
+               OR NEW.provider_outcome_known IS DISTINCT FROM OLD.provider_outcome_known
+               OR NEW.provider_write_verified IS DISTINCT FROM OLD.provider_write_verified
+               OR NEW.receipt_json IS DISTINCT FROM OLD.receipt_json
+               OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+              RAISE EXCEPTION 'meta_automation_reconciliation_receipts is append-only: attempt facts are immutable'
+                USING ERRCODE = 'check_violation';
+            END IF;
+            RETURN NEW;
+          END;
+          $$ LANGUAGE plpgsql`.catch(() => {}),
+          () =>
+            sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_trigger t
+              JOIN pg_class c ON c.oid = t.tgrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = current_schema()
+                AND c.relname = 'meta_automation_reconciliation_receipts'
+                AND t.tgname = 'trg_meta_automation_reconciliation_append_only'
+            ) THEN
+              CREATE TRIGGER trg_meta_automation_reconciliation_append_only
+                BEFORE UPDATE ON meta_automation_reconciliation_receipts
+                FOR EACH ROW
+                EXECUTE FUNCTION meta_automation_reconciliation_append_only();
+            END IF;
+          END $$;`.catch(() => {}),
           // The real events behind "Fired · 28d". One row per rule/entity/day,
           // so re-running an evaluation over an unchanged warehouse day is a
           // no-op rather than a second count. `proposal_id` points at the queue
@@ -11458,6 +11739,14 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_label_window
           ON engine_v3_decision_outcomes_daily
           (business_ref_id, label, outcome_window_days, decision_as_of_date DESC)`,
+        // Meta History joins this table by creative, and no index covered that:
+        // the journal's outcomes branch scanned the whole table once per
+        // in-scope creative -- 457 sequential scans and 15 of the read's 27
+        // seconds, against an 8s budget, so the surface reported itself
+        // unreadable.
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_creative
+          ON engine_v3_decision_outcomes_daily
+          (business_ref_id, creative_id, evaluation_date DESC)`,
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_snapshot
           ON engine_v3_decision_outcomes_daily
           (decision_snapshot_id, outcome_window_days)`,
@@ -14448,6 +14737,97 @@ export async function runMigrations(options?: {
           WHERE requested_by IS NOT NULL`.catch(() => {}),
       ]);
 
+      // ── Breakdown reach can be UNMEASURED ─────────────────────────────────
+      //
+      // `meta_breakdown_daily.reach` was created `BIGINT NOT NULL DEFAULT 0`
+      // while the breakdown insights request asked Meta for no `reach` at all.
+      // The column could therefore only ever say "zero people were reached",
+      // and that is what every breakdown row has said since the table existed —
+      // a fabricated measurement, and the reason the Frequency panel has no
+      // divisor. Frequency derived from it must be NULL, not 0 and not
+      // Infinity, so the column has to be able to hold "not measured".
+      //
+      // This is a WIDENING, not a rewrite: no row's value changes, nothing is
+      // dropped, and re-running it on an already-nullable column is a catalog
+      // no-op. Historical rows keep their literal 0 and are NOT reinterpreted
+      // as NULL — inferring which of them were never asked would be exactly the
+      // backfill-by-inference this change exists to stop.
+      //
+      // Deliberately NOT wrapped in `.catch(() => {})`. Every swallowed
+      // statement in this file is safe to skip; skipping this one leaves the
+      // constraint in place, and the very next breakdown write with an
+      // unmeasured reach fails with a not-null violation at sync time instead
+      // of here, where it is visible.
+      await sql`ALTER TABLE meta_breakdown_daily ALTER COLUMN reach DROP NOT NULL`;
+
+      // ── Ad-daily link clicks can be UNSUPPLIED ────────────────────────────
+      //
+      // Same law as the reach widening above, on the column the Assets table's
+      // CTR, ATC rate and CVR are all divided by. `meta_ad_daily.link_clicks`
+      // was created `BIGINT NOT NULL DEFAULT 0`, so the column has exactly one
+      // way to say "no link clicks" and it is the same value the account uses
+      // to say "zero people clicked". Measured against production on
+      // 2026-08-19: 315,289 rows, of which 192,464 are exactly 0 and 122,825
+      // are positive — so unlike `reach` this column DOES carry real
+      // measurements, which is precisely what makes the zeros dangerous. A
+      // genuine zero and an unsupplied field are indistinguishable once stored,
+      // and every ratio built on the column inherits that ambiguity.
+      //
+      // This is a WIDENING and nothing else. `DROP NOT NULL` only enlarges the
+      // set of values the column accepts:
+      //   - no existing row is read, rewritten or reinterpreted — the 192,464
+      //     stored zeros stay literal zeros, and they are NOT retroactively
+      //     called "unsupplied". Deciding which of them were never supplied is
+      //     exactly the backfill-by-inference this change exists to forbid;
+      //   - no reader breaks, because every value that could be read before can
+      //     still be read. The seam proves this rather than asserting it: it
+      //     re-reads a row written BEFORE the widening and checks the value and
+      //     the type are unchanged;
+      //   - re-running it on an already-nullable column is a catalog no-op, and
+      //     a from-zero build reaches it after the CREATE TABLE above, so both
+      //     paths converge on the same nullable column.
+      //
+      // The column keeps `DEFAULT 0`, deliberately unchanged: a default applies
+      // only to an INSERT that OMITS the column, and every writer in this repo
+      // names `link_clicks` explicitly, so the default is unreachable from the
+      // sync path. Dropping it would be a second, unproven change.
+      //
+      // Deliberately NOT wrapped in `.catch(() => {})`, for the same reason the
+      // reach widening is not: a swallowed failure leaves the constraint in
+      // place, and the next sync that supplies no link clicks then fails with a
+      // not-null violation at write time — far from here, inside a partition
+      // worker — instead of failing loudly at migration time.
+      await sql`ALTER TABLE meta_ad_daily ALTER COLUMN link_clicks DROP NOT NULL`;
+
+      // ── Creative-daily link clicks can be UNSUPPLIED ──────────────────────
+      //
+      // `meta_creative_daily` is a SEPARATE table with the SAME defect, and it
+      // is the one that matters most to a reader: `groupBy: 'creative'` is the
+      // DEFAULT Assets grain, so this is the column behind the cells an
+      // operator actually looks at, and behind the engine's creative-grain
+      // reads (`meta-aov-calculator.ts`, and the cumulative/historical
+      // aggregates in `creative-decision-engine/data-source.ts`). Widening only
+      // `meta_ad_daily` would have left the default surface still unable to
+      // distinguish "nobody clicked" from "nothing was supplied".
+      //
+      // Identical law to the widening above, and identical scope: `DROP NOT
+      // NULL` only ENLARGES the accepted value set. No stored row is read,
+      // rewritten or reinterpreted; existing zeros stay literal zeros and are
+      // NOT retroactively relabelled "unsupplied", because deciding which of
+      // them were never supplied is unknowable — that distinction was destroyed
+      // at write time and cannot be recovered by inference. "A zero with spend
+      // must be unsupplied" is FALSE: an ad can spend and earn no link clicks.
+      //
+      // `DEFAULT 0` is kept, deliberately. A default applies only to an INSERT
+      // that omits the column, and every writer here names `link_clicks`
+      // explicitly, so it is unreachable from the sync path; dropping it would
+      // be a second, separately unproven change.
+      //
+      // Not `.catch(() => {})`, for the same reason as the two above: a
+      // swallowed failure leaves the constraint standing and defers the error
+      // to a partition worker at write time, far from here.
+      await sql`ALTER TABLE meta_creative_daily ALTER COLUMN link_clicks DROP NOT NULL`;
+
       // ── Shopify install grants at rest ────────────────────────────────────
       //
       // Deliberately NOT wrapped in `.catch(() => {})`. Every other swallowed
@@ -14477,6 +14857,18 @@ export async function runMigrations(options?: {
       logStartupEvent("migrations_schema_verified", {
         reason,
         verifiedObjects: verification.verified,
+      });
+
+      // The Automation execution claim, verified for the same reason and with
+      // the same consequence. Every statement that builds it swallows its own
+      // error, and every object it builds is load-bearing for a provider WRITE:
+      // exclusivity, the honest `reconcile` state, the one-action-per-entity
+      // slot, and the append-only place a lost outcome is recorded. A release
+      // that cannot prove them must not be announced as migrated.
+      const claimSchema = await assertMetaAutomationClaimSchema(sql);
+      logStartupEvent("migrations_automation_claim_schema_verified", {
+        reason,
+        verifiedObjects: claimSchema.length,
       });
 
       migrationsCompleted = true;

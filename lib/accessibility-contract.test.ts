@@ -20,8 +20,8 @@ const FILES = {
   globalSearch: "components/layout/GlobalSearch.tsx",
   commandPalette: "components/layout/v2/command-palette.tsx",
   savedViews: "components/views/SavedViewsMenu.tsx",
-  workflow: "components/meta/os/DecisionWorkflowControls.tsx",
-  guarded: "components/meta/os/GuardedActionPanel.tsx",
+  decisions: "components/meta/decision-center/MetaDecisionCenterExact.tsx",
+  decisionsPage: "components/meta/redesign/MetaPlatformPage.tsx",
   freshness: "components/states/FreshnessChip.tsx",
   topbar: "components/layout/topbar.tsx",
 } as const;
@@ -44,9 +44,11 @@ describe("every control can be reached and named without sight", () => {
   });
 
   it("labels the free-text inputs it renders", () => {
-    expect(read("workflow")).toContain(
-      'aria-label="Reason for disagreeing with this decision"',
-    );
+    // The Decision Center's lane toolbar is the surface's only free text entry
+    // plus a select; both are unlabelled visually, so the name has to be given.
+    const decisions = read("decisions");
+    expect(decisions).toContain('aria-label="Search entities"');
+    expect(decisions).toContain('aria-label="Sort decisions"');
   });
 
   it("marks the search listbox and its options", () => {
@@ -62,11 +64,15 @@ describe("every control can be reached and named without sight", () => {
 });
 
 describe("a disabled control says why it is disabled", () => {
-  it("explains the workflow reason requirement rather than just greying out", () => {
-    const workflow = read("workflow");
-    expect(workflow).toContain("Disagreeing requires a reason");
-    // The explanation is on the control itself, not only in prose elsewhere.
-    expect(workflow).toContain("title={");
+  it("explains an action the server did not supply rather than just dimming it", () => {
+    // A verdict CTA whose whole label is an em dash announces as an unnamed
+    // dimmed button. The name has to say why it is inert, on the control.
+    const decisions = read("decisions");
+    expect(decisions).toContain("function unservedActionName(");
+    expect(decisions).toContain("No action available:");
+    // Design-pinned spans that carry no callback are marked inert rather than
+    // silently swallowing clicks while still looking pressable.
+    expect(decisions).toContain('"aria-disabled": callback ? undefined : true');
   });
 
   it("explains an unavailable saved view", () => {
@@ -93,20 +99,21 @@ describe("a disabled control says why it is disabled", () => {
 });
 
 describe("state changes are announced, not only shown", () => {
-  it("marks the workflow failure as an error region", () => {
-    expect(read("workflow")).toContain('data-workflow-error="true"');
+  it("announces a failed decision action instead of only tinting a banner", () => {
+    // Every refusal and outcome lands in one notice; a failure has to be an
+    // assertive region or a screen reader never learns the click did nothing.
+    const page = read("decisionsPage");
+    expect(page).toContain('role={notice.tone === "danger" ? "alert" : "status"}');
   });
 
-  it("states the guarded-action capability as data, not colour alone", () => {
-    const guarded = read("guarded");
-    expect(guarded).toContain("data-guarded-action=");
-    // The capability's reason is rendered as text, so a limited action explains
-    // itself rather than relying on a greyed-out appearance.
-    expect(guarded).toContain("capability.reason");
-  });
-
-  it("says when ownership tracking is unavailable instead of showing no owner", () => {
-    expect(read("workflow")).toContain('data-workflow-state="unavailable"');
+  it("states a withheld decision action as text, not colour alone", () => {
+    // A read-only viewer, an engaged kill switch and a review-only verdict all
+    // produce a click that cannot write. Each says so in the notice detail
+    // rather than relying on a dimmed button.
+    const page = read("decisionsPage");
+    expect(page).toContain('title: "Read-only access."');
+    expect(page).toContain('title: "Recommendation is review-only."');
+    expect(page).toContain("detail:");
   });
 
   it("renders freshness in every case, including unknown", () => {
@@ -124,12 +131,16 @@ describe("pressable rows are real controls", () => {
     expect(agency).toContain("href={row.href}");
   });
 
-  it("marks selection state on decision rows", () => {
-    const decisions = readFileSync(
-      "components/meta/os/DecisionsOsView.tsx",
-      "utf8",
-    );
-    expect(decisions).toContain("aria-pressed={selected}");
+  it("marks the pressed state on the decision scope, lane and window controls", () => {
+    // The reference draws these as spans. They keep the tag and gain the role,
+    // the tab stop and the pressed state, so the queue is operable without a
+    // mouse and a screen reader can tell which lane is showing.
+    const decisions = read("decisions");
+    expect(decisions).toContain("aria-pressed={activeScope === \"structure\"}");
+    expect(decisions).toContain("aria-pressed={activeLane === item.id}");
+    expect(decisions).toContain("aria-pressed={activeWindow === window}");
+    expect(decisions).toContain("function activate(");
+    expect(decisions).toContain('event.key !== "Enter" && event.key !== " "');
   });
 });
 

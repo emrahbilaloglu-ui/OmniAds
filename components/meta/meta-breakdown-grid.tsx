@@ -28,7 +28,12 @@ export interface BreakdownRow {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtK(n: number, sym: string): string {
+// A money value whose currency is unknown renders as the missing mark, not as
+// a dollar figure. INVARIANTS.md: "Missing currency must not silently become
+// USD, $, TRY, or EUR." The `sym = "$"` defaults these formatters carried were
+// exactly that substitution, one hop below the store.
+function fmtK(n: number, sym: string | null): string {
+  if (sym === null) return "—";
   if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}k`;
   return `${sym}${n.toFixed(0)}`;

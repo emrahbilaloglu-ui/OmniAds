@@ -5,6 +5,17 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+// Every state-changing Automation request now reads
+// `businesses.is_demo_business` through `rejectIfAutomationDemoWrite`, and that
+// read fails CLOSED: an unreadable flag answers 503 `demo_status_unverified`
+// rather than letting the write proceed on an unproven claim that this
+// workspace is real. Without a stub `getDb()` throws under vitest (no
+// DATABASE_URL), so every POST case below would be refused before reaching the
+// behaviour it is actually about. These cases describe a LIVE workspace, so the
+// flag is stubbed live here; the refusal itself is proven in
+// `demo-fail-closed.test.ts`, which asserts nothing is written when it fires.
+vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
+
 vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(),
 }));
@@ -29,6 +40,7 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   },
 }));
 
+const db = await import("@/lib/db");
 const access = await import("@/lib/access");
 const accountAssignments = await import("@/lib/meta/creatives-fetchers");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
@@ -55,6 +67,10 @@ function postRequest(
 describe("GET /api/meta/automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A proven LIVE workspace, so the demo gate is not what these cases test.
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn(async () => [{ is_demo_business: false }]) as never,
+    );
     vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue([
       "act_1",
     ]);

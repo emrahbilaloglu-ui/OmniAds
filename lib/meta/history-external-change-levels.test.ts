@@ -68,23 +68,23 @@ describe("a re-observation is not a change", () => {
     // and null IS NOT DISTINCT FROM null. A bid-strategy or optimization-goal
     // change is just as much an edit and was invisible on every account.
     expect(readModel).toContain(
-      "previous.lifetime_budget IS DISTINCT FROM config.lifetime_budget",
+      "config.prev_lifetime_budget IS DISTINCT FROM config.lifetime_budget",
     );
     expect(readModel).toContain(
-      "previous.bid_strategy_type IS DISTINCT FROM config.bid_strategy_type",
+      "config.prev_bid_strategy_type IS DISTINCT FROM config.bid_strategy_type",
     );
     expect(readModel).toContain(
-      "previous.optimization_goal IS DISTINCT FROM config.optimization_goal",
+      "config.prev_optimization_goal IS DISTINCT FROM config.optimization_goal",
     );
   });
 
   it("requires a previous ad-set config that actually differs", () => {
     // Without this, every sync run would file an ad set as edited.
     expect(readModel).toContain(
-      "adset_previous.daily_budget IS DISTINCT FROM adset_config.daily_budget",
+      "adset_config.prev_daily_budget IS DISTINCT FROM adset_config.daily_budget",
     );
     expect(readModel).toContain(
-      "adset_previous.optimization_goal IS DISTINCT FROM adset_config.optimization_goal",
+      "adset_config.prev_optimization_goal IS DISTINCT FROM adset_config.optimization_goal",
     );
   });
 
@@ -103,7 +103,7 @@ describe("a re-observation is not a change", () => {
   it("carries the previous value so the reader sees the movement", () => {
     // "Status changed" without the old value tells nobody what happened.
     expect(readModel).toContain("'previousConfiguredStatus', entity_previous.configured_status");
-    expect(readModel).toContain("'previousDailyBudget', adset_previous.daily_budget");
+    expect(readModel).toContain("'previousDailyBudget', adset_config.prev_daily_budget");
   });
 });
 

@@ -11,14 +11,11 @@ import {
 } from "@/components/meta/redesign/test-fixtures";
 import {
   MetaPlatformPage,
-  META_MONITOR_PAGE_SIZE,
-  paginateMetaMonitorRows,
   campaignKindMatchesMetaLabelFilter,
   metaActionFailureMessage,
   metaAdsetPauseNotice,
   metaBidApplyNotice,
   isTrackingWriteBlocked,
-  compareItemForRec,
   trackingConfirmLabelForRec,
   metaRecSearchMatch,
   resolveMetaDecisionMoneyCurrency,
@@ -524,15 +521,6 @@ describe("MetaPlatformPage", () => {
     state.routerReplace.mockClear();
   });
 
-  it("keeps a 300-row Monitor lane within the 48-row DOM window", () => {
-    const rows = Array.from({ length: 300 }, (_, index) => index + 1);
-
-    expect(META_MONITOR_PAGE_SIZE).toBe(48);
-    expect(paginateMetaMonitorRows(rows, 1)).toEqual(rows.slice(0, 48));
-    expect(paginateMetaMonitorRows(rows, 7)).toEqual(rows.slice(288, 300));
-    expect(paginateMetaMonitorRows(rows, 0)).toEqual(rows.slice(0, 48));
-  });
-
   it("renders the exact Decision Center desktop anatomy without legacy chrome", () => {
     const html = renderToStaticMarkup(
       <MetaPlatformPage
@@ -637,118 +625,100 @@ describe("MetaPlatformPage", () => {
     await Promise.resolve();
   });
 
+  // Law: "+ New campaign" must actually start a new campaign.
+  //
+  // These three cases used to pin `fromMetaBriefing=true&mode=duplicate`.
+  // Launchpad reads those as decision lineage and deliberately fails that
+  // closed (hasServerAuthorizedLaunchpadHandoff() is always false: URL
+  // identifiers are not execution authority), and the handoff then suppresses
+  // launchpadMode/launchpadStep — so the button landed on "Source & mode"
+  // announcing missing lineage with the Duplicate card disabled and started
+  // nothing at all. The gate is correct; the caller was wrong. A manual start
+  // sends no handoff params, so the wizard opens where the button's own label
+  // promises. A real Duplicate still needs a server-authorized lineage
+  // contract, which this button does not have and must not fake.
+  // Law (window half): picking a window states the DATES on the URL, not just
+  // the preset key.
+  //
+  // These cases used to pin `?window=14d` alone, and that was the defect one
+  // layer up: a bare key is a question, and each reader downstream answered it
+  // against its own clock — the shell writer expanded it to completed days,
+  // this page re-expanded it with `includeCurrentDay: true`, and
+  // `/api/meta/decisions-workspace` resolved an end date of its own. One click
+  // measured three different weeks while the caption named one. The URL now
+  // carries the answer: `window` is the label, `startDate`/`endDate` are the
+  // window. See `DATE_WINDOW_INCLUDES_CURRENT_DAY` in
+  // `lib/dashboard/date-window-url`.
+  //
+  // The clock is pinned because the dates below are resolved against the
+  // provider account's timezone (Europe/Istanbul), and an assertion on a
+  // rolling window is otherwise only true on the day it was written.
+  const WINDOW_CLOCK = new Date("2026-08-18T06:00:00.000Z"); // 09:00 in Istanbul
+  const FOURTEEN_DAYS = "startDate=2026-08-04&endDate=2026-08-17";
+
   it.each([
     {
       pathname: "/platforms/meta",
-      decisions: "/platforms/meta?window=14d",
+      decisions: `/platforms/meta?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
-        "/platforms/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+        "/platforms/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
       creativeStudio: "/platforms/meta/creatives?providerAccountId=act_1",
     },
     {
       pathname: "/app/meta/decisions",
-      decisions: "/app/meta/decisions?window=14d",
+      decisions: `/app/meta/decisions?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
-        "/app/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+        "/app/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
       creativeStudio: "/app/creative/performance?providerAccountId=act_1",
     },
     {
       pathname: "/c/biz_1/meta/decisions",
-      decisions: "/c/biz_1/meta/decisions?window=14d",
+      decisions: `/c/biz_1/meta/decisions?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
-        "/c/biz_1/meta/launchpad?fromMetaBriefing=true&mode=duplicate&providerAccountId=act_1",
+        "/c/biz_1/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
       creativeStudio:
         "/c/biz_1/creative/performance?providerAccountId=act_1",
     },
   ])(
     "keeps exact window and CTA navigation inside $pathname",
     ({ pathname, decisions, launchpad, creativeStudio }) => {
-      state.pathname = pathname;
-      renderToStaticMarkup(
-        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
-      );
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(WINDOW_CLOCK);
+      try {
+        state.pathname = pathname;
+        renderToStaticMarkup(
+          <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+        );
 
-      state.exactProps.onWindowChange("14d");
-      state.exactProps.onNewCampaign();
-      state.exactProps.onOpenCreativeStudio();
+        state.exactProps.onWindowChange("14d");
+        state.exactProps.onNewCampaign();
+        state.exactProps.onOpenCreativeStudio();
+      } finally {
+        vi.useRealTimers();
+      }
 
+      // Fourteen COMPLETED days. Ending on 2026-08-18 would count a day that is
+      // still being written as a whole one, which is the evidence-window
+      // day-count invariant broken from the other end.
       expect(state.routerReplace).toHaveBeenCalledWith(decisions);
       expect(state.routerPush).toHaveBeenNthCalledWith(1, launchpad);
       expect(state.routerPush).toHaveBeenNthCalledWith(2, creativeStudio);
-    },
-  );
-
-  it.each([
-    ["native_latest_job_failed", "latest native Ad decision job failed"],
-    ["native_latest_job_skipped", "latest native Ad decision job was skipped"],
-    [
-      "native_latest_job_engine_mismatch",
-      "belongs to a different engine version",
-    ],
-    [
-      "native_schema_or_generation_read_failed",
-      "native Ad decision source could not be read",
-    ],
-  ])(
-    "blocks exact Ad actions visibly for legacy fallback %s",
-    (fallbackReason, expectedDetail) => {
-      state.osSource = {
-        snapshotAsOf: "2026-07-14",
-        engineVersion: "v3-test",
-        structureSource: "meta_recommendations",
-        adsSource: "legacy_creative_review_only",
-        health: "degraded",
-        fallbackReason,
-      };
-
-      const html = renderToStaticMarkup(
-        <MetaPlatformPage businessId="biz_1" businessName="IwaStore" />,
+      // The two params Launchpad fails closed on must not come back.
+      expect(state.routerPush.mock.calls[0]?.[0]).not.toContain(
+        "fromMetaBriefing",
       );
-
-      expect(html).toContain('data-testid="meta-decision-source-health"');
-      expect(html).toContain('data-source-health="degraded"');
-      expect(html).toContain(`data-fallback-reason="${fallbackReason}"`);
-      expect(html).toContain('data-blocking="true"');
-      expect(html).toContain("Native Ad decisions are degraded.");
-      expect(html).toContain(expectedDetail);
-      expect(html).toContain("Legacy decisions remain visible for review only");
-      expect(html).toContain("exact Ad actions are blocked");
+      expect(state.routerPush.mock.calls[0]?.[0]).not.toContain(
+        "mode=duplicate",
+      );
     },
   );
 
-  it("does not show a degraded source banner for healthy native Ad decisions", () => {
-    state.osSource = {
-      snapshotAsOf: "2026-07-14",
-      engineVersion: "v3-ad-test",
-      structureSource: "meta_recommendations",
-      adsSource: "native_ad_decision",
-      health: "healthy",
-      fallbackReason: null,
-    };
-
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
-    );
-
-    expect(html).not.toContain('data-testid="meta-decision-source-health"');
-  });
-
-  it("fails closed for a legacy v2 source payload without an explicit health field", () => {
-    state.osSource = {
-      snapshotAsOf: "2026-07-14",
-      engineVersion: "v3-legacy-test",
-      structureSource: "meta_recommendations",
-      adsSource: "legacy_creative_review_only",
-      fallbackReason: "native_job_unavailable",
-    };
-
-    const html = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
-    );
-
-    expect(html).toContain('data-testid="meta-decision-source-health"');
-    expect(html).toContain('data-blocking="true"');
-  });
+  // The degraded-source banner was removed from the screen on request. The
+  // authority it announced is unchanged and still server-side: when the read
+  // model's authority is not `native_ad`, the served action tuples stay
+  // review-only and `os.limitations` carries `legacy_creative_review_only`, so
+  // no exact Ad write can be minted from a legacy source. What went away is the
+  // explanation, not the block.
 
   it("renders creative rotation only from the server-selected canonical section", () => {
     const model = emptyCanonicalDecisionReadModel();
@@ -2170,59 +2140,6 @@ describe("tracking write gate (regression: dismissal must not unlock writes)", (
     // Signature-level proof: the gate accepts only the server payload -
     // client dismissal state cannot influence it.
     expect(isTrackingWriteBlocked.length).toBe(1);
-  });
-});
-
-describe("compare math uses structured metrics, never display strings", () => {
-  it("keeps numbers identical when formatted evidence strings change arbitrarily", () => {
-    const base = metaRec({
-      metrics: {
-        spend: 812.5,
-        roas: 2.4,
-        cpa: 18,
-        ctr: 1.3,
-        purchases: 44,
-        frequency: 2.1,
-      },
-      evidence: [
-        { label: "Spend", value: "$812.50", tone: "neutral" },
-        { label: "ROAS", value: "2.40x", tone: "positive" },
-      ],
-    });
-    const reformatted = metaRec({
-      metrics: {
-        spend: 812.5,
-        roas: 2.4,
-        cpa: 18,
-        ctr: 1.3,
-        purchases: 44,
-        frequency: 2.1,
-      },
-      evidence: [
-        { label: "Spend", value: "₺99.999,99 !!", tone: "neutral" },
-        { label: "ROAS", value: "banded 0.70x-0.83x", tone: "warning" },
-      ],
-    });
-    const left = compareItemForRec(base);
-    const right = compareItemForRec(reformatted);
-    expect(right.spend).toBe(left.spend);
-    expect(right.roas).toBe(left.roas);
-    expect(right.cpa).toBe(left.cpa);
-    expect(right.purchases).toBe(left.purchases);
-  });
-
-  it("excludes metric-less recs from numeric math instead of guessing zero", () => {
-    const item = compareItemForRec(
-      metaRec({
-        metrics: null,
-        evidenceTrail: undefined,
-        evidence: [{ label: "Spend", value: "$9,999.00", tone: "neutral" }],
-      }),
-    );
-    expect(item.spend).toBeUndefined();
-    // roas comes only from the TYPED evidence trail (peer comparison) or
-    // structured metrics - never from display strings.
-    expect(item.roas).toBeUndefined();
   });
 });
 

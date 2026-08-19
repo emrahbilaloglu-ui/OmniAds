@@ -22,6 +22,7 @@ import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import { labelKindDisplay } from "@/lib/meta/campaign-label-types";
 import { readMetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-read-model";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
 
@@ -52,6 +53,59 @@ interface PartialAware {
   notReadyReason?: string | null;
 }
 
+/** What one authority hands back for its row. */
+interface SectionOutcome {
+  facts: IntelligenceFact[];
+  partial?: PartialAware;
+  /**
+   * Set when the authority itself reported that it cannot serve. Its own words
+   * are carried through, because "unavailable" alone does not tell the operator
+   * whether to reconnect, wait, or assign an account.
+   */
+  unavailableReason?: string | null;
+  /**
+   * When *this* authority says its data was observed.
+   *
+   * It must come from the authority, never from this module's clock. A shared
+   * `new Date()` used to be stamped on all eight rows, so a warehouse that last
+   * synced days ago — and one that had never synced at all — both read
+   * "Observed: <the moment the page was opened>". That is a timestamp nobody
+   * measured standing in for an unknown one, and refreshing the page appeared to
+   * refresh data that had not moved.
+   *
+   * `null` is the honest answer for an authority that reports no timestamp; the
+   * view renders it as "Not recorded".
+   */
+  observedAt?: string | null;
+}
+
+/**
+ * A string an authority served, or null when it served something that is not
+ * one.
+ *
+ * Every field on `IntelligenceSection` is declared `string | null` because the
+ * view is a client component that prints them directly. The declaration is not
+ * self-enforcing: these values cross a database driver, and `pg` hands back a
+ * live `Date` for every `timestamptz`/`timestamp` column it is not told to
+ * parse as text. A `Date` typed as `string` survives compilation, survives the
+ * RSC payload — which serialises it faithfully, as a `Date` — and then reaches
+ * `{row.observedAt}`, where React refuses it: "Objects are not valid as a React
+ * child (found: [object Date])". That threw during render, the error boundary
+ * replaced the whole route, and Account Intelligence showed nothing at all.
+ *
+ * So the declared type is enforced here, at the one place every section is
+ * built, rather than trusted eight times over. A `Date` is a knowable instant
+ * and becomes its ISO form; anything else that is not a string is discarded,
+ * because a value we cannot name is not a value we may print.
+ */
+function asServedText(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  return null;
+}
+
 /**
  * Turn one authority's outcome into a section.
  *
@@ -62,8 +116,7 @@ interface PartialAware {
 function section(
   key: string,
   label: string,
-  outcome: PromiseSettledResult<{ facts: IntelligenceFact[]; partial?: PartialAware } | null>,
-  observedAt: string | null,
+  outcome: PromiseSettledResult<SectionOutcome | null>,
 ): IntelligenceSection {
   if (outcome.status === "rejected") {
     return {
@@ -88,6 +141,32 @@ function section(
       facts: [],
     };
   }
+  // The authority's own observation instant, or null. Never this module's clock.
+  const observedAt = asServedText(outcome.value.observedAt);
+  // Fact values reach the view unchanged, so they are held to the same rule as
+  // the reasons and the timestamps: a printable string, or the honest
+  // "Not reported". `count`/`tally` already answer that way; this catches the
+  // fields that are passed straight through from a read model.
+  const facts = outcome.value.facts.map((fact) => ({
+    label: asServedText(fact.label) ?? "Not reported",
+    value: asServedText(fact.value) ?? "Not reported",
+  }));
+  // An authority that reported itself unable to serve is reported that way,
+  // in its own words. Printing "Serving" over a read model whose own `status`
+  // is `unavailable` would be this surface asserting a system health the
+  // source explicitly denied.
+  if (outcome.value.unavailableReason) {
+    return {
+      key,
+      label,
+      state: "unavailable",
+      reason:
+        asServedText(outcome.value.unavailableReason) ??
+        "This source reported that it cannot serve, without a reason.",
+      observedAt,
+      facts,
+    };
+  }
   const partial = outcome.value.partial;
   if (partial?.isPartial) {
     return {
@@ -96,16 +175,62 @@ function section(
       state: "partial",
       // The read model's own words. Rewriting them here would let this surface
       // disagree with the source about why it is incomplete.
-      reason: partial.notReadyReason ?? "This source returned an incomplete window.",
+      reason:
+        asServedText(partial.notReadyReason) ??
+        "This source returned an incomplete window.",
       observedAt,
-      facts: outcome.value.facts,
+      facts,
     };
   }
-  return { key, label, state: "serving", reason: null, observedAt, facts: outcome.value.facts };
+  return { key, label, state: "serving", reason: null, observedAt, facts };
 }
 
 function count(value: unknown): string {
   return Array.isArray(value) ? String(value.length) : "Not reported";
+}
+
+/**
+ * A count the read model already computed.
+ *
+ * Anything that is not a finite number is "Not reported" rather than 0: a
+ * missing field means nobody measured, and 0 would be a measurement.
+ */
+function tally(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "Not reported";
+}
+
+/**
+ * How many labelled campaigns are listed one by one in the row.
+ *
+ * A display cap, not a filter — the true total is carried by the
+ * "Labelled campaigns" fact above it, so a capped list never understates.
+ */
+const LABEL_FACT_LIMIT = 12;
+
+/**
+ * Why an account-scoped authority was not read.
+ *
+ * Every windowed source on this surface describes one advertising account. When
+ * no single account resolves, the answer is that the source was not read — not
+ * a business-wide read presented in its place. A business-wide total sitting in
+ * a row the operator reads as "this account" is a wrong number, not a partial
+ * one, and no reader can tell it apart from a right one.
+ */
+function noAccountReason(authority: string) {
+  return `No single Meta account is selected, so ${authority} cannot be scoped.`;
+}
+
+/**
+ * Why a business-wide authority was withheld from an account-scoped surface.
+ *
+ * Some canonical read models take a business and read every account assigned to
+ * it. That is correct for the workspace overview and wrong here: this surface
+ * names one account, and A+B under a heading that means B is a false statement
+ * about B. Where the authority accepts no account filter, the section says so
+ * instead of showing the wider read.
+ */
+function businessWideReason(authority: string) {
+  return `${authority} reads every Meta account assigned to this business, so it cannot be scoped to the selected account. It is withheld rather than reported as this account's figures.`;
 }
 
 /**
@@ -118,10 +243,18 @@ export async function readMetaIntelligence(input: {
   businessId: string;
   startDate: string;
   endDate: string;
-  now?: Date;
+  /**
+   * The account the caller already resolved, or `null` when none resolved.
+   *
+   * Omit the key entirely to keep the historical behaviour of deriving it from
+   * the assignment here. A caller that passes it must have resolved it through
+   * `resolveProviderAccountId`, which refuses an unassigned id and refuses to
+   * pick one of several, so supplying it can only narrow scope to an account
+   * this business already holds — never widen it.
+   */
+  providerAccountId?: string | null;
 }): Promise<MetaIntelligence> {
   const { businessId, startDate, endDate } = input;
-  const observedAt = (input.now ?? new Date()).toISOString();
 
   const integrations = await getIntegrationStatusByBusiness(businessId).catch(() => null);
   if (!integrations) {
@@ -140,11 +273,46 @@ export async function readMetaIntelligence(input: {
     };
   }
 
-  const assignment = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
+  // The accounts this business actually holds. Read unconditionally, because
+  // two questions below need it: which account resolves, and whether a
+  // business-wide authority can honestly stand for the selected one.
+  //
+  // `null` means the assignment could not be read at all, and is deliberately
+  // not the same as `[]`. An unreadable assignment cannot prove that a
+  // business-wide read covers exactly one account, so it must not be treated
+  // as if it had.
+  const assignment = await getProviderAccountAssignments(businessId, "meta").catch(
+    () => null,
+  );
+  const assignedAccountIds = assignment?.account_ids ?? null;
+
   // One assigned account resolves; zero or several do not. Picking one of
-  // several would scope every section below to an account nobody chose.
-  const providerAccountId =
-    assignment?.account_ids?.length === 1 ? assignment.account_ids[0] : null;
+  // several would scope every section below to an account nobody chose. When
+  // the caller resolved the account itself (from the URL the shell and rail
+  // write), that answer is used — it obeys the same refusal rules.
+  let providerAccountId: string | null;
+  if (input.providerAccountId !== undefined) {
+    providerAccountId = input.providerAccountId?.trim() || null;
+  } else {
+    providerAccountId =
+      assignedAccountIds?.length === 1 ? assignedAccountIds[0]! : null;
+  }
+
+  /**
+   * Whether a business-wide read is, for this business, the selected account's
+   * read.
+   *
+   * True only when the business holds exactly one assigned Meta account and it
+   * is the selected one — then "every assigned account" and "this account" name
+   * the same set, and the wider authority is not wider. Any other shape (several
+   * assigned, none assigned, assignment unreadable) leaves the two apart, and
+   * the sections that cannot filter must withhold rather than widen.
+   */
+  const businessWideIsThisAccount =
+    providerAccountId !== null &&
+    assignedAccountIds !== null &&
+    assignedAccountIds.length === 1 &&
+    assignedAccountIds[0] === providerAccountId;
 
   const [status, pulse, summary, trends, breakdowns, anomalies, labels, workspace] =
     await Promise.allSettled([
@@ -165,34 +333,96 @@ export async function readMetaIntelligence(input: {
               notReadyReason:
                 "No Meta account is selected for this business, so account-scoped sources cannot resolve.",
             },
+        // The integration-status authority serves booleans and no timestamp, so
+        // there is nothing here that was observed at a knowable instant.
+        observedAt: null,
       }))(),
 
       // 2 · account pulse — campaign delivery in the window.
       (async () => {
+        // A null `accountId` makes this source read every assigned account.
+        // On a surface that names one account that is a business-wide fallback,
+        // so the row refuses instead.
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the campaign delivery authority"),
+            observedAt: null,
+          };
+        }
         const campaigns = await getMetaCampaignsForRange({
           businessId,
           startDate,
           endDate,
           accountId: providerAccountId,
         });
-        const rows = (campaigns as { campaigns?: unknown }).campaigns;
+        // `rows` is the key this source actually serves; there is no
+        // `campaigns` key on the result, and reading one left the tile blank.
         return {
-          facts: [{ label: "Campaigns in window", value: count(rows) }],
-          partial: campaigns as PartialAware,
+          facts: [{ label: "Campaigns in window", value: count(campaigns.rows) }],
+          partial: campaigns,
+          // `MetaCampaignsSourceResult` carries no observation timestamp.
+          observedAt: null,
         };
       })(),
 
       // 3 · summary
       (async () => {
-        const result = await getMetaCanonicalOverviewSummary({ businessId, startDate, endDate });
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the canonical summary authority"),
+            observedAt: null,
+          };
+        }
+        // An UNREADABLE assignment is still a withhold, and it is a separate
+        // law from the multi-account one. Narrowing needs to know what is
+        // assigned; when that read failed, `assignedAccountIds` is null and
+        // the narrowing would select nothing while LOOKING like a served
+        // zero. Withheld, not zero.
+        if (assignedAccountIds === null) {
+          return {
+            facts: [],
+            unavailableReason: businessWideReason("The canonical summary authority"),
+            observedAt: null,
+          };
+        }
+        // Otherwise the summary is narrowed to the selected account, so a
+        // header naming account B can no longer sit above A+B totals — which
+        // is what forced this section to withhold on every multi-account
+        // business. The narrowing is fail-closed inside the authority: an id
+        // that is not currently assigned selects NOTHING rather than falling
+        // back to the full set.
+        const result = await getMetaCanonicalOverviewSummary({
+          businessId,
+          startDate,
+          endDate,
+          providerAccountId,
+        });
         return {
           facts: [{ label: "Read source", value: result.readSource }],
           partial: result,
+          // The warehouse's own last-observed instant for these rows: a live
+          // refresh if one happened, otherwise the newest `updated_at` behind
+          // the totals. Null when the source has never synced — which is a real
+          // answer, and the one a "syncing" account must give.
+          observedAt:
+            result.freshness?.liveRefreshedAt ?? result.freshness?.lastSyncedAt ?? null,
         };
       })(),
 
       // 4 · trends
       (async () => {
+        // This authority filters the assigned ids by `providerAccountId` and
+        // falls back to all of them when it is null — a business-wide read
+        // wearing an account-scoped row.
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the canonical trends authority"),
+            observedAt: null,
+          };
+        }
         const result = await getMetaCanonicalOverviewTrends({
           businessId,
           startDate,
@@ -204,70 +434,198 @@ export async function readMetaIntelligence(input: {
             { label: "Trend points", value: count((result as { points?: unknown }).points) },
           ],
           partial: result,
+          // Deliberately null. This authority builds its `freshness` from the
+          // points' *dates* (lib/meta/serving.ts, `getMetaWarehouseTrends`), so
+          // its `lastSyncedAt` is the last day covered, not the instant anything
+          // was observed. Printing a coverage date under "Observed" would be the
+          // same substitution this field exists to avoid.
+          observedAt: null,
         };
       })(),
 
       // 5 · breakdowns
       (async () => {
-        const result = await getMetaBreakdownsForRange({ businessId, startDate, endDate });
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the breakdowns authority"),
+            observedAt: null,
+          };
+        }
+        // The account was never passed, so this row reported every assigned
+        // account's breakdowns beside account-scoped neighbours. The source has
+        // always accepted the filter — and refuses an id the business does not
+        // hold — so passing it can only narrow.
+        const result = await getMetaBreakdownsForRange({
+          businessId,
+          providerAccountId,
+          startDate,
+          endDate,
+        });
         return {
           facts: [{ label: "Status", value: String(result.status) }],
           partial: result as PartialAware,
+          // Served for exactly this purpose: "so a reader can bind an as-of to a
+          // measured instant instead of inventing one from its own clock"
+          // (MetaBreakdownsResponse.freshness).
+          observedAt: result.freshness?.liveRefreshedAt ?? result.freshness?.lastSyncedAt ?? null,
         };
       })(),
 
       // 6 · anomalies
       (async () => {
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the anomalies authority"),
+            observedAt: null,
+          };
+        }
         const result = await readMetaAnomaliesForBusiness({
           businessId,
           providerAccountId,
           activeOnly: true,
+          // The selected window's own bound. Without it this authority takes
+          // `MAX(snapshot_date)` over all time, so a March window sat next to
+          // today's anomaly snapshot on the same page, under one line claiming
+          // every windowed source covered the same range. The read model
+          // documents the parameter for exactly this: "Without it a historical
+          // range would show today's anomalies."
+          endDate,
         });
         return {
           facts: [
             { label: "Active anomalies", value: count((result as { anomalies?: unknown }).anomalies) },
           ],
           partial: result as PartialAware,
+          // The snapshot these anomalies were actually read from. It is a date,
+          // not an instant, and it is reported as the date it is — coarser than
+          // a timestamp, but measured, which the request clock was not.
+          observedAt: (result as { snapshotDate?: string | null }).snapshotDate ?? null,
         };
       })(),
 
       // 7 · campaign labels
       (async () => {
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the campaign label authority"),
+            observedAt: null,
+          };
+        }
         const result = await readMetaCampaignLabels({ businessId });
+        if (!Array.isArray(result)) {
+          // Not an empty list — an answer we could not read. Zero would be a
+          // count nobody took.
+          return { facts: [{ label: "Labelled campaigns", value: "Not reported" }], observedAt: null };
+        }
+        // `readMetaCampaignLabels` keys only on the business, and a business
+        // with two Meta accounts really does store labels for both (one such
+        // account pair holds 18 labels and 3). Listing all of them beside
+        // account-scoped rows attributed one account's campaigns to another.
+        // Each row records the account it was written against, so the scope is
+        // applied here rather than by widening the shared authority.
+        const scoped = result.filter(
+          (label) => label.providerAccountId === providerAccountId,
+        );
+        // A label written against another account — or against none, so not
+        // attributable to this one — is excluded, and the exclusion is stated.
+        // A silently shorter list is a different lie from a silently longer one.
+        const withheld = result.length - scoped.length;
         return {
-          facts: [{ label: "Labelled campaigns", value: count(result) }],
+          facts: [
+            { label: "Labelled campaigns", value: count(scoped) },
+            // The labels themselves, so the Campaign labels aside can show what
+            // was labelled rather than a bare count. A label with no stored
+            // name falls back to its campaign id — never to a made-up name.
+            ...scoped
+              .slice(0, LABEL_FACT_LIMIT)
+              .map((label) => ({
+                label: label.campaignName ?? label.campaignId,
+                value: labelKindDisplay(label.kind),
+              })),
+          ],
+          partial:
+            withheld > 0
+              ? {
+                  isPartial: true,
+                  notReadyReason: `${withheld} labelled campaign${withheld === 1 ? "" : "s"} in this business ${withheld === 1 ? "is" : "are"} recorded against another Meta account, or against none, and ${withheld === 1 ? "is" : "are"} not counted here.`,
+                }
+              : undefined,
+          // Deliberately null. `MetaCampaignLabel` carries `labeledAt` and
+          // `updatedAt` — when a person authored or last edited the label — and
+          // neither is an observation of an account. Only the history projection
+          // (`MetaCampaignLabelHistoryState.observedAt`) records one, and this
+          // read does not return it. Printing an authorship time under
+          // "Observed" would misname it.
+          observedAt: null,
         };
       })(),
 
       // 8+9 · structure and recommendations both come from the decisions
       //       workspace read model, which is their shared authority.
       (async () => {
-        if (!providerAccountId) return null;
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason:
+              "No single Meta account is selected, so the decisions authority cannot be scoped.",
+            observedAt: null,
+          };
+        }
         const model = await readMetaDecisionsWorkspaceReadModel({
           businessId,
           providerAccountId,
         });
+        // The read model reports its own health. It carries no `isPartial`, so
+        // the partial path below can never fire for it — without this branch an
+        // authority that said `unavailable` was rendered green as "Serving".
+        if (model.status !== "available") {
+          return {
+            facts: [],
+            unavailableReason:
+              model.unavailable?.message ??
+              "The decisions authority reported that it cannot serve, without a reason.",
+            // A model that cannot serve still names when its snapshot was
+            // computed, when it has one; `generatedAt` is deliberately not used
+            // — that is the read model's own request clock, not an observation.
+            observedAt: model.source?.computedAt ?? null,
+          };
+        }
+        const queue = model.queue;
         return {
           facts: [
-            {
-              label: "Structure rows",
-              value: count((model as { structureRows?: unknown }).structureRows),
-            },
+            // Pre-cap counts: what the source produced and what reached the
+            // queue, before any top-N display cap. Both are the read model's
+            // own numbers — nothing here recomputes a decision.
+            { label: "Decision rows read", value: tally(queue?.sourcePreCapCount) },
+            { label: "Queued for review", value: tally(queue?.queuedPreCapCount) },
+            ...Object.values(queue?.sections ?? {}).map((queueSection) => ({
+              label: queueSection.label,
+              value: tally(queueSection.preCapCount),
+            })),
           ],
-          partial: model as PartialAware,
+          // When the decision snapshot behind these counts was computed. Not
+          // `model.generatedAt`, which the read model fills from its own clock
+          // at request time and would restate the bug this field replaced.
+          observedAt: model.source?.computedAt ?? null,
         };
       })(),
     ]);
 
+  // Each row carries its own authority's observation time. There is deliberately
+  // no page-wide "observed" value to pass in here: one clock shared across eight
+  // sources is what made a never-synced source read as observed just now.
   const sections: IntelligenceSection[] = [
-    section("status", "Connection & account", status, observedAt),
-    section("pulse", "Account pulse", pulse, observedAt),
-    section("summary", "Summary", summary, observedAt),
-    section("trends", "Trends", trends, observedAt),
-    section("breakdowns", "Breakdowns", breakdowns, observedAt),
-    section("anomalies", "Anomalies", anomalies, observedAt),
-    section("labels", "Campaign labels", labels, observedAt),
-    section("structure", "Structure & recommendations", workspace, observedAt),
+    section("status", "Connection & account", status),
+    section("pulse", "Account pulse", pulse),
+    section("summary", "Summary", summary),
+    section("trends", "Trends", trends),
+    section("breakdowns", "Breakdowns", breakdowns),
+    section("anomalies", "Anomalies", anomalies),
+    section("labels", "Campaign labels", labels),
+    section("structure", "Structure & recommendations", workspace),
   ];
 
   return { providerAccountId, sections, unavailableReason: null };

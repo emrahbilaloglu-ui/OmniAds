@@ -59,6 +59,7 @@ import {
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
 } from "../route-utils";
+import { rejectIfLaunchpadDemoWrite } from "../demo-write-authority";
 
 type LaunchBody = {
   businessId?: string;
@@ -257,6 +258,17 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response;
   const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_launch");
   if (reviewerBlocked) return reviewerBlocked;
+  // Canonical invariant: "Demo businesses have zero Meta write authority even
+  // if a presentation defect supplies an action." The reviewer gate above does
+  // not cover this — `/api/auth/demo-login` opens a session as an ADMIN of the
+  // demo business under a non-reviewer email, so it passes both the role check
+  // and the reviewer check. The refusal has to live on the server or it does
+  // not exist.
+  const demoBlocked = await rejectIfLaunchpadDemoWrite(
+    access.businessId,
+    "launchpad_launch",
+  );
+  if (demoBlocked) return demoBlocked;
   const manualAuthority = evaluateMetaLaunchpadManualAuthority(body);
   if (!manualAuthority.ok) {
     return jsonError(

@@ -124,6 +124,10 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
       avg7dSpend: 350,
       conversionsToday: 1,
       avg7dConversions: 2,
+      // The endpoint always reports the window's spend alongside its ROAS, and
+      // a return on no spend is not a reachable state - a fixture that omits
+      // this was asserting one.
+      windowSpend: 1200,
     },
     roas: {
       selected: 3.2,

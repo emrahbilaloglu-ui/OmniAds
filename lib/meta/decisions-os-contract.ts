@@ -175,6 +175,10 @@ export interface MetaOsAdDecision {
     nextStep: string;
   } | null;
   metrics: MetaOsDecisionMetrics;
+  /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
+  creativeFormat?: string | null;
+  /** `none` | `watch` | `fatigued` | `unknown` from the same row. */
+  fatigueStatus?: string | null;
   rawLabel: string | null;
   publishedLabel: string;
   /** Optional only so previously serialized v2 payloads remain renderable. The

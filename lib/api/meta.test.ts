@@ -305,21 +305,17 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         });
       },
     );
-    // Forward appendConfigHistory. Dropping it here would make the fixture
-    // hide the very flag these tests exist to check: a caller could stop
-    // passing it and every assertion would still pass.
+    // The slice writers forward only their rows now. Config history is no
+    // longer a side effect of a daily write at all — appendMetaCurrentConfigHistory
+    // is its single author — so there is no flag left to forward.
     vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(
       async (input) => {
-        await warehouse.upsertMetaCampaignDailyRows(input.rows as never, {
-          appendConfigHistory: input.appendConfigHistory,
-        });
+        await warehouse.upsertMetaCampaignDailyRows(input.rows as never);
       },
     );
     vi.mocked(warehouse.replaceMetaAdSetDailySlice).mockImplementation(
       async (input) => {
-        await warehouse.upsertMetaAdSetDailyRows(input.rows as never, {
-          appendConfigHistory: input.appendConfigHistory,
-        });
+        await warehouse.upsertMetaAdSetDailyRows(input.rows as never);
       },
     );
     vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue(
@@ -674,7 +670,6 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           buyingType: null,
         }),
       ]),
-      expect.objectContaining({ appendConfigHistory: false }),
     );
     // Entity observation runs carry `capturedAt: now()`, which is part of the
     // run identity, so a backfill wave produced a brand-new run and a fresh
@@ -809,12 +804,13 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // The metric facts are still written — only the CURRENT-inventory evidence
     // is withheld — and the daily writer must be told not to append config
     // history for a historical day.
-    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ appendConfigHistory: false }),
-    );
+    // The daily writer takes rows and nothing else; there is no options object
+    // left through which config history could be switched back on at a call site.
+    for (const call of vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock
+      .calls) {
+      expect(call).toHaveLength(1);
+    }
     // Typed config history is written HERE, by its own call, not as a side
-    // effect of a finalized daily write. `appendConfigHistory` on the daily
     // writers only ever fired for `truthState === "finalized"`, and current
     // evidence only exists on a PROVISIONAL today — mutually exclusive, so both
     // typed tables received nothing at all until this call existed.
@@ -3182,31 +3178,35 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
       },
     };
 
+    // `age,gender` is TWO dimensions in one fetch and now writes TWO slices.
+    // The other two breakdowns are one-dimensional and still write exactly one
+    // — a fan-out that widened them would be inventing a dimension.
     const cases = [
       {
         breakdowns: "age,gender",
         endpointName: "breakdown_age",
-        expected: "age",
+        expected: ["age", "gender"],
       },
       {
         breakdowns: "country",
         endpointName: "breakdown_country",
-        expected: "country",
+        expected: ["country"],
       },
       {
         breakdowns: "publisher_platform,platform_position,impression_device",
         endpointName:
           "breakdown_publisher_platform,platform_position,impression_device",
-        expected: "placement",
+        expected: ["placement"],
       },
     ] as const;
 
     for (const testCase of cases) {
+      vi.mocked(warehouse.replaceMetaBreakdownDailySlice).mockClear();
       await syncMetaAccountBreakdownWarehouseDay({
         credentials,
         accountId: "act_1",
         day: "2026-04-03",
-        partitionId: `partition-${testCase.expected}`,
+        partitionId: `partition-${testCase.expected.join("-")}`,
         workerId: "worker-1",
         leaseEpoch: 31,
         attemptCount: 1,
@@ -3216,16 +3216,263 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
         leaseMinutes: 15,
       });
 
-      expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          slice: {
-            businessId: "biz-1",
-            providerAccountId: "act_1",
-            date: "2026-04-03",
-            breakdownType: testCase.expected,
-          },
-        }),
-      );
+      const writtenTypes = vi
+        .mocked(warehouse.replaceMetaBreakdownDailySlice)
+        .mock.calls.map(([call]) => call.slice.breakdownType);
+      expect(writtenTypes).toEqual([...testCase.expected]);
+
+      for (const breakdownType of testCase.expected) {
+        expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith(
+          expect.objectContaining({
+            slice: {
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              date: "2026-04-03",
+              breakdownType,
+            },
+          }),
+        );
+      }
     }
+  });
+
+  it("asks Meta for reach and frequency on the breakdown fetch", async () => {
+    // The panel could never fill because the FIELD LIST never asked. Pinned
+    // against the request URL, not against a parsed row, because the omission
+    // lived in the URL builder and a row-level assertion would pass on a
+    // fixture that hands back reach nobody requested.
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requestedUrls.push(url);
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-fields",
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 1,
+      breakdowns: "age,gender",
+      endpointName: "breakdown_age",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+
+    const insightsUrl = requestedUrls.find((url) => url.includes("/insights"));
+    expect(insightsUrl).toBeDefined();
+    const fields = (new URL(insightsUrl!).searchParams.get("fields") ?? "").split(
+      ",",
+    );
+    expect(fields).toContain("reach");
+    expect(fields).toContain("frequency");
+  });
+
+  it("splits one age,gender row into two dimensions and keeps age identical", async () => {
+    // The defect, stated as data: one raw row carries BOTH `25-34` and
+    // `female`. Folding it under `age` alone made the gender fact
+    // unrecoverable. Two raw rows sharing an age bucket but differing in gender
+    // must produce one age bucket with the summed spend AND two gender buckets.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/insights")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  age: "25-34",
+                  gender: "female",
+                  spend: "3.00",
+                  impressions: "100",
+                  clicks: "4",
+                  reach: "50",
+                  ctr: "4.0",
+                  cpm: "30.0",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+                {
+                  age: "25-34",
+                  gender: "male",
+                  spend: "1.00",
+                  impressions: "60",
+                  clicks: "2",
+                  reach: "30",
+                  ctr: "3.33",
+                  cpm: "16.67",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-split",
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 1,
+      breakdowns: "age,gender",
+      endpointName: "breakdown_age",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+
+    const calls = vi.mocked(warehouse.replaceMetaBreakdownDailySlice).mock.calls;
+    const ageCall = calls.find(([call]) => call.slice.breakdownType === "age");
+    const genderCall = calls.find(
+      ([call]) => call.slice.breakdownType === "gender",
+    );
+    expect(ageCall).toBeDefined();
+    expect(genderCall).toBeDefined();
+
+    // Age reads EXACTLY as it always did: one bucket, both rows summed into it.
+    const ageRows = ageCall![0].rows;
+    expect(ageRows).toHaveLength(1);
+    expect(ageRows[0]!.breakdownKey).toBe("25-34");
+    expect(ageRows[0]!.spend).toBe(4);
+    expect(ageRows[0]!.impressions).toBe(160);
+    // 50 + 30 measured people, 160 impressions.
+    expect(ageRows[0]!.reach).toBe(80);
+    expect(ageRows[0]!.frequency).toBe(2);
+
+    // The split that used to be destroyed.
+    const genderRows = genderCall![0].rows;
+    expect(
+      genderRows.map((row) => [row.breakdownKey, row.spend]).sort(),
+    ).toEqual([
+      ["female", 3],
+      ["male", 1],
+    ]);
+    const female = genderRows.find((row) => row.breakdownKey === "female")!;
+    expect(female.reach).toBe(50);
+    expect(female.frequency).toBe(2);
+  });
+
+  it("leaves reach null when Meta reports none, and never divides by it", async () => {
+    // The law: missing data must not become 0 or a success. A row Meta returned
+    // WITHOUT reach is unmeasured, so reach is null and frequency is null —
+    // not 0, not Infinity, and emphatically not impressions-as-reach (which
+    // would print a confident 1.0).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/insights")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  age: "35-44",
+                  gender: "male",
+                  spend: "5.00",
+                  impressions: "200",
+                  clicks: "6",
+                  ctr: "3.0",
+                  cpm: "25.0",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+                {
+                  age: "45-54",
+                  gender: "male",
+                  spend: "2.00",
+                  impressions: "80",
+                  clicks: "1",
+                  reach: "0",
+                  ctr: "1.25",
+                  cpm: "25.0",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-null-reach",
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 1,
+      breakdowns: "age,gender",
+      endpointName: "breakdown_age",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+
+    const ageCall = vi
+      .mocked(warehouse.replaceMetaBreakdownDailySlice)
+      .mock.calls.find(([call]) => call.slice.breakdownType === "age")!;
+    const unmeasured = ageCall[0].rows.find(
+      (row) => row.breakdownKey === "35-44",
+    )!;
+    expect(unmeasured.reach).toBeNull();
+    expect(unmeasured.frequency).toBeNull();
+
+    // A MEASURED zero stays zero, and still yields no frequency: 0 is not a
+    // divisor. The two cases are distinguishable, which is the whole point.
+    const measuredZero = ageCall[0].rows.find(
+      (row) => row.breakdownKey === "45-54",
+    )!;
+    expect(measuredZero.reach).toBe(0);
+    expect(measuredZero.frequency).toBeNull();
   });
 });

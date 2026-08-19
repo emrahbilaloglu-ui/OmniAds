@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type LegacyCreativePageProps = {
   businessId?: string;
   providerAccountId?: string | null;
+  serverDateWindow?: { start: string; end: string } | null;
 };
 
 const routeMocks = vi.hoisted(() => ({
@@ -105,38 +106,65 @@ const routes: Array<{
   path: string;
   Page: CreativeRoutePage;
   body: typeof routeMocks.performanceBody;
+  /**
+   * Whether the route hands its server-parsed `?start`/`?end` window to the
+   * body. Audiences does not: its body reads the same pair off the URL itself
+   * with the same validator, so the window already survives a reload there.
+   */
+  forwardsWindow: boolean;
 }> = [
   {
     label: "Assets",
     path: "performance",
     Page: PerformancePage,
     body: routeMocks.performanceBody,
+    forwardsWindow: true,
   },
   {
     label: "Copies",
     path: "copies",
     Page: CopiesPage,
     body: routeMocks.copiesBody,
+    forwardsWindow: true,
   },
   {
     label: "Landers",
     path: "landing-pages",
     Page: LandingPagesPage,
     body: routeMocks.landingPagesBody,
+    forwardsWindow: true,
   },
   {
     label: "Inbox",
     path: "inbox",
     Page: InboxPage,
     body: routeMocks.inboxBody,
+    forwardsWindow: true,
   },
   {
     label: "Audiences",
     path: "audiences",
     Page: AudiencesPage,
     body: routeMocks.audiencesBody,
+    forwardsWindow: false,
   },
 ];
+
+const windowForwardingRoutes = routes.filter((route) => route.forwardsWindow);
+
+/** The props a route hands its body, with the window only where one is sent. */
+function expectedBodyProps(
+  route: (typeof routes)[number],
+  serverDateWindow: { start: string; end: string } | null,
+) {
+  return route.forwardsWindow
+    ? {
+        businessId: "biz_route",
+        providerAccountId: "act_assigned",
+        serverDateWindow,
+      }
+    : { businessId: "biz_route", providerAccountId: "act_assigned" };
+}
 
 function session() {
   return {
@@ -197,7 +225,8 @@ beforeEach(() => {
 describe("Creative Studio canonical route authority", () => {
   it.each(routes)(
     "$label forwards only the authorized business and assigned provider account to the exact legacy body",
-    async ({ Page, body }) => {
+    async (route) => {
+      const { Page, body } = route;
       await renderPage(Page, { providerAccountId: "act_requested" });
 
       expect(
@@ -209,10 +238,7 @@ describe("Creative Studio canonical route authority", () => {
         requestedAccountId: "act_requested",
       });
       expect(body).toHaveBeenCalledTimes(1);
-      expect(body).toHaveBeenCalledWith({
-        businessId: "biz_route",
-        providerAccountId: "act_assigned",
-      });
+      expect(body).toHaveBeenCalledWith(expectedBodyProps(route, null));
     },
   );
 
@@ -264,6 +290,122 @@ describe("Creative Studio canonical route authority", () => {
       expect(routeMocks.notFound).toHaveBeenCalledTimes(1);
       expect(providerScope.resolveProviderAccountId).not.toHaveBeenCalled();
       expect(body).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label hands the body the window the link names, not the one the browser last stored",
+    async (route) => {
+      await renderPage(route.Page, {
+        providerAccountId: "act_requested",
+        start: "2026-03-01",
+        end: "2026-03-07",
+      });
+
+      expect(route.body).toHaveBeenCalledWith(
+        expectedBodyProps(route, { start: "2026-03-01", end: "2026-03-07" }),
+      );
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label reads the window in the shell's spelling too",
+    async (route) => {
+      // The shell date control states its window as ?window/?startDate/?endDate
+      // (lib/dashboard/date-window-url.ts). A route that understood only the
+      // Creative Studio's own ?start/?end would ignore the operator's control
+      // on the server, where a stored preference cannot reach.
+      await renderPage(route.Page, {
+        window: "custom",
+        startDate: "2026-03-01",
+        endDate: "2026-03-07",
+      });
+
+      expect(route.body).toHaveBeenCalledWith(
+        expectedBodyProps(route, { start: "2026-03-01", end: "2026-03-07" }),
+      );
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label lets the shell's window outrank a stale Studio pair",
+    async (route) => {
+      await renderPage(route.Page, {
+        start: "2026-01-01",
+        end: "2026-01-28",
+        startDate: "2026-03-01",
+        endDate: "2026-03-07",
+      });
+
+      // Both spellings on one URL is the ordinary case after the operator moves
+      // the control on a Studio link: the range they just chose is the answer.
+      expect(route.body).toHaveBeenCalledWith(
+        expectedBodyProps(route, { start: "2026-03-01", end: "2026-03-07" }),
+      );
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label reproduces the same window on reload",
+    async (route) => {
+      const link = {
+        providerAccountId: "act_requested",
+        start: "2026-03-01",
+        end: "2026-03-07",
+      };
+
+      await renderPage(route.Page, link);
+      await renderPage(route.Page, link);
+
+      // Two requests for one URL: the window is a property of the link, not of
+      // whatever the last visit left in browser storage. Reload determinism is
+      // the whole point of parsing it on the server.
+      const [first, second] = route.body.mock.calls;
+      expect(second).toEqual(first);
+      expect(route.body).toHaveBeenLastCalledWith(
+        expectedBodyProps(route, { start: "2026-03-01", end: "2026-03-07" }),
+      );
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label reports an absent window as absent rather than inventing 28 days",
+    async (route) => {
+      await renderPage(route.Page, { providerAccountId: "act_requested" });
+
+      // A route-side default would silently outrank the shell's date control:
+      // it is resolved on a UTC clock rather than the account's, so it can name
+      // a different day, and it would overwrite a range the operator chose. The
+      // honest answer to "no window was requested" is null.
+      expect(route.body).toHaveBeenCalledWith(expectedBodyProps(route, null));
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label refuses a half window instead of repairing it",
+    async (route) => {
+      await renderPage(route.Page, { start: "2026-03-01" });
+
+      expect(route.body).toHaveBeenCalledWith(expectedBodyProps(route, null));
+    },
+  );
+
+  it.each(windowForwardingRoutes)(
+    "$label refuses a malformed, impossible or backwards window",
+    async (route) => {
+      for (const link of [
+        { start: "yesterday", end: "2026-03-07" },
+        { start: "2026-02-30", end: "2026-03-07" },
+        { start: "2026-03-08", end: "2026-03-07" },
+        { start: ["2026-03-01", "2026-04-01"], end: "not-a-date" },
+      ] as Array<Record<string, string | string[]>>) {
+        route.body.mockClear();
+        await renderPage(route.Page, link);
+
+        // A URL is a request, never authority. A window that cannot be read is
+        // not repaired into one the link never named and never reaches a read.
+        expect(route.body).toHaveBeenCalledWith(expectedBodyProps(route, null));
+      }
     },
   );
 

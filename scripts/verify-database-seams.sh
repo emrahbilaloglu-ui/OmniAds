@@ -31,7 +31,41 @@ stage() {
 stage "Workflow semantics (undefined needs, cycles, malformed steps)"
 npm run check:workflows
 
-stage "Migrations from zero"
+# Also the home of the null-versus-zero storage seams, because they are claims
+# about the SCHEMA and only a freshly migrated cluster can settle them.
+# `scripts/ephemeral-postgres-migrations-check.ts` runs
+# `ephemeral-postgres-creative-null-presence-seam-child.ts` as a child against
+# that cluster, and that child carries `link_clicks` on BOTH fact tables:
+# `meta_ad_daily` (the groupBy="ad" branch) and `meta_creative_daily` (the
+# DEFAULT Assets grain, and the table the engine's creative-grain aggregates
+# read). For each: that the widening accepts NULL while rewriting no stored row
+# — `pg_relation_filenode` is compared across it, so "catalog-only, no table
+# rewrite" is measured rather than asserted — that it creates no NULLs of its
+# own and re-runs cleanly, that the writer binds an unsupplied count as NULL and
+# a supplied 0 as 0, that folding two unsupplied ad-rows into one creative-day
+# stays unsupplied instead of manufacturing a measured zero, that a re-sync
+# supplying nothing no longer overwrites a stored measurement with a fabricated
+# zero (the old three-argument COALESCE could never reach its "keep what is
+# stored" arm), and that the presence sidecar then publishes
+# `link_clicks: false` — with CTR, CPC (link) and click-to-ATC going with it —
+# for exactly the rows the database could not supply.
+#
+# The child ALSO carries the engine-equivalence half, which is the claim the
+# whole change rests on: the engine's numbers must not move when a stored 0
+# becomes an unsupplied NULL. `runCalibrationJob` is run twice over the same 50
+# seeded creative-days with only that column flipped, and all 25 persisted
+# calibration rows are compared including every link-click-denominated funnel
+# percentile; then `runLifecycleJob` is asserted to still store
+# `link_clicks_28d = 0` for an all-unsupplied creative rather than NULL. That
+# last one is the load-bearing assertion for the `SUM(COALESCE(link_clicks, 0))`
+# aggregates — reverting the coalesce makes it fail with "expected 0, got null",
+# whereas the calibration comparison alone does NOT catch it, because every
+# funnel rate there is guarded by `CASE WHEN total_link_clicks > 0` and that
+# guard treats NULL and 0 alike.
+#
+# Deliberately NOT a separate stage: a second stage would boot a second cluster
+# to re-prove the same migrated schema.
+stage "Migrations from zero (incl. null-vs-zero storage seams: link_clicks, funnel keys, frequency)"
 npm run test:migrations-from-zero
 
 stage "Disaster-recovery backup and restore seam"
@@ -86,6 +120,50 @@ npm run test:entrypoint-admission-seam
 
 stage "Provider selection race seam"
 npm run test:selection-race-seam
+
+# The Automation confirmation queue is the ONE surface where an operator click
+# becomes a provider write, and every guarantee it makes is a database
+# guarantee: the claim's compare-and-set, the unique open-slot index that also
+# covers `reconcile`, the append-only reconciliation receipt, and the migration
+# that builds all three out of statements which individually swallow their
+# errors. `package.json` has defined this script since the claim landed and
+# NOTHING ran it — not this file, not any workflow — so a regression in any of
+# them would have shipped green. It runs here, in the canonical sequence CI
+# invokes, which is what makes it a release gate rather than a script.
+stage "Automation execution claim, reconcile slot and settle fault injection"
+npm run test:automation-claim-race-seam
+
+# The Decisions/Copies -> Launchpad handoff. Single use is one conditional
+# UPDATE, account scoping is a WHERE clause, and the origin-integrity check
+# defends against an edited `payload_json` — none of which a mocked `sql` can
+# show. The vitest file behind this used to gate on a hand-set
+# META_HANDOFF_TEST_DATABASE_URL and therefore SKIPPED in every acceptance run,
+# which reads exactly like a pass. This stage is what makes it run; the script
+# also asserts its own negative control (the file must still skip without the
+# harness, so nobody can "fix" a failure by deleting the gate).
+stage "Launchpad handoff mint/consume/single-use seam (real PostgreSQL)"
+npm run test:launchpad-handoff-seam
+
+# Meta breakdown ingestion. `age,gender` is TWO dimensions that were stored
+# under one `age` identity, and `reach` was a NOT NULL column the fetch never
+# asked Meta to fill — so an unmeasured reach was written as a measured zero.
+# Both fixes are database facts a mocked `sql` cannot show: whether two
+# dimensions survive one account-day's unique key, whether replacing one slice
+# deletes the other, whether the widened column accepts NULL, and whether the
+# dirty-day coverage gate still demands exactly three types (a `gender` row must
+# not mask a missing `country`). The harness also rejects a run whose tests
+# SKIPPED, because a skipped database test reads exactly like a pass.
+stage "Meta breakdown dimension split and unmeasured reach"
+npm run test:breakdown-dimension-seam
+
+# Six cross-tenant isolation assertions that were wired to NOTHING: the
+# vitest file gates on ADSECUTE_EPHEMERAL_DB_SEAM=1, no npm script invoked
+# the harness, and no stage ran it — so every acceptance run reported them
+# as a pass while proving nothing. A deselected account's journal, currency
+# and name being served to anyone who asks by id, or a cross-business
+# widening, would have shipped green.
+stage "Meta History account-assignment isolation seam (real PostgreSQL)"
+npm run test:meta-history-assignment-seam
 
 stage "Shopify install context seam"
 npm run test:shopify-install-seam

@@ -13,12 +13,13 @@
  *   claim about who acted, and the truth is that nobody knows.
  */
 import { DataTable } from "@/components/zero-base/collections/data-table";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
-import type { HistoryRow } from "@/lib/zero-base/meta/history-adapter";
+import { moneyFactText, type HistoryRow } from "@/lib/zero-base/meta/history-adapter";
+import type { HistoryDateWindow } from "@/lib/meta/history-date-window";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
@@ -26,10 +27,12 @@ export type { HistoryRow };
 
 export function HistoryView({
   rows,
+  dateWindow,
   disclosure,
   limitations,
   accountLabel,
   unavailableReason,
+  unavailableAction,
   query = "",
   onQueryChange,
   outcomeFilter = "all",
@@ -40,6 +43,20 @@ export function HistoryView({
   initialReplayId = null,
 }: {
   rows: readonly HistoryRow[];
+  /**
+   * The two days these rows were read for, and where those days came from.
+   *
+   * IT IS PRINTED, and that is the point. The journal is bounded now for every
+   * URL shape, including the ones that state no window — and a boundary the
+   * operator cannot see is worse than no boundary at all, because entries are
+   * missing and nothing on screen says why. When the window came from the URL
+   * this line simply agrees with the chip above it; when it is the fallback, the
+   * line says so in the same breath as the dates.
+   *
+   * Absent on the unavailable states and in the harnesses that render this view
+   * without a route, where there is no window to name.
+   */
+  dateWindow?: HistoryDateWindow | null;
   /** Search is server-side against the history projection, not a local filter
    *  over the loaded page — a page-local search silently answers "no matches"
    *  for a row that exists two pages further on. */
@@ -59,6 +76,16 @@ export function HistoryView({
   limitations?: readonly string[];
   accountLabel?: string | null;
   unavailableReason?: string | null;
+  /**
+   * Rendered under an unavailable notice, and nowhere else.
+   *
+   * Some refusals are dead ends the operator can act on — "several accounts are
+   * assigned, choose one" is a question, not a verdict — and the surface had no
+   * way to offer the remedy beside the sentence that names it. When absent (the
+   * resolved surface, and every refusal with no remedy) nothing at all is
+   * rendered, so no state gains a control it did not have.
+   */
+  unavailableAction?: ReactNode;
 }) {
   const t = useCopy();
   const copy = useCopy();
@@ -72,6 +99,7 @@ export function HistoryView({
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
+          {unavailableAction}
         </div>
       </div>
     );
@@ -96,6 +124,19 @@ export function HistoryView({
       {accountLabel ? (
         <p data-history-account="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Account {accountLabel}
+        </p>
+      ) : null}
+
+      {dateWindow ? (
+        <p
+          data-history-window=""
+          data-history-window-source={dateWindow.source}
+          style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+        >
+          {`Window ${dateWindow.start} to ${dateWindow.end}`}
+          {dateWindow.source === "default"
+            ? " · default window; this link states none, so entries outside it are not shown"
+            : null}
         </p>
       ) : null}
 
@@ -255,6 +296,20 @@ export function HistoryView({
             <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.outcome}</dt><dd style={{ margin: 0 }}>{replayRow.outcome}</dd></div>
             <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.actor}</dt><dd style={{ margin: 0 }}>{actorLabel(replayRow.actor)}</dd></div>
             <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.evidenceBasis}</dt><dd style={{ margin: 0 }}>{replayRow.replayed ? "Replayed projection; historical caveat applies." : "Recorded at the time."}</dd></div>
+            {/* The version the caveat above is about. A replay that cannot name
+                its engine says so with an em-dash rather than borrowing the
+                current version, which would date a reconstruction wrongly. */}
+            {replayRow.replayed ? (
+              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>Engine version</dt><dd data-replay-engine-version={replayRow.id} style={{ margin: 0 }}>{replayRow.replayEngineVersion ?? "—"}</dd></div>
+            ) : null}
+            {replayRow.summary ? (
+              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>Summary</dt><dd data-replay-summary={replayRow.id} style={{ margin: 0 }}>{replayRow.summary}</dd></div>
+            ) : null}
+            {/* The served money facts, not re-derived ones. A budget change with
+                no amounts is a budget change nobody can check. */}
+            {(replayRow.money ?? []).map((fact) => (
+              <div key={fact.label}><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{fact.label}</dt><dd data-replay-money={fact.label} style={{ margin: 0 }}>{moneyFactText(fact)}</dd></div>
+            ))}
           </dl>
         </aside>
       ) : null}

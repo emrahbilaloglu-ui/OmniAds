@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,12 +28,6 @@ vi.mock("@/lib/zero-base/auth-routing", () => ({
   loginUrlFor: vi.fn(
     (next: string) => `/login?next=${encodeURIComponent(next)}`,
   ),
-}));
-vi.mock("@/lib/zero-base/meta/decisions-url-state", () => ({
-  parseDecisionsUrlState: vi.fn(() => ({})),
-}));
-vi.mock("@/lib/zero-base/meta/mutation-ceremony", () => ({
-  isMutationUiEnabled: vi.fn(() => true),
 }));
 vi.mock("@/lib/zero-base/provider-scope-server", () => ({
   resolveProviderAccountId: vi.fn(),
@@ -123,6 +118,15 @@ beforeEach(() => {
 });
 
 describe("Meta Decisions canonical route authority", () => {
+  // Law: every Decision Center route family renders the same body.
+  //
+  // Pinned here and again in
+  // `components/creatives/creative-evidence-window-wiring.test.ts` — the route
+  // must go through the shared shim rather than mounting the body itself, so
+  // the three route families cannot drift apart. The server-resolved provider
+  // account now reaches the body THROUGH that shim as `serverProviderAccountId`
+  // rather than by mounting the body directly, which would have broken the
+  // convergence law this test exists to protect.
   it("passes the server-authorized business scope directly to the legacy body without a second interior shell", async () => {
     await renderPage({
       searchParams: { providerAccountId: "act_assigned" },
@@ -134,11 +138,32 @@ describe("Meta Decisions canonical route authority", () => {
       businessId: "biz_route",
       businessName: "Route Business",
       currency: "TRY",
+      serverProviderAccountId: "act_assigned",
     });
     expect(legacyInteriorBridge).not.toHaveBeenCalled();
   });
 
-  it("sends an unassigned account request through the fail-closed server resolver without widening the page props", async () => {
+  // Law: the fail-closed resolver is the only thing that may name an account.
+  // An unassigned requested id resolves to null, and the route may never
+  // substitute some other account it happens to have access to — not in the
+  // props, and not by letting the raw URL value through.
+  //
+  // WHY it is the law (restated, because the previous statement of it was
+  // factually wrong): this test used to justify itself with the claim that
+  // `/api/meta/decisions-workspace` does not re-check the requested account.
+  // It does. `canonicalDecisionReadModel()` in
+  // `app/api/meta/decisions-workspace/route.ts` calls
+  // `getProviderAccountAssignments(businessId, "meta")` and returns
+  // `403 provider_account_not_assigned` for an id outside `account_ids`,
+  // and the GET handler propagates that status. The real law is narrower and
+  // survives that correction: this page's resolver is the surface's scope OF
+  // RECORD. Everything downstream — the picker fallback, the account label,
+  // the currency, every deep link this screen mints — treats
+  // `serverProviderAccountId` as already verified. Forwarding an id that was
+  // never verified here would make an unverified value indistinguishable from
+  // a verified one at every one of those readers, no matter how well the API
+  // defends itself.
+  it("sends an unassigned account request through the fail-closed server resolver and forwards the resolver's null, never the raw id", async () => {
     vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValueOnce(
       null,
     );
@@ -152,10 +177,16 @@ describe("Meta Decisions canonical route authority", () => {
       provider: "meta",
       requestedAccountId: "act_unassigned",
     });
+    // The forwarded value is the RESOLVER'S answer, so an unassigned request
+    // arrives at the body as null. The raw URL id must never be substituted —
+    // not because the API is undefended (it returns 403
+    // provider_account_not_assigned), but because this prop is consumed as
+    // already-verified scope by everything downstream of it.
     expect(legacyMetaPage.mock.calls[0]?.[0]).toEqual({
       businessId: "biz_route",
       businessName: "Route Business",
       currency: "TRY",
+      serverProviderAccountId: null,
     });
     expect(legacyMetaPage.mock.calls[0]?.[0]).not.toHaveProperty(
       "providerAccountId",
@@ -208,5 +239,33 @@ describe("Meta Decisions canonical route authority", () => {
     expect(access.listUserBusinesses).not.toHaveBeenCalled();
     expect(providerScope.resolveProviderAccountId).not.toHaveBeenCalled();
     expect(legacyMetaPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("the server-resolved provider account reaches the body", () => {
+  // The route resolves the account under the session, and it is the only
+  // assignment-verified answer in the request. Dropping it meant a failing
+  // /api/meta/history/accounts read emptied the whole surface behind an error
+  // banner for a business whose single account the route had already resolved.
+  // Pinned on the source because the defect was an omission, not a wrong value.
+  const routeSource = readFileSync(
+    "app/c/[businessId]/meta/decisions/page.tsx",
+    "utf8",
+  );
+  const shimSource = readFileSync(
+    "app/(dashboard)/platforms/meta/legacy-page.tsx",
+    "utf8",
+  );
+
+  it("forwards it instead of voiding it", () => {
+    expect(routeSource).toContain("serverProviderAccountId={providerAccountId}");
+    expect(routeSource).not.toContain("void providerAccountId;");
+  });
+
+  it("carries it through the shared shim to the body", () => {
+    expect(shimSource).toContain("serverProviderAccountId?: string | null;");
+    expect(shimSource).toContain(
+      "serverProviderAccountId={serverProviderAccountId}",
+    );
   });
 });

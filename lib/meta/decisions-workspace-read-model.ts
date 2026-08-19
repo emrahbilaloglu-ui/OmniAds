@@ -143,6 +143,10 @@ export interface MetaDecisionSnapshotSourceRow {
   blocked_action_type: string | null;
   computed_at: string;
   episode_started_at: string;
+  creative_format?: string | null;
+  ctr_28d?: unknown;
+  frequency_28d?: unknown;
+  fatigue_status?: string | null;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -194,6 +198,14 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   media_available: boolean;
   media_source: string | null;
   source_updated_at: string | null;
+  /**
+   * Lineage read from the lifecycle row the engine decided from. Optional so a
+   * generation persisted before this join stays readable; absent is unknown.
+   */
+  creative_format?: string | null;
+  ctr_28d?: unknown;
+  frequency_28d?: unknown;
+  fatigue_status?: string | null;
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
@@ -410,6 +422,11 @@ function nonNegativeInteger(value: unknown): number {
 function verifiedMetaAdId(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized && /^\d+$/.test(normalized) ? normalized : null;
+}
+
+/** A trimmed string, or null — an empty column is unknown, not an empty label. */
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function normalizeCurrency(value: unknown): string | null {
@@ -1360,6 +1377,8 @@ function buildCanonicalDecision(input: {
         purchases: finiteNumber(input.snapshot.purchases),
         roas: finiteNumber(input.snapshot.roas),
         recent7dRoas: finiteNumber(input.snapshot.recent7d_roas),
+        ctr: finiteNumber(input.snapshot.ctr_28d),
+        frequency: finiteNumber(input.snapshot.frequency_28d),
         effectiveTargetRoas: finiteNumber(input.snapshot.effective_target_roas),
         ratioToTarget: finiteNumber(input.snapshot.ratio_to_target),
         currency: normalizeCurrency(input.identity.currency),
@@ -1367,12 +1386,14 @@ function buildCanonicalDecision(input: {
         provenance: provenance({
           source: "engine_v3_decision_snapshots_daily+meta_creative_daily",
           field:
-            "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,account_currency",
+            "spend,purchases,roas,recent7d_roas,ctr_28d,frequency_28d,effective_target_roas,ratio_to_target,account_currency",
           recordId: input.snapshot.snapshot_id,
           asOf: input.snapshot.as_of_date,
           version: input.snapshot.engine_version,
         }),
       },
+      creativeFormat: nonEmptyString(input.snapshot.creative_format),
+      fatigueStatus: nonEmptyString(input.snapshot.fatigue_status),
       exposure: exposure.exposure,
       exposureUnavailableReason: exposure.reason,
       history: historyFor({
@@ -2126,6 +2147,10 @@ function nativeSnapshotToInternalSnapshot(
     blocked_action_type: row.blocked_action_type,
     computed_at: row.computed_at,
     episode_started_at: row.episode_started_at,
+    creative_format: row.creative_format,
+    ctr_28d: row.ctr_28d,
+    frequency_28d: row.frequency_28d,
+    fatigue_status: row.fatigue_status,
   };
 }
 
@@ -2758,8 +2783,20 @@ async function readNativeSnapshotRows(input: {
         ELSE NULL
       END AS media_source,
       COALESCE(media.updated_at, creative_dim.updated_at, ad_dim.updated_at)::text
-        AS source_updated_at
+        AS source_updated_at,
+      lifecycle.creative_format AS creative_format,
+      lifecycle.ctr_28d AS ctr_28d,
+      lifecycle.frequency_28d AS frequency_28d,
+      lifecycle.fatigue_status AS fatigue_status
     FROM engine_v3_ad_decision_snapshots_daily snapshot
+    /* The engine already recorded which lifecycle row it decided from. Joining
+       it back is a lineage read, not a second opinion: format, 28d CTR, 28d
+       frequency and fatigue status come from the exact row behind the verdict,
+       never from a re-aggregation that could disagree with it. */
+    LEFT JOIN engine_v3_creative_lifecycle_daily lifecycle
+      ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id
+     AND lifecycle.business_ref_id = snapshot.business_ref_id
+     AND lifecycle.business_id = snapshot.business_id
     LEFT JOIN engine_v3_ad_decision_evaluations evaluation
       ON evaluation.id = snapshot.evaluation_id
      AND evaluation.business_ref_id = snapshot.business_ref_id
@@ -2786,9 +2823,21 @@ async function readNativeSnapshotRows(input: {
     LEFT JOIN LATERAL (
       SELECT MIN(history.as_of_date) AS episode_started_at
       FROM engine_v3_ad_decision_snapshots_daily history
+      /* The two entity predicates below are redundant with history.ad_id --
+         the outer WHERE pins decision_entity_id = ad_id -- but they are what
+         makes this lookup use engine_v3_ad_snapshots_ad_identity_unique.
+         Filtering on ad_id alone left decision_entity_type and
+         decision_entity_id unconstrained in the middle of that index, so each
+         of the ~2.5k rows scanned ~15k history rows and threw them away:
+         309 million buffer hits and 258 seconds for one read, against an 8s
+         query timeout. Every operator with a real account therefore fell back
+         to legacy_creative and saw an empty Creatives scope. Same rows, same
+         episode, 6s. */
       WHERE history.business_ref_id = snapshot.business_ref_id
         AND history.provider_account_ref_id = snapshot.provider_account_ref_id
         AND history.provider_account_id = snapshot.provider_account_id
+        AND history.decision_entity_type = snapshot.decision_entity_type
+        AND history.decision_entity_id = snapshot.decision_entity_id
         AND history.ad_id = snapshot.ad_id
         AND history.engine_version = snapshot.engine_version
         AND history.scope_type = snapshot.scope_type
@@ -2801,6 +2850,8 @@ async function readNativeSnapshotRows(input: {
           WHERE changed.business_ref_id = snapshot.business_ref_id
             AND changed.provider_account_ref_id = snapshot.provider_account_ref_id
             AND changed.provider_account_id = snapshot.provider_account_id
+            AND changed.decision_entity_type = snapshot.decision_entity_type
+            AND changed.decision_entity_id = snapshot.decision_entity_id
             AND changed.ad_id = snapshot.ad_id
             AND changed.engine_version = snapshot.engine_version
             AND changed.scope_type = snapshot.scope_type
@@ -3098,6 +3149,23 @@ async function readValidatedMetaNativeDecisionSubset(
   };
 }
 
+/**
+ * Say why the native decision read failed, once per distinct cause.
+ *
+ * The caller fails closed to the legacy source either way; what it must not do
+ * is fail closed silently. A missing relation behind a capability gate and a
+ * query that has outgrown its timeout produce the same fallback reason and look
+ * identical in the UI, which is how a permanent timeout survived unnoticed.
+ */
+const reportedNativeReadFailures = new Set<string>();
+
+function reportNativeGenerationReadFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (reportedNativeReadFailures.has(message)) return;
+  reportedNativeReadFailures.add(message);
+  console.error("[meta] native decision generation read failed", { message });
+}
+
 export async function readValidatedMetaNativeDecisionGenerationBundle(
   input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
 ): Promise<MetaValidatedNativeDecisionGenerationBundle> {
@@ -3124,7 +3192,11 @@ export async function readValidatedMetaNativeDecisionGenerationBundle(
       generation: generationRead.generation,
       snapshotRows,
     });
-  } catch {
+  } catch (error) {
+    // This catch hid a 258-second query behind a generic "schema read failed"
+    // for as long as the native path has existed. Report it so the next cause
+    // is visible on the first occurrence instead of the hundredth.
+    reportNativeGenerationReadFailure(error);
     return unavailableNativeGenerationBundle({
       reason: "native_schema_or_generation_read_failed",
     });

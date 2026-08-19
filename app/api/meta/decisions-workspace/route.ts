@@ -229,15 +229,70 @@ async function invokeWorkspaceUpstream(input: {
   return getLaneClassification(upstreamRequest);
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Inclusive day count for a preset key. Unknown keys read as the 28d default,
+ *  which is what both upstreams' own `parseWindow` already does. */
+function workspaceWindowDays(window: string | null): number {
+  if (window === "7d") return 7;
+  if (window === "14d") return 14;
+  if (window === "90d") return 90;
+  return 28;
+}
+
+function shiftIsoDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function statedIsoDate(source: URLSearchParams, key: string): string | null {
+  const value = source.get(key)?.trim() ?? "";
+  return ISO_DATE.test(value) ? value : null;
+}
+
+/**
+ * Resolve the window ONCE, here, and hand both upstreams the same two days.
+ *
+ * This was the third of three disagreeing resolvers. It forwarded whatever
+ * dates it was given and, when given none, filled in only an end date of its
+ * own (`resolveWorkspaceEndDate`) — so a caller who picked "Last 7 days" and a
+ * caller who picked it in the shell were answered for different weeks, and a
+ * caller who stated a start date with no end got a window of arbitrary length
+ * still labelled "7d".
+ *
+ * The rule is now the same one the client obeys (see
+ * `DATE_WINDOW_INCLUDES_CURRENT_DAY` in `lib/dashboard/date-window-url`): a
+ * stated pair of dates IS the window and travels verbatim; a half-stated or
+ * unstated window is completed from the preset's own day count, anchored on
+ * whichever end is known. The response echoes the dates the upstreams
+ * measured, so the window named is the window served.
+ */
+function resolveWorkspaceWindow(
+  source: URLSearchParams,
+  resolvedEndDate: string,
+): { startDate: string; endDate: string } {
+  const statedStart = statedIsoDate(source, "startDate");
+  const statedEnd = statedIsoDate(source, "endDate");
+  if (statedStart && statedEnd && statedStart <= statedEnd) {
+    return { startDate: statedStart, endDate: statedEnd };
+  }
+  const days = workspaceWindowDays(source.get("window"));
+  if (statedEnd) {
+    return { startDate: shiftIsoDate(statedEnd, -(days - 1)), endDate: statedEnd };
+  }
+  if (statedStart) {
+    return { startDate: statedStart, endDate: shiftIsoDate(statedStart, days - 1) };
+  }
+  return {
+    startDate: shiftIsoDate(resolvedEndDate, -(days - 1)),
+    endDate: resolvedEndDate,
+  };
+}
+
 function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
   const params = new URLSearchParams();
-  for (const key of [
-    "businessId",
-    "providerAccountId",
-    "window",
-    "startDate",
-    "endDate",
-  ]) {
+  for (const key of ["businessId", "providerAccountId", "window"]) {
     const value = source.get(key);
     if (value) params.set(key, value);
   }
@@ -247,7 +302,12 @@ function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
     "status_filter",
     source.get("status_filter") ?? (source.get("surface") === "os" ? "active" : "all"),
   );
-  if (!params.has("endDate")) params.set("endDate", resolvedEndDate);
+  const window = resolveWorkspaceWindow(source, resolvedEndDate);
+  // Both dates always travel. Leaving `startDate` off let each upstream derive
+  // its own start from its own `windowDays` table — two copies of one rule,
+  // which is one copy too many for a number the operator is shown.
+  params.set("startDate", window.startDate);
+  params.set("endDate", window.endDate);
   params.set("decision_workspace", "1");
   if (source.get("surface") === "os") params.set("workspace_surface", "os");
   return params;
@@ -1088,6 +1148,18 @@ export async function GET(request: NextRequest) {
         ).value;
   const endDateResolvedAt = performance.now();
   const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
+  /**
+   * The last day of the window that was actually resolved above — the one both
+   * upstreams are being handed.
+   *
+   * The decision read model used `resolvedEndDate` directly, which is only the
+   * *fallback* anchor. Whenever the resolved window ended on a different day
+   * (a caller stating a start date with no end), the lanes were classified for
+   * one window while the decisions behind them were read as of another. Read
+   * the served value back off `params` so there is exactly one answer to "which
+   * day is this?" on this request.
+   */
+  const servedEndDate = params.get("endDate") ?? resolvedEndDate;
   // A dated view keeps the persisted snapshot's historical target provenance,
   // but serve-time action authority must always be revalidated against current
   // commercial truth (D045).
@@ -1152,14 +1224,14 @@ export async function GET(request: NextRequest) {
             businessId,
             providerAccountId,
             adCandidateLimit,
-            asOfDate: resolvedEndDate,
+            asOfDate: servedEndDate,
             currentAds,
             activeOnly: compactOsSurface,
           }),
           readCurrentCampaignContexts({
             businessId,
             providerAccountId,
-            snapshotAsOf: resolvedEndDate,
+            snapshotAsOf: servedEndDate,
             campaignIds: campaignContextIds,
           }),
         ]);
@@ -1170,7 +1242,7 @@ export async function GET(request: NextRequest) {
       }
       return (
         await getCachedValue({
-          key: `meta-decisions-bundle-v5:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
+          key: `meta-decisions-bundle-v5:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadDecisionBundle,

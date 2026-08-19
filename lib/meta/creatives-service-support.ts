@@ -12,6 +12,8 @@ import {
 } from "@/lib/meta/creative-taxonomy";
 import type {
   CreativeMetricFields,
+  CreativeMetricPresence,
+  CreativeMetricPresenceKey,
   CreativeDebugInfo,
   LegacyPreviewState,
   MetaCreativeApiRow,
@@ -19,6 +21,7 @@ import type {
   NormalizedRenderPreviewPayload,
   RawCreativeRow,
 } from "@/lib/meta/creatives-types";
+import { isCreativeMetricAvailable } from "@/lib/meta/creatives-types";
 import { isLikelyLowResCreativeUrl, isThumbnailLikeUrl } from "@/lib/meta/creatives-preview";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { resolveAiTagsForRow } from "@/lib/meta/creatives-copy";
@@ -89,6 +92,79 @@ export function collectUnresolvedCreativeIds(rows: RawCreativeRow[]) {
   ).slice(0, 50);
 }
 
+/**
+ * The presence map that describes the API row, given the raw row's.
+ *
+ * The API row is not a copy of the raw row: `buildMetaCreativeApiRow` and
+ * `normalizeCreativeMetricFields` RECOMPUTE every ratio from the base counters
+ * and discard whatever ratio the source sent. So the availability of a ratio on
+ * the wire is a fact about the arithmetic performed here — both operands
+ * available AND the denominator greater than zero — not about the source's own
+ * ratio column.
+ *
+ * The zero-denominator rule is the second half of the fix. Each ratio ends
+ * `: 0`, so a creative that spent ₺33,500 and bought nothing published
+ * `cpa: 0`, and CPA is a lower-is-better column: the account's worst waste was
+ * painted as its cost-per-acquisition leader. Cost per acquisition with no
+ * acquisitions is undefined, and undefined is an em dash.
+ *
+ * Returns undefined for a raw row that publishes nothing, so the additive
+ * contract holds end to end.
+ */
+export function resolveApiRowMetricPresence(
+  row: Pick<
+    CreativeMetricFields,
+    | "spend"
+    | "purchases"
+    | "impressions"
+    | "link_clicks"
+    | "add_to_cart"
+    | "metric_presence"
+  >,
+): CreativeMetricPresence | undefined {
+  const source = row.metric_presence;
+  if (!source) return undefined;
+  const has = (key: CreativeMetricPresenceKey) => isCreativeMetricAvailable(source, key);
+  const positive = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0;
+
+  const spend = has("spend");
+  const impressions = has("impressions");
+  const linkClicks = has("link_clicks");
+  const purchases = has("purchases");
+  const addToCart = has("add_to_cart");
+  // `normalizedPurchaseValue` falls back to `roas * spend`, so either source
+  // establishes the revenue figure the ratios below are built on.
+  const purchaseValue = has("purchase_value") || has("roas");
+
+  // The impression-denominated shares. `buildMetaCreativeApiRow` and `groupRows`
+  // both compute these as `impressions > 0 ? share : 0`, so a creative day with
+  // no delivery published `thumbstop: 0` and `video25: 0` — read on screen as a
+  // hook that failed, when in fact nothing was ever served to hook. A share of
+  // nothing is undefined, which is an em dash. `has(...)` guards each one so a
+  // producer that already declared the field unavailable is not overruled here.
+  const impressionShare = (key: CreativeMetricPresenceKey) =>
+    has(key) && impressions && positive(row.impressions);
+
+  const derived: CreativeMetricPresence = {
+    ...source,
+    purchase_value: purchaseValue,
+    roas: spend && purchaseValue && positive(row.spend),
+    cpa: spend && purchases && positive(row.purchases),
+    cpc_link: spend && linkClicks && positive(row.link_clicks),
+    cpm: spend && impressions && positive(row.impressions),
+    ctr_all: linkClicks && impressions && positive(row.impressions),
+    click_to_atc: addToCart && linkClicks && positive(row.link_clicks),
+    atc_to_purchase: purchases && addToCart && positive(row.add_to_cart),
+    thumbstop: impressionShare("thumbstop"),
+    video25: impressionShare("video25"),
+    video50: impressionShare("video50"),
+    video75: impressionShare("video75"),
+    video100: impressionShare("video100"),
+  };
+  return derived;
+}
+
 export function normalizeCreativeMetricFields<T extends CreativeMetricFields>(row: T) {
   const spend = Number.isFinite(row.spend) ? Math.max(0, row.spend) : 0;
   const purchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
@@ -121,6 +197,11 @@ export function normalizeCreativeMetricFields<T extends CreativeMetricFields>(ro
     add_to_cart: Math.round(addToCart),
     click_to_atc: r2(linkClicks > 0 ? (addToCart / linkClicks) * 100 : 0),
     atc_to_purchase: r2(addToCart > 0 ? (purchases / addToCart) * 100 : 0),
+    // Every number above ends in `?? 0` / `: 0`. The sidecar is what survives
+    // that, and it is computed from the SAME operands and denominators this
+    // function just used, so it describes this output exactly rather than
+    // guessing at it from the outside.
+    metric_presence: resolveApiRowMetricPresence(row),
   };
 }
 
@@ -481,6 +562,10 @@ export function buildMetaCreativeApiRow(params: {
     taxonomy_version: "v2",
     taxonomy_source: taxonomySource,
     taxonomy_reconciled_by_video_evidence: taxonomyReconciledByVideoEvidence,
+    // Availability travels beside the numbers, never inside them. Recomputed
+    // here from the same operands the lines below use, because this builder
+    // rebuilds every ratio itself.
+    metric_presence: resolveApiRowMetricPresence(row),
     spend: r2(safeSpend),
     purchase_value: r2(normalizedPurchaseValue),
     roas: r2(normalizedRoas),
@@ -642,6 +727,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
       row.taxonomy_source ??
       (row.creative_primary_type ? "deterministic" : "legacy_fallback"),
     taxonomy_reconciled_by_video_evidence: row.taxonomy_reconciled_by_video_evidence ?? false,
+    metric_presence: normalizedMetrics.metric_presence,
     spend: normalizedMetrics.spend,
     purchase_value: normalizedMetrics.purchase_value,
     roas: normalizedMetrics.roas,

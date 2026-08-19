@@ -426,10 +426,71 @@ async function readAddToExistingTarget(input: {
   };
 }
 
+/**
+ * The account-level half of a validation, resolved once.
+ *
+ * Billing status and the pixel list are properties of the ad account, not of
+ * the draft being checked, so validating a table of drafts re-read them from
+ * the Graph API once per row: fifty drafts on one Launchpad load meant about a
+ * hundred provider reads for two answers.
+ *
+ * Deliberately an explicit parameter rather than a cache inside the reads. A
+ * cached "billing is fine" is a stale permission, and this validator also runs
+ * on the write path, where the answer has to be the account's state now. The
+ * batch route opts in for one advisory sweep; every write path passes nothing
+ * and reads the provider exactly as it always has.
+ */
+export interface MetaLaunchAccountChecks {
+  billingBlocker: LaunchpadIssue | null;
+  billingReadError: LaunchpadIssue | null;
+  pixels: MetaLaunchPixel[];
+  pixelReadError: LaunchpadIssue | null;
+}
+
+export async function readMetaLaunchAccountChecks(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<MetaLaunchAccountChecks | null> {
+  const ctxResult = await resolveMetaLaunchWriteContext(
+    input.businessId,
+    input.providerAccountId,
+  );
+  if (!ctxResult.ok) return null;
+  const checks: MetaLaunchAccountChecks = {
+    billingBlocker: null,
+    billingReadError: null,
+    pixels: [],
+    pixelReadError: null,
+  };
+  try {
+    checks.billingBlocker = await readBillingStatus(ctxResult.ctx);
+  } catch (error) {
+    checks.billingReadError = {
+      code: "billing_check_failed",
+      message: sanitizeMetaMessage(
+        error instanceof Error ? error.message : String(error),
+      ),
+    };
+  }
+  try {
+    checks.pixels = await readPixels(ctxResult.ctx);
+  } catch (error) {
+    checks.pixelReadError = {
+      code: "pixel_check_failed",
+      message: sanitizeMetaMessage(
+        error instanceof Error ? error.message : String(error),
+      ),
+    };
+  }
+  return checks;
+}
+
 export async function validateMetaLaunchRequest(input: {
   businessId: string;
   providerAccountId: string;
   payload: unknown;
+  /** Advisory batch only. Absent on every write path. */
+  accountChecks?: MetaLaunchAccountChecks | null;
 }): Promise<MetaLaunchValidationResult> {
   const payload = normalizeMetaLaunchPayload(input.payload);
   const shape = validateMetaLaunchPayloadShape(payload);
@@ -437,15 +498,22 @@ export async function validateMetaLaunchRequest(input: {
   const warnings = [...shape.warnings];
   let pixels: MetaLaunchPixel[] = [];
 
-  const ctxResult = await resolveMetaLaunchWriteContext(
-    input.businessId,
-    input.providerAccountId,
-  );
-  if (!ctxResult.ok) {
+  // Supplied only by the advisory batch. Every write path leaves it absent and
+  // reads the provider here, so a launch is never gated on a borrowed answer.
+  const shared = input.accountChecks ?? null;
+  const ctxResult = shared
+    ? null
+    : await resolveMetaLaunchWriteContext(
+        input.businessId,
+        input.providerAccountId,
+      );
+  if (ctxResult && !ctxResult.ok) {
     blockers.push(ctxResult.blocker);
   } else {
     try {
-      const billingBlocker = await readBillingStatus(ctxResult.ctx);
+      const billingBlocker = shared
+        ? (shared.billingReadError ?? shared.billingBlocker)
+        : await readBillingStatus(ctxResult!.ctx);
       if (billingBlocker) blockers.push(billingBlocker);
     } catch (error) {
       blockers.push({
@@ -457,7 +525,8 @@ export async function validateMetaLaunchRequest(input: {
     }
 
     try {
-      pixels = await readPixels(ctxResult.ctx);
+      if (shared?.pixelReadError) throw new Error(shared.pixelReadError.message);
+      pixels = shared ? shared.pixels : await readPixels(ctxResult!.ctx);
       const activePixelIds = new Set(
         pixels.filter((pixel) => pixel.active).map((pixel) => pixel.id),
       );

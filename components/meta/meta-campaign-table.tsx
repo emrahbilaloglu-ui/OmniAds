@@ -68,14 +68,24 @@ export type MetaCampaignTableRow = MetaCampaignData & {
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-function fmt$(n: number, sym = "$"): string {
+// A money value whose currency is unknown renders as the missing mark, not as
+// a dollar figure. INVARIANTS.md: "Missing currency must not silently become
+// USD, $, TRY, or EUR." The `sym = "$"` defaults these formatters carried were
+// exactly that substitution, one hop below the store.
+function fmt$(n: number, sym: string | null): string {
+  if (sym === null) return "—";
   return `${sym}${n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
-function fmtBudget(daily: number | null, lifetime: number | null, sym = "$"): string {
+function fmtBudget(
+  daily: number | null,
+  lifetime: number | null,
+  sym: string | null,
+): string {
+  if (sym === null) return "—";
   if (daily != null) return `${fmt$(daily / 100, sym)}/day`;
   if (lifetime != null) return `${fmt$(lifetime / 100, sym)} lifetime`;
   return "—";
@@ -88,9 +98,10 @@ function hasBudgetValue(daily: number | null | undefined, lifetime: number | nul
 function fmtBidValue(
   amount: number | null | undefined,
   format: "currency" | "roas" | null | undefined,
-  sym = "$"
+  sym: string | null,
 ): string {
   if (typeof amount !== "number" || !Number.isFinite(amount)) return "—";
+  // A ROAS multiple is currency-free, so it stays readable without a symbol.
   if (format === "roas") return `${amount.toFixed(2)}x`;
   return fmt$(amount / 100, sym);
 }
@@ -106,7 +117,7 @@ function renderBidValueText(
   value: number | null | undefined,
   format: "currency" | "roas" | null | undefined,
   isMixed: boolean | undefined,
-  sym: string
+  sym: string | null,
 ) {
   if (isMixed) return "Mixed";
   return fmtBidValue(value, format, sym);

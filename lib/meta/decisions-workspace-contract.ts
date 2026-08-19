@@ -335,12 +335,23 @@ export interface MetaCanonicalDecision {
     purchases: number | null;
     roas: number | null;
     recent7dRoas: number | null;
+    /**
+     * 28-day CTR and frequency read back from the lifecycle row the engine
+     * decided from. Optional because payloads serialized before the lineage
+     * join must stay renderable; absent means unknown, never zero.
+     */
+    ctr?: number | null;
+    frequency?: number | null;
     effectiveTargetRoas: number | null;
     ratioToTarget: number | null;
     currency: string | null;
     attribution: "meta_attributed";
     provenance: MetaDecisionProvenance;
   };
+  /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
+  creativeFormat?: string | null;
+  /** `none` | `watch` | `fatigued` | `unknown` from the same row. */
+  fatigueStatus?: string | null;
   exposure: MetaDecisionExposure | null;
   exposureUnavailableReason:
     "spend_unavailable" | "currency_unavailable" | null;

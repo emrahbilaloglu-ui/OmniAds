@@ -8,15 +8,39 @@ vi.mock("@/lib/meta/automation-rules-store", async () => {
   const actual = await vi.importActual<
     typeof import("@/lib/meta/automation-rules-store")
   >("@/lib/meta/automation-rules-store");
-  return { ...actual, recordRuleFirings: vi.fn(async () => []) };
+  return {
+    ...actual,
+    recordRuleFirings: vi.fn(async () => []),
+    listAutomationRules: vi.fn(async () => []),
+  };
 });
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(async () => ({ ready: true })),
+}));
+vi.mock("@/lib/sync/active-businesses", () => ({
+  getActiveBusinesses: vi.fn(async () => []),
+}));
+vi.mock("@/lib/meta/creatives-fetchers", () => ({
+  fetchAssignedAccountIds: vi.fn(async () => []),
+}));
+vi.mock("@/lib/meta/automation-control-plane", () => ({
+  getMetaWriteBlockState: vi.fn(async () => ({
+    blocked: false,
+    reason: null,
+    message: null,
+  })),
+}));
 
 const db = await import("@/lib/db");
 const commercial = await import("@/lib/business-commercial");
 const store = await import("@/lib/meta/automation-rules-store");
-const { evaluateBusinessAutomationRules } = await import(
-  "@/lib/meta/automation-rules-evaluation"
-);
+const activeBusinesses = await import("@/lib/sync/active-businesses");
+const assignments = await import("@/lib/meta/creatives-fetchers");
+const controlPlane = await import("@/lib/meta/automation-control-plane");
+const {
+  evaluateBusinessAutomationRules,
+  runMetaAutomationRuleEvaluationIfDue,
+} = await import("@/lib/meta/automation-rules-evaluation");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 
@@ -54,7 +78,21 @@ function warehouseSql(rows: unknown[], maxDate: string | null = "2026-08-16") {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(store.recordRuleFirings).mockResolvedValue([]);
+  vi.mocked(store.listAutomationRules).mockResolvedValue([RULE]);
+  vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
+    { id: BUSINESS_ID, name: "Grandmix" },
+  ] as never);
+  vi.mocked(assignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
+  vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+    blocked: false,
+    reason: null,
+    message: null,
+  });
 });
+
+/** 06:00 UTC — the slot the job runs in. */
+const DUE = new Date("2026-08-18T06:12:00.000Z");
+const NOT_DUE = new Date("2026-08-18T09:12:00.000Z");
 
 describe("evaluateBusinessAutomationRules", () => {
   it("anchors the evaluation to the newest warehouse day rather than the wall clock", async () => {
@@ -200,5 +238,186 @@ describe("evaluateBusinessAutomationRules", () => {
     });
 
     expect(second.evaluation).toEqual(first.evaluation);
+  });
+});
+
+/**
+ * The scheduled caller. Without it the evaluator had no production trigger at
+ * all: a rule an operator armed could never fire, and "Fired · 28d" would have
+ * stayed `0×` forever while looking like a measured zero.
+ */
+describe("runMetaAutomationRuleEvaluationIfDue", () => {
+  function warehouseReady() {
+    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
+      snapshot({
+        targetRoas: 3.8,
+        breakEvenRoas: 2.5,
+        targetCpa: null,
+        breakEvenCpa: null,
+      }),
+    );
+    vi.mocked(db.getDb).mockReturnValue(
+      warehouseSql([
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-16", roas: 1.9, cpa: null, spend: 100, revenue: 190 },
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-15", roas: 1.8, cpa: null, spend: 100, revenue: 180 },
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-14", roas: 1.7, cpa: null, spend: 100, revenue: 170 },
+      ]) as never,
+    );
+  }
+
+  it("evaluates every assigned account of a business that has an armed rule", async () => {
+    warehouseReady();
+    vi.mocked(assignments.fetchAssignedAccountIds).mockResolvedValue([
+      "act_1",
+      "act_2",
+    ]);
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
+
+    expect(result.skipped).toBe(false);
+    if (result.skipped) throw new Error("unreachable");
+    expect(result.businesses[0].accounts.map((a) => a.providerAccountId)).toEqual(
+      ["act_1", "act_2"],
+    );
+    expect(store.recordRuleFirings).toHaveBeenCalledTimes(2);
+  });
+
+  it("does nothing outside its slot", async () => {
+    const result = await runMetaAutomationRuleEvaluationIfDue(NOT_DUE);
+
+    expect(result).toMatchObject({ skipped: true, reason: "not_due" });
+    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  // The operator's STOP means "stop automation", and a queue built while it is
+  // engaged is a queue nothing may approve. An unreadable control state gets the
+  // same treatment: it fails closed rather than guessing the switch is off.
+  it("raises nothing for a business whose Meta writes are blocked", async () => {
+    warehouseReady();
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: true,
+      reason: "business_kill_switch",
+      message: "Operator stop.",
+    });
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
+
+    if (result.skipped) throw new Error("unreachable");
+    expect(result.businesses[0]).toMatchObject({
+      skippedReason: "writes_blocked",
+      blockReason: "business_kill_switch",
+    });
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the control state cannot be read at all", async () => {
+    warehouseReady();
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockRejectedValue(
+      new Error("db down"),
+    );
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
+
+    if (result.skipped) throw new Error("unreachable");
+    expect(result.businesses[0]).toMatchObject({
+      skippedReason: "writes_blocked",
+      blockReason: "control_state_unavailable",
+    });
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  it("skips a business with no armed rule before reading its control state", async () => {
+    vi.mocked(store.listAutomationRules).mockResolvedValue([
+      { ...RULE, active: false },
+    ]);
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
+
+    if (result.skipped) throw new Error("unreachable");
+    expect(result.businesses[0]).toMatchObject({ skippedReason: "no_rules" });
+    expect(controlPlane.getMetaWriteBlockState).not.toHaveBeenCalled();
+    expect(assignments.fetchAssignedAccountIds).not.toHaveBeenCalled();
+  });
+
+  it("keeps one failing business from costing every other business its evaluation", async () => {
+    warehouseReady();
+    vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
+      { id: BUSINESS_ID, name: "A" },
+      { id: "0b3f5c2e-1111-4222-8333-444455556666", name: "B" },
+    ] as never);
+    vi.mocked(commercial.getBusinessCommercialTruthSnapshot)
+      .mockRejectedValueOnce(new Error("commercial truth unavailable"))
+      .mockResolvedValue(
+        snapshot({
+          targetRoas: 3.8,
+          breakEvenRoas: 2.5,
+          targetCpa: null,
+          breakEvenCpa: null,
+        }),
+      );
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
+
+    if (result.skipped) throw new Error("unreachable");
+    expect(result.businesses[0].accounts[0]).toMatchObject({
+      status: "failed",
+    });
+    expect(result.businesses[1].accounts[0]).toMatchObject({
+      status: "evaluated",
+    });
+  });
+});
+
+describe("the periodic evaluation is gated on stops, not on quiet hours", () => {
+  /**
+   * The job runs in one UTC hour. If a quiet-hours window covering that hour
+   * skipped it, the business would be evaluated on no day at all — the exact
+   * permanently-zero `firedCount` this job exists to close, hidden as a skip
+   * reason inside the cron receipt.
+   *
+   * Nothing is written by evaluating: a firing's strongest outcome is a proposal
+   * an operator still has to approve, and that approval re-checks the guard.
+   */
+  it("still evaluates a business whose writes are blocked only by a guard rule", async () => {
+    const gate = vi.mocked(controlPlane.getMetaWriteBlockState);
+    gate.mockResolvedValue({
+      blocked: true,
+      reason: "automation_guard_rule",
+      message: "Quiet hours are in effect.",
+      guardRule: null,
+    });
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(
+      DUE,
+    );
+
+    const skipped = result.skipped
+      ? []
+      : result.businesses.filter(
+          (outcome) => outcome.skippedReason === "writes_blocked",
+        );
+    expect(skipped).toHaveLength(0);
+  });
+
+  it("still refuses a business under a stop", async () => {
+    const gate = vi.mocked(controlPlane.getMetaWriteBlockState);
+    gate.mockResolvedValue({
+      blocked: true,
+      reason: "business_kill_switch",
+      message: "Automation is stopped for this business.",
+    });
+
+    const result = await runMetaAutomationRuleEvaluationIfDue(
+      DUE,
+    );
+
+    const skipped = result.skipped
+      ? []
+      : result.businesses.filter(
+          (outcome) => outcome.skippedReason === "writes_blocked",
+        );
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped[0]?.blockReason).toBe("business_kill_switch");
   });
 });

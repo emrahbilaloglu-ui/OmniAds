@@ -24,7 +24,12 @@ export function LegacyInteriorBridge({ children }: { children: React.ReactNode }
         {
           id: workspace.business.id,
           name: workspace.business.name,
-          currency: workspace.business.configuredCurrency ?? "USD",
+          // INVARIANTS.md: "Missing currency must not silently become USD, $,
+          // TRY, or EUR." This line used to write `?? "USD"`, which minted a
+          // provider-money currency the workspace had never configured and
+          // handed it to every symbol consumer downstream. A workspace with no
+          // configured currency now carries null and renders as unavailable.
+          currency: workspace.business.configuredCurrency ?? null,
           timezone: workspace.business.businessTimezone,
         },
       ],

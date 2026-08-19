@@ -107,6 +107,18 @@ function scoped(
   return `${base}?${params.toString()}`;
 }
 
+/**
+ * The creatives list this business's studio surfaces hang off.
+ *
+ * The account and window ride along so "back" returns to the same scope the
+ * operator left, rather than a re-defaulted one.
+ */
+function creativesListHref(scope: ScopeProps): string {
+  const params = new URLSearchParams({ start: scope.start, end: scope.end });
+  if (scope.providerAccountId) params.set("providerAccountId", scope.providerAccountId);
+  return `/c/${encodeURIComponent(scope.businessId)}/creative/performance?${params.toString()}`;
+}
+
 /* ---------------------------------------------------------------- briefs */
 
 export function CreativeBriefsClient(
@@ -169,6 +181,9 @@ export function CreativeBriefsClient(
     <SurfaceStateBoundary state={surface}>
       <BriefsView
         rows={(data?.briefs ?? []).map(toBriefRow)}
+        // Without this the view falls back to "/", which is the marketing
+        // landing page, not the creatives this brief came from.
+        backHref={creativesListHref(props)}
         canCreate={gate.ok}
         createBlockedReason={gate.ok ? null : gate.reason}
         error={error}

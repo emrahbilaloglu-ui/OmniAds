@@ -36,6 +36,7 @@ import {
   getMetaRawSnapshotCoverageByEndpoint,
 } from "@/lib/meta/warehouse";
 import {
+  deriveMetaFrequencyFromReach,
   type MetaAccountDailyRow,
   type MetaAdDailyRow,
   type MetaAdSetDailyRow,
@@ -388,13 +389,42 @@ export interface MetaWarehouseAdSetTableRow {
   videoViews3s?: number | null;
 }
 
+/**
+ * One bucket of one breakdown dimension.
+ *
+ * `reach` and `frequency` are nullable and that nullability is the contract:
+ * `null` means the warehouse holds no measured reach for this bucket — every
+ * row written before the breakdown fetch started asking Meta for it — and a
+ * reader must render "not measured", never 0 and never a computed exposure
+ * count. `reach: 0` from a legacy row is a stored literal, not a measurement,
+ * and it still yields `frequency: null` because 0 is not a divisor.
+ */
+export interface MetaWarehouseBreakdownBucket {
+  key: string;
+  label: string;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  clicks: number;
+  impressions: number;
+  reach: number | null;
+  frequency: number | null;
+}
+
 export interface MetaWarehouseBreakdownsResponse {
   freshness: MetaWarehouseFreshness;
   isPartial?: boolean;
   verification?: MetaWarehouseSummaryResponse["verification"];
-  age: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
-  location: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
-  placement: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
+  age: MetaWarehouseBreakdownBucket[];
+  /**
+   * The second dimension of the same `age,gender` fetch, stored under its own
+   * identity since the fold was removed at the write path. Empty for any day
+   * whose breakdown rows were written before that — those days genuinely hold
+   * no gender split and must stay honestly withheld rather than be inferred.
+   */
+  gender: MetaWarehouseBreakdownBucket[];
+  location: MetaWarehouseBreakdownBucket[];
+  placement: MetaWarehouseBreakdownBucket[];
   budget: {
     campaign: Array<{ key: string; label: string; spend: number }>;
     adset: Array<{ key: string; label: string; spend: number }>;
@@ -584,24 +614,13 @@ function filterBreakdownRowsToPublishedKeys<
   });
 }
 
-type RequestedMetaBreakdownType = "age" | "country" | "placement";
+type RequestedMetaBreakdownType = "age" | "gender" | "country" | "placement";
 
 function aggregateMetaBreakdownRows(input: {
   breakdownRows: MetaBreakdownDailyRow[];
   kind: RequestedMetaBreakdownType;
-}) {
-  const byKey = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      spend: number;
-      purchases: number;
-      revenue: number;
-      clicks: number;
-      impressions: number;
-    }
-  >();
+}): MetaWarehouseBreakdownBucket[] {
+  const byKey = new Map<string, MetaWarehouseBreakdownBucket>();
   for (const row of input.breakdownRows.filter(
     (candidate) => candidate.breakdownType === input.kind,
   )) {
@@ -612,6 +631,11 @@ function aggregateMetaBreakdownRows(input: {
       existing.revenue = r2(existing.revenue + row.revenue);
       existing.clicks += row.clicks;
       existing.impressions += row.impressions;
+      // A day that measured nothing must not drag a measured total to zero, and
+      // a day that measured something must not be erased by a day that did not.
+      // Absent stays absent; present accumulates.
+      existing.reach =
+        row.reach == null ? existing.reach : (existing.reach ?? 0) + row.reach;
     } else {
       byKey.set(row.breakdownKey, {
         key: row.breakdownKey,
@@ -621,10 +645,23 @@ function aggregateMetaBreakdownRows(input: {
         revenue: row.revenue,
         clicks: row.clicks,
         impressions: row.impressions,
+        reach: row.reach,
+        frequency: null,
       });
     }
   }
-  return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
+  return Array.from(byKey.values())
+    .map((bucket) => ({
+      ...bucket,
+      // Derived last, from the summed totals, through the ONE frequency law —
+      // the same one the ad-set and account aggregations below call. A bucket
+      // with no measured reach gets null, not 0 and not Infinity.
+      frequency: deriveMetaFrequencyFromReach({
+        impressions: bucket.impressions,
+        reach: bucket.reach,
+      }),
+    }))
+    .sort((a, b) => b.spend - a.spend);
 }
 
 function aggregateMetaCampaignBreakdownBudgetRows(
@@ -713,6 +750,18 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
   requestedBreakdownTypes: RequestedMetaBreakdownType[];
+  /**
+   * The types a published day must ALL carry before any of its rows are served.
+   *
+   * Split from `requestedBreakdownTypes` because the two answer different
+   * questions, and conflating them would have been a regression the moment
+   * `gender` was added: no day written before the write-path fix holds a gender
+   * row, so requiring gender would have made this filter discard that day's age,
+   * country and placement rows too — three working panels emptied to serve a
+   * fourth. Defaults to the requested list, which is what every caller meant
+   * while the two lists happened to be identical.
+   */
+  requiredBreakdownTypes?: RequestedMetaBreakdownType[];
 }) {
   const providerAccountIds = input.providerAccountIds ?? [];
   const v2Enabled =
@@ -754,7 +803,9 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
     ? filterBreakdownRowsToPublishedKeys({
         rows: rawBreakdownRows,
         verification,
-        requiredBreakdownTypes: [...input.requestedBreakdownTypes],
+        requiredBreakdownTypes: [
+          ...(input.requiredBreakdownTypes ?? input.requestedBreakdownTypes),
+        ],
       })
     : rawBreakdownRows;
 
@@ -1031,7 +1082,7 @@ export function rebuildAccountRowsFromCampaignRows(input: {
       impressions,
       clicks,
       reach,
-      frequency: reach > 0 ? r2(impressions / reach) : null,
+      frequency: deriveMetaFrequencyFromReach({ impressions, reach }),
       conversions,
       revenue,
       roas: spend > 0 ? r2(revenue / spend) : 0,
@@ -2154,7 +2205,7 @@ export async function getMetaWarehouseAdSets(input: {
       impressions,
       reach,
       clicks,
-      frequency: reach > 0 ? r2(impressions / reach) : null,
+      frequency: deriveMetaFrequencyFromReach({ impressions, reach }),
       roas: spend > 0 ? r2(revenue / spend) : 0,
       cpa: purchases > 0 ? r2(spend / purchases) : null,
       ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
@@ -2262,7 +2313,17 @@ export async function getMetaWarehouseBreakdowns(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseBreakdownsResponse> {
-  const requestedBreakdownTypes = ["age", "country", "placement"] as const;
+  // Gender is FETCHED but not REQUIRED. It rides along on days that have it and
+  // is simply absent on days that do not, which is the only shape that lets the
+  // Gender panel fill going forward without emptying the three panels that
+  // already work for every historical day.
+  const requestedBreakdownTypes = [
+    "age",
+    "gender",
+    "country",
+    "placement",
+  ] as const;
+  const requiredBreakdownTypes = ["age", "country", "placement"] as const;
   const { breakdownRows, budget, verification, isPartial } =
     await getMetaWarehouseBreakdownSnapshot({
       businessId: input.businessId,
@@ -2270,6 +2331,7 @@ export async function getMetaWarehouseBreakdowns(input: {
       endDate: input.endDate,
       providerAccountIds: input.providerAccountIds,
       requestedBreakdownTypes: [...requestedBreakdownTypes],
+      requiredBreakdownTypes: [...requiredBreakdownTypes],
     });
 
   return {
@@ -2280,6 +2342,7 @@ export async function getMetaWarehouseBreakdowns(input: {
     isPartial,
     verification: buildVerificationMetadata(verification),
     age: aggregateMetaBreakdownRows({ breakdownRows, kind: "age" }),
+    gender: aggregateMetaBreakdownRows({ breakdownRows, kind: "gender" }),
     location: aggregateMetaBreakdownRows({ breakdownRows, kind: "country" }),
     placement: aggregateMetaBreakdownRows({ breakdownRows, kind: "placement" }),
     budget,

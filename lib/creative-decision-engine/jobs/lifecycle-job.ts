@@ -278,7 +278,14 @@ daily AS (
     SUM(d.revenue)::double precision AS revenue,
     SUM(d.impressions)::bigint AS impressions,
     SUM(d.clicks)::bigint AS clicks,
-    SUM(d.link_clicks)::bigint AS link_clicks,
+    -- NULL-SAFETY ONLY. NOT a decision change. meta_creative_daily.link_clicks
+    -- can now be NULL where the provider supplied nothing, and SUM ignores
+    -- nulls, so an all-unsupplied creative-day group would produce NULL here
+    -- and carry that NULL into link_clicks_28d and every rate built on it.
+    -- Coalescing inside the SUM reproduces today's stored 0 exactly, while an
+    -- empty group still yields NULL as it does today. The engine saw 0 before
+    -- and sees 0 now.
+    SUM(COALESCE(d.link_clicks, 0))::bigint AS link_clicks,
     SUM(COALESCE((NULLIF(d.payload_json->>'outbound_clicks', ''))::numeric, d.outbound_clicks::numeric, 0)) AS outbound_clicks,
     SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
     SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
@@ -502,7 +509,11 @@ historical_source AS (
     d.clicks,
     d.conversions,
     d.revenue,
-    d.link_clicks
+    -- NULL-SAFETY ONLY. NOT a decision change. Coalesced where the raw column
+    -- leaves the table so the click_to_purchase_rate aggregate below is
+    -- unchanged text producing unchanged numbers. The engine saw 0 for an
+    -- unsupplied row before and sees 0 for it now.
+    COALESCE(d.link_clicks, 0) AS link_clicks
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   CROSS JOIN LATERAL (

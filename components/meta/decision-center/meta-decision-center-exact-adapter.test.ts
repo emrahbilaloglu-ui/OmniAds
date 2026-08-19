@@ -411,18 +411,22 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(viewModel.counts?.creatives).toBe("—");
     expect(viewModel.creativeDecisions).toEqual([]);
     expect(viewModel.archiveRows).toHaveLength(1);
-    expect(viewModel.archiveRows?.[0]).toMatchObject({
-      showResume: true,
-      spend: "—",
-    });
+    expect(viewModel.archiveRows?.[0]).toMatchObject({ spend: "—" });
+    // Archive is evidence. With no server action tuple there is no authority to
+    // resume, so the row must not draw a Resume button it could only ever dim.
     expect(viewModel.archiveRows?.[0]).not.toHaveProperty("onResume");
+    expect(viewModel.archiveRows?.[0]?.showResume).toBeUndefined();
     expect(viewModel.creativePosture).toHaveLength(4);
     expect(viewModel.creativePosture?.every((slot) =>
       slot.value === "—" && slot.detail === "—",
     )).toBe(true);
-    expect(viewModel.nonSales?.contextLabel).toBe("Upper funnel · informational");
-    expect(viewModel.nonSales?.metrics).toHaveLength(4);
-    expect(viewModel.nonSales?.metrics?.every((slot) => slot.value === "—")).toBe(true);
+    expect(viewModel.nonSales?.[0]?.contextLabel).toBe(
+      "Upper funnel · informational",
+    );
+    expect(viewModel.nonSales?.[0]?.metrics).toHaveLength(4);
+    expect(
+      viewModel.nonSales?.[0]?.metrics?.every((slot) => slot.value === "—"),
+    ).toBe(true);
     expect(viewModel.watchSegments?.map((slot) => slot.id)).toEqual([
       "learning",
       "recently_changed",
@@ -645,6 +649,9 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
     workspace.window = "custom";
     workspace.pulse.window = "custom";
+    // A ROAS needs spend behind it; the adapter withholds it otherwise, and a
+    // fixture with 4.2x on zero spend is not a state the account can be in.
+    workspace.pulse.pacing.windowSpend = 8600;
     workspace.pulse.roas.selected = 4.2;
     workspace.pulse.roas.d28 = 1.1;
     workspace.pulse.roas.target = 3.8;
@@ -659,8 +666,243 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
       value: "4.20",
       target: "3.80 · stale",
     });
-    expect(viewModel.nonSales?.contextLabel).toBe(
+    expect(viewModel.nonSales?.[0]?.contextLabel).toBe(
       "Mid Funnel · informational",
     );
+  });
+});
+
+describe("the bands the reference draws are backed, or honestly blank", () => {
+  it("computes the posture tiles it can from served rows and leaves the rest blank", () => {
+    const workspace = workspaceFixture({
+      os: {
+        ads: {
+          items: [
+            creativeFixture({
+              id: "os_ad_freq_a",
+              publishedLabel: "refresh",
+              metrics: {
+                ...creativeFixture().metrics,
+                spend: 900,
+                frequency: 4,
+              },
+            }),
+            creativeFixture({
+              id: "os_ad_freq_b",
+              decisionId: "decision_2",
+              publishedLabel: "keep",
+              metrics: {
+                ...creativeFixture().metrics,
+                spend: 100,
+                frequency: 1,
+              },
+            }),
+            // No spend and no frequency: it counts toward the served total but
+            // must not enter the weighted mean as a zero.
+            creativeFixture({
+              id: "os_ad_freq_c",
+              decisionId: "decision_3",
+              publishedLabel: "refresh",
+              metrics: {
+                ...creativeFixture().metrics,
+                spend: null,
+                frequency: null,
+              },
+            }),
+          ],
+        },
+      },
+    });
+
+    const posture = buildMetaDecisionCenterExactViewModel({ workspace })
+      .creativePosture;
+    const byId = new Map(posture?.map((slot) => [slot.id, slot]));
+
+    // (4 × 900 + 1 × 100) / 1000 = 3.7 — spend-weighted, not the flat mean 2.5.
+    expect(byId.get("average-frequency")?.value).toBe("3.7");
+    expect(byId.get("average-frequency")?.detail).toBe("2 of 3 creatives");
+    expect(byId.get("refresh-pipeline")?.value).toBe("2");
+    expect(byId.get("refresh-pipeline")?.detail).toBe("of 3 served decisions");
+    // No served fatigue status and no served notion of a winner: the adapter
+    // must not mint either from the labels it happens to have.
+    expect(byId.get("fatigued-spend-share")?.value).toBe("—");
+    expect(byId.get("winner-concentration")?.value).toBe("—");
+  });
+
+  it("renders every non-sales entity and fills the tiles the server enriched", () => {
+    const workspace = workspaceFixture({
+      currency: "USD",
+      nonSales: [
+        metaRec({
+          id: "non_sales_a",
+          campaignName: "Video Views",
+          cohort: "upper_funnel",
+          targetValue: {
+            cpm: 12.5,
+            cpmAccountP50: 9,
+            thruplayActions: 4210,
+            reach: 51_000,
+          },
+        }),
+        metaRec({ id: "non_sales_b", campaignName: "Reach Broad" }),
+      ],
+    });
+
+    const cards = buildMetaDecisionCenterExactViewModel({ workspace }).nonSales;
+    // The lane tab counts them all, so the queue has to render them all.
+    expect(cards).toHaveLength(2);
+
+    const tiles = new Map(cards?.[0]?.metrics?.map((tile) => [tile.id, tile.value]));
+    expect(tiles.get("thruplay")).toBe("4,210");
+    expect(tiles.get("cpm")).toBe("$12.50");
+    expect(tiles.get("cpm-account-p50")).toBe("$9");
+    // Stored reach is a sum over daily rows, so a 28-day unique reach cannot be
+    // read off it. A summed number under this caption would be a wrong figure
+    // wearing a right label.
+    expect(tiles.get("reach-28d")).toBe("—");
+  });
+});
+
+describe("the lineage read fills what the reference draws", () => {
+  it("binds media kind, fatigue share, row sparkline and the entity's own ROAS trail", () => {
+    const fatigued = creativeFixture({
+      id: "os_ad_fatigued",
+      adId: "ad_fatigued",
+      creativeFormat: "video",
+      fatigueStatus: "fatigued",
+      metrics: { ...creativeFixture().metrics, spend: 750, frequency: 5 },
+    });
+    const healthy = creativeFixture({
+      id: "os_ad_healthy",
+      decisionId: "decision_healthy",
+      adId: "ad_healthy",
+      creativeFormat: "catalog",
+      fatigueStatus: "none",
+      metrics: { ...creativeFixture().metrics, spend: 250, frequency: 1 },
+    });
+    // Assessed nowhere: it must not land in the denominator as "healthy".
+    const unassessed = creativeFixture({
+      id: "os_ad_unknown",
+      decisionId: "decision_unknown",
+      adId: "ad_unknown",
+      creativeFormat: null,
+      fatigueStatus: "unknown",
+      metrics: { ...creativeFixture().metrics, spend: 4000, frequency: 2 },
+    });
+
+    const workspace = workspaceFixture({
+      actionNow: [
+        metaRec({
+          id: "rec_trail",
+          evidenceTrail: {
+            roas_history: [1, 2, 3, 4],
+            peer_comparison: { p10: 1, p50: 2, p90: 3, this_value: 2 },
+            regime_stability: 1,
+            age_days: 30,
+            recent_changes: [],
+          },
+        }),
+      ],
+      os: { ads: { items: [fatigued, healthy, unassessed] } },
+    });
+
+    const viewModel = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      overrides: {
+        creativeCtrSeriesByAdId: new Map([["ad_fatigued", [1, 2, 1.5]]]),
+      },
+    });
+
+    const rows = new Map(viewModel.creativeDecisions?.map((row) => [row.id, row]));
+    expect(rows.get("os_ad_fatigued")?.kindShort).toBe("VID");
+    expect(rows.get("os_ad_healthy")?.kindShort).toBe("CAT");
+    // No served format is unknown, not a kind invented from something else.
+    expect(rows.get("os_ad_unknown")?.kindShort).toBe("—");
+    expect(rows.get("os_ad_fatigued")?.sparkPath).toContain("M0.0");
+    // An ad the caller had no series for keeps the empty path rather than
+    // borrowing the shape of the row above it.
+    expect(rows.get("os_ad_healthy")?.sparkPath).toBeNull();
+
+    const posture = new Map(viewModel.creativePosture?.map((slot) => [slot.id, slot]));
+    // 750 fatigued of 1000 assessed. The 4000 unassessed spend is excluded from
+    // both sides rather than counted as healthy, which would have said 15%.
+    expect(posture.get("fatigued-spend-share")?.value).toBe("75%");
+    expect(posture.get("fatigued-spend-share")?.detail).toBe(
+      "of 2 assessed creatives",
+    );
+
+    expect(viewModel.inspector?.moneySparkPath).toContain("M0.0");
+  });
+});
+
+describe("an empty Creatives scope says why, when the server gave a reason", () => {
+  /**
+   * An empty queue and a refused decision source render identically. On a real
+   * account the native job can report `complete_source_run_missing`, the read
+   * model falls back to the legacy source, and the scope serves nothing — with
+   * no way for the operator to tell that apart from "no work today".
+   */
+  it("joins the served limitation and the fallback reason", () => {
+    const workspace = workspaceFixture({});
+    workspace.os.source.adsSource = "legacy_creative_review_only";
+    workspace.os.source.fallbackReason = "native_account_manifest_incomplete";
+    workspace.os.limitations = [
+      {
+        code: "legacy_creative_review_only",
+        message: "Legacy creative-grain decisions cannot authorize Ad writes.",
+      },
+    ];
+
+    expect(buildMetaDecisionCenterExactViewModel({ workspace }).creativesNotice).toBe(
+      "Legacy creative-grain decisions cannot authorize Ad writes. Source: native_account_manifest_incomplete.",
+    );
+  });
+
+  it("says nothing when the native source is the authority", () => {
+    const workspace = workspaceFixture({});
+    workspace.os.source.adsSource = "native_ad_decision";
+    workspace.os.source.fallbackReason = null;
+    // A healthy account with no actionable creative today needs no explanation
+    // beyond the empty queue itself.
+    expect(
+      buildMetaDecisionCenterExactViewModel({ workspace }).creativesNotice,
+    ).toBeNull();
+  });
+
+  it("still states the refusal when the payload carries no written limitation", () => {
+    const workspace = workspaceFixture({});
+    workspace.os.source.adsSource = "legacy_creative_review_only";
+    workspace.os.source.fallbackReason = null;
+    workspace.os.limitations = [];
+    const notice = buildMetaDecisionCenterExactViewModel({ workspace }).creativesNotice;
+    expect(notice).toContain("native decision source is not the authority");
+  });
+});
+
+describe("ROAS is withheld when there was no spend to divide by", () => {
+  /**
+   * Return on ad spend is undefined at zero spend, not zero. The rollup reports
+   * a literal 0 for both "spent nothing" and "summed no rows", so printing
+   * 0.00 turned the second into a claim that the account earned nothing — the
+   * shape of the Decision Center reporting ROAS 0.00 for an account spending
+   * over a thousand dollars a day.
+   */
+  it("shows a dash, not 0.00, when the window carries no spend", () => {
+    const workspace = workspaceFixture({});
+    workspace.pulse.pacing.windowSpend = 0;
+    workspace.pulse.roas.selected = 0;
+    expect(
+      buildMetaDecisionCenterExactViewModel({ workspace }).kpis?.roas?.value,
+    ).toBe("—");
+  });
+
+  it("still reports a real zero return on real spend", () => {
+    const workspace = workspaceFixture({});
+    workspace.pulse.pacing.windowSpend = 1200;
+    workspace.pulse.roas.selected = 0;
+    // Money went out and nothing came back: that zero is a fact, not a gap.
+    expect(
+      buildMetaDecisionCenterExactViewModel({ workspace }).kpis?.roas?.value,
+    ).toBe("0.00");
   });
 });

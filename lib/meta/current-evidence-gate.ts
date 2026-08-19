@@ -13,7 +13,6 @@
  * run for the same historical day:
  *
  *  - config snapshots / current config history rows
- *  - `appendConfigHistory` on the campaign and adset daily writers
  *  - entity observation runs and states (`meta_entity_state_history`)
  *
  * They now share this single function. A historical, finalized, backfill,
@@ -47,8 +46,6 @@ export type MetaCurrentEvidenceReason =
 export interface MetaCurrentEvidenceDecision {
   /** Config snapshots and current config history rows. */
   persistsCurrentConfigEvidence: boolean;
-  /** Passed straight through to the daily writers' `appendConfigHistory`. */
-  appendConfigHistory: boolean;
   /** Entity observation runs and states. */
   persistsEntityObservations: boolean;
   reason: MetaCurrentEvidenceReason;
@@ -74,12 +71,15 @@ export function decideMetaCurrentEvidence(input: {
       ? "current_provisional_day"
       : "non_provisional_replay_of_today";
   const persists = reason === "current_provisional_day";
-  // Deliberately one boolean behind three names. They are named separately
-  // because three different writers consume them and a future divergence must
-  // be an explicit edit here, not an accident at a call site.
+  // Deliberately one boolean behind two names. They are named separately
+  // because two different writers consume them and a future divergence must be
+  // an explicit edit here, not an accident at a call site.
+  //
+  // A third, `appendConfigHistory`, is gone: the daily writers no longer author
+  // config history at all. Two authors with two notions of the same
+  // configuration is what filled that table with changes nobody made.
   return {
     persistsCurrentConfigEvidence: persists,
-    appendConfigHistory: persists,
     persistsEntityObservations: persists,
     reason,
   };

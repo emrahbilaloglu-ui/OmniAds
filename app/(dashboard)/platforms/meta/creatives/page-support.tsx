@@ -1,8 +1,11 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   META_AI_TAG_KEYS,
+  META_OBSERVED_METRIC_KEYS,
   type MetaAiTags,
+  type MetaCreativeObservedMetrics,
   type MetaCreativeRow,
+  type MetaObservedMetricKey,
 } from "@/components/creatives/metricConfig";
 import type { DecisionEngineV3ServingResponse } from "@/app/api/creatives/decision-engine-v3/route";
 import {
@@ -22,14 +25,37 @@ import {
   type SharedCreativeAnalysis,
 } from "@/components/creatives/shareCreativeTypes";
 import { getLegacyCreativeTypeLabel } from "@/lib/meta/creative-taxonomy";
+import {
+  isCreativeMetricAvailable,
+  type CreativeMetricPresenceKey,
+} from "@/lib/meta/creatives-types";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import type {
   AiCreativeHistoricalWindow as CreativeHistoricalWindow,
   AiCreativeHistoricalWindows as CreativeHistoricalWindows,
 } from "@/lib/meta/creative-scoring";
 
+/**
+ * Every `status` `/api/meta/creatives` can put on the wire.
+ *
+ * All of them except `ok` ship as an HTTP 200 with `rows: []`
+ * (`accountScopeHttpStatus` in app/api/meta/creatives/route.ts returns 200 for
+ * anything it does not name, and the integration verdicts never set a status
+ * code at all). A reader that only counts rows therefore turns "we have no
+ * Meta connection" into "your account served no creatives for this window" —
+ * a definite statement about the account produced by a read that never
+ * happened. The union exists so the compiler makes that distinction reachable.
+ */
+export type MetaCreativesSourceStatus =
+  | "ok"
+  | "no_connection"
+  | "no_access_token"
+  | "no_accounts_assigned"
+  | "provider_account_required"
+  | "account_not_assigned";
+
 export interface MetaCreativesResponse {
-  status?: string;
+  status?: MetaCreativesSourceStatus | (string & {});
   message?: string;
   providerAccountId?: string | null;
   account_scope?: {
@@ -44,12 +70,91 @@ export interface MetaCreativesResponse {
   snapshot_source?: "persisted" | "live" | "refresh";
   freshness_state?: "fresh" | "stale" | "expired";
   is_refreshing?: boolean;
+  /** Which reader produced these rows. `lib/meta/creatives-api.ts` stamps it. */
+  readSource?: "warehouse" | "live_fallback" | "current_day_live" | (string & {});
+  /**
+   * The rows are real but incomplete — today's live read returned nothing yet.
+   * A partial is a served surface with a stated gap, never an empty success.
+   */
+  isPartial?: boolean;
+  notReadyReason?: string | null;
+  /**
+   * When the warehouse rows behind this payload were last written. `null` means
+   * the age is unknown (a live read, or an unreadable timestamp) and must be
+   * rendered as unknown rather than as "now".
+   */
+  warehouse_observed_at?: string | null;
+  /**
+   * The snapshot path's own stamp. On the live path this is the request time,
+   * which is never a data age — see `measuredTableInstant` on the Landing
+   * Pages surface for the gate that keeps it off a freshness bar.
+   */
+  last_synced_at?: string | null;
   preview_coverage?: {
     totalCreatives: number;
     previewReadyCount: number;
     previewWaitingCount: number;
     previewMissingCount: number;
     previewCoverage: number;
+  };
+}
+
+/**
+ * What a creatives response says about its own source.
+ *
+ * Six outcomes have to stay distinguishable on every surface that reads this
+ * endpoint — loading, true empty, unavailable, partial, error, serving — and
+ * four of them arrive as the same HTTP 200. `loading` and `error` belong to the
+ * query state; this classifier owns the other four, so the two surfaces cannot
+ * drift on what a status means.
+ */
+export type MetaCreativesSourceHealth =
+  | { kind: "serving"; message: null; partialReason: string | null }
+  | { kind: "unavailable"; message: string; partialReason: null };
+
+const META_CREATIVES_SOURCE_MESSAGES: Record<
+  Exclude<MetaCreativesSourceStatus, "ok">,
+  string
+> = {
+  no_connection:
+    "This business has no connected Meta account, so no creative data was read.",
+  no_access_token:
+    "The Meta connection has no usable access token, so no creative data was read.",
+  no_accounts_assigned:
+    "No Meta ad account is assigned to this business, so no creative data was read.",
+  provider_account_required:
+    "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit.",
+  account_not_assigned:
+    "The requested Meta ad account is not assigned to this business, so no creative data was read.",
+};
+
+export function describeMetaCreativesSourceHealth(
+  payload: MetaCreativesResponse | undefined,
+): MetaCreativesSourceHealth {
+  if (!payload) return { kind: "serving", message: null, partialReason: null };
+  const status = payload.status;
+  if (status && status !== "ok") {
+    return {
+      kind: "unavailable",
+      message:
+        META_CREATIVES_SOURCE_MESSAGES[
+          status as Exclude<MetaCreativesSourceStatus, "ok">
+        ] ??
+        payload.message ??
+        "Meta creative data could not be read for this scope.",
+      partialReason: null,
+    };
+  }
+  return {
+    kind: "serving",
+    message: null,
+    // `notReadyReason` is the server's own sentence about what is missing. A
+    // partial with no reason still has to be stated, so the fallback names the
+    // condition rather than staying silent.
+    partialReason: payload.isPartial
+      ? (payload.notReadyReason?.trim() ||
+        "Part of this window is still being prepared; the rows below are incomplete.")
+      : null,
   };
 }
 
@@ -721,6 +826,79 @@ function hasCompleteCreativeMetricPayload(row: MetaCreativeApiRow) {
   );
 }
 
+/**
+ * The wire name for each metric whose availability travels to the UI.
+ *
+ * Kept beside `REQUIRED_CREATIVE_METRIC_FIELDS` on purpose: that constant
+ * answers "is this row's metric payload whole", which Launchpad still asks,
+ * while this one answers "was *this* number served", which is what a cell needs
+ * in order to choose between a figure and an em dash. Reading the same row
+ * through both means the two answers cannot disagree about what arrived.
+ */
+const OBSERVED_METRIC_WIRE_FIELDS: Record<MetaObservedMetricKey, string> = {
+  spend: "spend",
+  purchaseValue: "purchase_value",
+  roas: "roas",
+  cpa: "cpa",
+  cpcLink: "cpc_link",
+  cpm: "cpm",
+  ctrAll: "ctr_all",
+  purchases: "purchases",
+  impressions: "impressions",
+  clicks: "clicks",
+  linkClicks: "link_clicks",
+  landingPageViews: "landing_page_views",
+  addToCart: "add_to_cart",
+  initiateCheckout: "initiate_checkout",
+  thumbstop: "thumbstop",
+  clickToAddToCart: "click_to_atc",
+  atcToPurchaseRatio: "atc_to_purchase",
+  frequency: "frequency",
+  leads: "leads",
+  messages: "messages",
+  video25: "video25",
+  video50: "video50",
+  video75: "video75",
+  video100: "video100",
+};
+
+/**
+ * What the producer served, per metric, with absence preserved as null.
+ *
+ * TWO independent sources of absence, and both are needed.
+ *
+ * 1. The wire value itself. `safeNullableNumber` returns null for a field the
+ *    response never carried (`frequency`, `leads`, the video quartiles), which
+ *    is the case this reader was originally written for.
+ *
+ * 2. The producer's `metric_presence` sidecar. Every economic field —
+ *    `spend`, `roas`, `cpa`, `link_clicks`, `add_to_cart` and the rest — is
+ *    coerced to a `number` by `normalizeCreativeMetricFields` and
+ *    `buildMetaCreativeApiRow` (lib/meta/creatives-service-support.ts) before it
+ *    reaches the wire, so rule 1 can NEVER fire for them: an unread field and a
+ *    measured zero arrive as the identical `0`. The sidecar is produced upstream
+ *    of that coercion, where the nullable source is still in hand, and it is the
+ *    only thing that can still tell them apart here.
+ *
+ * A served 0 stays 0. That is the point of the contract, not an exception to it:
+ * a paused, never-delivered creative really did spend nothing, and an em dash
+ * there would hide a measurement rather than protect the reader from one.
+ */
+export function readObservedCreativeMetrics(
+  row: MetaCreativeApiRow,
+): MetaCreativeObservedMetrics {
+  const source = row as MetaCreativeApiRow & Record<string, unknown>;
+  const presence = row.metric_presence;
+  const observed: MetaCreativeObservedMetrics = {};
+  for (const key of META_OBSERVED_METRIC_KEYS) {
+    const wireField = OBSERVED_METRIC_WIRE_FIELDS[key] as CreativeMetricPresenceKey;
+    observed[key] = isCreativeMetricAvailable(presence, wireField)
+      ? safeNullableNumber(source[wireField])
+      : null;
+  }
+  return observed;
+}
+
 function safeBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -850,6 +1028,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     metricsAvailability: hasCompleteCreativeMetricPayload(row)
       ? "available"
       : "unavailable",
+    observedMetrics: readObservedCreativeMetrics(row),
     spend: safeNumber(row.spend),
     purchaseValue: safeNumber(row.purchase_value),
     roas: safeNumber(row.roas),

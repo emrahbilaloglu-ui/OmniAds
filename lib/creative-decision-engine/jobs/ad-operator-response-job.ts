@@ -2496,7 +2496,18 @@ WITH targets AS (
     cutoff timestamptz
   )
 ), truth_events AS (
+  -- Bind the tiny request target set before combining state and tombstone
+  -- history. This CTE is referenced three times below, so PostgreSQL may
+  -- materialize it. Building the old unscoped union first forced every job to
+  -- read and spill the whole multi-business history table even when only a
+  -- handful of exact entities were requested.
   SELECT
+    target.episode_key,
+    target.entity_type AS target_entity_type,
+    target.entity_id AS target_entity_id,
+    target.recommended_at,
+    target.window_end,
+    target.cutoff,
     'meta_entity_state_history'::text AS evidence_kind,
     state.id::text AS evidence_id,
     state.id::text AS state_history_id,
@@ -2529,7 +2540,16 @@ WITH targets AS (
     NULL::jsonb AS provider_evidence_json,
     NULL::text AS tombstone_hash,
     state.created_at
-  FROM meta_entity_state_history state
+  FROM targets target
+  INNER JOIN meta_entity_state_history state
+    ON state.business_ref_id = target.business_id
+   AND state.business_id = target.business_id::text
+   AND state.provider_account_ref_id = target.provider_account_ref_id
+   AND state.provider_account_id = target.provider_account_id
+   AND state.entity_type = target.entity_type
+   AND state.entity_id = target.entity_id
+   AND state.observed_at <= target.cutoff
+   AND state.captured_at <= target.cutoff
   INNER JOIN meta_entity_observation_runs observation_run
     ON observation_run.id = state.run_id
    AND observation_run.business_ref_id = state.business_ref_id
@@ -2540,6 +2560,12 @@ WITH targets AS (
    AND observation_run.completeness = state.run_completeness
   UNION ALL
   SELECT
+    target.episode_key,
+    target.entity_type AS target_entity_type,
+    target.entity_id AS target_entity_id,
+    target.recommended_at,
+    target.window_end,
+    target.cutoff,
     'meta_entity_tombstones'::text AS evidence_kind,
     tombstone.id::text AS evidence_id,
     NULL::text AS state_history_id,
@@ -2576,7 +2602,16 @@ WITH targets AS (
     tombstone.provider_evidence_json,
     tombstone.tombstone_hash::text AS tombstone_hash,
     tombstone.created_at
-  FROM meta_entity_tombstones tombstone
+  FROM targets target
+  INNER JOIN meta_entity_tombstones tombstone
+    ON tombstone.business_ref_id = target.business_id
+   AND tombstone.business_id = target.business_id::text
+   AND tombstone.provider_account_ref_id = target.provider_account_ref_id
+   AND tombstone.provider_account_id = target.provider_account_id
+   AND tombstone.entity_type = target.entity_type
+   AND tombstone.entity_id = target.entity_id
+   AND tombstone.observed_at <= target.cutoff
+   AND tombstone.captured_at <= target.cutoff
   INNER JOIN meta_entity_observation_runs observation_run
     ON observation_run.id = tombstone.run_id
    AND observation_run.business_ref_id = tombstone.business_ref_id
@@ -2586,55 +2621,35 @@ WITH targets AS (
    AND observation_run.entity_type = tombstone.entity_type
    AND observation_run.completeness = tombstone.run_completeness
 ), baseline AS (
-  SELECT target.episode_key, truth.*
-  FROM targets target
-  INNER JOIN LATERAL (
-    SELECT truth.*
-    FROM truth_events truth
-    WHERE truth.business_id = target.business_id::text
-      AND truth.provider_account_ref_id = target.provider_account_ref_id::text
-      AND truth.provider_account_id = target.provider_account_id
-      AND truth.entity_type = target.entity_type
-      AND truth.entity_id = target.entity_id
-      AND truth.observed_at <= target.recommended_at
-      AND truth.captured_at <= target.recommended_at
-    ORDER BY truth.observed_at DESC, truth.captured_at DESC,
-      (truth.evidence_kind = 'meta_entity_tombstones') DESC,
-      truth.created_at DESC, truth.evidence_id DESC
-    LIMIT 1
-  ) truth ON true
+  SELECT DISTINCT ON (
+    truth.episode_key, truth.target_entity_type, truth.target_entity_id
+  ) truth.*
+  FROM truth_events truth
+  WHERE truth.observed_at <= truth.recommended_at
+    AND truth.captured_at <= truth.recommended_at
+  ORDER BY truth.episode_key, truth.target_entity_type, truth.target_entity_id,
+    truth.observed_at DESC, truth.captured_at DESC,
+    (truth.evidence_kind = 'meta_entity_tombstones') DESC,
+    truth.created_at DESC, truth.evidence_id DESC
 ), post_recommendation AS (
-  SELECT target.episode_key, truth.*
-  FROM targets target
-  INNER JOIN truth_events truth
-    ON truth.business_id = target.business_id::text
-   AND truth.provider_account_ref_id = target.provider_account_ref_id::text
-   AND truth.provider_account_id = target.provider_account_id
-   AND truth.entity_type = target.entity_type
-   AND truth.entity_id = target.entity_id
-   AND truth.observed_at > target.recommended_at
-   AND truth.observed_at <= LEAST(target.window_end, target.cutoff)
-   AND truth.captured_at <= target.cutoff
+  SELECT truth.*
+  FROM truth_events truth
+  WHERE truth.observed_at > truth.recommended_at
+    AND truth.observed_at <= LEAST(truth.window_end, truth.cutoff)
+    AND truth.captured_at <= truth.cutoff
 ), terminal_confirmation AS (
-  SELECT target.episode_key, truth.*
-  FROM targets target
-  INNER JOIN LATERAL (
-    SELECT truth.*
-    FROM truth_events truth
-    WHERE truth.business_id = target.business_id::text
-      AND truth.provider_account_ref_id = target.provider_account_ref_id::text
-      AND truth.provider_account_id = target.provider_account_id
-      AND truth.entity_type = target.entity_type
-      AND truth.entity_id = target.entity_id
-      AND target.cutoff >= target.window_end
-      AND truth.observed_at <= target.window_end
-      AND truth.captured_at >= target.window_end
-      AND truth.captured_at <= target.cutoff
-    ORDER BY truth.captured_at DESC, truth.observed_at DESC,
-      (truth.evidence_kind = 'meta_entity_tombstones') DESC,
-      truth.created_at DESC, truth.evidence_id DESC
-    LIMIT 1
-  ) truth ON true
+  SELECT DISTINCT ON (
+    truth.episode_key, truth.target_entity_type, truth.target_entity_id
+  ) truth.*
+  FROM truth_events truth
+  WHERE truth.cutoff >= truth.window_end
+    AND truth.observed_at <= truth.window_end
+    AND truth.captured_at >= truth.window_end
+    AND truth.captured_at <= truth.cutoff
+  ORDER BY truth.episode_key, truth.target_entity_type, truth.target_entity_id,
+    truth.captured_at DESC, truth.observed_at DESC,
+    (truth.evidence_kind = 'meta_entity_tombstones') DESC,
+    truth.created_at DESC, truth.evidence_id DESC
 )
 SELECT
   scoped.episode_key, scoped.evidence_kind, scoped.evidence_id,

@@ -216,16 +216,28 @@ describe("native ad operator-response job contract", () => {
       "receipt.provider_account_ref_id = episode.provider_account_ref_id",
     );
     expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
-      "truth.observed_at <= LEAST(target.window_end, target.cutoff)",
+      "truth.observed_at <= LEAST(truth.window_end, truth.cutoff)",
     );
     expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
-      "truth.captured_at <= target.cutoff",
+      "truth.captured_at <= truth.cutoff",
     );
     expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
-      "FROM meta_entity_tombstones tombstone",
+      "INNER JOIN meta_entity_tombstones tombstone",
     );
     expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
       "(truth.evidence_kind = 'meta_entity_tombstones') DESC",
+    );
+    expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
+      "FROM targets target\n  INNER JOIN meta_entity_state_history state",
+    );
+    expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
+      "state.entity_id = target.entity_id",
+    );
+    expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
+      "state.observed_at <= target.cutoff",
+    );
+    expect(FIND_CUTOFF_SAFE_META_ENTITY_STATES_QUERY).toContain(
+      "truth.episode_key, truth.target_entity_type, truth.target_entity_id",
     );
 
     const allReadSql = [

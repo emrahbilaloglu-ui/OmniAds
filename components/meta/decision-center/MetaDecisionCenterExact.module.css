@@ -65,29 +65,8 @@
   flex-wrap: wrap;
 }
 
-.windowControl {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid #e4e8f0;
-  border-radius: 9px;
-  background: #fff;
-}
 
-.windowOption {
-  padding: 5px 11px;
-  border-radius: 7px;
-  background: transparent;
-  color: #45526b;
-  cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 600;
-}
 
-.windowOptionActive {
-  background: #0b1020;
-  color: #fff;
-}
 
 .snapshotButton,
 .newCampaignButton {
@@ -164,6 +143,13 @@
 
 .roasTarget {
   color: #7a869e;
+  /*
+   * The reference phrase names its own source — "target 2.50 · stale", or
+   * "account median 2.10" on a business unit with no commercial-truth target —
+   * so it wraps as one unit on a narrow card instead of leaving the noun on
+   * one line and the number it qualifies on the next.
+   */
+  display: inline-block;
 }
 
 .labelPercentage {
@@ -422,6 +408,7 @@
 }
 
 .actionCard {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -531,7 +518,25 @@
   font-weight: 600;
 }
 
+/*
+ * The engine's served action, as text beside the row.
+ *
+ * It used to be the caption of the review button, which promised an action
+ * the control never performs. Kept in the row's tone so the decision still
+ * reads at a glance, but plainly not a control: no radius, no fill, no
+ * pointer.
+ */
+.creativeServedAction {
+  flex-shrink: 0;
+  color: var(--tone-fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .primaryAction {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   height: 34px;
   padding: 0 14px;
@@ -545,6 +550,8 @@
 }
 
 .moreAction {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   padding: 0 2px;
   color: #98a4ba;
@@ -569,6 +576,7 @@
 }
 
 .watchingCard {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -621,6 +629,8 @@
 }
 
 .reviewButton {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   height: 30px;
   padding: 0 12px;
@@ -934,6 +944,79 @@
   font-weight: 700;
 }
 
+/*
+ * The served decision state, and the reasons behind it.
+ *
+ * New affordances, so they meet the 12px floor rather than borrowing the
+ * canonical reference's sub-floor exceptions: the state badge and both note
+ * lines are essential text — a blocked row is unreadable without them.
+ */
+.creativeStateBadge {
+  display: inline-flex;
+  padding: 3px 9px;
+  border: 1px solid var(--tone-solid);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tone-fg);
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.creativeNote {
+  margin: 6px 0 0;
+  color: #45526b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.creativeBlockedNote {
+  margin: 4px 0 0;
+  color: #45526b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.creativeGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.creativeGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.creativeGroupLabel {
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.creativeGroupCount {
+  color: #45526b;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+
+.creativeGroupNote {
+  min-width: 0;
+  color: #45526b;
+  font-size: 12px;
+  flex: 1;
+}
+
 .creativeSparkBlock {
   width: 104px;
   flex-shrink: 0;
@@ -964,6 +1047,29 @@
   font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/*
+ * A control that cannot act must not be painted like one that can.
+ *
+ * `.root button:disabled` deliberately keeps `opacity: 1` so the reference's
+ * geometry survives an inert control, and that is right for a structure row
+ * whose action is merely unavailable right now. It is NOT right for a creative
+ * row the server served as blocked: a solid, fully-saturated button reads as an
+ * ordinary recommendation, which is exactly the invariant a blocked decision
+ * must not cross. Scoped to the creative card so nothing else is repainted; the
+ * button keeps its size, its position and its served label, and loses only the
+ * fill that promised an action.
+ */
+.creativeCard .primaryAction:disabled {
+  border: 1px solid var(--tone-solid);
+  background: transparent;
+  color: var(--tone-fg);
+}
+
+.creativeCard .evidenceLink[aria-disabled="true"] {
+  color: #45526b;
+  cursor: default;
 }
 
 /*
@@ -1301,5 +1407,283 @@
 
   .inspector {
     position: static;
+  }
+}
+
+/*
+ * Queue row: whole-card target, structure and selection.
+ *
+ * None of this is inside the canonical-reference type marker, so every size
+ * here meets the 12px floor rather than borrowing an exception.
+ */
+
+/*
+ * The stretched link. It covers the card and sits below the row's own controls,
+ * which carry `z-index: 1`, so the card is clickable everywhere the row does
+ * not already have a control of its own.
+ */
+.cardOpen {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cardOpen:focus-visible {
+  outline: 2px solid #2f6bff;
+  outline-offset: 2px;
+}
+
+/* The campaign -> ad set relation, under the entity name that has one. */
+.lineage {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 5px 0 0;
+  color: #45526b;
+  font-size: 12px;
+}
+
+.lineageGlyph {
+  color: #2f6bff;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+
+/*
+ * The selected row: a ring, a fill AND a word, because a colour-blind operator
+ * gets nothing from the first two.
+ */
+.queueCardSelected {
+  background: #f6f9ff;
+  box-shadow: 0 0 0 2px #2f6bff;
+}
+
+.selectedMarker {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid #2f6bff;
+  border-radius: 9999px;
+  background: #eaf0ff;
+  color: #1a3fa0;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* The watching row lays its identity out inline rather than as a flex row. */
+.watchingIdentity .selectedMarker {
+  margin-left: 8px;
+}
+
+/*
+ * The decision-source panel, rendered beside the creative rows.
+ *
+ * Deliberately OUTSIDE the `dashboard-v2-meta-exact-reference-type` marker:
+ * that block pins the canonical reference's sub-floor type exactly, and this
+ * panel is not part of the reference. Every size here is at or above the 12px
+ * floor and every colour pair clears 4.5:1 on the surface it is painted on,
+ * measured rather than assumed:
+ *   #4b5568 on #fbfcfe  7.31   #0e1526 on #fbfcfe 17.73
+ *   #0a7a54 on #e7f6f0  4.80   #8a3d05 on #fbf3e1  6.91
+ *   #b3123a on #fdecf0  6.02   #4b5568 on #f1f4f9  6.81
+ * The shared `--tone-fg` ramp is NOT reused for this text: #0e9f6e on its own
+ * #e7f6f0 fill is 3.04, which is exactly the failure the floor exists to catch.
+ */
+.provenancePanel {
+  display: block;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid #e4e8f0;
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.provenancePanel[open] {
+  border-color: #d7dde8;
+}
+
+.provenanceSummary {
+  cursor: pointer;
+  padding: 1px 0;
+  color: #4b5568;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.provenanceSummary > * {
+  margin-right: 10px;
+}
+
+.provenanceEyebrow {
+  color: #4b5568;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.provenanceHeadline {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: #f1f4f9;
+  color: #4b5568;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provenanceHeadline.tonePositive {
+  background: #e7f6f0;
+  color: #0a7a54;
+}
+
+.provenanceHeadline.toneWarning {
+  background: #fbf3e1;
+  color: #8a3d05;
+}
+
+.provenanceHeadline.toneNegative {
+  background: #fdecf0;
+  color: #b3123a;
+}
+
+.provenanceSummaryFact {
+  /*
+   * A summary fact wraps as a whole or not at all.
+   *
+   * The Structures panel is folded by default, so this line IS the statement
+   * the operator reads. Left to wrap on any space it broke as
+   * "174 carry a decision ·" / "174 in census", which splits one pairing across
+   * two lines and reads as two unrelated numbers. Each fact is short enough
+   * that holding it together cannot overflow the queue column.
+   */
+  display: inline-block;
+  color: #4b5568;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.provenanceGroup {
+  margin-top: 10px;
+}
+
+.provenanceHeading {
+  margin: 0 0 4px;
+  color: #4b5568;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provenanceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 18px;
+  margin: 0;
+}
+
+.provenanceFact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #eef1f6;
+  min-width: 0;
+}
+
+.provenanceLabel {
+  flex: 0 1 auto;
+  color: #4b5568;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provenanceValue {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.provenanceValue.tonePositive {
+  color: #0a7a54;
+}
+
+.provenanceValue.toneWarning {
+  color: #8a3d05;
+}
+
+.provenanceValue.toneNegative {
+  color: #b3123a;
+}
+
+.provenanceCapabilities {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provenanceCapability {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #eef1f6;
+}
+
+.provenanceStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: #f1f4f9;
+  color: #4b5568;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provenanceStatus.toneWarning {
+  background: #fbf3e1;
+  color: #8a3d05;
+}
+
+.provenanceStatus.toneNegative {
+  background: #fdecf0;
+  color: #b3123a;
+}
+
+.provenanceReason {
+  color: #4b5568;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .provenanceCapability {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
   }
 }

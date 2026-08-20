@@ -209,3 +209,197 @@ describe("CreativeEvidenceWindowExact composition", () => {
     expect(container.querySelectorAll('[class*="factRow"]')).toHaveLength(6);
   });
 });
+
+/**
+ * THE LAW: the drawer separates the three families it is given.
+ *
+ * The summary stays a summary; authority evidence renders beside the numbers it
+ * qualifies; hashes and lineage receipts render in a disclosure that is CLOSED
+ * by default, so proving a decision never costs the reader the decision itself.
+ * A loading or failed helper read announces itself in words rather than dashing
+ * out like a real absence.
+ */
+describe("CreativeEvidenceWindowExact audit sections", () => {
+  it("renders authority rows beside the evidence, tone-marked without tinted body text", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          authority: [
+            { id: "source-authority", label: "Source authority", value: "Legacy review only", tone: "warning" },
+            { id: "action-eligibility", label: "Action eligible", value: "no", tone: "warning" },
+          ],
+        })}
+      />,
+    );
+    const block = document.querySelector("[data-creative-evidence-authority]");
+    expect(block).not.toBeNull();
+    expect(block?.textContent).toContain("Legacy review only");
+    expect(block?.textContent).toContain("Action eligible");
+    expect(
+      block?.querySelector('[data-tone="warning"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps diagnostics closed by default and out of the summary", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          diagnostics: [
+            { id: "decision-hash", label: "decision hash", value: "dec_hash_9" },
+          ],
+        })}
+      />,
+    );
+    const details = document.querySelector<HTMLDetailsElement>(
+      "[data-creative-evidence-diagnostics]",
+    );
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain("dec_hash_9");
+    expect(screen.getByText("Server verdict: Refresh.").textContent).not.toContain(
+      "dec_hash_9",
+    );
+  });
+
+  it("says a helper read is loading or unreadable instead of dashing silently", () => {
+    const { rerender } = render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          readNotice: { tone: "info", text: "Ad-grain evidence is still loading." },
+        })}
+      />,
+    );
+    expect(
+      document.querySelector('[data-creative-evidence-read-state="loading"]')
+        ?.textContent,
+    ).toContain("still loading");
+
+    rerender(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          readNotice: { tone: "negative", text: "Ad-grain evidence could not be read: boom." },
+        })}
+      />,
+    );
+    expect(
+      document.querySelector('[data-creative-evidence-read-state="error"]')
+        ?.textContent,
+    ).toContain("could not be read");
+  });
+
+  it("renders no read banner and no empty audit blocks when nothing is served", () => {
+    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
+    expect(document.querySelector("[data-creative-evidence-read-state]")).toBeNull();
+    expect(document.querySelector("[data-creative-evidence-authority]")).toBeNull();
+    expect(document.querySelector("[data-creative-evidence-diagnostics]")).toBeNull();
+  });
+
+  it("keeps a provider-write control fail-closed even when it has a destination", () => {
+    // The window never decides authority. It is handed one, and the only
+    // safe reading of "disabled with a destination" is refuse-and-stay-put:
+    // rendering the anchor anyway would let a served href execute a route the
+    // caller had already refused. A disabled action stays a dead button.
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          primaryAction: {
+            label: "Promote to Main",
+            href: "/platforms/meta/launchpad?handoff=abc",
+            disabled: true,
+          },
+        })}
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Promote to Main" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Promote to Main" })).toBeDisabled();
+  });
+
+  it("keeps a labelled primary inert until a callback is actually supplied", () => {
+    // A label is a caption, never a permission. Without an onClick and without
+    // an href there is nothing to press, and the button says so rather than
+    // looking live and doing nothing.
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          primaryAction: { label: "Promote to Main", href: null },
+        })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Promote to Main" })).toBeDisabled();
+  });
+
+  it("keeps every new audit style at or above the 12px typography floor", () => {
+    const sizes = [
+      ...CSS.matchAll(
+        /\.(readNotice|auditLabel|auditValue|diagnosticsSummary|diagnosticsValue|coverageHeadline|coverageLabel|coverageItems|coverageNote)\s*\{[^}]*font-size:\s*([0-9.]+)px/g,
+      ),
+    ].map((match) => Number(match[2]));
+    expect(sizes.length).toBe(9);
+    for (const size of sizes) expect(size).toBeGreaterThanOrEqual(12);
+  });
+});
+
+/**
+ * The coverage statement: the window's own account of which half of this row's
+ * evidence it is holding.
+ *
+ * It exists because the window can now be opened on a row that was served
+ * WITHOUT a canonical decision envelope — on a degraded account that is every
+ * row — and a screen of unexplained dashes reads as "the engine measured
+ * nothing" when what it means is "this row has no audit envelope, and therefore
+ * no authority".
+ */
+describe("CreativeEvidenceWindowExact evidence coverage", () => {
+  const servedOnly = {
+    state: "served-only" as const,
+    tone: "warning" as const,
+    headline: "Served evidence only. This row was served without a canonical decision envelope.",
+    servedLabel: "Served for this row",
+    served: ["engine reasoning", "ad metrics"],
+    unavailableLabel: "Canonical-only, unavailable",
+    unavailable: ["action eligibility", "provider lineage"],
+    note: "No canonical envelope means no action authority.",
+  };
+
+  it("states both halves and marks the served-only state on the node", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({ coverage: servedOnly })}
+      />,
+    );
+    const node = document.querySelector("[data-creative-evidence-coverage]");
+    expect(node?.getAttribute("data-creative-evidence-coverage")).toBe("served-only");
+    expect(node?.textContent).toContain("Served evidence only");
+    expect(node?.textContent).toContain("engine reasoning · ad metrics");
+    expect(node?.textContent).toContain("action eligibility · provider lineage");
+    expect(node?.textContent).toContain("no action authority");
+  });
+
+  it("says nothing is withheld rather than printing an empty list", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          coverage: { ...servedOnly, state: "served-and-canonical", unavailable: [], note: "" },
+        })}
+      />,
+    );
+    expect(
+      document.querySelector("[data-creative-evidence-coverage-withheld]")?.textContent,
+    ).toContain("none — every audit field below came from this row's own envelope");
+  });
+
+  it("renders no coverage block at all when the caller states none", () => {
+    render(<CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />);
+    expect(document.querySelector("[data-creative-evidence-coverage]")).toBeNull();
+  });
+});

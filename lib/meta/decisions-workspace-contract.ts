@@ -106,6 +106,31 @@ export interface MetaDecisionBlocker {
   provenance: MetaDecisionProvenance;
 }
 
+/**
+ * A statement about THIS pipeline, never a finding about the ad.
+ *
+ * An advisory is served in the same shape as a blocker and is meant to be read
+ * like one: it names something the operator should know before acting. The one
+ * thing it must not do is VETO an action the engine already authorized — and
+ * that is exactly why it does not live in `classification.blockers`. Every
+ * action gate in this codebase asks `blockers.length > 0`
+ * (`authorizeMetaNativeAdPause`, `buildMetaLaunchpadHandoffAuthorization`), so
+ * a code parked in an array with that name acquires a veto from the field name
+ * alone, whatever comment sits beside it. Moving it out is the only form of
+ * the demotion that cannot silently regress.
+ *
+ * `reason` is the producer-side statement of WHY the advisory exists. For
+ * `risk_tier_unclassified` it is the same `risk_tier_producer_not_persisted`
+ * that the envelope's `riskTierProvenance` already carries.
+ */
+export interface MetaDecisionAdvisory {
+  code: string;
+  label: string;
+  category: MetaDecisionBlocker["category"];
+  reason: string | null;
+  provenance: MetaDecisionProvenance;
+}
+
 export interface MetaDecisionLifecycleRoleOverlay {
   value: MetaDecisionLifecycleRole;
   confidence: "high" | "medium" | "low" | "unknown" | "conflict";
@@ -316,7 +341,18 @@ export interface MetaCanonicalDecision {
     buyerLabel: string;
     executionAction: MetaDecisionExecutionAction | null;
     resolution: MetaDecisionResolution | null;
+    /**
+     * Gates. Every entry here withholds provider authority, and callers are
+     * entitled to read `blockers.length > 0` as "do not offer an action".
+     */
     blockers: MetaDecisionBlocker[];
+    /**
+     * Statements that inform without gating. Optional because a payload
+     * serialized before this field existed carries none, and an absent
+     * envelope must read as "nothing was served", never as a measured empty
+     * list. Readers default it to `[]`.
+     */
+    advisories?: MetaDecisionAdvisory[];
     provenance: MetaDecisionProvenance;
   };
   riskTier: MetaDecisionRiskTier | null;

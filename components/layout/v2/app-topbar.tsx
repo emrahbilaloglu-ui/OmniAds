@@ -42,6 +42,20 @@ const SYNC_TONE: Record<string, "pos" | "info" | "warn" | "neutral"> = {
   unknown: "neutral",
 };
 
+/**
+ * Meta Decisions owns a Tier-0 freshness report and an expensive workspace
+ * read. Its shell must not also start the account-wide Meta and Google status
+ * fan-outs while waiting for that report's first effect.
+ */
+export function isMetaDecisionsRoute(pathname: string | null | undefined) {
+  const normalized = (pathname?.split(/[?#]/, 1)[0] ?? "").replace(/\/+$/, "");
+  return (
+    normalized === "/platforms/meta" ||
+    normalized === "/app/meta/decisions" ||
+    /^\/c\/[^/]+\/meta\/decisions$/.test(normalized)
+  );
+}
+
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -330,7 +344,9 @@ export function AppTopbar({
   const router = useRouter();
   const searchParams = useSearchParams();
   const scopedBusiness = useScopedEnvelopeBusiness(pathname);
-  const sync = useWorkspaceSyncState();
+  const sync = useWorkspaceSyncState({
+    providerStatusEnabled: !isMetaDecisionsRoute(pathname),
+  });
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   // Rolling presets must resolve against the workspace's own clock, not the

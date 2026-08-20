@@ -16,6 +16,8 @@ import {
   metaAdsetPauseNotice,
   metaBidApplyNotice,
   isTrackingWriteBlocked,
+  metaEvidenceSourceNotice,
+  metaSilentActionFailureNotice,
   trackingConfirmLabelForRec,
   metaRecSearchMatch,
   resolveMetaDecisionMoneyCurrency,
@@ -26,6 +28,56 @@ import type {
   MetaOsAdDecision,
   MetaOsDecisionsPresentation,
 } from "@/lib/meta/decisions-os-contract";
+import type { MetaStructureInventoryEntity } from "@/components/meta/redesign/types";
+
+/**
+ * One row of the server's account census.
+ *
+ * Deliberately a plain inventory record: `MetaStructureInventoryEntity`
+ * carries no action tuple, no lane and no decision label, which is exactly why
+ * it is the contract the inventory panel reads. Anything a test can build here
+ * is something an inventory row could never inherit a verdict from.
+ */
+function metaStructureInventoryEntity(
+  input: Partial<MetaStructureInventoryEntity> & {
+    id: string;
+    level: "campaign" | "adset";
+  },
+): MetaStructureInventoryEntity {
+  return {
+    name: `entity ${input.id}`,
+    campaignId: input.level === "campaign" ? input.id : "camp_a",
+    campaignName: input.level === "campaign" ? `entity ${input.id}` : "Parent",
+    campaignKind: "main",
+    status: "PAUSED",
+    statusLabel: "Paused 1045d",
+    metrics: {
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+    },
+    entityConfiguration: {
+      source:
+        input.level === "campaign"
+          ? "account_scoped_campaign_row"
+          : "account_scoped_adset_row",
+      budgetOwner: "campaign",
+      budgetMode: "campaign_budget",
+      controlOwner: "campaign",
+      status: "PAUSED",
+      optimizationGoal: "Offsite Conversions",
+      bidStrategyType: "lowest_cost",
+      bidStrategyLabel: "Lowest Cost",
+      dailyBudget: 1_000_000,
+      lifetimeBudget: null,
+      budgetUtilization: null,
+    },
+    ...input,
+  };
+}
 
 const state = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -39,6 +91,11 @@ const state = vi.hoisted(() => ({
   pathname: "/platforms/meta",
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
   workspaceBanners: [] as any[],
+  /**
+   * Overrides `workspacePayload()`'s built-in digest. `null` keeps the
+   * built-in one, so every existing test keeps the exact payload it had.
+   */
+  workspaceDigest: null as any,
   workspaceViewer: null as any,
   providerAccounts: [
     {
@@ -169,7 +226,7 @@ function workspacePayload() {
     },
     viewer: state.workspaceViewer,
     banners: state.workspaceBanners,
-    digest: {
+    digest: state.workspaceDigest ?? {
       snapshotDate: lanes.snapshotDate,
       unavailableReason: null,
       labelFlips: {
@@ -417,9 +474,10 @@ function exactOsPresentation(
 vi.mock(
   "@/components/meta/decision-center/MetaDecisionCenterExact",
   async (importOriginal) => {
-    const actual = await importOriginal<
-      typeof import("@/components/meta/decision-center/MetaDecisionCenterExact")
-    >();
+    const actual =
+      await importOriginal<
+        typeof import("@/components/meta/decision-center/MetaDecisionCenterExact")
+      >();
     return {
       ...actual,
       MetaDecisionCenterExact: (props: any) => {
@@ -558,7 +616,15 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain('data-testid="meta-decision-board"');
     expect(html).not.toContain("suppression receipt");
     expect(html).toContain('data-testid="meta-mobile-decisions"');
-    expect(html).toContain("TheSwaf · Act now 2");
+    // RESTATED LAW: the mobile act-now tally is the SAME number the desktop
+    // lane chip shows, because both read `lanes.counts.actionNow` from one
+    // payload. This assertion used to expect 2 — the old mobile screen added
+    // `anomalies.length` to the recommendation count, so one payload produced
+    // "Act now 2" on the phone and "Action Now 1" on the desktop. Anomalies are
+    // still on the phone; they are listed as their own rows (asserted below)
+    // rather than folded into a decision tally they are not part of.
+    expect(html).toContain("TheSwaf · Act now 1");
+    expect(html).toContain('data-meta-exact-lane="action"');
     expect(html).toContain("Policy delivery block");
     expect(html).toContain("ASC Prospecting");
     expect(html).toContain("Writes are desktop-only");
@@ -571,6 +637,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      60,
     ]);
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
       "meta-account-pulse",
@@ -676,12 +743,11 @@ describe("MetaPlatformPage", () => {
       decisions: `/c/biz_1/meta/decisions?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
         "/c/biz_1/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
-      creativeStudio:
-        "/c/biz_1/creative/performance?providerAccountId=act_1",
+      creativeStudio: "/c/biz_1/creative/performance?providerAccountId=act_1",
     },
   ])(
-    "keeps exact window and CTA navigation inside $pathname",
-    ({ pathname, decisions, launchpad, creativeStudio }) => {
+    "keeps CTA navigation inside $pathname",
+    ({ pathname, launchpad, creativeStudio }) => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(WINDOW_CLOCK);
       try {
@@ -690,17 +756,16 @@ describe("MetaPlatformPage", () => {
           <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
         );
 
-        state.exactProps.onWindowChange("14d");
+        // The in-page window control is gone — the shell topbar picker owns the
+        // window, and this header carrying its own was a second writer for one
+        // value. What this case still protects is that a CTA never navigates
+        // OUT of the route family the operator is in.
         state.exactProps.onNewCampaign();
         state.exactProps.onOpenCreativeStudio();
       } finally {
         vi.useRealTimers();
       }
 
-      // Fourteen COMPLETED days. Ending on 2026-08-18 would count a day that is
-      // still being written as a whole one, which is the evidence-window
-      // day-count invariant broken from the other end.
-      expect(state.routerReplace).toHaveBeenCalledWith(decisions);
       expect(state.routerPush).toHaveBeenNthCalledWith(1, launchpad);
       expect(state.routerPush).toHaveBeenNthCalledWith(2, creativeStudio);
       // The two params Launchpad fails closed on must not come back.
@@ -720,7 +785,7 @@ describe("MetaPlatformPage", () => {
   // no exact Ad write can be minted from a legacy source. What went away is the
   // explanation, not the block.
 
-  it("renders creative rotation only from the server-selected canonical section", () => {
+  it("renders a served creative row and joins its canonical envelope by key", () => {
     const model = emptyCanonicalDecisionReadModel();
     model.queue.sections.creative_rotation = {
       ...emptyCanonicalSection("creative_rotation"),
@@ -824,6 +889,155 @@ describe("MetaPlatformPage", () => {
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
       "meta-decisions-creative-engine",
     );
+  });
+
+  /**
+   * LAW: section membership is a RANKING, not a visibility gate.
+   *
+   * The Creatives scope used to intersect `os.ads.items` with
+   * `queue.sections.creative_rotation` — a compact operator queue capped at
+   * five — and render only the overlap. Measured on Grandmix
+   * (act_805150454596350) the payload carried 60 Ads in `os.ads.items`, the
+   * section carried 5 `out_of_scope` decisions, the two sets did not intersect
+   * at all, and the scope rendered ZERO rows out of 60 served.
+   *
+   * The Ads the server serves as blocked/pending are the ones that vanished
+   * hardest: they are live Ads with no exact Ad-grain decision snapshot yet, so
+   * they carry no canonical section key by construction. This pins that they
+   * render, that they say what they are, and that they are not dressed up as
+   * ordinary recommendations.
+   */
+  it("renders every served Ad, including ones no canonical section ranked", () => {
+    const model = emptyCanonicalDecisionReadModel();
+    // The section ranks exactly one Ad. The payload serves three.
+    model.queue.sections.creative_rotation = {
+      ...emptyCanonicalSection("creative_rotation"),
+      preCapCount: 1,
+      selectedCount: 1,
+      items: [],
+    };
+    state.decisionReadModel = model;
+    state.osPresentation = exactOsPresentation([
+      exactNativeAdDecision(),
+      exactNativeAdDecision({
+        id: "os_ad_pending_1",
+        decisionId: "inventory:120000000000000002",
+        sourceSnapshotId: "inventory:120000000000000002:2026-07-10",
+        adId: "120000000000000002",
+        adName: "Live Ad Without A Decision",
+        lane: "blocked",
+        decisionAvailability: "pending_native_evidence",
+        publishedLabel: "not_evaluated",
+        rawLabel: null,
+        assessment: "Ad-grain evidence pending",
+        whyNow:
+          "Meta confirms this Ad is ACTIVE, but the exact Ad-grain decision snapshot is not available.",
+        action: {
+          code: "await_ad_grain_evidence",
+          label: "Evidence pending",
+          intent: "review",
+          targetLevel: "ad",
+          providerMutation: null,
+          scopeNote:
+            "The Ad is live, but no exact Ad-grain decision snapshot can authorize an action yet",
+        },
+        blockers: [
+          {
+            code: "native_ad_decision_unavailable",
+            label: "Exact Ad-grain decision evidence is unavailable",
+          },
+        ],
+        resolution: {
+          code: "produce_native_ad_decision",
+          category: "system",
+          owner: "system",
+          label: "Produce exact Ad decision",
+          nextStep:
+            "Complete the native Ad decision schema and producer lineage gate.",
+        },
+      }),
+      exactNativeAdDecision({
+        id: "os_ad_monitor_1",
+        decisionId: "mdd_monitor_1",
+        sourceSnapshotId: "snapshot_monitor_1",
+        adId: "120000000000000003",
+        adName: "Still Learning",
+        lane: "monitor",
+        publishedLabel: "test_more",
+        assessment: "Learning",
+        whyNow:
+          "Below commercial maturity — let the creative accumulate signal.",
+        action: {
+          code: "watch",
+          label: "Watch",
+          intent: "none",
+          targetLevel: "ad",
+          providerMutation: null,
+          scopeNote: "Re-evaluates with the next eligible snapshot",
+        },
+      }),
+    ]);
+    state.exactScope = "creatives";
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+
+    // All three served rows render; none of them was in the ranked section.
+    for (const id of ["os_ad_1", "os_ad_pending_1", "os_ad_monitor_1"]) {
+      expect(html).toContain(`data-meta-exact-creative-row="${id}"`);
+    }
+    const pending = exactArticleHtml(
+      html,
+      'data-meta-exact-creative-row="os_ad_pending_1"',
+    );
+    expect(pending).toContain("Live Ad Without A Decision");
+    // It says what it is, in the server's own words.
+    expect(pending).toContain("Evidence pending");
+    expect(pending).toContain(
+      "Exact Ad-grain decision evidence is unavailable",
+    );
+    expect(pending).toContain(
+      "Complete the native Ad decision schema and producer lineage gate.",
+    );
+    // The served state is on the row, not pooled away.
+    expect(pending).toContain('data-meta-exact-creative-state="Blocked"');
+    /*
+     * LAW: a blocked row's evidence is REACHABLE, and what it opens is a
+     * read-only window.
+     *
+     * This used to assert `disabled` — i.e. that a row with no canonical
+     * envelope offered no control at all — and on a real account that rule
+     * silenced everything: Grandmix serves 60 ads, every one of them
+     * `pending_native_evidence` with no envelope, so no row on the account
+     * could open the window that exists to explain exactly this state.
+     *
+     * The control it now offers is the SERVED review action, verbatim
+     * ("Evidence pending", intent `review`, `providerMutation: null`), and the
+     * row still says what it is: the Blocked badge, the blocker and the next
+     * step stay on it. Provider-write authority is decided in the window, from
+     * the canonical envelope, and is refused when there is none.
+     */
+    expect(pending).toContain(
+      'aria-label="Evidence for Live Ad Without A Decision"',
+    );
+    expect(pending).toContain('role="button"');
+    expect(pending).not.toContain("disabled");
+    // It is a review affordance, never a provider mutation dressed as one.
+    expect(pending).not.toContain("Pause");
+    expect(pending).not.toContain("Resume");
+
+    // The three served states are three groups, not one flat list.
+    for (const group of ["act", "blocked", "monitor"]) {
+      expect(html).toContain(`data-meta-exact-creative-group="${group}"`);
+    }
+    // The closing sentence names what THIS account was served — no more, and
+    // certainly not a hand-written three-verb vocabulary.
+    expect(html).toContain("Ad-level calls served for this account");
+    expect(html).toContain("Evidence pending");
+    expect(html).toContain("Watch");
+    expect(html).not.toContain("only three ad-level calls");
+    expect(html).not.toContain("scale winner");
   });
 
   it("renders native decisions Ad-first when creative grouping is unavailable", () => {
@@ -993,6 +1207,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      60,
     ]);
   });
 
@@ -1010,11 +1225,11 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain('data-screen-label="Meta Decision Center"');
-    expect(html).toContain('data-meta-exact-section="kpis"');
-    expect(html).toContain("Spend · today");
-    expect(html).toContain("ROAS · 28d");
-    expect(countText(html, ">—<")).toBeGreaterThan(10);
+    expect(html).toContain('data-testid="meta-briefing-loading"');
+    expect(html).toContain("Loading decision data.");
+    expect(html).not.toContain("data-meta-structure-inventory");
+    expect(html).not.toContain('data-meta-exact-section="kpis"');
+    expect(countText(html, ">—<")).toBeLessThanOrEqual(1);
     expect(html).not.toContain("$0");
     expect(html).not.toContain(">0.00<");
     expect(html).not.toContain("snapshot 0");
@@ -1037,10 +1252,9 @@ describe("MetaPlatformPage", () => {
     );
 
     expect(html).toContain('data-testid="meta-briefing-error"');
-    expect(html).toContain('data-screen-label="Meta Decision Center"');
     expect(html).toContain("workspace request failed");
-    expect(countText(html, ">—<")).toBeGreaterThan(10);
-    expect(html).toContain("queue reflects —");
+    expect(html).not.toContain('data-meta-exact-section="kpis"');
+    expect(countText(html, ">—<")).toBeLessThanOrEqual(1);
     expect(html).not.toContain("$0");
     expect(html).not.toContain(">0.00<");
   });
@@ -1138,8 +1352,12 @@ describe("MetaPlatformPage", () => {
       "components/meta/redesign/MetaPlatformPage.tsx",
       "utf8",
     );
-    expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause");
-    expect(source).not.toContain("/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid");
+    expect(source).not.toContain(
+      "/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause",
+    );
+    expect(source).not.toContain(
+      "/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid",
+    );
     expect(source).not.toContain("resumeEndpointForEntity");
     expect(source).not.toContain("<MetaDrillDrawer");
   });
@@ -1199,7 +1417,9 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain(">50%</span>");
     expect(html).toContain("Manage labels →");
     expect(html).not.toContain("Review exceptions");
-    expect(html).not.toContain('aria-label="Review campaign context exceptions"');
+    expect(html).not.toContain(
+      'aria-label="Review campaign context exceptions"',
+    );
     expect(html).not.toContain('href="#campaign-labels"');
     expect(html).not.toContain("data-meta-campaign-labels-section");
     expect(html).not.toContain("data-meta-label-management-modal");
@@ -1322,6 +1542,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      60,
     ]);
   });
 
@@ -1361,6 +1582,7 @@ describe("MetaPlatformPage", () => {
       "active",
       "2026-05-01",
       "2026-05-07",
+      60,
     ]);
   });
 
@@ -1492,6 +1714,110 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Archived Adset");
     expect(html).not.toContain("Inactive assets");
     expect(html).not.toContain('data-quiet-row="inactive-structure"');
+  });
+
+  /**
+   * The archive lane carries the withheld Ad decisions, at their own grain.
+   *
+   * The page built `inactiveViewItems` from the served archive rows AND from
+   * `decisionReadModel.queue.inactiveAssets`, then handed the exact adapter
+   * `item.kind === "structure" ? [item.row] : []` — so every Ad it had just
+   * fetched and filtered was discarded. Measured on the live dev server:
+   * Grandmix (act_805150454596350) served 83 inactive Ads and rendered 0;
+   * TheSwaf (act_822913786458311) served 319 and rendered 0. One Grandmix row
+   * carried $699.34 of spend and appeared nowhere in the product.
+   *
+   * LAW: these rows are advisory only. The read model rewrites them with
+   * `actionEligible: false` and `authorizedAction: null` before filing them
+   * under `inactiveAssets`, so the lane shows them as evidence and never as a
+   * recommendation with an action.
+   */
+  it("shows the withheld Ad decisions in the archive lane without lending them a verdict", () => {
+    state.search = "window=28d&lane=archive";
+    state.lanePayload = metaLanePayload({
+      archive: [
+        {
+          id: "cmp_paused",
+          level: "campaign",
+          name: "Paused ASC",
+          status: "PAUSED",
+          statusLabel: "Paused 12d",
+          spend: 640,
+          roas: 1.4,
+          cpa: 91,
+          purchases: 7,
+          lastKnownWindow: "28d",
+          diagnosticNote: null,
+        },
+      ],
+      counts: {
+        actionNow: 0,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 1,
+      },
+    });
+    const model = emptyCanonicalDecisionReadModel();
+    model.queue.inactiveAssets = {
+      preCapCount: 1,
+      inactiveCount: 1,
+      unknownCount: 0,
+      items: [
+        {
+          decisionId: "mdd_inactive_1",
+          sourceSnapshotId: "snapshot_inactive_1",
+          identityGrain: "ad",
+          parentChain: {
+            account: { id: "act_1", name: "Account" },
+            campaign: { id: "cmp_paused", name: "Paused ASC" },
+            adset: { id: "adset_1", name: "Broad" },
+            ad: { id: "120000000000000009", name: "Cat-Guarantee" },
+            creative: { id: "creative_9", name: "Cat-Guarantee" },
+          },
+          deliveryScope: {
+            state: "inactive",
+            campaignStatus: "NOT_ACTIVE",
+            adsetStatus: "NOT_ACTIVE",
+            adStatus: "NOT_ACTIVE",
+            reason: "hierarchy_not_active",
+          },
+          sourceAuthority: {
+            status: "native_exact",
+            actionEligible: false,
+            reviewOnlyReason: "current_hierarchy_is_not_active",
+            authorizedAction: null,
+          },
+          classification: { buyerLabel: "Cut this creative" },
+          sourceDecision: { label: "cut", reason: "ROAS below target" },
+          metrics: { spend: 699.34, purchases: 2, roas: 1.1 },
+        },
+      ],
+    };
+    state.decisionReadModel = model;
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    expect(html).toContain('data-meta-exact-archive="true"');
+    // The Ad reaches the screen at all — this is the row that used to vanish.
+    expect(html).toContain("Cat-Guarantee");
+    expect(html).toContain("$699.34");
+    // Each grain says which it is, so an ad is not mistaken for an ad set.
+    expect(html).toContain("Campaign · Paused 12d");
+    expect(html).toContain("Ad · Not Active");
+    // The chip counts the whole lane, both grains: 1 structure + 1 Ad.
+    expect(html).toContain(">Archive<span>2</span>");
+    // The served verdict stays out of the archive. A withheld decision that
+    // reads like an ordinary recommendation is the invariant this must not
+    // break (docs/creative-decision-center/INVARIANTS.md).
+    expect(html).not.toContain("Cut this creative");
+    expect(html).not.toContain("ROAS below target");
   });
 
   it("renders the Out of Sales Scope lane when nonSales entries are present", () => {
@@ -2027,7 +2353,9 @@ describe("header as-of cluster and queue-scope note", () => {
     );
 
     expect(html).toContain('data-screen-label="Meta Decision Center"');
-    expect(html).toMatch(/synced \d+d ago · snapshot 2026-05-07 · engine v3-test · 06:00 UTC/);
+    expect(html).toMatch(
+      /synced \d+d ago · snapshot 2026-05-07 · engine v3-test · 06:00 UTC/,
+    );
     expect(html).not.toContain("engine v3.6.0-meta-taxonomy");
   });
 
@@ -2135,7 +2463,7 @@ describe("tracking write gate (regression: dismissal must not unlock writes)", (
         trackingAnomalyActive: false,
         trackingHealth: { status: "blocked", detail: "" },
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(isTrackingWriteBlocked(null)).toBe(false);
     // Signature-level proof: the gate accepts only the server payload -
     // client dismissal state cannot influence it.
@@ -2165,8 +2493,935 @@ describe("data readiness banner", () => {
   });
 });
 
+/**
+ * THE DEMO ARM: healthy readiness, fabricated numbers, and — until now — total
+ * silence.
+ *
+ * `lib/meta/campaigns-source.ts:65-72` short-circuits a demo business to
+ * `{ status: "ok", isPartial: false, evidenceSource: "demo" }` around
+ * `getDemoMetaCampaigns().rows`, and `app/api/meta/account-pulse/route.ts:855`
+ * copies that onto `pulse.dataReadiness`. The readiness banner's gate is
+ * `status !== "ok" || isPartial`, so in the ONE arm where every number is
+ * fabricated the gate reads healthy and nothing fires. Nothing upstream covers
+ * it either — the demo `PostureNotice` lives in the zero-base shell, and this
+ * page renders under `app/(dashboard)/layout.tsx`.
+ *
+ * These tests pin both halves: the disclosure appears when the evidence is not
+ * a measurement, and it stays away when it is.
+ */
+describe("evidence-source disclosure", () => {
+  beforeEach(() => {
+    state.lanePayload = null;
+    state.pulsePayload = null;
+    state.workspaceBanners = [];
+    state.workspaceDigest = null;
+    state.search = "window=28d";
+    state.storeBusinesses = [];
+  });
+
+  afterEach(() => {
+    state.pulsePayload = null;
+    state.workspaceBanners = [];
+    state.workspaceDigest = null;
+  });
+
+  function renderWithEvidence(evidenceSource: string) {
+    state.pulsePayload = metaPulse({
+      dataReadiness: {
+        // The demo arm's own values: nothing here is "not ready".
+        status: "ok",
+        isPartial: false,
+        notReadyReason: null,
+        evidenceSource,
+      },
+    });
+    // The digest is silenced so this block reads only the evidence banner.
+    state.workspaceDigest = {
+      snapshotDate: "2026-05-07",
+      unavailableReason: null,
+      labelFlips: { count: 0, publishedCount: 0, items: [] },
+      actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
+      anomalies: { openedCount: 0, items: [] },
+      deferrals: { dueCount: 0, items: [] },
+    };
+    return renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+  }
+
+  it("classifies the whole served vocabulary, and only the measured tokens pass silently", () => {
+    // Measured: a live read, the warehouse rollup of the same rows, and a
+    // stored snapshot. `MetaEvidenceSource` (lib/meta/operator-policy.ts:35)
+    // plus the pulse route's "warehouse" (account-pulse/route.ts:602, :639).
+    expect(metaEvidenceSourceNotice("live")).toBeNull();
+    expect(metaEvidenceSourceNotice("warehouse")).toBeNull();
+    expect(metaEvidenceSourceNotice("snapshot")).toBeNull();
+    expect(metaEvidenceSourceNotice("  LIVE  ")).toBeNull();
+
+    expect(metaEvidenceSourceNotice("demo")?.kind).toBe("demonstration");
+    expect(metaEvidenceSourceNotice("fallback")?.kind).toBe("fallback");
+    expect(metaEvidenceSourceNotice("unknown")?.kind).toBe("unnamed");
+    expect(metaEvidenceSourceNotice("")?.kind).toBe("unnamed");
+    expect(metaEvidenceSourceNotice(null)?.kind).toBe("unnamed");
+
+    // The hole this function exists to close must not reopen for token seven:
+    // an unrecognised source is NAMED, never assumed measured.
+    const future = metaEvidenceSourceNotice("federated_export");
+    expect(future?.kind).toBe("unreadable");
+    expect(future?.detail).toContain("federated_export");
+  });
+
+  it("says the numbers are demonstration data when the demo arm answered", () => {
+    const html = renderWithEvidence("demo");
+    expect(html).toContain('data-banner-id="readiness_evidence_source"');
+    expect(html).toContain(
+      "These are demonstration numbers, not measurements.",
+    );
+    expect(html).toContain("sample values, not readings of this ad account");
+    // The readiness banner still cannot fire here - that is the whole defect.
+    expect(html).not.toContain('data-banner-id="data_readiness"');
+    // It reports; it does not act. No control, no decision, no write.
+    const banner = html.slice(
+      html.indexOf('data-banner-id="readiness_evidence_source"'),
+    );
+    expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("<button");
+  });
+
+  it("names an unrecognised source instead of passing it off as measured", () => {
+    const html = renderWithEvidence("federated_export");
+    expect(html).toContain('data-banner-id="readiness_evidence_source"');
+    expect(html).toContain("federated_export");
+    expect(html).toContain("cannot read");
+  });
+
+  it("stays silent when the evidence IS a measurement", () => {
+    for (const source of ["live", "warehouse", "snapshot"]) {
+      const html = renderWithEvidence(source);
+      expect(html).not.toContain('data-banner-id="readiness_evidence_source"');
+    }
+  });
+
+  it("does not repeat the readiness banner when the source is merely unnamed", () => {
+    // `campaigns-source.ts` returns "unknown" for an empty range, the same
+    // event that fills `notReadyReason`. There the readiness banner really
+    // does state the consequence, and two warnings for one fact is wallpaper.
+    state.pulsePayload = metaPulse({
+      dataReadiness: {
+        status: "ok",
+        isPartial: true,
+        notReadyReason: "Campaign warehouse data is still being prepared.",
+        evidenceSource: "unknown",
+      },
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    expect(html).toContain('data-banner-id="data_readiness"');
+    expect(html).not.toContain('data-banner-id="readiness_evidence_source"');
+  });
+
+  it("survives a served banner set, which would have discarded the fallback", () => {
+    // The regression this guards: `served.length > 0` replaces the whole
+    // fallback list, so a demo account with any served banner used to go back
+    // to drawing fabricated numbers in silence.
+    state.workspaceBanners = [
+      {
+        id: "snapshot_health",
+        tone: "warning",
+        title: "Decision snapshot is not fresh.",
+        detail: "served",
+        blocking: false,
+      },
+    ];
+    const html = renderWithEvidence("demo");
+    expect(html).toContain('data-banner-id="snapshot_health"');
+    expect(html).toContain('data-banner-id="readiness_evidence_source"');
+  });
+
+  it("lets a served banner of the same id win over the page's own", () => {
+    state.workspaceBanners = [
+      {
+        id: "readiness_evidence_source",
+        tone: "warning",
+        title: "Served evidence disclosure.",
+        detail: "served detail",
+        blocking: false,
+      },
+    ];
+    const html = renderWithEvidence("demo");
+    expect(html).toContain("Served evidence disclosure.");
+    expect(html).not.toContain(
+      "These are demonstration numbers, not measurements.",
+    );
+  });
+
+  it("reaches the phone as well as the desk", () => {
+    const html = renderWithEvidence("demo");
+    expect(html).toContain('data-mobile-banner="readiness_evidence_source"');
+  });
+});
+
+/**
+ * A COUNT OF SILENT FAILURES MUST NOT ITSELF BE SILENT.
+ *
+ * `digest.actions.silentFailureCount`
+ * (app/api/meta/decisions-workspace/route.ts:948-951) counts action-log rows
+ * written as `silent_failure`, which is the status the write paths use for an
+ * AMBIGUOUS provider outcome (launch/route.ts:106-113,
+ * bulk-ad-status/route.ts:154-160): the write may have landed at Meta, retry is
+ * suppressed, and nobody was told. Before this round the entire repo referenced
+ * the field exactly twice - the route that computes it and the type that
+ * declares it.
+ */
+describe("silent action failure disclosure", () => {
+  beforeEach(() => {
+    state.lanePayload = null;
+    state.pulsePayload = null;
+    state.workspaceBanners = [];
+    state.workspaceDigest = null;
+    state.search = "window=28d";
+    state.storeBusinesses = [];
+  });
+
+  afterEach(() => {
+    state.workspaceDigest = null;
+    state.workspaceBanners = [];
+  });
+
+  function digest(actions: {
+    verifiedCount: number;
+    silentFailureCount: number;
+    unavailableReason?: string | null;
+    snapshotDate?: string | null;
+    countedRowCap?: number | null;
+    countsTruncated?: boolean;
+  }) {
+    return {
+      snapshotDate:
+        actions.snapshotDate === undefined
+          ? "2026-05-07"
+          : actions.snapshotDate,
+      unavailableReason: actions.unavailableReason ?? null,
+      labelFlips: { count: 0, publishedCount: 0, items: [] },
+      actions: {
+        verifiedCount: actions.verifiedCount,
+        silentFailureCount: actions.silentFailureCount,
+        countedRowCap:
+          actions.countedRowCap === undefined ? 20 : actions.countedRowCap,
+        countsTruncated: actions.countsTruncated ?? false,
+        items: [],
+      },
+      anomalies: { openedCount: 0, items: [] },
+      deferrals: { dueCount: 0, items: [] },
+    };
+  }
+
+  it("states the count with verifiedCount as its denominator", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({ verifiedCount: 3, silentFailureCount: 2 }),
+    );
+    expect(notice?.title).toBe(
+      "2 recorded actions ended without a verified outcome.",
+    );
+    expect(notice?.detail).toContain("since 2026-05-07");
+    expect(notice?.detail).toContain("5 recorded actions: 3 verified, 2 not");
+    // The outcome is unknown, and the sentence says so rather than asserting
+    // that the account did or did not change.
+    expect(notice?.detail).toContain("may or may not have landed at Meta");
+  });
+
+  it("agrees with the language on a single failure", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({ verifiedCount: 0, silentFailureCount: 1 }),
+    );
+    expect(notice?.title).toBe(
+      "1 recorded action ended without a verified outcome.",
+    );
+    expect(notice?.detail).toContain("1 recorded action: 0 verified, 1 not");
+  });
+
+  it("names no window when the digest carries no snapshot date", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({ verifiedCount: 1, silentFailureCount: 1, snapshotDate: null }),
+    );
+    expect(notice?.detail).toContain("action digest carries");
+    expect(notice?.detail).not.toContain("since");
+  });
+
+  it("keeps a measured zero off the screen", () => {
+    expect(
+      metaSilentActionFailureNotice(
+        digest({ verifiedCount: 9, silentFailureCount: 0 }),
+      ),
+    ).toBeNull();
+    state.workspaceDigest = digest({
+      verifiedCount: 9,
+      silentFailureCount: 0,
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    expect(html).not.toContain('data-banner-id="silent_action_failures"');
+  });
+
+  it("never renders an unavailable digest as an empty success", () => {
+    // A read failure is never an empty success. Every arm that sets
+    // `unavailableReason` returns the UNTOUCHED `emptyDecisionDigest` zeros
+    // beside it (route.ts:736, :976, :1336), so the `> 0` gate withholds them
+    // - and this notice has no all-clear rendering to fall into anyway.
+    expect(
+      metaSilentActionFailureNotice(
+        digest({
+          verifiedCount: 0,
+          silentFailureCount: 0,
+          unavailableReason: "Digest source tables are not available.",
+        }),
+      ),
+    ).toBeNull();
+    // ...and `unavailableReason` is NOT a second gate. A positive count only
+    // exists because the action-log query returned those rows; withholding it
+    // on a sibling flag would render a measurement as nothing.
+    expect(
+      metaSilentActionFailureNotice(
+        digest({
+          verifiedCount: 0,
+          silentFailureCount: 4,
+          unavailableReason: "Digest source tables are not available.",
+        }),
+      )?.title,
+    ).toBe("4 recorded actions ended without a verified outcome.");
+    // The compact workspace surface omits `digest` entirely.
+    expect(metaSilentActionFailureNotice(null)).toBeNull();
+    expect(metaSilentActionFailureNotice(undefined)).toBeNull();
+  });
+
+  it("puts the count on the desk and the phone, and offers no control", () => {
+    state.workspaceDigest = digest({
+      verifiedCount: 1,
+      silentFailureCount: 2,
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    expect(html).toContain('data-banner-id="silent_action_failures"');
+    expect(html).toContain('data-mobile-banner="silent_action_failures"');
+    expect(html).toContain(
+      "2 recorded actions ended without a verified outcome.",
+    );
+    expect(html).toContain('data-banner-blocking="false"');
+    const banner = html.slice(
+      html.indexOf('data-banner-id="silent_action_failures"'),
+    );
+    expect(banner.slice(0, banner.indexOf("</div>"))).not.toContain("<button");
+  });
+
+  /**
+   * THE CAP IS PART OF THE MEASUREMENT, SO IT IS PART OF THE SENTENCE.
+   *
+   * Both counts come from filtering the rows the BOUNDED action-log query
+   * returned (route.ts, `META_ACTION_DIGEST_ROW_CAP`), so once the window
+   * holds more qualifying rows than the cap allows they describe the newest
+   * page and not the window - while "this account's action digest since
+   * <date> carries M recorded actions" reads as the window's total. Nothing
+   * here is fabricated, which is exactly why it was easy to leave: the numbers
+   * were measured and the FRAME around them was too wide. Same family as the
+   * null status read as "archived" that erased 95% of an account's spend.
+   */
+  it("states a floor, not a total, when the digest read a full page", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({
+        verifiedCount: 17,
+        silentFailureCount: 3,
+        countedRowCap: 20,
+        countsTruncated: true,
+      }),
+    );
+    // A floor, because three is what the newest twenty contained and the
+    // window may hold more behind them.
+    expect(notice?.title).toBe(
+      "At least 3 recorded actions ended without a verified outcome.",
+    );
+    // The count is framed as the page it came from...
+    expect(notice?.detail).toContain(
+      "counts only its 20 most recent recorded actions",
+    );
+    // ...the 20 is explained rather than left as a riddle...
+    expect(notice?.detail).toContain("the most a 20-row cap lets it read");
+    // ...and the window's real total is refused, not guessed.
+    expect(notice?.detail).toContain(
+      "The window may hold more recorded actions than this count covers",
+    );
+    expect(notice?.detail).toContain(
+      "whether it does, and how many, is unavailable here",
+    );
+    // The old, too-wide frame is gone.
+    expect(notice?.detail).not.toContain("carries 20 recorded actions");
+  });
+
+  /*
+   * The boundary is the whole reason this sentence hedges.
+   *
+   * `countsTruncated` is `rows.length >= cap`. A window holding EXACTLY the cap
+   * was read out completely, and the flag cannot tell it from one holding four
+   * thousand. An earlier draft asserted "The window holds more recorded actions
+   * than this count covers" — an unmeasured positive claim, in the very
+   * sentence that exists to stop a measured count reading wider than its
+   * measurement. The floor in the title stays exact; the fourth sentence may
+   * only be as strong as `>=` actually is.
+   */
+  it("never asserts more rows exist, because a full page may be the whole window", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({
+        verifiedCount: 18,
+        silentFailureCount: 2,
+        countedRowCap: 20,
+        countsTruncated: true,
+      }),
+    );
+    expect(notice?.title).toBe(
+      "At least 2 recorded actions ended without a verified outcome.",
+    );
+    for (const claim of [
+      "The window holds more",
+      "there are more",
+      "more actions exist",
+    ]) {
+      expect(notice?.detail).not.toContain(claim);
+    }
+    expect(notice?.detail).toContain("may hold more recorded actions");
+  });
+
+  it("keeps the untruncated sentence exactly as wide as before", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({
+        verifiedCount: 3,
+        silentFailureCount: 2,
+        countedRowCap: 20,
+        countsTruncated: false,
+      }),
+    );
+    expect(notice?.title).toBe(
+      "2 recorded actions ended without a verified outcome.",
+    );
+    expect(notice?.detail).toContain("5 recorded actions: 3 verified, 2 not");
+    expect(notice?.title).not.toContain("At least");
+    expect(notice?.detail).not.toContain("cap");
+  });
+
+  it("names no cap the payload did not serve", () => {
+    // Truncation without a served cap still gets the floor and the warning.
+    // Filling the gap with a plausible 20 would put a fabricated number where
+    // a measured one belongs, which is the defect wearing the other face.
+    const notice = metaSilentActionFailureNotice(
+      digest({
+        verifiedCount: 5,
+        silentFailureCount: 1,
+        countedRowCap: null,
+        countsTruncated: true,
+      }),
+    );
+    expect(notice?.title).toBe(
+      "At least 1 recorded action ended without a verified outcome.",
+    );
+    expect(notice?.detail).toContain(
+      "counts only its 6 most recent recorded actions",
+    );
+    expect(notice?.detail).not.toContain("-row cap");
+    expect(notice?.detail).toContain(
+      "The window may hold more recorded actions than this count covers",
+    );
+  });
+
+  it("names no window on a truncated digest with no snapshot date", () => {
+    const notice = metaSilentActionFailureNotice(
+      digest({
+        verifiedCount: 4,
+        silentFailureCount: 1,
+        countedRowCap: 5,
+        countsTruncated: true,
+        snapshotDate: null,
+      }),
+    );
+    expect(notice?.detail).toContain("action digest counts only");
+    expect(notice?.detail).not.toContain("since");
+  });
+
+  it("keeps a measured zero silent even when the read was truncated", () => {
+    expect(
+      metaSilentActionFailureNotice(
+        digest({
+          verifiedCount: 20,
+          silentFailureCount: 0,
+          countedRowCap: 20,
+          countsTruncated: true,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  /**
+   * AN ALARM THAT NAMES NOWHERE TO TAKE IT.
+   *
+   * The banner said "nothing on this page can tell which" - true of this page,
+   * false of the product. `/platforms/meta/history` labels each
+   * `meta_ads_action_log` row `Silent failure` or `Verified`
+   * (history-view.tsx:88-97,140-146; history-read-model.ts:502) over a
+   * GET-only route (app/api/meta/history/route.ts exports `dynamic` and `GET`
+   * and nothing else), so pointing at it creates NO provider-write authority.
+   * The strip already does this: `meta_write_kill_switch` carries a System
+   * Status link.
+   */
+  it("sends the reader to the screen that can tell the two apart", () => {
+    state.workspaceDigest = digest({
+      verifiedCount: 1,
+      silentFailureCount: 2,
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    // Named in words, so every surface carries the destination even where a
+    // control would not.
+    expect(html).toContain(
+      "Meta History lists each recorded action on its own row",
+    );
+    // And reachable, scoped to the same business and account this page is
+    // answering for rather than whichever one the journal would pick.
+    expect(html).toContain(
+      'href="/platforms/meta/history?businessId=biz_1&amp;providerAccountId=act_1"',
+    );
+    const desktop = html.slice(
+      html.indexOf('data-banner-id="silent_action_failures"'),
+    );
+    const desktopBanner = desktop.slice(0, desktop.indexOf("</div>"));
+    expect(desktopBanner).toContain(">Meta History</a>");
+    const mobile = html.slice(
+      html.indexOf('data-mobile-banner="silent_action_failures"'),
+    );
+    expect(mobile.slice(0, mobile.indexOf("</article>"))).toContain(
+      ">Meta History</a>",
+    );
+  });
+
+  it("reports and never acts", () => {
+    state.workspaceDigest = digest({
+      verifiedCount: 1,
+      silentFailureCount: 2,
+      countedRowCap: 3,
+      countsTruncated: true,
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    const desktop = html.slice(
+      html.indexOf('data-banner-id="silent_action_failures"'),
+    );
+    const desktopBanner = desktop.slice(0, desktop.indexOf("</div>"));
+    const mobile = html.slice(
+      html.indexOf('data-mobile-banner="silent_action_failures"'),
+    );
+    const mobileBanner = mobile.slice(0, mobile.indexOf("</article>"));
+    // A destination is not a control. The outcome is unknown; nothing here may
+    // offer to change it, and this page holds no write authority to try.
+    for (const element of [desktopBanner, mobileBanner]) {
+      expect(element).not.toContain("<button");
+      for (const verb of [
+        "Retry",
+        "Resume",
+        "Pause",
+        "Apply",
+        "Fix",
+        "Undo",
+        "Rerun",
+        "Reconcile",
+      ]) {
+        expect(element).not.toContain(verb);
+      }
+    }
+  });
+
+  it("lets a served banner of the same id win over the page's own", () => {
+    state.workspaceBanners = [
+      {
+        id: "silent_action_failures",
+        tone: "danger",
+        title: "Served silent-failure recap.",
+        detail: "served detail",
+        blocking: false,
+      },
+    ];
+    state.workspaceDigest = digest({
+      verifiedCount: 1,
+      silentFailureCount: 2,
+    });
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+    expect(html).toContain("Served silent-failure recap.");
+    expect(html).not.toContain(
+      "2 recorded actions ended without a verified outcome.",
+    );
+  });
+});
+
+/**
+ * THE LAW: the phone and the desk read the same payload the same way.
+ *
+ * Below 720px the stylesheet shows `.meta-mobile-decision-stage` and hides every
+ * sibling with `display: none !important`, so whatever the mobile subtree does
+ * not render is invisible to a phone. The old subtree rendered its own reduced
+ * truth: legacy recommendation rows only, `.slice(0, 2)`, one anomaly, and no
+ * blocked/monitor decisions, no inactive Ads, no capabilities, no source
+ * limitations and no viewer authority. Two surfaces, one backend, two answers.
+ *
+ * What must NOT change is write authority: mobile stays read-only. That is a
+ * product law, not a gap — so these tests pin both halves. The mobile subtree
+ * carries the same rows and the same counts as the desktop, and it carries no
+ * write control at all.
+ */
+describe("mobile decision surface parity", () => {
+  beforeEach(() => {
+    state.queryKeys = [];
+    state.lanePayload = null;
+    state.pulsePayload = null;
+    state.labelCampaigns = [];
+    state.campaignLabels = [];
+    state.search = "window=28d";
+    state.pathname = "/platforms/meta";
+    state.storeBusinesses = [];
+    state.workspaceBanners = [];
+    state.workspaceViewer = {
+      role: "collaborator",
+      isReviewer: false,
+      readOnly: false,
+      readOnlyReason: null,
+    };
+    state.providerAccounts = [
+      { id: "act_1", name: "Main Meta", currency: "USD", timezone: "UTC" },
+    ];
+    state.decisionReadModel = null;
+    state.osSource = null;
+    state.osPresentation = null;
+    state.exactScope = null;
+    state.exactProps = null;
+    state.queryOverrides = {};
+    state.routerReplace.mockClear();
+  });
+
+  function mobileHtml(html: string): string {
+    const start = html.indexOf('<section class="meta-mobile-decision-stage"');
+    expect(start).toBeGreaterThan(-1);
+    const end = html.indexOf(
+      "</section>",
+      html.indexOf("ad-mobile-desktop-note"),
+    );
+    return html.slice(start, end);
+  }
+
+  it("renders every action row the desktop lane renders, uncapped", () => {
+    state.lanePayload = metaLanePayload({
+      actionNow: [
+        metaRec({ id: "rec_1", title: "Row One", campaignName: "Row One" }),
+        metaRec({ id: "rec_2", title: "Row Two", campaignName: "Row Two" }),
+        metaRec({ id: "rec_3", title: "Row Three", campaignName: "Row Three" }),
+        metaRec({ id: "rec_4", title: "Row Four", campaignName: "Row Four" }),
+      ],
+      watching: [],
+      counts: {
+        actionNow: 4,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    const mobile = mobileHtml(html);
+    for (const id of ["rec_1", "rec_2", "rec_3", "rec_4"]) {
+      expect(mobile).toContain(`data-mobile-row-id="${id}"`);
+    }
+    // The pre-fix surface sliced at two. Four served rows, four rendered rows.
+    expect(mobile.match(/data-mobile-row-id=/g)?.length).toBe(4);
+    expect(mobile).toContain("TheSwaf · Act now 4");
+  });
+
+  it("offers exactly one control per row — evidence — and never a write", () => {
+    state.lanePayload = metaLanePayload({
+      actionNow: [metaRec({ id: "rec_1", title: "Row One" })],
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+
+    const mobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    const rowStart = mobile.indexOf('data-mobile-row-id="rec_1"');
+    const row = mobile.slice(rowStart, mobile.indexOf("</article>", rowStart));
+    expect(row).toContain("Read evidence →");
+    expect(row).not.toContain("Pause");
+    expect(row).not.toContain("Apply bid");
+    expect(row).not.toContain("Resume");
+    expect(mobile).toContain("Writes are desktop-only");
+  });
+
+  it("states viewer authority and the served source posture beside the rows", () => {
+    state.workspaceViewer = {
+      role: "guest",
+      isReviewer: true,
+      readOnly: true,
+      readOnlyReason: "Reviewer access is read-only.",
+    };
+    const model = emptyCanonicalDecisionReadModel();
+    model.capabilities = {
+      providerAccountScope: { status: "available", reason: null },
+      responseAttribution: {
+        status: "unavailable",
+        reason: "legacy_response_journal_not_keyed_by_decision_episode",
+      },
+      providerWriteLinkage: {
+        status: "unavailable",
+        reason: "provider_write_journal_not_keyed_by_decision_episode",
+      },
+    };
+    model.queue.inactiveAssets = {
+      preCapCount: 83,
+      inactiveCount: 83,
+      unknownCount: 0,
+      items: [],
+    };
+    model.queue.adCandidates = {
+      selectionVersion: "meta-decisions-ad-candidate-selection.v2",
+      limit: 60,
+      preCapCount: 71,
+      eligiblePreCapCount: 71,
+      selectedCount: 2,
+      stateCounts: {
+        act: { preCapCount: 0, selectedCount: 0 },
+        monitor: { preCapCount: 0, selectedCount: 0 },
+        blocked: { preCapCount: 2, selectedCount: 2 },
+      },
+      omittedAmbiguousIdentity: 0,
+      omittedWithoutVerifiedAdId: 0,
+      omittedNotApplicable: 0,
+      items: [],
+    };
+    state.decisionReadModel = model;
+    state.osSource = {
+      adsSource: "legacy_creative_review_only",
+      health: "degraded",
+      structureSource: "meta_recommendations",
+      fallbackReason: "native_schema_or_generation_read_failed",
+      snapshotAsOf: "2026-08-19",
+      engineVersion: "v3-test",
+    };
+    state.lanePayload = metaLanePayload({
+      actionNow: [metaRec({ id: "rec_1", title: "Row One" })],
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+
+    const mobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    // Claim 8, mobile half: the posture is rendered ALONGSIDE a non-empty
+    // queue, not only when the queue is empty.
+    expect(mobile).toContain('data-mobile-row-id="rec_1"');
+    expect(mobile).toContain('data-mobile-posture="source"');
+    expect(mobile).toContain("Legacy Creative Review Only");
+    expect(mobile).toContain("health Degraded");
+    expect(mobile).toContain("native_schema_or_generation_read_failed");
+    expect(mobile).toContain("Response Attribution unavailable");
+    expect(mobile).toContain("Provider Write Linkage unavailable");
+    expect(mobile).toContain('data-mobile-posture="viewer"');
+    expect(mobile).toContain("role guest · read-only");
+    expect(mobile).toContain("Reviewer access is read-only.");
+    expect(mobile).toContain('data-mobile-posture="withheld"');
+    expect(mobile).toContain("83 inactive Ads");
+    expect(mobile).toContain("blocked 2");
+  });
+
+  it("lists every served anomaly rather than only the first", () => {
+    state.lanePayload = metaLanePayload({
+      actionNow: [],
+      watching: [],
+      counts: {
+        actionNow: 0,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+    state.queryOverrides["meta-anomalies"] = {
+      data: {
+        anomalies: [
+          metaAnomaly({ id: "anom_1", title: "First anomaly" }),
+          metaAnomaly({ id: "anom_2", title: "Second anomaly" }),
+        ],
+      },
+    };
+
+    const mobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    expect(mobile).toContain("First anomaly");
+    expect(mobile).toContain("Second anomaly");
+  });
+
+  it("renders creative rows on mobile and opens the mobile evidence screen", () => {
+    const model = emptyCanonicalDecisionReadModel();
+    state.decisionReadModel = model;
+    state.osPresentation = exactOsPresentation([exactNativeAdDecision()]);
+    state.exactScope = "creatives";
+    state.search = "window=28d&scope=creatives";
+
+    const mobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    expect(mobile).toContain('data-mobile-scope="creatives"');
+    expect(mobile).toContain('data-mobile-row-id="os_ad_1"');
+    expect(mobile).toContain("Hook Variant A");
+    // The desktop creative drawer is a sibling of this subtree and is hidden by
+    // the mobile stylesheet, so mobile has to own the evidence screen for a
+    // creative row. Without it the row's only control opened nothing.
+    expect(
+      readFileSync("components/meta/redesign/MetaPlatformPage.tsx", "utf8"),
+    ).toContain("<MetaMobileCreativeEvidenceScreen");
+  });
+
+  it("carries the same scope and lane chips the desktop carries", () => {
+    state.lanePayload = metaLanePayload({
+      counts: {
+        actionNow: 3,
+        watching: 1089,
+        healthy: 0,
+        nonSales: 30,
+        archive: 0,
+      },
+      structureInventory: [
+        metaStructureInventoryEntity({ id: "camp_a", level: "campaign" }),
+        metaStructureInventoryEntity({ id: "camp_b", level: "campaign" }),
+        metaStructureInventoryEntity({ id: "adset_a", level: "adset" }),
+        metaStructureInventoryEntity({ id: "adset_b", level: "adset" }),
+      ],
+    });
+
+    const mobile = mobileHtml(
+      renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      ),
+    );
+    /*
+     * The scope chip counts the SCOPE, and this assertion used to read
+     * "Campaigns & Ad sets 3" — the lane total for Action Now, printed under a
+     * label that names campaigns and ad sets. On Grandmix
+     * (act_805150454596350) that made a scope holding 1,230 served entities
+     * announce 3, which is how 1,211 of them ended up discoverable only
+     * through a lane called Archive. The chip reports the served census now;
+     * the lane chips beside it are unchanged, because lane membership is the
+     * server's and none of it moved.
+     */
+    expect(mobile).toContain("Campaigns &amp; Ad sets 4");
+    expect(mobile).toContain("Action 3");
+    expect(mobile).toContain("Watching 1089");
+    expect(mobile).toContain("Non-sales 30");
+    expect(mobile).toContain("data-mobile-structure-inventory");
+    expect(mobile).toContain("Account inventory · 4 served");
+    // The full census is reachable, but 1,230-row accounts are not mounted
+    // behind a disclosure the operator has not opened.
+    expect(mobile).not.toContain("data-mobile-structure-inventory-row");
+  });
+});
+
 describe("workspace posture banners", () => {
+  it.each([
+    ["/platforms/meta", "/commercial-truth"],
+    ["/app/meta/decisions", "/app/manage/business"],
+    ["/c/biz_1/meta/decisions", "/c/biz_1/manage/business"],
+  ])(
+    "renders the served target-authority action in the %s route family",
+    (pathname, expectedHref) => {
+      state.pathname = pathname;
+      state.workspaceBanners = [
+        {
+          id: "commercial_target_authority_missing",
+          tone: "warning",
+          title: "Commercial targets are not configured.",
+          detail:
+            "Set at least one valid economic anchor before hard Scale/Cut authority can be evaluated.",
+          blocking: false,
+          scope: "target_hard_actions",
+          action: {
+            label: "Set commercial truth",
+            href: "/commercial-truth",
+          },
+        },
+      ];
+
+      const html = renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      );
+
+      expect(html).toContain('data-banner-scope="target_hard_actions"');
+      expect(html).toContain('data-mobile-banner-scope="target_hard_actions"');
+      expect(html).toContain(
+        "This applies to hard Scale/Cut authority; the rest of the queue remains readable.",
+      );
+      expect(countText(html, `href="${expectedHref}"`)).toBe(2);
+      expect(countText(html, ">Set commercial truth</a>")).toBe(2);
+    },
+  );
+
   it("renders server posture banners in reference priority without implying dismissed tracking unlocks writes", () => {
+    state.pathname = "/platforms/meta";
     state.workspaceBanners = [
       {
         id: "tracking_write_gate",
@@ -2255,9 +3510,7 @@ describe("workspace posture banners", () => {
       'data-meta-exact-action-row="pause-rec"',
     );
     expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
-    expect(html).toMatch(
-      /<button[^>]*disabled=""[^>]*>Run snapshot<\/button>/,
-    );
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Run snapshot<\/button>/);
     expect(html).toMatch(
       /<button[^>]*disabled=""[^>]*>\+ New campaign<\/button>/,
     );
@@ -2288,5 +3541,129 @@ describe("tracking confirm label follows the server actionKind", () => {
       trackingConfirmLabelForRec(metaRec({ type: "rebuild_with_constraints" })),
     ).toBe("Rebuild anyway");
     expect(trackingConfirmLabelForRec(null)).toBe("Continue anyway");
+  });
+});
+
+/**
+ * The served census, reachable without going through Archive.
+ *
+ * MEASURED on Grandmix (5dbc7147-f051-4681-a4d6-20617170074f /
+ * act_805150454596350, window 28d, snapshot 2026-08-18):
+ * `lanes.structureInventory` serves 1,230 entities — 476 campaigns and 754 ad
+ * sets — while the lanes that render them hold Action Now 3, Watching 19,
+ * Healthy 0, Non-sales 0, Archive 1,211 structure rows (+83 withheld Ad
+ * decisions). 1,211 of 1,230 were reachable only by opening a lane named
+ * Archive, and the grouped copy of the same census (`os.structure.groups`,
+ * 476 groups / 1,230 nodes) was read once in the whole client — by
+ * `structureNodesByRecommendationId`, to enrich rows that already had a lane.
+ * It was served and rendered nowhere.
+ *
+ * THE LAW these tests hold: inventory visibility is not recommendation or
+ * execution eligibility (INVARIANTS.md). The panel may make the census
+ * findable; it may not give a row an action, a lane or a decision, and it may
+ * not move a row out of the lane the server filed it in.
+ */
+describe("served structure inventory panel", () => {
+  beforeEach(() => {
+    state.lanePayload = metaLanePayload({
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
+      structureInventory: [
+        metaStructureInventoryEntity({
+          id: "camp_a",
+          level: "campaign",
+          name: "Census Campaign",
+        }),
+        metaStructureInventoryEntity({
+          id: "adset_a",
+          level: "adset",
+          name: "Census Ad set",
+        }),
+      ],
+    });
+  });
+
+  it("mounts the census on the structure scope and names its served size", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    expect(html).toContain("data-meta-structure-inventory");
+    expect(html).toContain('data-meta-structure-inventory-served="2"');
+    expect(html).toContain("Account inventory");
+    expect(html).toContain("2 served · 1 campaigns · 1 ad sets");
+    // The scope pill names the scope it counts.
+    expect(html).toContain("Campaigns &amp; Ad sets");
+  });
+
+  it("offers the census no control that could reach a provider write", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    const start = html.indexOf("data-meta-structure-inventory");
+    expect(start).toBeGreaterThan(-1);
+    const panel = html.slice(start, html.indexOf("</details>", start));
+    /*
+     * No button, no link, no role="button", no onclick. The panel is a list of
+     * what the account HAS. Every write path on this screen runs through a
+     * server-supplied action tuple, and an inventory row has none — so drawing
+     * a control here would be a promise the surface could never keep, and a
+     * row that gained an action it was never served.
+     */
+    expect(panel).not.toMatch(/<button|<a\s|role="button"|onclick/i);
+    expect(panel).toContain("grants no action");
+  });
+
+  it("keeps the census closed until it is opened, so 1,230 rows are not always mounted", () => {
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    const start = html.indexOf("data-meta-structure-inventory");
+    const panel = html.slice(start, html.indexOf("</details>", start));
+    // `<details>` mounts its children even collapsed, so the rows are gated on
+    // the open state rather than on the disclosure triangle.
+    expect(panel).not.toContain("data-meta-structure-inventory-row");
+    expect(panel).not.toContain("Census Campaign");
+  });
+
+  it("says an absent census is absent rather than reporting an empty account", () => {
+    state.lanePayload = metaLanePayload({
+      counts: {
+        actionNow: 1,
+        watching: 1,
+        healthy: 1,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        currency="USD"
+      />,
+    );
+
+    expect(html).toContain('data-meta-structure-inventory-served="—"');
   });
 });

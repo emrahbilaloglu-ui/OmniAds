@@ -424,10 +424,56 @@
   font-weight: 600;
 }
 
+/*
+ * THE ONLY SECTION ON THIS PAGE THAT REACHES PAST THE PAGE CAP.
+ *
+ * `.adv-page` caps the console's content column at `--adv-page-max` (1560px)
+ * and centres it, which is right for prose-width sections and wrong for this
+ * one: the asset table carries eleven metric columns, and on a wide screen it
+ * scrolls horizontally while 400px+ of the same column sits empty on either
+ * side of the cap. Everything above -- header, tabs, comparison board -- keeps
+ * the cap deliberately; only this article widens, so the page still reads as
+ * one column rather than two competing measures.
+ *
+ * THE OVERHANG IS MEASURED, NOT GUESSED. `100%` here is this article's
+ * containing block: `min(--adv-page-max, available) - 2 * --adv-page-gutter`.
+ * `available` is the viewport minus the fixed rail. So the unused space on each
+ * side is exactly `(100vw - rail - 2*gutter - 100%) / 2`, and that is what the
+ * negative margin gives back.
+ *
+ * The clamp is what makes it safe rather than clever:
+ *   - lower bound 0 -- below the cap the expression is zero or negative and the
+ *     article must not pull itself INWARD, or a narrow screen loses width.
+ *   - upper bound 360px -- an ultra-wide monitor should not stretch one table
+ *     to two metres of unreadable row.
+ * `100vw` is the right unit here specifically because the vertical scroller is
+ * `.adv-main`, not the document, so there is no document scrollbar for `100vw`
+ * to over-count. If that ever changes, the clamp's lower bound keeps the error
+ * on the safe side.
+ *
+ * Below the rail's breakpoint the rail is not there to subtract, so the
+ * expression under-reaches and clamps to 0 -- the article simply stays at
+ * container width, which is what a phone wants anyway.
+ */
 .creativesTableArticle {
+  --studio-table-bleed: clamp(
+    0px,
+    (100vw - var(--adv-rail-w, 248px) - var(--adv-page-gutter, 28px) * 2 - 100%) / 2,
+    360px
+  );
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding-top: 6px;
+  margin-inline: calc(-1 * var(--studio-table-bleed));
+}
+
+/* A phone has no spare width to reclaim, and the rail is gone, so the
+   computation has nothing to say. Stated rather than left to the clamp. */
+@media (max-width: 900px) {
+  .creativesTableArticle {
+    --studio-table-bleed: 0px;
+  }
 }
 
 .tableControlRow {
@@ -608,8 +654,31 @@
   background: linear-gradient(90deg, #fbdee6, #f9edd6, #f1f4f9, #ddf1e8, #bfe5d6);
 }
 
+/*
+ * THE WIDE TABLE'S CONTAINMENT, and why this is the answer rather than fewer
+ * columns.
+ *
+ * The Performance set is eleven metric columns plus selection, creative,
+ * status and marketing angle, so on a laptop the row is wider than the page and
+ * has to scroll. The operator asked for a COMPLETE view of a creative; dropping
+ * columns to avoid a scrollbar would answer a different request.
+ *
+ * `overflow-x: auto` here rather than on an ancestor is what keeps the scroll
+ * INSIDE the table: an element whose overflow is not `visible` contributes a
+ * min-content width of 0 to its parent, so the wide `<table>` can never push
+ * `.creativesTableArticle` — or the page body — past the viewport. The
+ * `min-width: 0` below is the belt to that brace: `.creativesTableArticle` is
+ * itself a flex item, and a flex item's default `min-width: auto` is the one
+ * way a wide descendant can still stretch a column layout.
+ *
+ * `overscroll-behavior-x: contain` stops a horizontal fling that reaches the
+ * end of the table from chaining outward into the page or into the browser's
+ * back-navigation gesture.
+ */
 .tableScroller {
+  min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .assetTable,
@@ -646,6 +715,96 @@
 
 .numericHeader {
   text-align: right !important;
+  padding: 0 !important;
+}
+
+/*
+ * The metric header IS the sort control.
+ *
+ * A button rather than a click handler on the `<th>`: the platform then gives
+ * tab focus, Enter/Space activation and a "button" role for free, and the
+ * focus ring below is the same one every other control on this screen uses.
+ */
+.sortHeader,
+.sortHeaderActive {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.sortHeader:hover,
+.sortHeaderActive:hover {
+  /* The table ink, not the accent blue: #2f6bff measures 4.50:1 on white,
+     which is exactly at the AA line for normal text and BELOW the floor this
+     stylesheet holds for essential text. A header that tells you what the
+     column is sorted by is essential. */
+  color: #0e1526;
+}
+
+.sortHeaderActive {
+  color: #0e1526;
+}
+
+.sortGlyph {
+  display: inline-block;
+  min-width: 8px;
+  /* Same reason as the hover above. This glyph carries the sort DIRECTION,
+     so it is the least negotiable text in the header. */
+  color: #0e1526;
+  /* At the floor, not below it. This glyph is the only VISIBLE statement of
+     which way the column is sorted -- `aria-sort` covers assistive tech, not
+     a person reading the header -- so it is not eligible for the
+     canonical-reference exception that carries this stylesheet's older
+     sub-floor text. It is new, so it meets the floor. */
+  font-size: 12px;
+}
+
+.sortDirectionButton {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #e4e8f0;
+  border-radius: 9px;
+  background: #fff;
+  color: #45526b;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sortState {
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  /* New text meets the floor; see .sortGlyph. */
+  font-size: 12px;
+}
+
+/*
+ * The provider's delivery state, subordinate to the creative's format. It sits
+ * in the identity cell because it answers "is it running", while the Status
+ * column answers "is it working" — two different questions that shared one
+ * column until the Status column was bound to the engine's classification.
+ */
+.deliveryStatus {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid #e9edf5;
+  border-radius: 5px;
+  color: #7a869e;
+  /* New text meets the floor; see .sortGlyph. */
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .tableTail {
@@ -739,10 +898,21 @@
   font-size: 10.5px;
 }
 
+/*
+ * Capped, because the metric block beside it grew from four or five columns to
+ * as many as eleven. An angle list is a comma-joined string of every messaging
+ * angle the tagger found, so an uncapped `white-space: nowrap` cell can be
+ * wider than the creative's own name and its thumbnail combined and pushes both
+ * off screen before the first number. The full text stays reachable through the
+ * cell's `title`.
+ */
 .angleCell {
+  overflow: hidden;
+  max-width: 180px;
   color: #45526b;
   font-size: 12.5px;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .metricCell {
@@ -766,9 +936,16 @@
   white-space: nowrap;
 }
 
+/*
+ * The em dash is INFORMATION — "nobody measured this" — not decoration, so it
+ * has to be readable. It used to be #c2cbda on white, which is 1.63:1 and
+ * effectively invisible next to a coloured cell; the operator could not tell an
+ * unmeasured cell from an empty one. #66738b is 4.60:1 and still reads as
+ * subordinate to the measured numbers around it (heatNeutral is 7.86:1).
+ */
 .heatMissing {
   background: transparent;
-  color: #c2cbda;
+  color: #66738b;
 }
 
 .heatNeutral {
@@ -800,6 +977,29 @@
   background: #bfe5d6;
   color: #085e41;
 }
+
+/*
+ * NO DARK OVERRIDE HERE, AND THAT IS THE MEASURED ANSWER.
+ *
+ * `.dark` (app/globals.css:175) recolours the shadcn tokens and the
+ * `.ad-console-shell` wrappers; it does NOT darken this screen. Measured in the
+ * browser with `.dark` forced onto `<html>` on
+ * /app/creative/performance: `.ad-console-shell` computed to
+ * rgb(243, 245, 249), the table and its rows to rgba(0, 0, 0, 0) over it, and
+ * the creative name to rgb(14, 21, 38). A light surface with near-black text.
+ *
+ * A first pass added `:global(.dark)` tints for the five heat buckets and the
+ * active sort header. On that light surface it made the table WORSE, not
+ * better: the sort header resolved to rgb(242, 245, 250) — white on white, the
+ * "Spend" label vanished from the header and only the arrow was left — and the
+ * volume cells dropped to #b6c0d1 on white. The screenshot was unreadable.
+ *
+ * The five light tints already clear 4.5:1 against their own backgrounds
+ * (lag 5.56:1, low 5.07:1, middle 5.10:1, good 4.53:1, lead 5.73:1), so they
+ * are legible in whichever theme the operator has selected, because this
+ * surface renders light in both. Dark tints belong here only as part of
+ * darkening the whole Creative Studio surface, not ahead of it.
+ */
 
 .emptyTableCell {
   padding: 22px 16px !important;

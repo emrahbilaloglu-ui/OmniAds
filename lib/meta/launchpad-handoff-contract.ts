@@ -94,6 +94,7 @@ export type LaunchpadHandoffRefusalCode =
   | "decision_state_not_act"
   | "decision_held"
   | "decision_blocked"
+  | "scale_requires_test_lifecycle_role"
   | "authorized_action_has_no_launchpad_mode"
   | "lineage_incomplete";
 
@@ -335,6 +336,12 @@ export function authorizeLaunchpadHandoff(input: {
   if (classification.blockers.length > 0) {
     return { ok: false, refusal: "decision_blocked" };
   }
+  if (
+    authority.authorizedAction === "scale" &&
+    classification.lifecycleRole?.value !== "test"
+  ) {
+    return { ok: false, refusal: "scale_requires_test_lifecycle_role" };
+  }
 
   const mode = launchpadModeForAuthorizedAction(authority.authorizedAction);
   if (!mode) {
@@ -474,6 +481,7 @@ const ALL_LAUNCHPAD_HANDOFF_REFUSALS: readonly LaunchpadHandoffAnyRefusal[] = [
   "decision_state_not_act",
   "decision_held",
   "decision_blocked",
+  "scale_requires_test_lifecycle_role",
   "authorized_action_has_no_launchpad_mode",
   "lineage_incomplete",
   "malformed_reference",
@@ -543,6 +551,8 @@ export function describeLaunchpadHandoffRefusal(
       return "The decision is held, so it maps to no launch.";
     case "decision_blocked":
       return "The decision is blocked, so it maps to no launch.";
+    case "scale_requires_test_lifecycle_role":
+      return "Scale opens Launchpad only for a canonical Test lifecycle role.";
     case "authorized_action_has_no_launchpad_mode":
       return "The authorized action does not open Launchpad.";
     case "lineage_incomplete":

@@ -67,14 +67,20 @@ function headerButtonMarkup(html: string, label: string): string {
   return html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0] ?? "";
 }
 
-function renderPage(input: {
-  pageProps?: React.ComponentProps<typeof CreativesPage>;
-  businessId?: string;
-  providerAccounts?: Array<{ id: string; timezone?: string; currency?: string }>;
-  creativeApiRows?: Array<Record<string, unknown>>;
-  /** Envelope fields beside `rows` — status, isPartial, observed-at. */
-  creativeEnvelope?: Record<string, unknown>;
-} = {}) {
+function renderPage(
+  input: {
+    pageProps?: React.ComponentProps<typeof CreativesPage>;
+    businessId?: string;
+    providerAccounts?: Array<{
+      id: string;
+      timezone?: string;
+      currency?: string;
+    }>;
+    creativeApiRows?: Array<Record<string, unknown>>;
+    /** Envelope fields beside `rows` — status, isPartial, observed-at. */
+    creativeEnvelope?: Record<string, unknown>;
+  } = {},
+) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -86,11 +92,22 @@ function renderPage(input: {
       input.providerAccounts,
     );
   }
-  if (input.businessId && input.providerAccounts?.length === 1 && input.creativeApiRows) {
+  if (
+    input.businessId &&
+    input.providerAccounts?.length === 1 &&
+    input.creativeApiRows
+  ) {
     const account = input.providerAccounts[0]!;
     const { start, end } = studioWindow(account.timezone || "UTC");
     client.setQueryData(
-      ["meta-creative-studio", input.businessId, account.id, start, end, "creative"],
+      [
+        "meta-creative-studio",
+        input.businessId,
+        account.id,
+        start,
+        end,
+        "creative",
+      ],
       { ...(input.creativeEnvelope ?? {}), rows: input.creativeApiRows },
     );
   }
@@ -101,7 +118,9 @@ function renderPage(input: {
   );
 }
 
-function creativeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
+function creativeRow(
+  overrides: Partial<MetaCreativeRow> = {},
+): MetaCreativeRow {
   return {
     id: "creative_1",
     creativeId: "creative_1",
@@ -126,6 +145,11 @@ function creativeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow 
     linkCtr: 4,
     thumbstop: 32,
     frequency: 2.1,
+    // `meta_creative_daily.launch_date` as it reaches the UI row
+    // (`mapApiRowToUiRow`, page-support.tsx:1025). It is `ad.created_time`,
+    // earliest across the ads sharing the creative — a CREATED clock, which is
+    // why the column that reads it says "since created".
+    launchDate: "2026-08-01",
     clickToAddToCart: 20,
     clickToPurchase: 10,
     video100: 91,
@@ -148,6 +172,17 @@ function creativeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow 
   } as MetaCreativeRow;
 }
 
+/**
+ * The last day the projected rows' numbers cover.
+ *
+ * A LITERAL, never `new Date()`. The age column counts to the WINDOW'S end, so
+ * every expected age below is a fixed integer; a projector that quietly counted
+ * to `Date.now()` instead would produce a different number today than it did
+ * yesterday, and these assertions would start failing on their own — which is
+ * exactly the signal.
+ */
+const WINDOW_END = "2026-08-17";
+
 afterEach(() => {
   navigation.pathname = "/platforms/meta/creatives";
   navigation.search = "";
@@ -157,15 +192,15 @@ describe("/platforms/meta/creatives page", () => {
   it("renders the exact Assets surface without the legacy Studio OS controls", () => {
     const html = renderPage();
 
-    expect(html).toContain("data-testid=\"creative-studio-page\"");
-    expect(html).toContain("data-creative-studio-exact=\"true\"");
-    expect(html).toContain("data-creative-studio-exact-section=\"assets\"");
+    expect(html).toContain('data-testid="creative-studio-page"');
+    expect(html).toContain('data-creative-studio-exact="true"');
+    expect(html).toContain('data-creative-studio-exact-section="assets"');
     expect(html).toContain("Creative Studio");
     expect(html).toContain("Export CSV");
     expect(html).toContain("Share with client");
     expect(html).toContain('data-responsive-studio="true"');
     expect(html).toContain('data-provider-writes="none"');
-    expect(html).not.toContain("data-testid=\"creative-studio-os\"");
+    expect(html).not.toContain('data-testid="creative-studio-os"');
     expect(html).not.toContain('aria-label="Primary"');
     expect(html).not.toContain("data-studio-nav-rail");
     expect(html).not.toContain("Business STOP");
@@ -233,7 +268,9 @@ describe("/platforms/meta/creatives page", () => {
     });
 
     expect(whileLoading).toContain("Loading creative assets.");
-    expect(headerButtonMarkup(whileLoading, "Export CSV")).toContain("disabled");
+    expect(headerButtonMarkup(whileLoading, "Export CSV")).toContain(
+      "disabled",
+    );
 
     const withoutRows = renderPage({
       businessId: "biz_1",
@@ -241,7 +278,9 @@ describe("/platforms/meta/creatives page", () => {
       creativeApiRows: [],
     });
 
-    expect(withoutRows).toContain("No creative assets were served for this window.");
+    expect(withoutRows).toContain(
+      "No creative assets were served for this window.",
+    );
     expect(headerButtonMarkup(withoutRows, "Export CSV")).toContain("disabled");
 
     const withRows = renderPage({
@@ -259,7 +298,9 @@ describe("/platforms/meta/creatives page", () => {
     });
 
     expect(withRows).toContain("Served asset");
-    expect(headerButtonMarkup(withRows, "Export CSV")).not.toContain("disabled");
+    expect(headerButtonMarkup(withRows, "Export CSV")).not.toContain(
+      "disabled",
+    );
   });
 });
 
@@ -287,21 +328,26 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
       "no_accounts_assigned",
       "No Meta ad account is assigned to this business, so no creative data was read.",
     ],
-  ])("reports %s as unavailable rather than an empty window", (status, message) => {
-    const html = renderPage({
-      businessId: "biz_1",
-      providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
-      creativeApiRows: [],
-      creativeEnvelope: { status },
-    });
+  ])(
+    "reports %s as unavailable rather than an empty window",
+    (status, message) => {
+      const html = renderPage({
+        businessId: "biz_1",
+        providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
+        creativeApiRows: [],
+        creativeEnvelope: { status },
+      });
 
-    expect(html).toContain(`data-assets-state="unavailable"`);
-    expect(html).toContain(`data-assets-source-status="${status}"`);
-    expect(html).toContain(message);
-    expect(html).not.toContain("No creative assets were served for this window.");
-    // A count is only a count when a read produced one.
-    expect(html).toContain("— synced · Meta");
-  });
+      expect(html).toContain(`data-assets-state="unavailable"`);
+      expect(html).toContain(`data-assets-source-status="${status}"`);
+      expect(html).toContain(message);
+      expect(html).not.toContain(
+        "No creative assets were served for this window.",
+      );
+      // A count is only a count when a read produced one.
+      expect(html).toContain("— synced · Meta");
+    },
+  );
 
   /**
    * WHY: the distinction only means something if the true-empty case still
@@ -336,29 +382,128 @@ describe("Creative Studio Assets projection", () => {
         }),
       ],
       "EUR",
+      new Map(),
+      WINDOW_END,
     );
 
-    expect(Object.values(row!.metrics).every((value) => value === null)).toBe(true);
+    /*
+     * RESTATED, NOT WEAKENED. The law was "every value in the map is null",
+     * and it was a true statement of a narrower law: every number the METRICS
+     * PRODUCER serves is withheld when that producer says it measured nothing.
+     * `ageDays` is not one of those numbers — it is the distance between
+     * `launch_date`, which the row carries whether or not any metric was
+     * measured, and the end of the window. Gating it on `metricsAvailability`
+     * would delete a fact the payload supplied in order to honour a flag about
+     * a different fact, and the useful reading of an unmeasured creative is
+     * precisely "40 days old and still no numbers".
+     *
+     * So the assertion now names the producer's own fields, and the age is
+     * asserted separately below rather than swept into the same `every`.
+     */
+    const producerServed = Object.entries(row!.metrics).filter(
+      ([key]) => key !== "ageDays",
+    );
+    expect(producerServed.length).toBeGreaterThan(15);
+    expect(producerServed.every(([, value]) => value === null)).toBe(true);
+    expect(row!.metrics.ageDays).toBe(16);
+    // LAW: `status` is the ENGINE's classification of this creative, and this
+    // call passes no classification index, so the surface says `Not
+    // evaluated`. `WITH_ISSUES` is Meta's delivery enum; it keeps its own
+    // field and its own place on screen, and it is not an answer to "is this
+    // creative winning, fatigued or still learning".
     expect(row).toMatchObject({
-      status: "WITH_ISSUES",
+      status: "Not evaluated",
+      statusTone: "neutral",
+      decisionSegment: null,
+      decisionCount: 0,
+      deliveryStatus: "With issues",
       marketingAngle: "Server angle, Second angle",
       currency: "EUR",
     });
   });
 
-  it("never substitutes a video metric for Hold", () => {
+  /**
+   * WHAT THIS TEST USED TO SAY, AND WHY IT SAYS SOMETHING ELSE NOW.
+   *
+   * It used to assert `hold: null` — that the projector never substitutes a
+   * video-completion rate for a 15-second hold. The substitution is still
+   * forbidden, but `hold` is no longer a key at all: it was a DEFAULT column
+   * (the Engagement preset and the default Custom set) that resolved to a
+   * literal `null` on every row of every account, so it printed an em dash in
+   * every cell it ever occupied. There is no Hold-15s field on
+   * `MetaCreativeRow` and no key for one in `META_OBSERVED_METRIC_KEYS`, so
+   * nothing could ever fill it.
+   *
+   * The law survives in the stronger form: the projector emits no key for a
+   * metric it cannot measure, and a video quartile sitting on the row does not
+   * become one. `video100: 99` is on this fixture precisely so a future
+   * "reasonable proxy" fails here.
+   */
+  it("emits no Hold key and never mints one from a video quartile", () => {
     const [row] = toCreativeStudioAssetRows(
       [creativeRow({ video100: 99, thumbstop: 44 })],
       "USD",
+      new Map(),
+      WINDOW_END,
     );
 
     expect(row?.metrics).toMatchObject({
       spend: 100,
+      // Revenue is the biggest gap this pass closed: ROAS alone cannot tell a
+      // $30 win from a $4,000 one.
+      revenue: 400,
       aov: 100,
       ctr: 4,
       thumbstop: 44,
-      hold: null,
       atcRate: 20,
+      cvr: 10,
+    });
+    expect(Object.keys(row!.metrics)).not.toContain("hold");
+    expect(Object.values(row!.metrics)).not.toContain(99);
+  });
+
+  /**
+   * Every measurable upstream field the catalogue admits is actually projected.
+   *
+   * The failure this guards is silent: a metric added to `CreativeAssetMetricId`
+   * and to a preset, but never assigned here, renders an em dash in every row
+   * and nothing goes red. `formatMetric` switches exhaustively over the union,
+   * so the compiler catches a missing FORMAT — it cannot catch a missing VALUE.
+   */
+  it("projects every funnel counter and derived ratio the producer serves", () => {
+    const [row] = toCreativeStudioAssetRows(
+      [
+        creativeRow({
+          landingPageViews: 30,
+          initiateCheckout: 6,
+          cpcLink: 2.5,
+          atcToPurchaseRatio: 50,
+        }),
+      ],
+      "USD",
+      new Map(),
+      WINDOW_END,
+    );
+
+    expect(row?.metrics).toMatchObject({
+      spend: 100,
+      impressions: 1_000,
+      revenue: 400,
+      clicks: 50,
+      linkClicks: 40,
+      landingPageViews: 30,
+      addToCart: 8,
+      initiateCheckout: 6,
+      purchases: 4,
+      roas: 4,
+      cpa: 25,
+      cpm: 10,
+      cpcLink: 2.5,
+      aov: 100,
+      ctr: 4,
+      frequency: 2.1,
+      atcRate: 20,
+      atcToPurchase: 50,
       cvr: 10,
     });
   });
@@ -387,6 +532,8 @@ describe("Creative Studio Assets projection", () => {
         }),
       ],
       "TRY",
+      new Map(),
+      WINDOW_END,
     );
 
     expect(row?.metrics).toMatchObject({
@@ -396,6 +543,85 @@ describe("Creative Studio Assets projection", () => {
       purchases: 0,
       thumbstop: null,
       frequency: null,
+    });
+  });
+
+  /*
+   * THE AGE COLUMN'S THREE WAYS OF BEING WRONG, each pinned separately.
+   *
+   * Age is not decoration: it decides the verdict. $8 at ROAS 0 is UNJUDGED on
+   * day 2 and dead on day 30, and the numbers beside it are identical. So each
+   * of the three failures below changes what a buyer does.
+   *
+   *   1. THE WRONG CLOCK. Counting to `Date.now()` instead of to the window's
+   *      end puts two clocks in one row. The fixture's window closed on
+   *      2026-08-17 and the creative was created on 2026-08-01, so the answer
+   *      is 16 FOREVER. A projector reading the system clock returns a
+   *      different number every day this suite runs, and cannot return 16 on
+   *      any day but 2026-08-17.
+   *   2. AN ABSENT DATE PRINTED AS 0. An unsupplied `launch_date` reaches the
+   *      wire as `undefined` or as `""` depending on which `coerceRawCreativeRow`
+   *      branch the stored projection took, and `safeString` in
+   *      `mapApiRowToUiRow` turns both into the EMPTY STRING, so the projector
+   *      is handed "" rather than null.
+   *      A `Date.parse("")` -> NaN -> `|| 0` anywhere on this path would claim
+   *      every unread creative was created on the window's last day, i.e. that
+   *      the whole account is brand new and unjudgeable.
+   *   3. A MEASURED 0 PRINTED AS AN EM DASH. A creative created ON the window's
+   *      last day genuinely has an age, and that age is zero. Withholding it
+   *      would hide the single strongest "do not judge this yet" signal the
+   *      table has.
+   */
+  describe("creative age", () => {
+    const ageOf = (row: Partial<MetaCreativeRow>, windowEnd: string | null) =>
+      toCreativeStudioAssetRows(
+        [creativeRow(row)],
+        "USD",
+        new Map(),
+        windowEnd,
+      )[0]?.metrics.ageDays;
+
+    it("counts to the window's end, not to today", () => {
+      // 2026-08-01 -> 2026-08-17 is 16 days. Whatever today is.
+      expect(ageOf({ launchDate: "2026-08-01" }, WINDOW_END)).toBe(16);
+      // The same creative, read over a window that closed a week earlier, is
+      // seven days younger — which is only true of a projector that reads the
+      // window rather than the clock.
+      expect(ageOf({ launchDate: "2026-08-01" }, "2026-08-10")).toBe(9);
+      // ...and the number never depends on when the suite runs.
+      expect(ageOf({ launchDate: "2026-08-01" }, WINDOW_END)).toBe(
+        ageOf({ launchDate: "2026-08-01" }, WINDOW_END),
+      );
+      const today = new Date().toISOString().slice(0, 10);
+      expect(
+        ageOf({ launchDate: "2026-08-01" }, WINDOW_END),
+        "the age moved with the system clock instead of the window",
+      ).not.toBe(ageOf({ launchDate: "2026-08-01" }, today));
+    });
+
+    it("states a measured zero as 0 for a creative created on the window's last day", () => {
+      expect(ageOf({ launchDate: WINDOW_END }, WINDOW_END)).toBe(0);
+    });
+
+    it("withholds an age the payload never supplied instead of calling it 0", () => {
+      // The empty string is what an unsupplied `launch_date` actually looks
+      // like by the time it reaches this row, not a hypothetical null.
+      expect(ageOf({ launchDate: "" }, WINDOW_END)).toBeNull();
+      expect(ageOf({ launchDate: "   " }, WINDOW_END)).toBeNull();
+      expect(ageOf({ launchDate: "not-a-date" }, WINDOW_END)).toBeNull();
+      expect(
+        ageOf({ launchDate: undefined as unknown as string }, WINDOW_END),
+      ).toBeNull();
+      // Nor does an absent WINDOW make an age: with nothing to count to, there
+      // is no number, and 0 would mean "created the day the window closed".
+      expect(ageOf({ launchDate: "2026-08-01" }, null)).toBeNull();
+      expect(ageOf({ launchDate: "2026-08-01" }, "")).toBeNull();
+    });
+
+    it("withholds a creation date later than the window it is counted to", () => {
+      // Not -3, and not a clamped 0: the row is claiming it was created after
+      // the last day it reports numbers for, so there is no age to state.
+      expect(ageOf({ launchDate: "2026-08-20" }, WINDOW_END)).toBeNull();
     });
   });
 
@@ -429,6 +655,8 @@ describe("Creative Studio Assets projection", () => {
         }),
       ],
       "TRY",
+      new Map(),
+      WINDOW_END,
     );
 
     expect(row?.metrics).toMatchObject({

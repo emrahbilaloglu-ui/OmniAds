@@ -6,22 +6,14 @@ import styles from "./MetaDecisionCenterExact.module.css";
 
 const EM_DASH = "—";
 
-export type MetaDecisionCenterExactDisplayValue = string | number | null | undefined;
+export type MetaDecisionCenterExactDisplayValue =
+  string | number | null | undefined;
 export type MetaDecisionCenterExactScope = "structure" | "creatives";
 export type MetaDecisionCenterExactLane =
-  | "action"
-  | "watching"
-  | "healthy"
-  | "nonsales"
-  | "archive";
+  "action" | "watching" | "healthy" | "nonsales" | "archive";
 export type MetaDecisionCenterExactWindow = "7d" | "14d" | "28d" | "90d";
 export type MetaDecisionCenterExactTone =
-  | "positive"
-  | "negative"
-  | "warning"
-  | "info"
-  | "automation"
-  | "neutral";
+  "positive" | "negative" | "warning" | "info" | "automation" | "neutral";
 
 export interface MetaDecisionCenterExactIdentityViewModel {
   accountLabel?: MetaDecisionCenterExactDisplayValue;
@@ -46,6 +38,12 @@ export interface MetaDecisionCenterExactKpisViewModel {
   roas?: {
     label?: MetaDecisionCenterExactDisplayValue;
     value?: MetaDecisionCenterExactDisplayValue;
+    /**
+     * The whole reference phrase, NOUN INCLUDED — "target 2.50 · stale",
+     * "account median 2.10", "target —". The tile prints it verbatim because
+     * only the adapter knows which of the pulse's four reference sources is in
+     * force, and the account median must never be captioned as a target.
+     */
     target?: MetaDecisionCenterExactDisplayValue;
     sparkPath?: string | null;
   };
@@ -78,6 +76,17 @@ export interface MetaDecisionCenterExactActionRowViewModel {
   id: string;
   name?: MetaDecisionCenterExactDisplayValue;
   level?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * Where this row sits in the campaign -> ad set structure, already written by
+   * the adapter from the row's own served level and parent campaign. The queue
+   * mixes both levels as flat siblings, so without this an ad set reads as a
+   * peer of the campaign it belongs to.
+   */
+  lineage?: MetaDecisionCenterExactDisplayValue;
+  /** Which end of the relation this row is: the campaign, or one of its ad sets. */
+  lineageRole?: "parent" | "child";
+  /** True when this is the row the evidence inspector is describing. */
+  selected?: boolean;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
@@ -89,6 +98,8 @@ export interface MetaDecisionCenterExactActionRowViewModel {
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   actionTone?: MetaDecisionCenterExactTone;
   onPrimary?: () => void;
+  /** Opens this row in the evidence inspector from anywhere on the card. */
+  onOpen?: () => void;
   onMenu?: () => void;
 }
 
@@ -104,8 +115,16 @@ export interface MetaDecisionCenterExactWatchingRowViewModel {
   segmentTone?: MetaDecisionCenterExactTone;
   name?: MetaDecisionCenterExactDisplayValue;
   level?: MetaDecisionCenterExactDisplayValue;
+  /** @see MetaDecisionCenterExactActionRowViewModel.lineage */
+  lineage?: MetaDecisionCenterExactDisplayValue;
+  /** @see MetaDecisionCenterExactActionRowViewModel.lineageRole */
+  lineageRole?: "parent" | "child";
+  /** True when this is the row the evidence inspector is describing. */
+  selected?: boolean;
   note?: MetaDecisionCenterExactDisplayValue;
   money?: MetaDecisionCenterExactDisplayValue;
+  /** Opens this row in the evidence inspector from anywhere on the card. */
+  onOpen?: () => void;
   onReview?: () => void;
 }
 
@@ -163,7 +182,22 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   edgeTone?: MetaDecisionCenterExactTone;
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
+  /**
+   * The served decision STATE — `act`, `blocked` or `monitor` — printed on the
+   * row itself.
+   *
+   * The server keeps the state apart from the verdict on purpose: a held or
+   * blocked decision carries a label the same shape as an actionable one, and
+   * pooling them into one list is what made a withheld call read as an ordinary
+   * recommendation. This badge is the state, never a re-reading of it.
+   */
+  stateLabel?: MetaDecisionCenterExactDisplayValue;
+  stateTone?: MetaDecisionCenterExactTone;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
+  /** The server's own `whyNow` sentence for this row. */
+  note?: MetaDecisionCenterExactDisplayValue;
+  /** The server's `blockers` and `resolution.nextStep`, joined, never invented. */
+  blockedNote?: MetaDecisionCenterExactDisplayValue;
   sparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
@@ -171,6 +205,88 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   actionTone?: MetaDecisionCenterExactTone;
   onPrimary?: () => void;
   onOpen?: () => void;
+}
+
+/**
+ * One served decision state, with the rows that carry it.
+ *
+ * The Creatives scope used to render a single flat list, so `act`, `blocked`
+ * and `monitor` decisions sat as visual peers. Grouping is the smallest change
+ * that keeps the served state legible without the UI deciding anything: the
+ * group key is the server's lane, the label is that lane's name, and the counts
+ * are the server's own pre-cap totals beside what this screen is showing.
+ */
+export interface MetaDecisionCenterExactCreativeGroupViewModel {
+  id: string;
+  label?: MetaDecisionCenterExactDisplayValue;
+  tone?: MetaDecisionCenterExactTone;
+  /** "12 shown · 80 eligible pre-cap", written from distinct server counts. */
+  count?: MetaDecisionCenterExactDisplayValue;
+  /** The action vocabulary the server actually served for this group. */
+  note?: MetaDecisionCenterExactDisplayValue;
+  rows: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
+}
+
+/**
+ * One label/value pair inside the source provenance panel.
+ *
+ * The label names the served field; the value is the server's own token,
+ * string or count, or an em dash when the field was not served. Nothing here
+ * is derived from a decision, and nothing here is a sentence this UI wrote.
+ */
+export interface MetaDecisionCenterExactSourceFactViewModel {
+  id: string;
+  label?: MetaDecisionCenterExactDisplayValue;
+  value?: MetaDecisionCenterExactDisplayValue;
+  tone?: MetaDecisionCenterExactTone;
+}
+
+/**
+ * One of the eight named capability states, shown because it is NOT available.
+ *
+ * `status` and `reason` are copied from the payload verbatim. A capability the
+ * server reports as available is not listed: the panel names what is missing,
+ * and the summary line states how many of the eight that is.
+ */
+export interface MetaDecisionCenterExactCapabilityGapViewModel {
+  id: string;
+  label?: MetaDecisionCenterExactDisplayValue;
+  status?: MetaDecisionCenterExactDisplayValue;
+  /** The server's own reason string, never a substitute sentence. */
+  reason?: MetaDecisionCenterExactDisplayValue;
+  tone?: MetaDecisionCenterExactTone;
+}
+
+/**
+ * What the decision source is, and what it could not do — beside the rows.
+ *
+ * The Creatives scope used to say this ONLY when the queue was empty, so an
+ * account serving `authority: "legacy_creative"`, `health: "degraded"` and a
+ * fallback reason rendered sixty confidently formatted rows and stated none of
+ * it. Degradation is a property of the source, not of the row count, so this
+ * renders whenever the scope renders.
+ *
+ * It is a disclosure so the rows stay the primary content, and it is open by
+ * default so nothing is hidden until the operator folds it away: the summary
+ * line itself carries the authority, the health, the fallback reason, the
+ * shown-vs-served counts and the number of capability gaps, so even collapsed
+ * the screen cannot read as "fine".
+ */
+export interface MetaDecisionCenterExactSourceProvenanceViewModel {
+  /** "native_ad · healthy" — the served authority and status, joined. */
+  headline?: MetaDecisionCenterExactDisplayValue;
+  tone?: MetaDecisionCenterExactTone;
+  /** "60 shown · 80 served pre-cap", from server counts only. */
+  coverageSummary?: MetaDecisionCenterExactDisplayValue;
+  /** "2 of 8 not available", counted over the served capability states. */
+  capabilitySummary?: MetaDecisionCenterExactDisplayValue;
+  source?: readonly MetaDecisionCenterExactSourceFactViewModel[];
+  coverage?: readonly MetaDecisionCenterExactSourceFactViewModel[];
+  /** The served suppression envelope: one row per reason code, with its count. */
+  suppression?: readonly MetaDecisionCenterExactSourceFactViewModel[];
+  /** The served limitations: the server's code and the server's message. */
+  limitations?: readonly MetaDecisionCenterExactSourceFactViewModel[];
+  capabilityGaps?: readonly MetaDecisionCenterExactCapabilityGapViewModel[];
 }
 
 export interface MetaDecisionCenterExactInspectorViewModel {
@@ -189,6 +305,13 @@ export interface MetaDecisionCenterExactInspectorViewModel {
   readiness?: MetaDecisionCenterExactDisplayValue;
   blockers?: MetaDecisionCenterExactDisplayValue;
   blockerTone?: MetaDecisionCenterExactTone;
+  /**
+   * What the server can state but cannot yet measure — kept out of the
+   * Blockers line because nothing here withholds an action. Rendered under its
+   * own heading so an operator can read "risk is unclassified, because the
+   * producer is not persisted" without reading it as a refusal.
+   */
+  advisories?: MetaDecisionCenterExactDisplayValue;
   evidence?: readonly {
     id: string;
     label?: MetaDecisionCenterExactDisplayValue;
@@ -220,8 +343,46 @@ export interface MetaDecisionCenterExactViewModel {
    * there.
    */
   creativesNotice?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * The served decision source, its health and its gaps — rendered beside the
+   * rows rather than instead of them.
+   *
+   * @see MetaDecisionCenterExactSourceProvenanceViewModel
+   */
+  sourceProvenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
+  /**
+   * The same envelope, stated in the Structures scope.
+   *
+   * The Structures scope used to name no source at all, while drawing the
+   * action buttons that `providerWriteLinkage` and `responseAttribution`
+   * govern. It is the SAME served read model and the SAME view-model type,
+   * rendered by the SAME panel — only the fields differ, because the ads
+   * pre-cap counts and the ad-grain limitations do not describe a campaign or
+   * an ad set and are withheld rather than reprinted under a structure
+   * heading.
+   *
+   * @see MetaDecisionCenterExactSourceProvenanceViewModel
+   */
+  structureProvenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
   creativePosture?: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   creativeDecisions?: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
+  /**
+   * The same rows as `creativeDecisions`, split by the served decision state.
+   *
+   * Both fields exist because they answer different questions: the flat list is
+   * what was rendered, the groups are what the server said about each row. The
+   * groups win when present; `creativeDecisions` is the fallback for callers
+   * that supply rows without state.
+   */
+  creativeGroups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
+  /**
+   * The closing sentence under the creative queue.
+   *
+   * It used to be hard-coded prose naming three ad-level calls. The server's
+   * vocabulary is not three and is not fixed, so the sentence is now written by
+   * the adapter from the action labels this account was actually served.
+   */
+  creativeFootnote?: MetaDecisionCenterExactDisplayValue;
   inspector?: MetaDecisionCenterExactInspectorViewModel | null;
 }
 
@@ -234,7 +395,6 @@ export interface MetaDecisionCenterExactProps {
   inspectorOpen?: boolean;
   onScopeChange?: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange?: (lane: MetaDecisionCenterExactLane) => void;
-  onWindowChange?: (window: MetaDecisionCenterExactWindow) => void;
   onRunSnapshot?: () => void;
   onNewCampaign?: () => void;
   onManageLabels?: () => void;
@@ -252,7 +412,6 @@ export interface MetaDecisionCenterExactProps {
 
 export type MetaDecisionCenterExactSort = "money" | "priority" | "age";
 
-const WINDOWS: readonly MetaDecisionCenterExactWindow[] = ["7d", "14d", "28d", "90d"];
 const LANES: readonly { id: MetaDecisionCenterExactLane; label: string }[] = [
   { id: "action", label: "Action Now" },
   { id: "watching", label: "Watching" },
@@ -271,7 +430,8 @@ const TONE_CLASS: Record<MetaDecisionCenterExactTone, string> = {
 };
 
 function display(value: MetaDecisionCenterExactDisplayValue): string {
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : EM_DASH;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? String(value) : EM_DASH;
   if (typeof value !== "string") return EM_DASH;
   return value.trim() || EM_DASH;
 }
@@ -280,7 +440,20 @@ function nonBlankDisplay(value: MetaDecisionCenterExactDisplayValue): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function toneClass(tone: MetaDecisionCenterExactTone | null | undefined): string {
+function meaningfulDisplay(
+  value: MetaDecisionCenterExactDisplayValue,
+): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim() !== EM_DASH
+  );
+}
+
+function toneClass(
+  tone: MetaDecisionCenterExactTone | null | undefined,
+): string {
   return TONE_CLASS[tone ?? "neutral"];
 }
 
@@ -293,11 +466,17 @@ function toneClass(tone: MetaDecisionCenterExactTone | null | undefined): string
  * This says why, without changing a pixel. `undefined` for a real label, so a
  * served action keeps its own text as its accessible name.
  */
-function unservedActionName(label: string, subject: string): string | undefined {
+function unservedActionName(
+  label: string,
+  subject: string,
+): string | undefined {
   return label === EM_DASH ? `No action available: ${subject}` : undefined;
 }
 
-function slots<T>(values: readonly T[] | null | undefined, count: number): Array<T | undefined> {
+function slots<T>(
+  values: readonly T[] | null | undefined,
+  count: number,
+): Array<T | undefined> {
   return Array.from({ length: count }, (_, index) => values?.[index]);
 }
 
@@ -334,6 +513,76 @@ function controlProps(callback: (() => void) | undefined, label?: string) {
   };
 }
 
+/**
+ * The whole queue row as one target, without nesting controls inside a control.
+ *
+ * Only the tiny overflow glyph opened the evidence inspector, so the operator
+ * clicked a card and nothing happened. Making the card itself a `role="button"`
+ * would have been worse than the bug: ARIA gives a button presentational
+ * children, so the row's own action button and overflow control would stop
+ * being announced. This is the stretched-link shape instead -- a real,
+ * keyboard-native `<button>` covering the card, painted UNDER the row's own
+ * controls, so Enter and Space work for free and the controls inside keep their
+ * own clicks and their own names.
+ */
+function QueueCardOpen({
+  label,
+  onOpen,
+}: {
+  label: string;
+  onOpen?: () => void;
+}) {
+  if (!onOpen) return null;
+  return (
+    <button
+      aria-label={label}
+      className={styles.cardOpen}
+      data-meta-exact-card-open
+      onClick={onOpen}
+      type="button"
+    />
+  );
+}
+
+/**
+ * The campaign -> ad set relation, on the row that has one.
+ *
+ * Rendered only when the adapter produced a relation: a campaign with no ad-set
+ * row beside it in this lane is not "0 ad sets", it is a question this lane does
+ * not answer, so it says nothing at all.
+ */
+function QueueLineage({
+  lineage,
+  role,
+}: {
+  lineage?: MetaDecisionCenterExactDisplayValue;
+  role?: "parent" | "child";
+}) {
+  if (!nonBlankDisplay(lineage)) return null;
+  return (
+    <p className={styles.lineage} data-meta-exact-lineage={role ?? "child"}>
+      {role === "child" ? (
+        <span aria-hidden="true" className={styles.lineageGlyph}>
+          &#8627;
+        </span>
+      ) : null}
+      {display(lineage)}
+    </p>
+  );
+}
+
+/**
+ * The row the inspector is describing, said in more than colour.
+ *
+ * A tinted card and a ring are invisible to a colour-blind operator and to a
+ * screen reader alike, so the state is also a word on the card and an
+ * `aria-current` on the row.
+ */
+function QueueSelectedMarker({ selected }: { selected?: boolean }) {
+  if (!selected) return null;
+  return <span className={styles.selectedMarker}>Inspecting</span>;
+}
+
 function ExactKpiBand({
   kpis,
   onManageLabels,
@@ -356,7 +605,9 @@ function ExactKpiBand({
         <p className={styles.kpiLabel}>Spend · today</p>
         <p className={styles.kpiValue}>
           {display(kpis?.spend?.value)}{" "}
-          <span className={styles.spendDelta}>{display(kpis?.spend?.delta)}</span>
+          <span className={styles.spendDelta}>
+            {display(kpis?.spend?.delta)}
+          </span>
         </p>
         <p className={styles.kpiDetail}>{display(kpis?.spend?.detail)}</p>
       </article>
@@ -367,7 +618,22 @@ function ExactKpiBand({
         </p>
         <p className={styles.kpiValue}>
           {display(kpis?.roas?.value)}{" "}
-          <span className={styles.roasTarget}>target {display(kpis?.roas?.target)}</span>
+          {/*
+           * The noun comes with the value, it is NOT written here.
+           *
+           * The pulse resolves this reference from four sources and the tile
+           * shows whichever one is in force — including the account median it
+           * measures when the business unit has no commercial-truth target.
+           * A hardcoded "target" prefix would relabel that median as a target
+           * the operator set, which is the one reading the adapter's wording
+           * exists to prevent. Nothing served: "target —", the same absence
+           * this tile has always shown before an answer arrives.
+           */}
+          <span className={styles.roasTarget}>
+            {kpis?.roas?.target == null || kpis.roas.target === ""
+              ? `target ${EM_DASH}`
+              : display(kpis.roas.target)}
+          </span>
         </p>
         <svg
           aria-hidden="true"
@@ -394,15 +660,21 @@ function ExactKpiBand({
 
       <article className={styles.kpiCard}>
         <p className={styles.kpiLabel}>Snapshot</p>
-        <span className={styles.freshnessPill}>{display(kpis?.snapshot?.freshness)}</span>
-        <p className={styles.snapshotDetail}>{display(kpis?.snapshot?.detail)}</p>
+        <span className={styles.freshnessPill}>
+          {display(kpis?.snapshot?.freshness)}
+        </span>
+        <p className={styles.snapshotDetail}>
+          {display(kpis?.snapshot?.detail)}
+        </p>
       </article>
 
       <article className={styles.kpiCard}>
         <p className={styles.kpiLabel}>Labels</p>
         <p className={styles.kpiValue}>
           {display(kpis?.labels?.coverage)}{" "}
-          <span className={styles.labelPercentage}>{display(kpis?.labels?.percentage)}</span>
+          <span className={styles.labelPercentage}>
+            {display(kpis?.labels?.percentage)}
+          </span>
         </p>
         <p className={styles.manageLabels} {...controlProps(onManageLabels)}>
           Manage labels →
@@ -427,36 +699,57 @@ function ExactKpiBand({
   );
 }
 
-function ActionLane({ rows }: { rows: readonly MetaDecisionCenterExactActionRowViewModel[] }) {
+function ActionLane({
+  rows,
+}: {
+  rows: readonly MetaDecisionCenterExactActionRowViewModel[];
+}) {
   return (
     <>
       {rows.map((row) => (
         <article
-          className={`${styles.actionCard} ${toneClass(row.edgeTone)}`}
+          aria-current={row.selected ? "true" : undefined}
+          className={`${styles.actionCard} ${toneClass(row.edgeTone)} ${
+            row.selected ? styles.queueCardSelected : ""
+          }`}
           data-meta-exact-action-row={row.id}
+          data-meta-exact-selected={row.selected ? "true" : undefined}
           key={row.id}
         >
+          <QueueCardOpen
+            label={`Open evidence for ${display(row.name)}`}
+            onOpen={row.onOpen}
+          />
           <div className={styles.actionIdentity}>
             <div className={styles.entityHeading}>
               <span className={styles.entityName}>{display(row.name)}</span>
               <span className={styles.entityLevel}>{display(row.level)}</span>
+              <QueueSelectedMarker selected={row.selected} />
             </div>
+            <QueueLineage lineage={row.lineage} role={row.lineageRole} />
             <div className={styles.rowChips}>
               {(row.chips ?? []).map((chip, index) => (
-                <span className={styles.rowChip} key={`${row.id}-chip-${index}`}>
+                <span
+                  className={styles.rowChip}
+                  key={`${row.id}-chip-${index}`}
+                >
                   {display(chip)}
                 </span>
               ))}
             </div>
           </div>
-          <span className={`${styles.decisionLabel} ${toneClass(row.decisionTone)}`}>
+          <span
+            className={`${styles.decisionLabel} ${toneClass(row.decisionTone)}`}
+          >
             {display(row.decisionLabel)}
           </span>
           <div className={styles.moneyBlock}>
             <p className={styles.moneyValue}>{display(row.money)}</p>
             <p className={styles.moneySub}>{display(row.moneySub)}</p>
           </div>
-          <span className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}>
+          <span
+            className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}
+          >
             {display(row.confidence)} confidence
           </span>
           <button
@@ -473,7 +766,10 @@ function ActionLane({ rows }: { rows: readonly MetaDecisionCenterExactActionRowV
           </button>
           <span
             className={styles.moreAction}
-            {...controlProps(row.onMenu, `Open evidence for ${display(row.name)}`)}
+            {...controlProps(
+              row.onMenu,
+              `Open evidence for ${display(row.name)}`,
+            )}
           >
             ⋯
           </span>
@@ -494,19 +790,40 @@ function WatchingLane({
     <>
       <div className={styles.watchSegments}>
         {slots(segments, 5).map((segment, index) => (
-          <span className={styles.watchSegment} key={segment?.id ?? `watch-segment-${index}`}>
-            {segment ? `${display(segment.label)} ${display(segment.count)}` : EM_DASH}
+          <span
+            className={styles.watchSegment}
+            key={segment?.id ?? `watch-segment-${index}`}
+          >
+            {segment
+              ? `${display(segment.label)} ${display(segment.count)}`
+              : EM_DASH}
           </span>
         ))}
       </div>
       {rows.map((row) => (
-        <article className={styles.watchingCard} data-meta-exact-watching-row={row.id} key={row.id}>
-          <span className={`${styles.watchBadge} ${toneClass(row.segmentTone)}`}>
+        <article
+          aria-current={row.selected ? "true" : undefined}
+          className={`${styles.watchingCard} ${
+            row.selected ? styles.queueCardSelected : ""
+          }`}
+          data-meta-exact-watching-row={row.id}
+          data-meta-exact-selected={row.selected ? "true" : undefined}
+          key={row.id}
+        >
+          <QueueCardOpen
+            label={`Review ${display(row.name)}`}
+            onOpen={row.onOpen}
+          />
+          <span
+            className={`${styles.watchBadge} ${toneClass(row.segmentTone)}`}
+          >
             {display(row.segment)}
           </span>
           <div className={styles.watchingIdentity}>
             <span className={styles.watchingName}>{display(row.name)}</span>
             <span className={styles.watchLevel}>{display(row.level)}</span>
+            <QueueSelectedMarker selected={row.selected} />
+            <QueueLineage lineage={row.lineage} role={row.lineageRole} />
             <p className={styles.watchingNote}>{display(row.note)}</p>
           </div>
           <span className={styles.watchingMoney}>{display(row.money)}</span>
@@ -524,21 +841,37 @@ function WatchingLane({
   );
 }
 
-function HealthyLane({ groups }: { groups: readonly MetaDecisionCenterExactHealthyGroupViewModel[] }) {
+function HealthyLane({
+  groups,
+}: {
+  groups: readonly MetaDecisionCenterExactHealthyGroupViewModel[];
+}) {
   return (
     <>
       {groups.map((group) => (
-        <article className={styles.healthyCard} data-meta-exact-healthy-group={group.id} key={group.id}>
+        <article
+          className={styles.healthyCard}
+          data-meta-exact-healthy-group={group.id}
+          key={group.id}
+        >
           <div className={styles.healthyHeader}>
             <span className={styles.healthyDot} />
             <span className={styles.healthyName}>{display(group.name)}</span>
-            <span className={styles.healthyStrategy}>{display(group.strategy)}</span>
-            <span className={styles.healthyRollup}>{display(group.rollup)}</span>
+            <span className={styles.healthyStrategy}>
+              {display(group.strategy)}
+            </span>
+            <span className={styles.healthyRollup}>
+              {display(group.rollup)}
+            </span>
           </div>
           {(group.adsets ?? []).map((adset) => (
             <div className={styles.healthyAdset} key={adset.id}>
-              <span className={styles.healthyAdsetName}>{display(adset.name)}</span>
-              <span className={styles.healthyStats}>{display(adset.stats)}</span>
+              <span className={styles.healthyAdsetName}>
+                {display(adset.name)}
+              </span>
+              <span className={styles.healthyStats}>
+                {display(adset.stats)}
+              </span>
             </div>
           ))}
         </article>
@@ -564,13 +897,22 @@ function NonSalesCard({
       <div className={styles.nonSalesHeading}>
         <span className={styles.nonSalesName}>{display(card?.name)}</span>
         <span className={styles.nonSalesLevel}>{display(card?.level)}</span>
-        <span className={styles.nonSalesContext}>{display(card?.contextLabel)}</span>
+        <span className={styles.nonSalesContext}>
+          {display(card?.contextLabel)}
+        </span>
       </div>
       <div className={styles.nonSalesMetrics}>
         {metrics.map((metric, index) => (
-          <div className={styles.nonSalesMetric} key={metric?.id ?? `non-sales-metric-${index}`}>
-            <p className={styles.nonSalesMetricLabel}>{display(metric?.label)}</p>
-            <p className={styles.nonSalesMetricValue}>{display(metric?.value)}</p>
+          <div
+            className={styles.nonSalesMetric}
+            key={metric?.id ?? `non-sales-metric-${index}`}
+          >
+            <p className={styles.nonSalesMetricLabel}>
+              {display(metric?.label)}
+            </p>
+            <p className={styles.nonSalesMetricValue}>
+              {display(metric?.value)}
+            </p>
           </div>
         ))}
       </div>
@@ -595,7 +937,11 @@ function NonSalesLane({
   return (
     <>
       {cards.map((card, index) => (
-        <NonSalesCard card={card} id={card.id ?? `non-sales-${index}`} key={card.id ?? index} />
+        <NonSalesCard
+          card={card}
+          id={card.id ?? `non-sales-${index}`}
+          key={card.id ?? index}
+        />
       ))}
     </>
   );
@@ -627,7 +973,9 @@ function ArchiveLane({
             <tr key={row.id}>
               <td>{display(row.name)}</td>
               <td>
-                <span className={`${styles.archiveStatus} ${toneClass(row.statusTone)}`}>
+                <span
+                  className={`${styles.archiveStatus} ${toneClass(row.statusTone)}`}
+                >
                   {display(row.status)}
                 </span>
               </td>
@@ -653,17 +1001,330 @@ function ArchiveLane({
   );
 }
 
+/**
+ * One creative row.
+ *
+ * Extracted so the queue can render rows inside their served state group
+ * without a second copy of the card drifting away from this one.
+ */
+function CreativeCard({
+  row,
+}: {
+  row: MetaDecisionCenterExactCreativeDecisionViewModel;
+}) {
+  const stripeA = row.stripeA?.trim() || "#F1F4F9";
+  const stripeB = row.stripeB?.trim() || "#F7F9FC";
+  return (
+    <article
+      aria-label={
+        row.onOpen ? `Open evidence for ${display(row.name)}` : undefined
+      }
+      className={`${styles.creativeCard} ${toneClass(row.edgeTone)}`}
+      data-meta-exact-creative-row={row.id}
+      data-meta-exact-creative-state={
+        nonBlankDisplay(row.stateLabel)
+          ? String(row.stateLabel).trim()
+          : undefined
+      }
+      {...(row.onOpen
+        ? {
+            role: "button" as const,
+            tabIndex: 0,
+            onClick: row.onOpen,
+            onKeyDown: (event: KeyboardEvent) => activate(event, row.onOpen),
+          }
+        : {})}
+    >
+      <span
+        className={styles.creativeThumb}
+        style={{
+          backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 8px,${stripeB} 8px,${stripeB} 16px)`,
+        }}
+      >
+        <span className={styles.creativeKind}>{display(row.kindShort)}</span>
+      </span>
+      <div className={styles.creativeIdentity}>
+        <div className={styles.creativeHeading}>
+          <span className={styles.creativeName}>{display(row.name)}</span>
+          <span
+            className={`${styles.creativeDecisionLabel} ${toneClass(row.decisionTone)}`}
+          >
+            {display(row.decisionLabel)}
+          </span>
+          {nonBlankDisplay(row.stateLabel) ? (
+            <span
+              className={`${styles.creativeStateBadge} ${toneClass(row.stateTone)}`}
+              data-meta-exact-creative-row-state
+            >
+              {display(row.stateLabel)}
+            </span>
+          ) : null}
+        </div>
+        <div className={styles.rowChips}>
+          {(row.chips ?? []).map((chip, index) => (
+            <span className={styles.rowChip} key={`${row.id}-chip-${index}`}>
+              {display(chip)}
+            </span>
+          ))}
+        </div>
+        {nonBlankDisplay(row.note) ? (
+          <p className={styles.creativeNote}>{display(row.note)}</p>
+        ) : null}
+        {nonBlankDisplay(row.blockedNote) ? (
+          <p
+            className={styles.creativeBlockedNote}
+            data-meta-exact-creative-row-blockers
+          >
+            {display(row.blockedNote)}
+          </p>
+        ) : null}
+      </div>
+      <div className={styles.creativeSparkBlock}>
+        <p className={styles.creativeSparkLabel}>CTR · 28d</p>
+        <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
+          <path
+            d={row.sparkPath ?? ""}
+            fill="none"
+            stroke="var(--tone-solid)"
+            strokeWidth="1.6"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      </div>
+      <div className={styles.creativeMoneyBlock}>
+        <p className={styles.moneyValue}>{display(row.money)}</p>
+        <p className={styles.moneySub}>{display(row.moneySub)}</p>
+      </div>
+      {/* The served action label is DECISION INFORMATION and stays on the row
+          as text. It used to be the caption of the button below, which only
+          ever opens the evidence window — there is exactly one creative
+          callback, `onCreativeReview` — so the control promised an action it
+          does not perform. The engine's word is unchanged and still visible;
+          what moved is which element carries it. */}
+      <p
+        className={`${styles.creativeServedAction} ${toneClass(row.actionTone)}`}
+        data-meta-exact-creative-served-action={
+          nonBlankDisplay(row.actionLabel)
+            ? String(row.actionLabel).trim()
+            : undefined
+        }
+      >
+        {display(row.actionLabel)}
+      </p>
+      <button
+        aria-label={
+          row.onPrimary
+            ? `Review evidence for ${display(row.name)}`
+            : `Evidence unavailable for ${display(row.name)}`
+        }
+        className={`${styles.primaryAction} ${toneClass(row.actionTone)}`}
+        data-meta-exact-creative-review="true"
+        disabled={!row.onPrimary}
+        onClick={(event) => callWithPropagationStopped(event, row.onPrimary)}
+        type="button"
+      >
+        Review evidence
+      </button>
+      <span
+        className={styles.evidenceLink}
+        {...controlProps(
+          row.onOpen ? () => row.onOpen?.() : undefined,
+          `Evidence for ${display(row.name)}`,
+        )}
+        onClick={(event) => callWithPropagationStopped(event, row.onOpen)}
+      >
+        Evidence →
+      </span>
+    </article>
+  );
+}
+
+function SourceFactGroup({
+  facts,
+  group,
+  heading,
+}: {
+  facts?: readonly MetaDecisionCenterExactSourceFactViewModel[];
+  group: string;
+  heading: string;
+}) {
+  if (!facts || facts.length === 0) return null;
+  return (
+    <div
+      className={styles.provenanceGroup}
+      data-meta-exact-source-group={group}
+    >
+      <p className={styles.provenanceHeading}>{heading}</p>
+      <dl className={styles.provenanceGrid}>
+        {facts.map((fact) => (
+          <div
+            className={styles.provenanceFact}
+            data-meta-exact-source-fact={fact.id}
+            key={fact.id}
+          >
+            <dt className={styles.provenanceLabel}>{display(fact.label)}</dt>
+            <dd className={`${styles.provenanceValue} ${toneClass(fact.tone)}`}>
+              {display(fact.value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * The served decision source, stated beside the rows.
+ *
+ * LAW: this renders whenever the Creatives scope renders. The previous notice
+ * appeared only when `decisions.length === 0`, which meant a degraded source
+ * with rows — the normal case on a real account — said nothing at all. Source
+ * health is a property of the source, never of how many rows survived the cap.
+ *
+ * Every value inside is the server's own token, string or count; the component
+ * writes the field LABELS and nothing else. `<details open>` keeps the rows
+ * primary without hiding anything by default, and the summary repeats the
+ * load-bearing facts so a folded panel still states the authority, the health,
+ * the fallback reason, the shown-vs-served counts and the capability gaps.
+ */
+function SourceProvenancePanel({
+  model,
+  notice,
+  scope,
+  defaultOpen = true,
+}: {
+  model?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
+  /**
+   * `viewModel.creativesNotice` — the served limitation joined to the served
+   * fallback reason. It lives here now rather than under the queue, because
+   * under the queue it was gated on the queue being empty.
+   *
+   * ONLY the Creatives scope passes it. Every limitation the notice joins is
+   * ad-grain, so handing it to the Structures panel would attach an ads
+   * refusal to campaign and ad-set rows it does not govern.
+   */
+  notice?: MetaDecisionCenterExactDisplayValue;
+  /** Which scope's envelope this is, for the operator and for assertions. */
+  scope: MetaDecisionCenterExactScope;
+  /**
+   * Open in Creatives, folded in Structures — and nothing is hidden either way.
+   *
+   * The Creatives scope opens onto a posture band, so the panel is one block
+   * among several and stands open. The Structures scope opens onto the rows
+   * themselves; an expanded panel of five fact groups there would be a wall
+   * between the operator and the queue, which is not what a statement beside
+   * the rows means. Folded, the summary still carries the source token, the
+   * status, the coverage pairing and the count of capability gaps, so the
+   * screen cannot read as "fine" while folded — which is the only property
+   * that ever mattered about `open`.
+   */
+  defaultOpen?: boolean;
+}) {
+  if (!model) return null;
+  return (
+    <details
+      className={`${styles.provenancePanel} ${toneClass(model.tone)}`}
+      data-meta-exact-source-provenance
+      data-meta-exact-source-scope={scope}
+      open={defaultOpen}
+    >
+      <summary className={styles.provenanceSummary}>
+        <span className={styles.provenanceEyebrow}>Decision source</span>
+        <span
+          className={`${styles.provenanceHeadline} ${toneClass(model.tone)}`}
+          data-meta-exact-source-authority
+        >
+          {display(model.headline)}
+        </span>
+        <span
+          className={styles.provenanceSummaryFact}
+          data-meta-exact-source-coverage
+        >
+          {display(model.coverageSummary)}
+        </span>
+        <span
+          className={styles.provenanceSummaryFact}
+          data-meta-exact-source-capability-summary
+        >
+          {display(model.capabilitySummary)}
+        </span>
+      </summary>
+      {nonBlankDisplay(notice) ? (
+        <p
+          className={styles.creativeNotice}
+          data-meta-exact-creative-notice
+          role="status"
+        >
+          {display(notice)}
+        </p>
+      ) : null}
+      <SourceFactGroup facts={model.source} group="source" heading="Source" />
+      <SourceFactGroup
+        facts={model.coverage}
+        group="coverage"
+        heading="Coverage"
+      />
+      <SourceFactGroup
+        facts={model.suppression}
+        group="suppression"
+        heading="Withheld from queue"
+      />
+      <SourceFactGroup
+        facts={model.limitations}
+        group="limitations"
+        heading="Limitations"
+      />
+      {model.capabilityGaps && model.capabilityGaps.length > 0 ? (
+        <div
+          className={styles.provenanceGroup}
+          data-meta-exact-source-group="capabilities"
+        >
+          <p className={styles.provenanceHeading}>Capability gaps</p>
+          <ul className={styles.provenanceCapabilities}>
+            {model.capabilityGaps.map((gap) => (
+              <li
+                className={styles.provenanceCapability}
+                data-meta-exact-source-capability={gap.id}
+                key={gap.id}
+              >
+                <span className={styles.provenanceLabel}>
+                  {display(gap.label)}
+                </span>
+                <span
+                  className={`${styles.provenanceStatus} ${toneClass(gap.tone)}`}
+                >
+                  {display(gap.status)}
+                </span>
+                <span className={styles.provenanceReason}>
+                  {display(gap.reason)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 function CreativesScope({
   posture,
   decisions,
+  groups,
+  provenance,
   notice,
+  footnote,
   onOpenCreativeStudio,
 }: {
   posture: readonly MetaDecisionCenterExactCreativePostureViewModel[];
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
+  groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
+  provenance?: MetaDecisionCenterExactSourceProvenanceViewModel | null;
   notice?: MetaDecisionCenterExactDisplayValue;
+  footnote?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
+  const servedGroups = (groups ?? []).filter((group) => group.rows.length > 0);
   return (
     <>
       <div className={styles.postureGrid} data-meta-exact-creative-posture>
@@ -678,104 +1339,39 @@ function CreativesScope({
           </div>
         ))}
       </div>
-      {decisions.map((row) => {
-        const stripeA = row.stripeA?.trim() || "#F1F4F9";
-        const stripeB = row.stripeB?.trim() || "#F7F9FC";
-        return (
-          <article
-            aria-label={
-              row.onOpen ? `Open evidence for ${display(row.name)}` : undefined
-            }
-            className={`${styles.creativeCard} ${toneClass(row.edgeTone)}`}
-            data-meta-exact-creative-row={row.id}
-            key={row.id}
-            {...(row.onOpen
-              ? {
-                  role: "button" as const,
-                  tabIndex: 0,
-                  onClick: row.onOpen,
-                  onKeyDown: (event: KeyboardEvent) =>
-                    activate(event, row.onOpen),
-                }
-              : {})}
-          >
-            <span
-              className={styles.creativeThumb}
-              style={{
-                backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 8px,${stripeB} 8px,${stripeB} 16px)`,
-              }}
+      <SourceProvenancePanel
+        model={provenance}
+        notice={notice}
+        scope="creatives"
+      />
+      {servedGroups.length > 0
+        ? servedGroups.map((group) => (
+            <section
+              className={styles.creativeGroup}
+              data-meta-exact-creative-group={group.id}
+              key={group.id}
             >
-              <span className={styles.creativeKind}>{display(row.kindShort)}</span>
-            </span>
-            <div className={styles.creativeIdentity}>
-              <div className={styles.creativeHeading}>
-                <span className={styles.creativeName}>{display(row.name)}</span>
-                <span className={`${styles.creativeDecisionLabel} ${toneClass(row.decisionTone)}`}>
-                  {display(row.decisionLabel)}
+              <header className={styles.creativeGroupHeader}>
+                <span
+                  className={`${styles.creativeGroupLabel} ${toneClass(group.tone)}`}
+                >
+                  {display(group.label)}
                 </span>
-              </div>
-              <div className={styles.rowChips}>
-                {(row.chips ?? []).map((chip, index) => (
-                  <span className={styles.rowChip} key={`${row.id}-chip-${index}`}>
-                    {display(chip)}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className={styles.creativeSparkBlock}>
-              <p className={styles.creativeSparkLabel}>CTR · 28d</p>
-              <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
-                <path
-                  d={row.sparkPath ?? ""}
-                  fill="none"
-                  stroke="var(--tone-solid)"
-                  strokeWidth="1.6"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-            </div>
-            <div className={styles.creativeMoneyBlock}>
-              <p className={styles.moneyValue}>{display(row.money)}</p>
-              <p className={styles.moneySub}>{display(row.moneySub)}</p>
-            </div>
-            <button
-              aria-label={unservedActionName(
-                display(row.actionLabel),
-                "this creative was served without one",
-              )}
-              className={`${styles.primaryAction} ${toneClass(row.actionTone)}`}
-              disabled={!row.onPrimary}
-              onClick={(event) => callWithPropagationStopped(event, row.onPrimary)}
-              type="button"
-            >
-              {display(row.actionLabel)}
-            </button>
-            <span
-              className={styles.evidenceLink}
-              {...controlProps(
-                row.onOpen
-                  ? () => row.onOpen?.()
-                  : undefined,
-                `Evidence for ${display(row.name)}`,
-              )}
-              onClick={(event) => callWithPropagationStopped(event, row.onOpen)}
-            >
-              Evidence →
-            </span>
-          </article>
-        );
-      })}
-      {decisions.length === 0 && nonBlankDisplay(notice) ? (
-        <p className={styles.creativeNotice} data-meta-exact-creative-notice role="status">
-          {display(notice)}
-        </p>
-      ) : null}
+                <span className={styles.creativeGroupCount}>
+                  {display(group.count)}
+                </span>
+                <span className={styles.creativeGroupNote}>
+                  {display(group.note)}
+                </span>
+              </header>
+              {group.rows.map((row) => (
+                <CreativeCard key={row.id} row={row} />
+              ))}
+            </section>
+          ))
+        : decisions.map((row) => <CreativeCard key={row.id} row={row} />)}
       <div className={styles.creativeFootnote}>
-        <p>
-          The engine makes only three ad-level calls — refresh, retire, scale winner. Click a row
-          for the evidence window; metric deep-dives and side-by-side comparison live in Creative
-          Studio.
-        </p>
+        <p data-meta-exact-creative-footnote>{display(footnote)}</p>
         <span {...controlProps(onOpenCreativeStudio)}>
           Open Creative Studio →
         </span>
@@ -784,12 +1380,27 @@ function CreativesScope({
   );
 }
 
-function EvidenceInspector({ model }: { model?: MetaDecisionCenterExactInspectorViewModel | null }) {
-  const reasons = slots(model?.reasons, 3);
-  const evidence = slots(model?.evidence, 4);
+function EvidenceInspector({
+  model,
+}: {
+  model?: MetaDecisionCenterExactInspectorViewModel | null;
+}) {
+  const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
+  const evidence = (model?.evidence ?? []).filter(
+    (item) => meaningfulDisplay(item.label) && meaningfulDisplay(item.value),
+  );
   const inspectorTone = toneClass(model?.tone);
+  const hasContractDetail = meaningfulDisplay(model?.contractDetail);
+  const hasTargetComparison = meaningfulDisplay(model?.targetComparison);
+  const hasMoneyDetail = meaningfulDisplay(model?.moneyDetail);
+  const hasBlockers = meaningfulDisplay(model?.blockers);
+  const hasAdvisories = meaningfulDisplay(model?.advisories);
+  const hasProvenance = meaningfulDisplay(model?.provenance);
   return (
-    <aside className={`${styles.inspector} ${inspectorTone}`} data-meta-exact-inspector>
+    <aside
+      className={`${styles.inspector} ${inspectorTone}`}
+      data-meta-exact-inspector
+    >
       <div className={styles.inspectorHeader}>
         <span className={styles.inspectorEyebrow}>Evidence inspector</span>
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
@@ -804,25 +1415,39 @@ function EvidenceInspector({ model }: { model?: MetaDecisionCenterExactInspector
         <div className={styles.contractCard}>
           <p className={styles.inspectorSectionLabel}>Decision contract</p>
           <p className={styles.contractCopy}>
-            Server verdict: <b>{display(model?.serverVerdict)}</b>. {display(model?.contractDetail)}
+            Server verdict: <b>{display(model?.serverVerdict)}</b>
+            {hasContractDetail ? `. ${display(model?.contractDetail)}` : null}
           </p>
         </div>
-        <div>
-          <p className={styles.reasonHeading}>Engine reasoning</p>
-          {reasons.map((reason, index) => (
-            <p className={styles.reasonRow} key={`reason-${index}`}>
-              <span />
-              <span>{display(reason)}</span>
-            </p>
-          ))}
-        </div>
+        {reasons.length > 0 ? (
+          <div>
+            <p className={styles.reasonHeading}>Engine reasoning</p>
+            {reasons.map((reason, index) => (
+              <p className={styles.reasonRow} key={`reason-${index}`}>
+                <span />
+                <span>{display(reason)}</span>
+              </p>
+            ))}
+          </div>
+        ) : null}
         <div className={styles.moneyImpact}>
-          <p className={styles.inspectorSectionLabel}>Money impact · ROAS vs target</p>
-          <p className={styles.inspectorMoneyValue}>
-            {display(model?.moneyValue)}{" "}
-            <span>{display(model?.targetComparison)}</span>
+          <p className={styles.inspectorSectionLabel}>
+            Money impact · ROAS vs target
           </p>
-          <svg aria-hidden="true" viewBox="0 0 100 24" preserveAspectRatio="none">
+          <p className={styles.inspectorMoneyValue}>
+            {display(model?.moneyValue)}
+            {hasTargetComparison ? (
+              <>
+                {" "}
+                <span>{display(model?.targetComparison)}</span>
+              </>
+            ) : null}
+          </p>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 100 24"
+            preserveAspectRatio="none"
+          >
             <path
               d="M0 14 L100 14"
               stroke="#C9D2E0"
@@ -838,26 +1463,53 @@ function EvidenceInspector({ model }: { model?: MetaDecisionCenterExactInspector
               vectorEffect="non-scaling-stroke"
             />
           </svg>
-          <p className={styles.inspectorMoneyDetail}>{display(model?.moneyDetail)}</p>
+          {hasMoneyDetail ? (
+            <p className={styles.inspectorMoneyDetail}>
+              {display(model?.moneyDetail)}
+            </p>
+          ) : null}
         </div>
         <div className={styles.inspectorMiniTiles}>
-          <span className={`${styles.inspectorMiniTile} ${styles.confidenceTile}`}>
+          <span
+            className={`${styles.inspectorMiniTile} ${styles.confidenceTile}`}
+          >
             <span className={styles.inspectorMiniLabel}>Confidence</span>
-            <span className={styles.inspectorMiniValue}>{display(model?.confidence)}</span>
+            <span className={styles.inspectorMiniValue}>
+              {display(model?.confidence)}
+            </span>
           </span>
-          <span className={`${styles.inspectorMiniTile} ${styles.readinessTile}`}>
+          <span
+            className={`${styles.inspectorMiniTile} ${styles.readinessTile}`}
+          >
             <span className={styles.inspectorMiniLabel}>Readiness</span>
-            <span className={styles.inspectorMiniValue}>{display(model?.readiness)}</span>
+            <span className={styles.inspectorMiniValue}>
+              {display(model?.readiness)}
+            </span>
           </span>
         </div>
-        <div>
-          <p className={styles.blockersHeading}>Blockers</p>
-          <p className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}>
-            {display(model?.blockers)}
-          </p>
-        </div>
+        {hasBlockers ? (
+          <div>
+            <p className={styles.blockersHeading}>Blockers</p>
+            <p
+              className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
+            >
+              {display(model?.blockers)}
+            </p>
+          </div>
+        ) : null}
+        {hasAdvisories ? (
+          <div>
+            <p className={styles.blockersHeading}>Advisories</p>
+            <p className={`${styles.blockersCopy} ${toneClass("neutral")}`}>
+              {display(model?.advisories)}
+            </p>
+          </div>
+        ) : null}
         {evidence.map((item, index) => (
-          <div className={styles.evidenceRow} key={item?.id ?? `evidence-${index}`}>
+          <div
+            className={styles.evidenceRow}
+            key={item?.id ?? `evidence-${index}`}
+          >
             <span>{display(item?.label)}</span>
             <span>{display(item?.value)}</span>
           </div>
@@ -874,7 +1526,9 @@ function EvidenceInspector({ model }: { model?: MetaDecisionCenterExactInspector
         >
           {display(model?.actionLabel)}
         </button>
-        <p className={styles.provenance}>{display(model?.provenance)}</p>
+        {hasProvenance ? (
+          <p className={styles.provenance}>{display(model?.provenance)}</p>
+        ) : null}
       </div>
     </aside>
   );
@@ -889,7 +1543,6 @@ export function MetaDecisionCenterExact({
   inspectorOpen = true,
   onScopeChange,
   onLaneChange,
-  onWindowChange,
   onRunSnapshot,
   onNewCampaign,
   onManageLabels,
@@ -898,8 +1551,10 @@ export function MetaDecisionCenterExact({
   initialQuery = "",
   onOpenCreativeStudio,
 }: MetaDecisionCenterExactProps) {
-  const [internalScope, setInternalScope] = useState<MetaDecisionCenterExactScope>(defaultScope);
-  const [internalLane, setInternalLane] = useState<MetaDecisionCenterExactLane>(defaultLane);
+  const [internalScope, setInternalScope] =
+    useState<MetaDecisionCenterExactScope>(defaultScope);
+  const [internalLane, setInternalLane] =
+    useState<MetaDecisionCenterExactLane>(defaultLane);
   const [sort, setSort] = useState<MetaDecisionCenterExactSort>("money");
   const [query, setQuery] = useState(initialQuery);
 
@@ -934,33 +1589,24 @@ export function MetaDecisionCenterExact({
       <div className={styles.pageHeader}>
         <div>
           <p className={styles.pageEyebrow}>
-            Meta · {display(identity?.accountLabel)} · {display(identity?.currency)}
+            Meta · {display(identity?.accountLabel)} ·{" "}
+            {display(identity?.currency)}
           </p>
           <h1>Decision Center</h1>
           <p className={styles.asOfLine} data-meta-exact-source-identity>
-            {display(identity?.syncedLabel)} · {display(identity?.snapshotLabel)} ·{" "}
+            {display(identity?.syncedLabel)} ·{" "}
+            {display(identity?.snapshotLabel)} ·{" "}
             {display(identity?.engineLabel)} · {display(identity?.timeLabel)}
           </p>
         </div>
+        {/* The 7d/14d/28d/90d pills are gone: the shell topbar picker already
+            owns the window, and it offers a wider vocabulary than these four.
+            Two controls for one value is also two WRITERS for one value —
+            exactly the split the single date authority removed everywhere
+            else. `activeWindow` stays: it is the window the payload was
+            SERVED for, and the archive column header and the ROAS label
+            still name it. */}
         <div className={styles.headerTools}>
-          <span className={styles.windowControl}>
-            {WINDOWS.map((window) => (
-              <span
-                aria-pressed={activeWindow === window}
-                className={`${styles.windowOption} ${
-                  activeWindow === window ? styles.windowOptionActive : ""
-                }`}
-                data-meta-exact-window={window}
-                key={window}
-                {...controlProps(
-                  onWindowChange ? () => onWindowChange(window) : undefined,
-                  `Metrics window ${window}`,
-                )}
-              >
-                {window}
-              </span>
-            ))}
-          </span>
           <button
             className={styles.snapshotButton}
             disabled={!onRunSnapshot}
@@ -980,7 +1626,11 @@ export function MetaDecisionCenterExact({
         </div>
       </div>
 
-      <ExactKpiBand kpis={viewModel.kpis} onManageLabels={onManageLabels} activeWindow={activeWindow ?? EM_DASH} />
+      <ExactKpiBand
+        kpis={viewModel.kpis}
+        onManageLabels={onManageLabels}
+        activeWindow={activeWindow ?? EM_DASH}
+      />
 
       <div className={styles.scopeRow}>
         <span className={styles.scopeControl}>
@@ -1008,8 +1658,8 @@ export function MetaDecisionCenterExact({
           </span>
         </span>
         <p data-meta-exact-queue-snapshot>
-          queue reflects {display(identity?.snapshotLabel)} — the date range scopes metrics, not
-          decisions
+          queue reflects {display(identity?.snapshotLabel)} — the date range
+          scopes metrics, not decisions
         </p>
       </div>
 
@@ -1029,7 +1679,9 @@ export function MetaDecisionCenterExact({
               <span>{display(counts?.[item.id])}</span>
             </span>
           ))}
-          <span className={styles.deferredPill}>Deferred {display(counts?.deferred)}</span>
+          <span className={styles.deferredPill}>
+            Deferred {display(counts?.deferred)}
+          </span>
           <span className={styles.toolbarSpacer} />
           <select
             aria-label="Sort decisions"
@@ -1054,13 +1706,63 @@ export function MetaDecisionCenterExact({
             value={query}
           />
         </div>
-      ) : null}
+      ) : (
+        /*
+         * The search box follows the term, not the scope.
+         *
+         * The query is ONE piece of page state and it filtered the creative
+         * rows all along, but the only control that could see or clear it lived
+         * in the structure toolbar. Switching scope with a term typed therefore
+         * hid creative rows behind a filter with no visible cause and no way
+         * out. Clearing the term on scope change was the other option and is
+         * worse: it silently discards something the operator typed on purpose,
+         * and the term is also what the deep link restores. So the control
+         * comes along instead.
+         *
+         * The lane pills and the sort do NOT come along: the lanes are the
+         * structure lanes and the sort is applied to structure rows only, so
+         * rendering either here would be a control that changes nothing.
+         */
+        <div className={styles.laneToolbar} data-meta-exact-creative-toolbar>
+          <span className={styles.toolbarSpacer} />
+          <input
+            aria-label="Search creatives"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              onSearchChange?.(event.target.value);
+            }}
+            placeholder="Search creatives…"
+            value={query}
+          />
+        </div>
+      )}
 
       <div
         className={`${styles.workspace} ${showInspector ? styles.workspaceWithInspector : ""}`}
         data-meta-exact-workspace
       >
         <div className={styles.queue}>
+          {/*
+           * The Structures scope states its own source, in every lane.
+           *
+           * It used to state none at all: the same read model and the same
+           * capabilities envelope back both scopes, but only Creatives said so,
+           * while Structures is the scope that draws the action buttons
+           * `providerWriteLinkage` and `responseAttribution` govern. Rendered
+           * outside the lane branches on purpose — the source is a property of
+           * the account and the snapshot, not of which lane happens to be
+           * selected, and a panel that vanished on the Archive tab would be a
+           * disclosure the operator could lose by clicking.
+           *
+           * @see structureProvenance in meta-decision-center-exact-adapter.ts
+           */}
+          {activeScope === "structure" ? (
+            <SourceProvenancePanel
+              defaultOpen={false}
+              model={viewModel.structureProvenance}
+              scope="structure"
+            />
+          ) : null}
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane rows={viewModel.actionRows ?? []} />
           ) : null}
@@ -1077,18 +1779,26 @@ export function MetaDecisionCenterExact({
             <NonSalesLane cards={viewModel.nonSales ?? []} />
           ) : null}
           {activeScope === "structure" && activeLane === "archive" ? (
-            <ArchiveLane rows={viewModel.archiveRows ?? []} windowLabel={activeWindow ?? EM_DASH} />
+            <ArchiveLane
+              rows={viewModel.archiveRows ?? []}
+              windowLabel={activeWindow ?? EM_DASH}
+            />
           ) : null}
           {activeScope === "creatives" ? (
             <CreativesScope
               decisions={viewModel.creativeDecisions ?? []}
+              footnote={viewModel.creativeFootnote}
+              groups={viewModel.creativeGroups}
               notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
+              provenance={viewModel.sourceProvenance}
             />
           ) : null}
         </div>
-        {showInspector ? <EvidenceInspector model={viewModel.inspector} /> : null}
+        {showInspector ? (
+          <EvidenceInspector model={viewModel.inspector} />
+        ) : null}
       </div>
     </section>
   );

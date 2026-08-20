@@ -131,14 +131,20 @@ describe("pressable rows are real controls", () => {
     expect(agency).toContain("href={row.href}");
   });
 
-  it("marks the pressed state on the decision scope, lane and window controls", () => {
+  it("marks the pressed state on the decision scope and lane controls", () => {
     // The reference draws these as spans. They keep the tag and gain the role,
     // the tab stop and the pressed state, so the queue is operable without a
     // mouse and a screen reader can tell which lane is showing.
+    //
+    // The window control is no longer among them: it was removed from this
+    // header because the shell topbar picker already owns the window, and two
+    // controls for one value is two writers for one value. Its absence is
+    // pinned in MetaDecisionCenterExact.test.tsx; what matters HERE is that
+    // the controls that remain are still operable without a mouse.
     const decisions = read("decisions");
     expect(decisions).toContain("aria-pressed={activeScope === \"structure\"}");
     expect(decisions).toContain("aria-pressed={activeLane === item.id}");
-    expect(decisions).toContain("aria-pressed={activeWindow === window}");
+    expect(decisions).not.toContain("aria-pressed={activeWindow === window}");
     expect(decisions).toContain("function activate(");
     expect(decisions).toContain('event.key !== "Enter" && event.key !== " "');
   });

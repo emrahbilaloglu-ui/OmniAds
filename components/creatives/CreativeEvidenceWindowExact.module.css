@@ -575,6 +575,158 @@
  * pins this list exactly, so the block cannot widen into a general exemption.
  * Nothing outside the markers may fall below the 12px floor.
  */
+/* ── read state, authority, diagnostics ──────────────────────── */
+
+/*
+ * These are NEW affordances, so they meet the floors rather than joining an
+ * exception list: every font-size here is >= 12px (lib/typography-floor.test.ts)
+ * and every text colour is ink on a light ground, never a tone hue at body size
+ * (lib/studio-contrast-floor.test.ts). Tone is carried by a decorative accent
+ * bar and by the words in the value, not by tinted 12px text.
+ */
+
+.readNotice {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--tone-border, #e4e8f0);
+  border-radius: 9px;
+  background: var(--tone-bg, #f7f9fc);
+  color: #0e1526;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/*
+ * The coverage statement. Same construction rule as the read notice: ink text
+ * on a light tone ground, tone carried by the border and the words rather than
+ * by tinted body type, every size at or above the 12px floor.
+ */
+.coverage {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--tone-border, #e4e8f0);
+  border-left: 3px solid var(--tone-solid, #98a4ba);
+  border-radius: 9px;
+  background: var(--tone-bg, #f7f9fc);
+}
+
+.coverageHeadline {
+  margin: 0 0 6px;
+  color: #0e1526;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.coverageLine {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.4fr) minmax(0, 1fr);
+  gap: 10px;
+  margin: 0 0 4px;
+}
+
+.coverageLabel {
+  color: #45526b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.coverageItems {
+  min-width: 0;
+  color: #0e1526;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.coverageNote {
+  margin: 6px 0 0;
+  color: #0e1526;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auditRow {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.44fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0 6px 8px;
+  border-top: 1px solid #eef1f6;
+  border-left: 3px solid transparent;
+}
+
+.auditRow:first-child {
+  border-top: 0;
+}
+
+.auditRow[data-tone="positive"] {
+  border-left-color: #0e9f6e;
+}
+
+.auditRow[data-tone="negative"] {
+  border-left-color: #e11d48;
+}
+
+.auditRow[data-tone="warning"] {
+  border-left-color: #b45309;
+}
+
+.auditLabel {
+  color: #45526b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auditValue {
+  min-width: 0;
+  color: #0e1526;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.diagnostics {
+  margin-top: 10px;
+  border: 1px solid #e4e8f0;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.diagnosticsSummary {
+  padding: 9px 13px;
+  color: #45526b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.diagnosticsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.diagnosticsSummary::before {
+  content: "\25B8 ";
+  color: #45526b;
+}
+
+.diagnostics[open] .diagnosticsSummary::before {
+  content: "\25BE ";
+}
+
+.diagnosticsBody {
+  padding: 0 13px 10px;
+}
+
+.diagnosticsValue {
+  min-width: 0;
+  color: #0e1526;
+  font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 /* dashboard-v2-evidence-window-exact-reference-type:start */
 .cardEyebrow,
 .cardEyebrowSpaced,

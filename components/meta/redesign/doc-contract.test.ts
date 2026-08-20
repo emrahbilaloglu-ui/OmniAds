@@ -20,16 +20,51 @@ describe("meta page UI contract doc stays consistent with code", () => {
   const exact = readFileSync(EXACT_PATH, "utf8");
   const adapter = readFileSync(ADAPTER_PATH, "utf8");
 
-  it("legacy execute hints are review-only and the doc must not claim direct provider writes", () => {
-    expect(page).toContain(
-      "The served hint carries no canonical provider-write authority",
-    );
+  /*
+   * The page's write surface, pinned in BOTH directions.
+   *
+   * This assertion used to require the sentence "The served hint carries no
+   * canonical provider-write authority" in the page, and the doc's matching
+   * claim that the page performs no direct provider write. That stopped being
+   * true when the exact-Ad pause landed: the page now issues one real Meta
+   * mutation. The sentence was deleted from the source and the doc was not
+   * updated, so the doc asserted an absence the code had already contradicted
+   * — which is the exact failure this file exists to catch, and it caught it.
+   *
+   * Re-adding the old sentence would have made the guard green by making the
+   * code lie instead of the doc. So the pin moved to the new truth: EXACTLY
+   * ONE write, at the ad grain, through the named module — and still none at
+   * the ad-set or campaign grain, which is the part that must not drift.
+   */
+  it("the page's only provider write is the exact-Ad pause, and the doc says so", () => {
+    expect(page).toContain("executeMetaNativeAdPause");
+    expect(page).toContain("authorizeMetaNativeAdPause");
+    expect(doc).toContain("exactly one direct Meta provider write");
+    expect(doc).toContain("/api/meta/ads/{adId}/pause");
+    expect(doc).toContain("Campaign and ad-set recommendations remain advisory");
+
+    // The grains that still have no execution-authority contract. A write
+    // endpoint for either appearing in this page is the regression.
     expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/apply-bid/);
     expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/pause/);
     expect(page).not.toMatch(/\/api\/meta\/campaigns\/.*\/resume/);
-    expect(doc).toContain("The recommendation page performs **no direct Meta provider write**");
+
+    /*
+     * The ad-grain WRITE may exist only inside the module that carries the
+     * authority check; a bare fetch from the page would bypass
+     * `authorizeMetaNativeAdPause` entirely.
+     *
+     * Scoped to the mutating verbs on purpose. `/api/meta/ads/series` is a
+     * READ this page legitimately calls for the evidence sparklines, so a
+     * blanket ban on the prefix would forbid the wrong thing.
+     */
+    expect(page).not.toMatch(/\/api\/meta\/ads\/[^"'`\s]*\/(pause|resume|status)/);
+
     expect(doc).toContain("defensively normalized");
     expect(doc).not.toMatch(/Three writes execute from this page/);
+    expect(doc).not.toContain(
+      "The recommendation page performs **no direct Meta provider write**",
+    );
   });
 
   it("dataReadiness: page renders through the workspace posture stack and the doc must not call it payload-only", () => {

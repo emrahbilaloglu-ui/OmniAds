@@ -149,6 +149,15 @@ export interface WorkspaceSyncState {
   freshnessState: TierZeroFreshnessState | "unknown";
 }
 
+export interface WorkspaceSyncOptions {
+  /**
+   * Whether the shell may fall back to the account-level Meta and Google Ads
+   * status reads. A route that already owns a Tier-0 freshness source can turn
+   * this off synchronously, before that source reports through its effect.
+   */
+  providerStatusEnabled?: boolean;
+}
+
 function minutesSince(iso: string | null | undefined, now: number) {
   if (!iso) return null;
   const at = Date.parse(iso);
@@ -170,7 +179,9 @@ export function formatSyncAge(minutes: number | null): string {
  * therefore their existing react-query cache entries) and reports the most
  * recent completed provider sync across the workspace.
  */
-export function useWorkspaceSyncState(): WorkspaceSyncState {
+export function useWorkspaceSyncState(
+  options: WorkspaceSyncOptions = {},
+): WorkspaceSyncState {
   // Same rule as the switcher above it and the rail beside it. Reading the
   // store directly is what let this pill report one workspace's sync age under
   // another workspace's name.
@@ -179,12 +190,18 @@ export function useWorkspaceSyncState(): WorkspaceSyncState {
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const enabled =
-    Boolean(businessId) && hasHydrated && authBootstrapStatus === "ready";
+    options.providerStatusEnabled !== false &&
+    Boolean(businessId) &&
+    hasHydrated &&
+    authBootstrapStatus === "ready";
 
   const metaStatus = useQuery({
     queryKey: ["meta-status", businessId],
     enabled,
     staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: () =>
       fetchJson<MetaStatusResponse>(
         `/api/meta/status?businessId=${encodeURIComponent(businessId!)}`,
@@ -195,6 +212,9 @@ export function useWorkspaceSyncState(): WorkspaceSyncState {
     queryKey: ["google-ads-status", businessId],
     enabled,
     staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: () =>
       fetchJson<GoogleAdsStatusResponse>(
         `/api/google-ads/status?businessId=${encodeURIComponent(businessId!)}`,

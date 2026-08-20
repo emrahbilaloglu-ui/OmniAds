@@ -91,7 +91,12 @@ function decision(
       adStatus: "ACTIVE",
       reason: "active_hierarchy",
     },
-    classification: { decisionState: "act", heldAction: null, blockers: [] },
+    classification: {
+      decisionState: "act",
+      heldAction: null,
+      blockers: [],
+      lifecycleRole: { value: "main" },
+    },
     ...overrides,
   } as unknown as MetaCanonicalDecision;
 }
@@ -360,6 +365,10 @@ describe("landLaunchpadHandoff", () => {
               realAdId: null,
               jobRunId: null,
               reviewOnlyReason: null,
+            },
+            classification: {
+              ...(decision().classification as object),
+              lifecycleRole: { value: "test" },
             },
           }),
         }),

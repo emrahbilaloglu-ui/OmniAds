@@ -5,9 +5,18 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import {
   buildCreativeStudioAssetsModel,
+  creativeAgeDays,
   buildCreativeStudioCopiesModel,
   buildCreativeStudioLandingModel,
 } from "./creative-studio-exact-adapters";
+
+/**
+ * The last day these rows' numbers cover. Deliberately NOT "today": the age
+ * column counts to the window's end, so a fixture pinned to a literal date
+ * makes the expected age a constant instead of something that changes every
+ * time the suite is run.
+ */
+const WINDOW_END = "2026-08-17";
 
 function asset(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
   return {
@@ -33,6 +42,7 @@ function asset(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
     ctrAll: 5,
     thumbstop: 32,
     frequency: 2.1,
+    launchDate: "2026-08-01",
     tableThumbnailUrl: null,
     cardPreviewUrl: null,
     imageUrl: null,
@@ -62,11 +72,65 @@ function copy(overrides: Partial<CopyMotionRow> = {}): CopyMotionRow {
   } as CopyMotionRow;
 }
 
+/*
+ * THE ONE CLOCK, tested where it is defined.
+ *
+ * `creativeAgeDays` is exported and imported by the MOUNTED projector
+ * (`toCreativeStudioAssetRows`, app/(dashboard)/platforms/meta/creatives/legacy-page.tsx)
+ * precisely so there is one implementation to get right rather than two to keep
+ * in step. These cases pin its three refusals and its one measured zero; the
+ * projector suite in `page.test.tsx` and the production-chain suite pin the
+ * same behaviour through the shipped cell.
+ */
+describe("creativeAgeDays", () => {
+  it("counts elapsed whole days to the window's end", () => {
+    expect(creativeAgeDays("2026-08-01", "2026-08-17")).toBe(16);
+    expect(creativeAgeDays("2026-08-01", "2026-08-10")).toBe(9);
+    // Created on the last day the window covers: zero days elapsed, and zero is
+    // a measurement. This is the number that says "do not judge this yet".
+    expect(creativeAgeDays("2026-08-17", "2026-08-17")).toBe(0);
+  });
+
+  it("refuses a date it was not given", () => {
+    // "" is the real shape of an unsupplied launch date by the time it reaches
+    // the projector — `safeString` in `mapApiRowToUiRow` produces it from both
+    // an `undefined` and an empty wire value.
+    expect(creativeAgeDays("", "2026-08-17")).toBeNull();
+    expect(creativeAgeDays("   ", "2026-08-17")).toBeNull();
+    expect(creativeAgeDays(null, "2026-08-17")).toBeNull();
+    expect(creativeAgeDays(undefined, "2026-08-17")).toBeNull();
+    expect(creativeAgeDays("2026-08", "2026-08-17")).toBeNull();
+    expect(creativeAgeDays("August 1", "2026-08-17")).toBeNull();
+    // A window with no end is nothing to count to, so there is no age either.
+    expect(creativeAgeDays("2026-08-01", null)).toBeNull();
+    expect(creativeAgeDays("2026-08-01", "")).toBeNull();
+  });
+
+  it("refuses a creation date later than the window it is counted to", () => {
+    // Neither -3 nor a clamped 0. The row is claiming it was created after the
+    // last day it reports numbers for; clamping would publish that
+    // contradiction as a measured zero, which is the strongest claim this
+    // column can make.
+    expect(creativeAgeDays("2026-08-20", "2026-08-17")).toBeNull();
+  });
+
+  it("does not drift with the system clock", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(creativeAgeDays("2026-08-01", "2026-08-17")).toBe(16);
+    expect(creativeAgeDays("2026-08-01", "2026-08-17")).not.toBe(
+      creativeAgeDays("2026-08-01", today),
+    );
+  });
+});
+
 describe("Creative Studio exact adapters", () => {
   it("withholds every numeric asset field when the producer marks metrics unavailable", () => {
     const model = buildCreativeStudioAssetsModel({
-      rows: [asset({ metricsAvailability: "unavailable", spend: 999, roas: 9 })],
+      rows: [
+        asset({ metricsAvailability: "unavailable", spend: 999, roas: 9 }),
+      ],
       state: "ready",
+      windowEnd: WINDOW_END,
     });
 
     expect(model.rows[0]?.metrics).toMatchObject({
@@ -75,30 +139,59 @@ describe("Creative Studio exact adapters", () => {
       purchases: null,
       aov: null,
       cvr: null,
+      // NOT null. The age is not one of the producer's numbers — it is the
+      // distance between a date the row carries and the window's end — so a
+      // producer that measured nothing does not erase it. "Sixteen days old and
+      // still no numbers" is the reading an operator needs.
+      ageDays: 16,
     });
   });
 
-  it("projects only served asset identity and never substitutes a video proxy for Hold 15s", () => {
-    const model = buildCreativeStudioAssetsModel({ rows: [asset()], state: "ready" });
+  it("projects only served asset identity and mints no metric the producer cannot serve", () => {
+    const model = buildCreativeStudioAssetsModel({
+      rows: [asset()],
+      state: "ready",
+      windowEnd: WINDOW_END,
+    });
 
+    // LAW: the Status column carries the ENGINE's classification, never the
+    // provider's delivery enum. This builder is handed provider rows only, so
+    // it can state no classification and says so explicitly. The delivery
+    // state is not lost; it moves to `deliveryStatus`, which the table renders
+    // beside the creative's format.
     expect(model.rows[0]).toMatchObject({
-      status: "Active",
-      statusTone: "positive",
+      status: "Not evaluated",
+      statusTone: "neutral",
+      decisionSegment: null,
+      decisionCount: 0,
+      deliveryStatus: "Active",
       marketingAngle: "Server angle",
       metrics: {
         spend: 100,
+        revenue: 400,
         aov: 100,
         atcRate: 20,
         cvr: 10,
-        hold: null,
       },
     });
+    // `hold` was a key here and in the mounted projector, always `null`,
+    // because Meta serves no Hold-15s field on a creative row and a
+    // video-completion rate is a different question. It is gone from
+    // `CreativeAssetMetricId` entirely rather than kept as a permanently blank
+    // column.
+    expect(Object.keys(model.rows[0]!.metrics)).not.toContain("hold");
   });
 
   it("keeps unsupported copy columns unavailable and preserves an observed true zero", () => {
     const model = buildCreativeStudioCopiesModel({
       rows: [
-        copy({ spend: 20, purchaseValue: 0, purchases: 0, roas: 0, linkClicks: 10 }),
+        copy({
+          spend: 20,
+          purchaseValue: 0,
+          purchases: 0,
+          roas: 0,
+          linkClicks: 10,
+        }),
       ],
       state: "ready",
     });
@@ -188,6 +281,7 @@ describe("Creative Studio exact adapters", () => {
         }),
       ],
       state: "ready",
+      windowEnd: WINDOW_END,
     });
 
     expect(model.rows[0]?.metrics).toMatchObject({
@@ -230,6 +324,7 @@ describe("Creative Studio exact adapters", () => {
         }),
       ],
       state: "ready",
+      windowEnd: WINDOW_END,
     });
 
     expect(model.rows[0]?.metrics).toMatchObject({

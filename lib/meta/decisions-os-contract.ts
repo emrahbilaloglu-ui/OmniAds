@@ -162,7 +162,22 @@ export interface MetaOsAdDecision {
   priority: MetaOsDecisionPriority;
   assessment: string;
   confidence: "high" | "medium" | "low";
-  confidenceScore: number;
+  /**
+   * The engine's own confidence number for this decision, or null when NO
+   * confidence was computed for it.
+   *
+   * Nullable because a synthesised placeholder row is not a measurement. The
+   * `await_ad_grain_evidence` row this presentation emits for a live Ad with no
+   * Ad-grain snapshot has no engine behind it at all; it used to carry a
+   * hardcoded 0, and the evidence window rendered that constant as
+   * "low · score 0.00" — a fabricated number printed as a measured one, under a
+   * render whose own rule is that a MEASURED zero stays zero. A row with no
+   * computed confidence now serves null and renders an em dash.
+   *
+   * A served 0 is therefore a real engine score of zero and must still print as
+   * 0.00. Never coalesce this field to 0 on read.
+   */
+  confidenceScore: number | null;
   riskTier: MetaDecisionRiskTier | null;
   confirmationCeremony: MetaDecisionConfirmationCeremony;
   whyNow: string;

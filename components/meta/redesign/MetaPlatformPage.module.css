@@ -1428,3 +1428,90 @@
     display: none;
   }
 }
+
+/*
+ * The served account inventory, below the queue.
+ *
+ * Every declaration here reuses the tokens the rest of this stylesheet already
+ * paints with (`--adc-*`), so no new colour pair enters the surface, and every
+ * font-size sits at or above the 12px floor `lib/typography-floor.test.ts`
+ * enforces over this file.
+ */
+.inventoryPanel {
+  margin-top: 16px;
+  border: 1px solid var(--adc-b1);
+  border-radius: 10px;
+  background: var(--adc-s1);
+}
+
+.inventoryPanel > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--adc-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inventoryPanel > summary span {
+  color: var(--adc-ink3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.inventoryNote {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: var(--adc-ink3);
+  font-size: 12px;
+}
+
+.inventoryScroll {
+  max-height: 520px;
+  overflow: auto;
+  border-top: 1px solid var(--adc-b1);
+}
+
+.inventoryTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.inventoryTable th,
+.inventoryTable td {
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--adc-b1);
+  color: var(--adc-ink2);
+  font-size: 12px;
+  vertical-align: top;
+}
+
+.inventoryTable th {
+  position: sticky;
+  top: 0;
+  background: var(--adc-s2);
+  color: var(--adc-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inventoryTable td:first-child {
+  color: var(--adc-ink);
+  font-weight: 600;
+}
+
+.inventoryGrain {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--adc-b2);
+  border-radius: 999px;
+  color: var(--adc-ink3);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}

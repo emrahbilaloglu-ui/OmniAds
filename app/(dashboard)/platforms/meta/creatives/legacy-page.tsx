@@ -19,6 +19,7 @@ import type {
 import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/CreativesTopSection";
 import { resolveCreativeDateRange } from "@/components/creatives/CreativesTopSection";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
+import { creativeAgeDays } from "@/components/creatives/creative-studio-exact-adapters";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -30,6 +31,13 @@ import type {
   MetaObservedMetricKey,
 } from "@/components/creatives/metricConfig";
 import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
+import {
+  buildServedCreativeClassifications,
+  creativeDecisionStatusFallback,
+  servedClassificationFor,
+  type CreativeDecisionReadState,
+  type ServedCreativeClassification,
+} from "@/components/creatives/creative-served-classification";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { hasDateWindowParams } from "@/lib/dashboard/date-window-url";
@@ -61,19 +69,24 @@ function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function statusTone(status: string | null): CreativeStudioTone {
-  switch (status?.trim().toUpperCase()) {
-    case "ACTIVE":
-      return "positive";
-    case "PAUSED":
-    case "ARCHIVED":
-      return "neutral";
-    case "DISAPPROVED":
-    case "WITH_ISSUES":
-      return "warning";
-    default:
-      return "neutral";
-  }
+/**
+ * The provider's delivery enum, cased for reading. Nothing is merged or
+ * renamed: `CAMPAIGN_PAUSED` becomes "Campaign paused" and still means exactly
+ * what Meta said. It moved out of the Status column when that column was bound
+ * to the engine's classification, and it kept its exact wording on the way.
+ */
+function deliveryStatusLabel(status: string | null): string | null {
+  const normalized = status?.trim();
+  if (!normalized) return null;
+  const words = normalized
+    .toLowerCase()
+    .split(/[_\s-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return null;
+  return [
+    words[0]![0]!.toUpperCase() + words[0]!.slice(1),
+    ...words.slice(1),
+  ].join(" ");
 }
 
 function assetImageUrl(row: MetaCreativeRow): string | null {
@@ -140,18 +153,41 @@ function ratioWithDenominator(
 /**
  * Presentation-only projection for the exact Assets surface.
  *
- * It does not read decision fields. Availability is per metric, and a ratio
- * whose denominator was measured as zero is withheld rather than printed as a
- * zero the provider never measured. Hold intentionally stays absent until Meta
- * serves a dedicated hold metric; video completion is not a substitute.
+ * Availability is per metric, and a ratio whose denominator was measured as
+ * zero is withheld rather than printed as a zero the provider never measured.
+ *
+ * Every id in `CreativeAssetMetricId` is assigned here, because the Studio's
+ * `formatMetric` switches exhaustively over that union — so a metric admitted
+ * to the catalogue and forgotten here is a compile error rather than a blank
+ * column nobody notices. `hold` is no longer in the union; the block below
+ * where it used to sit records why.
+ *
+ * `classifications` is the ENGINE's own answer, indexed by provider creative id
+ * from the briefing this page already fetches. This function reads it; it does
+ * not compute, infer or reclassify anything. A successful read with no match
+ * becomes `Not evaluated`; if multiple ads sharing the creative have distinct
+ * answers, every literal server answer remains visible.
+ *
+ * `windowEndIso` is the last day the rows' numbers cover, and both trailing
+ * classification map and window end are REQUIRED rather than defaulted. A
+ * default `new Map()` and a default `null` each read as "this caller has
+ * nothing to say" and erase useful context. The mounted caller has both facts
+ * in hand (`servedClassifications`, `drEnd`) and passes them explicitly.
  */
 export function toCreativeStudioAssetRows(
   rows: readonly MetaCreativeRow[],
   defaultCurrency: string | null,
+  classifications: ReadonlyMap<string, ServedCreativeClassification | null>,
+  windowEndIso: string | null,
+  decisionReadState: CreativeDecisionReadState = "available",
 ): CreativeStudioAssetRow[] {
   return rows.map((row) => {
     const spend = observedMetric(row, "spend", row.spend);
-    const purchaseValue = observedMetric(row, "purchaseValue", row.purchaseValue);
+    const purchaseValue = observedMetric(
+      row,
+      "purchaseValue",
+      row.purchaseValue,
+    );
     const purchases = observedMetric(row, "purchases", row.purchases);
     const impressions = observedMetric(row, "impressions", row.impressions);
     const linkClicks = observedMetric(row, "linkClicks", row.linkClicks);
@@ -159,11 +195,43 @@ export function toCreativeStudioAssetRows(
     const metrics: CreativeStudioAssetRow["metrics"] = {
       spend,
       impressions,
+      // The other half of the trade. `meta_creative_daily.revenue` is a NOT
+      // NULL column whose presence the warehouse producer stamps
+      // `purchase_value: true` unconditionally, and it already reached this row
+      // as `purchaseValue` to feed AOV — it was simply never given a column.
+      // ROAS 4.0 on $30 and ROAS 2.1 on $4,000 are not the same decision.
+      revenue: purchaseValue,
       clicks: observedMetric(row, "clicks", row.clicks),
+      // The funnel ladder's own counts, each presence-tracked per row. These are
+      // what make a drop-off visible: a rate alone cannot say whether 4% of
+      // twelve clicks or 4% of forty thousand is on screen.
+      linkClicks,
+      landingPageViews: observedMetric(
+        row,
+        "landingPageViews",
+        row.landingPageViews,
+      ),
+      addToCart,
+      initiateCheckout: observedMetric(
+        row,
+        "initiateCheckout",
+        row.initiateCheckout,
+      ),
       purchases,
       roas: ratioWithDenominator(observedMetric(row, "roas", row.roas), spend),
       cpa: ratioWithDenominator(observedMetric(row, "cpa", row.cpa), purchases),
-      cpm: ratioWithDenominator(observedMetric(row, "cpm", row.cpm), impressions),
+      cpm: ratioWithDenominator(
+        observedMetric(row, "cpm", row.cpm),
+        impressions,
+      ),
+      // Producer-computed, guarded on the same denominator the producer's own
+      // presence entry guards it on (`cpc_link: spend && linkClicks &&
+      // positive(row.link_clicks)`, lib/meta/creatives-service-support.ts).
+      // Cost per no link clicks is undefined, not free.
+      cpcLink: ratioWithDenominator(
+        observedMetric(row, "cpcLink", row.cpcLink),
+        linkClicks,
+      ),
       aov: ratioWithDenominator(
         purchaseValue === null
           ? null
@@ -178,7 +246,25 @@ export function toCreativeStudioAssetRows(
         observedMetric(row, "thumbstop", row.thumbstop),
         impressions,
       ),
-      hold: null,
+      /*
+       * `hold` USED TO BE HERE, as a literal `null` on every row of every
+       * account, and it was a DEFAULT column in the Engagement preset — a
+       * permanent em dash that taught the operator the table was empty.
+       *
+       * It is not a plumbing gap that a later pass can close. Meta serves no
+       * Hold-15s field on a creative row: `MetaCreativeRow`
+       * (components/creatives/metricConfig.ts) has no such field, and
+       * `META_OBSERVED_METRIC_KEYS` in the same file has no key for one, so
+       * nothing could reach a cell even if the payload carried it. The nearest
+       * upstream fact is `thruplay_actions`, which the warehouse producer
+       * stamps `false` on this grain (lib/meta/creatives-warehouse.ts) and
+       * which is likewise absent from the observed keys. Video-completion
+       * rates are a different question and are not a substitute.
+       *
+       * So the metric left the catalogue rather than the honesty. See
+       * `CreativeAssetMetricId` in
+       * components/creatives/creative-studio-exact-types.ts.
+       */
       frequency: observedMetric(row, "frequency", row.frequency),
       atcRate: ratioWithDenominator(
         addToCart === null
@@ -186,24 +272,63 @@ export function toCreativeStudioAssetRows(
           : finite(calculateCreativeClickToAddToCartRate(row)),
         linkClicks,
       ),
+      atcToPurchase: ratioWithDenominator(
+        observedMetric(row, "atcToPurchaseRatio", row.atcToPurchaseRatio),
+        addToCart,
+      ),
       cvr: ratioWithDenominator(
         purchases === null
           ? null
           : finite(calculateCreativeClickToPurchaseRate(row)),
         linkClicks,
       ),
+      /*
+       * THE EVIDENCE BASE'S OTHER HALF, and the only column here that is not a
+       * provider metric at all.
+       *
+       * Spend cannot answer "can I judge this yet": $8 at ROAS 0 is an UNJUDGED
+       * creative on day 2 and a dead one on day 30, and the row prints the same
+       * numbers either way. So the surface subtracts two dates it already
+       * holds — `row.launchDate`, which is `meta_creative_daily.launch_date`
+       * reaching the UI through `mapApiRowToUiRow` (page-support.tsx:1025), and
+       * the END of the window these numbers were measured over.
+       *
+       * Not "first seen" and not "first spend". Both exist on
+       * `meta_creative_daily` and both would be better clocks for judging
+       * evidence, and neither reaches this grain:
+       *
+       *   grep -rn 'first_seen_at\|first_spend_at' lib/meta/creatives-types.ts \
+       *     components/creatives/metricConfig.ts \
+       *     app/(dashboard)/platforms/meta/creatives/page-support.tsx
+       *     -> exit 1
+       *
+       * `MetaCreativeApiRow` carries exactly one date, `launch_date`, and it is
+       * `ad.created_time` (lib/meta/creatives-row-mappers.ts:620), earliest
+       * across the ads sharing the creative (:872, :1012). The column is
+       * therefore named "Age (days since created)" and not "Days live".
+       */
+      ageDays: creativeAgeDays(row.launchDate, windowEndIso),
     };
-    const effectiveStatus = row.effectiveStatus?.trim() || null;
     const marketingAngle =
-      row.aiTags.messagingAngle?.map((value) => value.trim()).filter(Boolean).join(", ") || null;
+      row.aiTags.messagingAngle
+        ?.map((value) => value.trim())
+        .filter(Boolean)
+        .join(", ") || null;
+    const classification =
+      servedClassificationFor(classifications, row.creativeId) ??
+      creativeDecisionStatusFallback(decisionReadState);
 
     return {
       id: row.id,
       name: row.name,
       kind: row.creativePrimaryLabel ?? row.creativeTypeLabel ?? row.format,
       imageUrl: assetImageUrl(row),
-      status: effectiveStatus,
-      statusTone: statusTone(effectiveStatus),
+      status: classification.label,
+      statusTone: classification.tone,
+      decisionSegment: classification.segment,
+      statusDetail: classification.detail,
+      decisionCount: classification.decisionCount,
+      deliveryStatus: deliveryStatusLabel(row.effectiveStatus ?? null),
       marketingAngle,
       currency: resolveCreativeCurrency(row.currency ?? null, defaultCurrency),
       metrics,
@@ -244,10 +369,12 @@ async function fetchCreativeStudioBriefing(input: {
     cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as
-    | (CreativesBriefingResponse & { message?: string })
-    | null;
+    (CreativesBriefingResponse & { message?: string }) | null;
   if (!response.ok || !payload) {
-    throw new Error(payload?.message ?? `Creative decision context could not load (${response.status}).`);
+    throw new Error(
+      payload?.message ??
+        `Creative decision context could not load (${response.status}).`,
+    );
   }
   return payload;
 }
@@ -275,8 +402,8 @@ export default function MetaCreativeStudioPage({
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const hasServerAuthorizedScope = authorizedBusinessId !== undefined;
   const businessId = hasServerAuthorizedScope
-    ? authorizedBusinessId?.trim() ?? ""
-    : selectedBusinessId ?? "";
+    ? (authorizedBusinessId?.trim() ?? "")
+    : (selectedBusinessId ?? "");
 
   const [dashboardDateRange] = usePersistentDateRange();
   const topMetricIds = DEFAULT_TOP_METRIC_IDS;
@@ -291,11 +418,12 @@ export default function MetaCreativeStudioPage({
   const [allowCsv, setAllowCsv] = useState(true);
   const requestedProviderAccountId = hasServerAuthorizedScope
     ? ""
-    : searchParams?.get("providerAccountId")?.trim() ?? "";
-  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(() =>
-    hasServerAuthorizedScope
-      ? authorizedProviderAccountId?.trim() ?? ""
-      : requestedProviderAccountId,
+    : (searchParams?.get("providerAccountId")?.trim() ?? "");
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState(
+    () =>
+      hasServerAuthorizedScope
+        ? (authorizedProviderAccountId?.trim() ?? "")
+        : requestedProviderAccountId,
   );
 
   const providerAccountsQuery = useQuery({
@@ -307,15 +435,16 @@ export default function MetaCreativeStudioPage({
   });
   const providerAccounts = providerAccountsQuery.data ?? [];
   const providerAccountId = hasServerAuthorizedScope
-    ? authorizedProviderAccountId?.trim() ?? ""
+    ? (authorizedProviderAccountId?.trim() ?? "")
     : (selectedProviderAccountId &&
-        providerAccounts.some((account) => account.id === selectedProviderAccountId)
+      providerAccounts.some(
+        (account) => account.id === selectedProviderAccountId,
+      )
         ? selectedProviderAccountId
         : "") || (providerAccounts.length === 1 ? providerAccounts[0]!.id : "");
   const scopeLoading =
     !hasServerAuthorizedScope && providerAccountsQuery.isLoading;
-  const scopeError =
-    !hasServerAuthorizedScope && providerAccountsQuery.isError;
+  const scopeError = !hasServerAuthorizedScope && providerAccountsQuery.isError;
 
   useEffect(() => {
     if (hasServerAuthorizedScope) {
@@ -323,12 +452,17 @@ export default function MetaCreativeStudioPage({
       return;
     }
     setSelectedProviderAccountId((current) => {
-      if (current && providerAccounts.some((account) => account.id === current)) {
+      if (
+        current &&
+        providerAccounts.some((account) => account.id === current)
+      ) {
         return current;
       }
       if (
         requestedProviderAccountId &&
-        providerAccounts.some((account) => account.id === requestedProviderAccountId)
+        providerAccounts.some(
+          (account) => account.id === requestedProviderAccountId,
+        )
       ) {
         return requestedProviderAccountId;
       }
@@ -343,7 +477,9 @@ export default function MetaCreativeStudioPage({
   ]);
 
   const selectedProviderAccount = useMemo<MetaHistoryAccount | null>(
-    () => providerAccounts.find((account) => account.id === providerAccountId) ?? null,
+    () =>
+      providerAccounts.find((account) => account.id === providerAccountId) ??
+      null,
     [providerAccountId, providerAccounts],
   );
   const accountTimeZone = selectedProviderAccount?.timezone || "UTC";
@@ -378,14 +514,23 @@ export default function MetaCreativeStudioPage({
   // Everything below reads `drStart`/`drEnd` — the rows, the briefing, the CSV,
   // the tab links and the range caption — so there is one window per render and
   // the caption cannot name a range the read did not use.
-  const linkWindow = hasDateWindowParams(searchParams) ? null : serverDateWindow;
+  const linkWindow = hasDateWindowParams(searchParams)
+    ? null
+    : serverDateWindow;
   const drStart = linkWindow?.start ?? shellWindow.start;
   const drEnd = linkWindow?.end ?? shellWindow.end;
   const accountCurrency = selectedProviderAccount?.currency ?? null;
   const hasExplicitAccountScope = Boolean(businessId && providerAccountId);
 
   const creativesQuery = useQuery({
-    queryKey: ["meta-creative-studio", businessId, providerAccountId, drStart, drEnd, "creative"],
+    queryKey: [
+      "meta-creative-studio",
+      businessId,
+      providerAccountId,
+      drStart,
+      drEnd,
+      "creative",
+    ],
     enabled: hasExplicitAccountScope,
     queryFn: () =>
       fetchMetaCreatives({
@@ -436,7 +581,8 @@ export default function MetaCreativeStudioPage({
     surface: "creative_studio",
     isLoading: scopeLoading || creativesQuery.isLoading,
     isFetching: providerAccountsQuery.isFetching || creativesQuery.isFetching,
-    error: creativesQuery.error ?? (scopeError ? providerAccountsQuery.error : null),
+    error:
+      creativesQuery.error ?? (scopeError ? providerAccountsQuery.error : null),
     // Every stated degradation, in one sentence. Decision context failing
     // leaves a workspace that looks complete but is not; a server-declared
     // partial says part of the window is still being prepared. Both are served
@@ -508,14 +654,19 @@ export default function MetaCreativeStudioPage({
   const submitShare = async (): Promise<string | null> => {
     setShareError(null);
     if (shareAudience === "buyer" && !buyerAcknowledged) {
-      setShareError("A buyer share requires the financial-limitation acknowledgement.");
+      setShareError(
+        "A buyer share requires the financial-limitation acknowledgement.",
+      );
       return null;
     }
     setShareLoading(true);
     try {
       const rows = selectedRows;
-      if (rows.length === 0) throw new Error("Select at least one creative first.");
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      if (rows.length === 0)
+        throw new Error("Select at least one creative first.");
+      const expiresAt = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
       const sharePolicy = resolveCreativeStudioSharePolicy({
         audience: shareAudience,
         selectedMetricIds: topMetricIds,
@@ -525,7 +676,10 @@ export default function MetaCreativeStudioPage({
       });
       const response = await fetch("/api/creatives/share", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({
           title: "Creative Studio snapshot",
           businessId,
@@ -548,18 +702,27 @@ export default function MetaCreativeStudioPage({
           selectedRowIds: rows.map((row) => row.id),
           totalRows: allRows.length,
           creatives: rows.map((row) =>
-            sharePolicy.creatorTier0 ? toCreatorTier0SharedCreative(row) : toSharedCreative(row),
+            sharePolicy.creatorTier0
+              ? toCreatorTier0SharedCreative(row)
+              : toSharedCreative(row),
           ),
         }),
       });
-      const payload = (await response.json().catch(() => null)) as { url?: string; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        url?: string;
+        message?: string;
+      } | null;
       if (!response.ok || !payload?.url) {
         throw new Error(payload?.message ?? "Share link could not be created.");
       }
       setShareUrl(payload.url);
       return payload.url;
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : "Share link could not be created.");
+      setShareError(
+        error instanceof Error
+          ? error.message
+          : "Share link could not be created.",
+      );
       return null;
     } finally {
       setShareLoading(false);
@@ -568,14 +731,20 @@ export default function MetaCreativeStudioPage({
 
   const handleShareCopyLink = async () => {
     const url = await submitShare();
-    if (url && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    if (
+      url &&
+      typeof navigator !== "undefined" &&
+      navigator.clipboard?.writeText
+    ) {
       await navigator.clipboard.writeText(url).catch(() => {});
     }
   };
 
   const handleCsvExport = () => {
     if (typeof window === "undefined" || allRows.length === 0) return;
-    const blob = new Blob(["\ufeff" + toCsv(allRows)], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\ufeff" + toCsv(allRows)], {
+      type: "text/csv;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -611,30 +780,61 @@ export default function MetaCreativeStudioPage({
         ? "Loading assigned Meta account scope."
         : "Loading creative assets."
       : assetsState === "account_required"
-      ? "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit."
-      : assetsState === "error"
-        ? providerAccountsQuery.error instanceof Error && scopeError
-          ? providerAccountsQuery.error.message
-          : creativesQuery.error instanceof Error
-            ? creativesQuery.error.message
-            : "Creative assets could not be read."
-        : assetsState === "unavailable"
-          ? sourceHealth.kind === "unavailable"
-            ? sourceHealth.message
-            : "Meta creative data could not be read for this scope."
-          : assetsState === "empty"
-            ? "No creative assets were served for this window."
-            : null;
+        ? "Select one assigned Meta ad account. Assets remain withheld until the provider scope is explicit."
+        : assetsState === "error"
+          ? providerAccountsQuery.error instanceof Error && scopeError
+            ? providerAccountsQuery.error.message
+            : creativesQuery.error instanceof Error
+              ? creativesQuery.error.message
+              : "Creative assets could not be read."
+          : assetsState === "unavailable"
+            ? sourceHealth.kind === "unavailable"
+              ? sourceHealth.message
+              : "Meta creative data could not be read for this scope."
+            : assetsState === "empty"
+              ? "No creative assets were served for this window."
+              : null;
+  /**
+   * The engine's own classification per creative, from the briefing this page
+   * already fetches. It used to be fetched and discarded — the only thing read
+   * off `briefingQuery` was whether it had errored — while the Status column
+   * showed Meta's delivery enum instead. Nothing is computed here: the map is
+   * built from served fields; unmatched, loading and unavailable reads each
+   * receive their own explicit truthful text.
+   */
+  const servedClassifications = useMemo(
+    () => buildServedCreativeClassifications(briefingQuery.data),
+    [briefingQuery.data],
+  );
+  const decisionReadState: CreativeDecisionReadState = briefingQuery.isLoading
+    ? "loading"
+    : !briefingQuery.data ||
+        briefingQuery.data.source?.canonicalDecisionInventory?.status ===
+          "unavailable"
+      ? "unavailable"
+      : "available";
   const assetRows = useMemo(
-    () => toCreativeStudioAssetRows(allRows, accountCurrency),
-    [accountCurrency, allRows],
+    // `drEnd` — the SAME window end the rows themselves were fetched for, a few
+    // lines above — so the age and the metrics beside it answer as of one
+    // instant instead of the age quietly counting to `Date.now()`.
+    () =>
+      toCreativeStudioAssetRows(
+        allRows,
+        accountCurrency,
+        servedClassifications,
+        drEnd,
+        decisionReadState,
+      ),
+    [accountCurrency, allRows, decisionReadState, drEnd, servedClassifications],
   );
   const assetsModel = useMemo<CreativeStudioAssetsModel>(
     () => ({
       state: assetsState,
       message: assetsMessage,
       syncedCount:
-        assetsState === "ready" || assetsState === "empty" ? allRows.length : null,
+        assetsState === "ready" || assetsState === "empty"
+          ? allRows.length
+          : null,
       rows: assetRows,
       persistenceKey: `creative-studio:assets:v1:${businessId}:${providerAccountId || "account-required"}`,
       onPinnedIdsChange: (ids) => {
@@ -642,7 +842,14 @@ export default function MetaCreativeStudioPage({
         setSelectedRowIds(ids.filter((id) => visibleIds.has(id)));
       },
     }),
-    [assetRows, assetsMessage, assetsState, allRows, businessId, providerAccountId],
+    [
+      assetRows,
+      assetsMessage,
+      assetsState,
+      allRows,
+      businessId,
+      providerAccountId,
+    ],
   );
   const tabHrefs = useMemo(
     () =>
@@ -676,7 +883,9 @@ export default function MetaCreativeStudioPage({
         <CreativeStudioExact
           activeTab="assets"
           tabHrefs={tabHrefs}
-          counts={buildCreativeStudioTabCounts({ assets: assetsModel.syncedCount })}
+          counts={buildCreativeStudioTabCounts({
+            assets: assetsModel.syncedCount,
+          })}
           // The export writes a file only when this tab actually has rows.
           // Passing the handler unconditionally left Export CSV enabled while
           // the tab was loading, unreadable, account-gated or empty, where
@@ -716,7 +925,11 @@ export default function MetaCreativeStudioPage({
   );
 }
 
-const SHARE_AUDIENCES: Array<{ value: ShareAudience; label: string; note: string }> = [
+const SHARE_AUDIENCES: Array<{
+  value: ShareAudience;
+  label: string;
+  note: string;
+}> = [
   {
     value: "buyer",
     label: "Buyer",
@@ -769,7 +982,8 @@ function ShareSnapshotModal({
   onPreview: () => void;
   onClose: () => void;
 }) {
-  const activeNote = SHARE_AUDIENCES.find((entry) => entry.value === audience)?.note ?? "";
+  const activeNote =
+    SHARE_AUDIENCES.find((entry) => entry.value === audience)?.note ?? "";
   const creatorTier0 = audience !== "buyer";
   const decisionLanguageState =
     audience === "buyer"
@@ -778,11 +992,18 @@ function ShareSnapshotModal({
         : "not included from Studio"
       : "structurally removed";
   const submissionBlocked =
-    shareLoading || selectedCount === 0 || (audience === "buyer" && !buyerAcknowledged);
+    shareLoading ||
+    selectedCount === 0 ||
+    (audience === "buyer" && !buyerAcknowledged);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(16,18,22,0.4)]">
-      <button type="button" aria-label="Close share modal" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close share modal"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -790,7 +1011,9 @@ function ShareSnapshotModal({
         className="relative flex w-[480px] max-w-[92vw] flex-col gap-3 rounded-[10px] border border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s2,#fff)] p-5 shadow-[var(--shadow-lg)] [font-family:var(--font-ibm-plex-sans)]"
       >
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[15px] font-semibold text-[var(--adc-ink,#1a1c1f)]">Share a frozen snapshot</span>
+          <span className="text-[15px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
+            Share a frozen snapshot
+          </span>
           <button
             type="button"
             onClick={onClose}
@@ -835,7 +1058,9 @@ function ShareSnapshotModal({
             <input
               type="checkbox"
               checked={buyerAcknowledged}
-              onChange={(event) => onBuyerAcknowledgedChange(event.target.checked)}
+              onChange={(event) =>
+                onBuyerAcknowledgedChange(event.target.checked)
+              }
               className="mt-0.5 accent-[var(--adc-ink,#1a1c1f)]"
             />
             <span>{BUYER_FINANCIAL_WARNING}</span>
@@ -864,7 +1089,10 @@ function ShareSnapshotModal({
         </label>
 
         <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
-          Decision language: <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{decisionLanguageState}</b>
+          Decision language:{" "}
+          <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">
+            {decisionLanguageState}
+          </b>
         </div>
 
         {shareError ? (
@@ -873,7 +1101,10 @@ function ShareSnapshotModal({
           </div>
         ) : null}
         {shareUrl ? (
-          <div className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[11.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]" title={shareUrl}>
+          <div
+            className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[11.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]"
+            title={shareUrl}
+          >
             {shareUrl}
           </div>
         ) : null}

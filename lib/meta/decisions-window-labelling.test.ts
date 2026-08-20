@@ -38,13 +38,19 @@ describe("the range control names what it actually changes", () => {
     ).toBe(false);
   });
 
-  it("names the metrics/evidence window instead", () => {
-    expect(view).toMatch(/`(Metrics|Evidence)[^`]*window /);
+  it("no longer carries a window control of its own to mislabel", () => {
+    // This used to assert the control said "Metrics window", not "Decision
+    // date range" — the point being that the range scopes METRICS and not the
+    // decision snapshot. The control is gone: the shell topbar picker owns the
+    // window, so this header no longer has a second one to name correctly or
+    // incorrectly. The claim it existed to prevent is pinned by the two
+    // assertions around it, which still hold and are the ones that matter.
+    expect(view).not.toMatch(/data-meta-exact-window/);
   });
 
   it("states in the UI that the range scopes metrics, not decisions", () => {
     // The label alone is not enough: an operator who already believes the old
     // meaning needs to be told, once, beside the queue the window sits above.
-    expect(view).toMatch(/the date range scopes metrics, not\s+decisions/);
+    expect(view).toMatch(/the date range\s+scopes metrics, not\s+decisions/);
   });
 });

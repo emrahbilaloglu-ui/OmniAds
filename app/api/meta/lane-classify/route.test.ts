@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { metaRec } from "@/components/meta/redesign/test-fixtures";
@@ -1890,5 +1891,41 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.watchingSegments).toEqual([
       expect.objectContaining({ key: "deferred", count: 2 }),
     ]);
+  });
+});
+
+describe("the live status probe caches the big accounts too", () => {
+  const source = readFileSync("app/api/meta/lane-classify/route.ts", "utf8");
+
+  /**
+   * The probe that costs the most must not be the one that is never cached.
+   *
+   * `readLiveMetaEntityStatuses` is a Meta Graph round trip in 50-id batches,
+   * and it runs on the strictly serial stage between base evidence and label
+   * kinds. Its 45-second cache used to be skipped whenever the id set exceeded
+   * 200 — so a small account paid the provider once every 45 seconds while an
+   * account of 214 ids (73 campaigns + 141 ad sets, a real one) paid it in
+   * full on every request. Size is a reason to cache, not a reason to stop.
+   *
+   * The cache stays honest only while its key still names the exact scope:
+   * the business AND the exact set of ids. A digest is fine; dropping either
+   * one would let a probe answer for ids it never asked about.
+   */
+  it("keys the cache on the whole id set and never disables it by size", () => {
+    const reader = source.slice(
+      source.indexOf("async function readLiveMetaEntityStatuses"),
+      source.indexOf("function applyLiveStatusesToRows"),
+    );
+    expect(reader).not.toBe("");
+    expect(
+      reader,
+      "an id-count threshold must not bypass the cache",
+    ).not.toMatch(/uniqueIds\.length\s*>\s*\d+/);
+    expect(reader).toContain("createHash(\"sha256\")");
+    expect(reader).toContain(".update(uniqueIds.join(\",\"), \"utf8\")");
+    expect(
+      reader,
+      "the cache key must still name the business and the exact id set",
+    ).toContain("${businessId}:${uniqueIds.length}:${scopeDigest}");
   });
 });

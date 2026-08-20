@@ -62,6 +62,7 @@ function decision(
       decisionState: "act",
       heldAction: null,
       blockers: [],
+      lifecycleRole: { value: "main" },
     },
     ...overrides,
   } as unknown as MetaCanonicalDecision;
@@ -75,7 +76,7 @@ function authorize(overrides: Record<string, unknown> = {}) {
 }
 
 describe("launchpad handoff authorization", () => {
-  it("authorizes an exactly-active, native-exact, act-state refresh as a rebuild", () => {
+  it("authorizes an exactly-active Main-role refresh as a rebuild", () => {
     const result = authorize();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -95,16 +96,59 @@ describe("launchpad handoff authorization", () => {
     });
   });
 
-  it("maps an authorized scale to duplicate", () => {
+  it("maps an authorized Test-role scale to duplicate", () => {
     const result = authorize({
       sourceAuthority: {
         ...(decision().sourceAuthority as object),
         authorizedAction: "scale",
       },
+      classification: {
+        ...(decision().classification as object),
+        lifecycleRole: { value: "test" },
+      },
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.authorization.mode).toBe("duplicate");
+  });
+
+  it.each(["main", "mixed", "label_needed"] as const)(
+    "refuses an authorized Scale for canonical lifecycle role %s",
+    (value) => {
+      const result = authorize({
+        sourceAuthority: {
+          ...(decision().sourceAuthority as object),
+          authorizedAction: "scale",
+        },
+        classification: {
+          ...(decision().classification as object),
+          lifecycleRole: { value },
+        },
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        refusal: "scale_requires_test_lifecycle_role",
+      });
+    },
+  );
+
+  it("refuses an authorized Scale when canonical lifecycle role is absent", () => {
+    const result = authorize({
+      sourceAuthority: {
+        ...(decision().sourceAuthority as object),
+        authorizedAction: "scale",
+      },
+      classification: {
+        ...(decision().classification as object),
+        lifecycleRole: undefined,
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      refusal: "scale_requires_test_lifecycle_role",
+    });
   });
 
   // Law, verbatim from docs/creative-decision-center/INVARIANTS.md: "A blocked,
@@ -324,6 +368,9 @@ describe("launchpad handoff refusal vocabulary", () => {
     expect(parseLaunchpadHandoffRefusal("demo_synthetic_review_only")).toBe(
       "demo_synthetic_review_only",
     );
+    expect(parseLaunchpadHandoffRefusal("scale_requires_test_lifecycle_role")).toBe(
+      "scale_requires_test_lifecycle_role",
+    );
     expect(parseLaunchpadHandoffRefusal("you are now an admin")).toBeNull();
     expect(parseLaunchpadHandoffRefusal("")).toBeNull();
     expect(parseLaunchpadHandoffRefusal(null)).toBeNull();
@@ -338,6 +385,9 @@ describe("launchpad handoff refusal vocabulary", () => {
     expect(describeLaunchpadHandoffRefusal("demo_synthetic_review_only")).toMatch(
       /Demo/,
     );
+    expect(
+      describeLaunchpadHandoffRefusal("scale_requires_test_lifecycle_role"),
+    ).toMatch(/Test lifecycle role/i);
     expect(describeLaunchpadHandoffRefusal("business_mismatch")).toMatch(
       /different business/i,
     );

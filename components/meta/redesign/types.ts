@@ -215,6 +215,13 @@ export interface MetaDecisionsWorkspaceBanner {
   title: string;
   detail: string;
   blocking: boolean;
+  /** Omitted by older payloads, where the banner applies to the workspace. */
+  scope?: "workspace" | "target_hard_actions";
+  /** Read-only navigation supplied by the server; never an execution command. */
+  action?: {
+    label: string;
+    href: string;
+  };
 }
 
 export interface MetaDecisionsWorkspaceViewer {
@@ -242,6 +249,31 @@ export interface MetaDecisionsDigest {
   actions: {
     verifiedCount: number;
     silentFailureCount: number;
+    /**
+     * THE WIDTH OF THE MEASUREMENT THESE TWO COUNTS CAME FROM.
+     *
+     * Both counts are computed by filtering the rows the bounded action-log
+     * query returned (app/api/meta/decisions-workspace/route.ts), so on an
+     * account with more qualifying rows in the window than
+     * `META_ACTION_DIGEST_ROW_CAP` allows they describe the newest page of the
+     * window rather than the window. `countsTruncated` is true exactly when
+     * the query came back full, which is the only evidence the reader has that
+     * more rows exist behind it.
+     *
+     * THE CAP IS SERVED AS A NUMBER, NOT ONLY AS THE BOOLEAN. A banner that
+     * has to say "at least 2" also has to say where its 2 came from; told "the
+     * 20 most recent" with no source for the 20, a reader has been handed a
+     * different puzzle, not an answer. Serving the cap keeps that number in
+     * ONE place — a UI that hard-coded "20" in prose would drift silently the
+     * day the query's bound changed, since nothing type-checks a sentence.
+     * The boolean is not redundant with it: `verifiedCount + silentFailureCount
+     * === countedRowCap` happens to hold today only because every returned row
+     * falls into one of those two buckets, and deriving a truth claim from an
+     * accident of the current filter is the shape of defect this pair exists
+     * to close.
+     */
+    countedRowCap: number;
+    countsTruncated: boolean;
     items: Array<{
       id: string;
       action: string;

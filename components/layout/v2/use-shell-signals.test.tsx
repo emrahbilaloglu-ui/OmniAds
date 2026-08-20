@@ -23,6 +23,13 @@ const state = vi.hoisted(() => ({
     businessId: string | null;
     retryKey: string | null;
   } | null,
+  queryOptions: [] as Array<{
+    queryKey?: readonly unknown[];
+    enabled?: boolean;
+    retry?: unknown;
+    refetchOnWindowFocus?: unknown;
+    refetchOnReconnect?: unknown;
+  }>,
 }));
 
 vi.mock("@/store/app-store", () => ({
@@ -50,15 +57,17 @@ vi.mock("@tanstack/react-query", () => ({
   // Honour `enabled` the way react-query does: a disabled query has no data.
   // A mock that always answers would hide the whole point of the gate — the
   // pill must not report a sync age for a business the shell has not confirmed.
-  useQuery: (options?: { enabled?: boolean }) =>
-    options?.enabled === false
+  useQuery: (options?: (typeof state.queryOptions)[number]) => {
+    if (options) state.queryOptions.push(options);
+    return options?.enabled === false
       ? { data: undefined }
       : {
           data: {
             state: "ready",
             latestSync: { finishedAt: "2026-08-17T08:00:00.000Z" },
           },
-        },
+        };
+  },
 }));
 
 describe("workspace sync topbar state", () => {
@@ -71,6 +80,7 @@ describe("workspace sync topbar state", () => {
     state.app.businesses = [{ id: "biz_1" }];
     state.app.hasHydrated = true;
     state.app.authBootstrapStatus = "ready";
+    state.queryOptions.length = 0;
   });
 
   afterEach(() => {
@@ -86,7 +96,9 @@ describe("workspace sync topbar state", () => {
       retryKey: null,
     };
 
-    const { result } = renderHook(() => useWorkspaceSyncState());
+    const { result } = renderHook(() =>
+      useWorkspaceSyncState({ providerStatusEnabled: false }),
+    );
 
     expect(result.current).toEqual({
       tone: "fresh",
@@ -138,6 +150,46 @@ describe("workspace sync topbar state", () => {
       label: "Synced 12m ago",
       freshnessState: "ready",
     });
+  });
+
+  it("disables both provider status reads before a route-owned surface reports", () => {
+    const { result } = renderHook(() =>
+      useWorkspaceSyncState({ providerStatusEnabled: false }),
+    );
+
+    const providerQueries = state.queryOptions.filter((options) =>
+      ["meta-status", "google-ads-status"].includes(
+        String(options.queryKey?.[0]),
+      ),
+    );
+    expect(providerQueries).toHaveLength(2);
+    expect(providerQueries.every((options) => options.enabled === false)).toBe(
+      true,
+    );
+    expect(result.current).toEqual({
+      tone: "unknown",
+      label: "Synced —",
+      freshnessState: "unknown",
+    });
+  });
+
+  it("keeps provider fallback on by default and makes both reads one-shot", () => {
+    renderHook(() => useWorkspaceSyncState());
+
+    const providerQueries = state.queryOptions.filter((options) =>
+      ["meta-status", "google-ads-status"].includes(
+        String(options.queryKey?.[0]),
+      ),
+    );
+    expect(providerQueries).toHaveLength(2);
+    for (const options of providerQueries) {
+      expect(options).toMatchObject({
+        enabled: true,
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+      });
+    }
   });
 });
 

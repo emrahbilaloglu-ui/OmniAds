@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveMetaCredentials } from "@/lib/api/meta";
@@ -1103,16 +1104,30 @@ async function readLiveMetaEntityStatuses(
   entityIds: string[],
 ) {
   const uniqueIds = [...new Set(entityIds.filter(Boolean))].sort();
-  if (
-    process.env.VITEST === "true" ||
-    process.env.NODE_ENV === "test" ||
-    uniqueIds.length > 200
-  ) {
+  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
     return loadLiveMetaEntityStatuses(businessId, uniqueIds);
   }
+  /**
+   * Key the cache on a digest of the id set, not on the ids themselves.
+   *
+   * The key used to be the joined id list, and anything over 200 ids skipped
+   * the cache entirely — which is exactly backwards: the big probes are the
+   * expensive ones. This probe is a Meta Graph round trip in 50-id batches,
+   * and it sits on the strictly serial stage between base evidence and label
+   * kinds, so an account just over the line (73 campaigns + 141 ad sets = 214)
+   * paid the full provider latency on every single request while a 90-id
+   * account paid it once every 45 seconds.
+   *
+   * The digest keeps the scope exactly as tight as before: a different
+   * business, or one id added, removed or changed, is a different key and a
+   * different read. Only the key's length changed.
+   */
+  const scopeDigest = createHash("sha256")
+    .update(uniqueIds.join(","), "utf8")
+    .digest("hex");
   return (
     await getCachedValue({
-      key: `meta-live-structure-status-v1:${businessId}:${uniqueIds.join(",")}`,
+      key: `meta-live-structure-status-v2:${businessId}:${uniqueIds.length}:${scopeDigest}`,
       ttlMs: 45_000,
       staleWhileRevalidateMs: 120_000,
       loader: () => loadLiveMetaEntityStatuses(businessId, uniqueIds),

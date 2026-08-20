@@ -13,7 +13,7 @@ import {
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
-import { getDb } from "@/lib/db";
+import { getDb, getDbWithTimeout } from "@/lib/db";
 import {
   isCampaignContextHardAuthorityEnabled,
   resolveCampaignContextMode,
@@ -32,6 +32,7 @@ import {
   META_DECISIONS_WORKSPACE_SECTION_LIMIT,
   META_DECISION_QUEUE_SECTION_KEYS,
   type MetaCanonicalDecision,
+  type MetaDecisionAdvisory,
   type MetaDecisionAssessmentOverlay,
   type MetaDecisionBlocker,
   type MetaDecisionBuyerAction,
@@ -52,6 +53,12 @@ const META_DECISION_HISTORY_EVENT_READ_LIMIT = 50;
 const NATIVE_AD_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
 export const NATIVE_DECISION_RUNNING_GRACE_MS =
   ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS * 4;
+// The verified native generation currently hydrates thousands of exact-Ad
+// rows. On the production-sized Grandmix account the read completes in about
+// seven seconds, leaving virtually no headroom under the generic 8s web query
+// budget. This is still bounded well below the workspace request deadline and
+// changes only read tolerance, never decision generation or authority.
+const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
 
 const SECTION_LABELS: Record<MetaDecisionQueueSectionKey, string> = {
   integrity_fires: "Integrity Fires",
@@ -889,6 +896,61 @@ function blockerLabel(code: string) {
   );
 }
 
+/**
+ * The one risk-tier envelope, written once and read everywhere it is stated.
+ *
+ * The advisory below and `MetaCanonicalDecision.riskTierProvenance` are the
+ * same claim in two places; sharing the constant is what stops them drifting
+ * into a producer that contradicts its own explanation.
+ */
+const RISK_TIER_PROVENANCE = {
+  status: "proposed",
+  reason: "risk_tier_producer_not_persisted",
+} as const;
+
+/**
+ * Statements about THIS pipeline. They inform; they never gate.
+ *
+ * `risk_tier_unclassified` used to be appended to every canonical decision's
+ * blocker list unconditionally — there was no `if`. `buildBlockers` is the only
+ * producer of `classification.blockers`, and both of its call sites run through
+ * `buildCanonicalDecision`, so EVERY decision this server could produce carried
+ * at least one blocker. Every guard written as `blockers.length > 0` therefore
+ * refused every real ad: the exact-Ad pause control could not be offered on any
+ * account, and its unit test passed only because it hand-built `blockers: []`,
+ * a state no producer could reach.
+ *
+ * It is advisory because the envelope beside it already says the risk-tier
+ * PRODUCER does not exist: `riskTierProvenance.status === "proposed"` with
+ * reason `risk_tier_producer_not_persisted`. A producer this pipeline has not
+ * built yet is a gap in the pipeline, not a finding about the ad, so it states
+ * itself — with the reason attached — and stops there.
+ *
+ * It is served in `classification.advisories` rather than kept in `blockers`
+ * with a flag because a code inside a field named "blockers" re-acquires its
+ * veto the moment anyone writes the next `blockers.length > 0` guard.
+ */
+function buildAdvisories(input: {
+  snapshot: MetaDecisionSnapshotSourceRow;
+}): MetaDecisionAdvisory[] {
+  const code = "risk_tier_unclassified";
+  return [
+    {
+      code,
+      label: blockerLabel(code),
+      category: blockerCategory(code),
+      reason: RISK_TIER_PROVENANCE.reason,
+      provenance: provenance({
+        source: META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
+        field: "riskTier,riskTierProvenance.reason",
+        recordId: input.snapshot.snapshot_id,
+        asOf: input.snapshot.as_of_date,
+        version: META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
+      }),
+    },
+  ];
+}
+
 function buildBlockers(input: {
   bridgeCodes: readonly string[];
   role: MetaDecisionLifecycleRoleOverlay;
@@ -925,11 +987,6 @@ function buildBlockers(input: {
       field: "authority_blocker",
     });
   }
-  entries.push({
-    code: "risk_tier_unclassified",
-    source: META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
-    field: "riskTier",
-  });
   const unique = new Map(entries.map((entry) => [entry.code, entry]));
   return [...unique.values()]
     .sort((left, right) => left.code.localeCompare(right.code))
@@ -1182,10 +1239,13 @@ function buildCanonicalDecision(input: {
       campaignKind: decisionOutput.campaignKind ?? null,
     },
     lifecycleRole: role.value,
-    blockerCodes: [
-      ...(role.blockerCode ? [role.blockerCode] : []),
-      "risk_tier_unclassified",
-    ],
+    // Only real gates go into the evidence set the semantics projector reads.
+    // `risk_tier_unclassified` was injected here too; it is inert in
+    // `projectMetaDecisionSemantics` (no branch tests it, and it is not in
+    // FRESHNESS_AUTHORITY_BLOCKERS), so removing it changes no decisionState
+    // and no resolution — pinned by decisions-workspace-read-model.test.ts,
+    // "demoting the risk-tier advisory changes no lane and no classification".
+    blockerCodes: role.blockerCode ? [role.blockerCode] : [],
     reviewOnly: true,
   });
   if (presentation.kind === "omitted") {
@@ -1212,6 +1272,7 @@ function buildCanonicalDecision(input: {
     assessment,
     snapshot: input.snapshot,
   });
+  const advisories = buildAdvisories({ snapshot: input.snapshot });
   const semantics = {
     ...presentation.semantics,
     // A legacy creative verdict remains useful review evidence, but this
@@ -1353,6 +1414,7 @@ function buildCanonicalDecision(input: {
         executionAction: presentation.executionAction,
         resolution: semantics.resolution,
         blockers,
+        advisories,
         provenance: provenance({
           source: `${CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION}+${CREATIVE_DECISION_CENTER_ADAPTER_VERSION}`,
           field: "buyerAction,executionAction,queueSection",
@@ -1363,10 +1425,7 @@ function buildCanonicalDecision(input: {
       },
       riskTier: null,
       confirmationCeremony: "highest",
-      riskTierProvenance: {
-        status: "proposed",
-        reason: "risk_tier_producer_not_persisted",
-      },
+      riskTierProvenance: RISK_TIER_PROVENANCE,
       promotionBasis: {
         status: "proposed",
         value: null,
@@ -1453,6 +1512,29 @@ function compareAdCandidates(
   );
 }
 
+/*
+ * The public read-model envelope intentionally serializes only the selected
+ * candidates. OS composition happens before serialization, though, and needs
+ * to distinguish a genuinely pending ACTIVE Ad from an exact candidate that
+ * was merely omitted by the response cap. Keep that full identity universe as
+ * process-local metadata so the wire contract stays unchanged.
+ */
+const META_DECISION_CANONICAL_AD_UNIVERSE = Symbol.for(
+  "adsecute.meta.decisions.canonical-ad-universe",
+);
+
+function attachCanonicalAdUniverse(
+  readModel: MetaDecisionsWorkspaceReadModel,
+  adIds: ReadonlySet<string>,
+) {
+  Object.defineProperty(readModel, META_DECISION_CANONICAL_AD_UNIVERSE, {
+    value: adIds,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+}
+
 function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
   const states: SelectableAdState[] = ["act", "blocked", "monitor"];
   const buckets = Object.fromEntries(
@@ -1481,7 +1563,22 @@ function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
       .sort(compareAdCandidates)
       .slice(0, Math.max(0, limit - selected.length)),
   );
-  selected.sort(compareAdCandidates);
+  /*
+   * The lane reserves are the beginning of the canonical ordering, not a
+   * temporary set that may be re-sorted away.
+   *
+   * Re-sorting the completed selection made the 60-row response unstable when
+   * the same request expanded to 120. With 100 Act, 20 Blocked and 20 Monitor
+   * rows, the 60-row result reserved ten rows for each lane and then filled
+   * with Act. The 120-row result admitted more Act rows and a final global sort
+   * moved those new rows ahead of the previously served Blocked/Monitor rows,
+   * so its first 60 no longer matched the original response.
+   *
+   * Keeping the fixed reserve chunks first and appending the globally ranked
+   * remainder gives one deterministic sequence. Increasing the limit exposes
+   * a longer prefix of that sequence; it cannot rewrite an already served
+   * prefix, and every non-empty lane remains represented.
+   */
   return {
     selected,
     stateCounts: Object.fromEntries(
@@ -1780,7 +1877,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
     exactAdCandidates,
     adCandidateLimit,
   );
-  return {
+  const readModel: MetaDecisionsWorkspaceReadModel = {
     contractVersion: META_DECISIONS_WORKSPACE_CONTRACT_VERSION,
     status: "available",
     generatedAt: input.generatedAt ?? new Date().toISOString(),
@@ -1841,6 +1938,15 @@ export function buildMetaDecisionsWorkspaceReadModel(
       snapshotAvailable: true,
     }),
   };
+  attachCanonicalAdUniverse(
+    readModel,
+    new Set(
+      identityEligibleAdCandidates
+        .map((decision) => decision.parentChain.ad?.id?.trim() ?? "")
+        .filter(Boolean),
+    ),
+  );
+  return readModel;
 }
 
 export interface MetaNativeDecisionGeneration {
@@ -1931,7 +2037,8 @@ function hasValidNativeSnapshotAuthority(
   }
   const rawAction = nativeSnapshotHardAction(row.raw_label);
   if (rawAction !== null) {
-    const authorized = row.label === rawAction && authorizedAction === rawAction;
+    const authorized =
+      row.label === rawAction && authorizedAction === rawAction;
     const pending =
       nativeSnapshotHardAction(row.label) === null &&
       authorizedAction === null &&
@@ -2246,15 +2353,15 @@ function applyNativeCanonicalDecisionAuthority(input: {
     reviewOnlyReason: !hasExactCreativeIdentity
       ? "current_creative_identity_is_missing"
       : !activeHierarchy
-      ? decision.deliveryScope.state === "inactive"
-        ? "current_hierarchy_is_not_active"
-        : "current_hierarchy_status_is_unknown"
-      : decision.classification.decisionState !== "act"
-        ? "served_decision_is_not_actionable"
-      : authorizedAction !== null &&
-          decision.classification.buyerAction === authorizedAction
-        ? null
-        : "native_snapshot_did_not_authorize_the_served_action",
+        ? decision.deliveryScope.state === "inactive"
+          ? "current_hierarchy_is_not_active"
+          : "current_hierarchy_status_is_unknown"
+        : decision.classification.decisionState !== "act"
+          ? "served_decision_is_not_actionable"
+          : authorizedAction !== null &&
+              decision.classification.buyerAction === authorizedAction
+            ? null
+            : "native_snapshot_did_not_authorize_the_served_action",
     snapshotId: row.snapshot_id,
     evaluationId: row.evaluation_id,
     inputHash: row.input_hash,
@@ -2601,7 +2708,9 @@ async function readNativeGeneration(input: {
   generation: MetaNativeDecisionGeneration | null;
   fallbackReason: string;
 }> {
-  const rows = await getDb().query<MetaNativeDecisionGenerationSourceRow>(
+  const rows = await getDbWithTimeout(
+    NATIVE_DECISION_READ_TIMEOUT_MS,
+  ).query<MetaNativeDecisionGenerationSourceRow>(
     READ_NATIVE_DECISION_GENERATION_QUERY,
     [
       input.businessId,
@@ -2683,8 +2792,43 @@ async function readNativeSnapshotRows(input: {
     .map((value) => value.trim())
     .filter(Boolean)
     .sort();
-  return getDb().query<MetaNativeDecisionSnapshotSourceRow>(
+  return getDbWithTimeout(
+    NATIVE_DECISION_READ_TIMEOUT_MS,
+  ).query<MetaNativeDecisionSnapshotSourceRow>(
     `
+    /* ACCOUNT CURRENCY -- ONE PASS OVER THE ACCOUNT, NOT ONE SEEK PER AD.
+
+       This reads exactly what the per-ad LATERAL read: the account_currency on
+       the newest meta_ad_daily row for that ad at or before the served day.
+       DISTINCT ON with the same ORDER BY is the same row, and it cannot pick a
+       different one on a tie because there are none --
+       meta_ad_daily_business_id_provider_account_id_date_ad_id_key makes
+       (business, account, date, ad) unique, so date alone already decides.
+       Verified by fingerprinting both forms: identical md5 over
+       (ad_id, account_currency), identical non-null count (1,079 of 2,849).
+
+       The LATERAL was sargable but the planner would not take it. Two indexes
+       both offered the ordering, and it costed them 59.07 vs 61.35 -- so on
+       one production account it chose the account-wide unique index and walked
+       every ad of every day backwards looking for one ad_id: 1.6-3.4 ms per
+       ad, 872,487 buffers, 8,910-11,214 ms for this column alone, against an
+       8,000 ms statement timeout. Batched: 10,644 buffers, 1,298-1,558 ms. */
+    -- The cutoff below is $4 rather than snapshot.as_of_date, and those are the
+    -- same day ONLY because the outer WHERE pins snapshot.as_of_date = $4::date.
+    -- Do not let this query span more than one as_of_date without changing the
+    -- cutoff too: the CTE would then read each ad's currency at the newest day
+    -- in range and hand it to every older row, silently.
+    WITH ad_daily AS MATERIALIZED (
+      SELECT DISTINCT ON (daily.ad_id)
+        daily.ad_id,
+        daily.account_currency
+      FROM meta_ad_daily daily
+      WHERE daily.business_id = $1
+        AND daily.provider_account_id = $2
+        AND daily.date <= $4::date
+        AND (NOT $9::boolean OR daily.ad_id = ANY($10::text[]))
+      ORDER BY daily.ad_id, daily.date DESC, daily.updated_at DESC
+    )
     SELECT
       snapshot.id::text AS snapshot_id,
       snapshot.evaluation_id::text AS evaluation_id,
@@ -2820,6 +2964,51 @@ async function readNativeSnapshotRows(input: {
      AND context.engine_version = evaluation.engine_version
      AND context.scope_type = evaluation.scope_type
      AND context.scope_id = evaluation.scope_id
+    /* EPISODE START -- TWO BOUNDED INDEX SCANS PER AD, NOT AN ANTI-JOIN PER
+       HISTORY ROW.
+
+       The episode start is the first day of the unbroken run of identical
+       labels that ends on the served day. It used to be read by scanning the
+       entity's timeline and, for EVERY row of it, re-scanning that same
+       timeline through a NOT EXISTS anti-join: O(ads x history x history). On
+       a 3,200-ad account the inner scan ran 25,453 times and burned 1,149,283
+       of the statement's 1,289,559 buffers (89%); the whole read measured
+       12,068-23,052 ms against an 8,000 ms web statement timeout, so two
+       production accounts ALWAYS timed out, fell back to legacy_creative, and
+       told the operator the native generation was unavailable.
+
+       The rewrite states the same rule in the equivalent closed form. A day h
+       belongs to the served day's run exactly when no differently-labelled day
+       lies in (h, served] -- which is exactly h >= the LAST differently-
+       labelled day at or before the served day. So one backwards index scan
+       finds that boundary, and one forward scan takes the MIN from it. Same
+       rows, same MIN, same NULL behaviour (a run with no boundary keeps the
+       open-ended lower bound, and an empty MIN still reads as the snapshot's
+       own day through the COALESCE above).
+
+       This form is deliberately not a window-function CTE. That version reads
+       the timeline once (28,710 buffers) but the served rows carry a rows=1
+       estimate, so the planner joins the CTE by nested loop and rescans it per
+       row -- measured 10,236,800 comparisons and 660 ms of pure join CPU on
+       the same account, growing as O(ads^2). These two scans stay O(ads x
+       history depth) whatever the planner estimates. */
+    LEFT JOIN LATERAL (
+      SELECT changed.as_of_date
+      FROM engine_v3_ad_decision_snapshots_daily changed
+      WHERE changed.business_ref_id = snapshot.business_ref_id
+        AND changed.provider_account_ref_id = snapshot.provider_account_ref_id
+        AND changed.provider_account_id = snapshot.provider_account_id
+        AND changed.decision_entity_type = snapshot.decision_entity_type
+        AND changed.decision_entity_id = snapshot.decision_entity_id
+        AND changed.ad_id = snapshot.ad_id
+        AND changed.engine_version = snapshot.engine_version
+        AND changed.scope_type = snapshot.scope_type
+        AND changed.scope_id = snapshot.scope_id
+        AND changed.as_of_date <= snapshot.as_of_date
+        AND changed.label <> snapshot.label
+      ORDER BY changed.as_of_date DESC
+      LIMIT 1
+    ) episode_boundary ON TRUE
     LEFT JOIN LATERAL (
       SELECT MIN(history.as_of_date) AS episode_started_at
       FROM engine_v3_ad_decision_snapshots_daily history
@@ -2830,9 +3019,7 @@ async function readNativeSnapshotRows(input: {
          decision_entity_id unconstrained in the middle of that index, so each
          of the ~2.5k rows scanned ~15k history rows and threw them away:
          309 million buffer hits and 258 seconds for one read, against an 8s
-         query timeout. Every operator with a real account therefore fell back
-         to legacy_creative and saw an empty Creatives scope. Same rows, same
-         episode, 6s. */
+         query timeout. */
       WHERE history.business_ref_id = snapshot.business_ref_id
         AND history.provider_account_ref_id = snapshot.provider_account_ref_id
         AND history.provider_account_id = snapshot.provider_account_id
@@ -2844,21 +3031,9 @@ async function readNativeSnapshotRows(input: {
         AND history.scope_id = snapshot.scope_id
         AND history.as_of_date <= snapshot.as_of_date
         AND history.label = snapshot.label
-        AND NOT EXISTS (
-          SELECT 1
-          FROM engine_v3_ad_decision_snapshots_daily changed
-          WHERE changed.business_ref_id = snapshot.business_ref_id
-            AND changed.provider_account_ref_id = snapshot.provider_account_ref_id
-            AND changed.provider_account_id = snapshot.provider_account_id
-            AND changed.decision_entity_type = snapshot.decision_entity_type
-            AND changed.decision_entity_id = snapshot.decision_entity_id
-            AND changed.ad_id = snapshot.ad_id
-            AND changed.engine_version = snapshot.engine_version
-            AND changed.scope_type = snapshot.scope_type
-            AND changed.scope_id = snapshot.scope_id
-            AND changed.as_of_date > history.as_of_date
-            AND changed.as_of_date <= snapshot.as_of_date
-            AND changed.label <> snapshot.label
+        AND (
+          episode_boundary.as_of_date IS NULL
+          OR history.as_of_date >= episode_boundary.as_of_date
         )
     ) episode ON TRUE
     LEFT JOIN LATERAL (
@@ -2890,16 +3065,7 @@ async function readNativeSnapshotRows(input: {
       ORDER BY source.date DESC, source.updated_at DESC
       LIMIT 1
     ) media ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT daily.account_currency
-      FROM meta_ad_daily daily
-      WHERE daily.business_id = $1
-        AND daily.provider_account_id = $2
-        AND daily.ad_id = snapshot.ad_id
-        AND daily.date <= snapshot.as_of_date
-      ORDER BY daily.date DESC, daily.updated_at DESC
-      LIMIT 1
-    ) ad_daily ON TRUE
+    LEFT JOIN ad_daily ON ad_daily.ad_id = snapshot.ad_id
     LEFT JOIN LATERAL (
       SELECT dimension.*
       FROM meta_adset_dimensions dimension
@@ -2990,7 +3156,9 @@ async function readNativeSnapshotManifestAdIds(input: {
   providerAccountId: string;
   generation: MetaNativeDecisionGeneration;
 }) {
-  return getDb().query<{ ad_id: string }>(
+  return getDbWithTimeout(NATIVE_DECISION_READ_TIMEOUT_MS).query<{
+    ad_id: string;
+  }>(
     `
     /* native-ad-serving-manifest: cheap full-generation integrity proof */
     SELECT snapshot.ad_id
@@ -4194,8 +4362,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
     if (model.source.generation) {
       model.source.generation = {
         jobRunId: subsetRead.fullGeneration.jobRunId,
-        providerAccountRefId:
-          subsetRead.fullGeneration.providerAccountRefId,
+        providerAccountRefId: subsetRead.fullGeneration.providerAccountRefId,
         manifestHash: subsetRead.fullGeneration.manifestHash,
         expectedAdCount: subsetRead.fullGeneration.expectedAdCount,
       };

@@ -17,7 +17,10 @@ import {
   hasReusableNativeCalibration,
   isZeroRowNativeDecisionSuccess,
   listNativeAdMetaEligibleBusinessIds,
+  NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS,
+  READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL,
   READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
+  readNativeAdOperatorResponseRetryBackoffs,
   readSuccessfulNativeJobs,
   runNativeAdShadowChainForActiveBusinessesIfDue,
   type NativeAdShadowScheduleOptions,
@@ -92,6 +95,7 @@ function options(
     listEnabledIds: async () => BUSINESSES.map((business) => business.id),
     listMetaEligibleIds: async () => BUSINESSES.map((business) => business.id),
     readSuccessfulJobs: async () => new Map(),
+    readOperatorResponseRetryBackoffs: async () => new Set(),
     hasSuccessfulJob: async () => false,
     runCalibration: async () => calibrationResult(),
     runDecisions: async () => decisionsResult(),
@@ -358,6 +362,171 @@ describe("native ad shadow scheduled chain", () => {
     );
     expect(result.skipped).toBe(false);
     expect(order).toEqual(["calibration", "decisions", "operator_response"]);
+  });
+
+  it("backs off only operator response after a recent same-day failure", async () => {
+    const runCalibration = vi.fn(async () => calibrationResult());
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+    const readOperatorResponseRetryBackoffs = vi.fn(async (input) => {
+      expect(input).toEqual({
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      });
+      return new Set([BUSINESSES[0].id]);
+    });
+
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      [BUSINESSES[0]],
+      options({
+        readOperatorResponseRetryBackoffs,
+        runCalibration,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+
+    expect(result.results?.[0]).toMatchObject({
+      calibration: { status: "success", source: "ran" },
+      decisions: { status: "success", source: "ran" },
+      operatorResponse: {
+        status: "skipped",
+        source: "retry_backoff",
+        reason: "retry_backoff",
+        errorMessage: null,
+      },
+    });
+    expect(readOperatorResponseRetryBackoffs).toHaveBeenCalledOnce();
+    expect(runCalibration).toHaveBeenCalledOnce();
+    expect(runDecisions).toHaveBeenCalledOnce();
+    expect(runOperatorResponse).not.toHaveBeenCalled();
+  });
+
+  it("runs operator response when the failed-attempt cooldown has expired", async () => {
+    const previous = new Map<
+      string,
+      Set<typeof AD_CALIBRATION_JOB_NAME | typeof AD_DECISIONS_JOB_NAME>
+    >([
+      [
+        BUSINESSES[0].id,
+        new Set([AD_CALIBRATION_JOB_NAME, AD_DECISIONS_JOB_NAME]),
+      ],
+    ]);
+    const runCalibration = vi.fn(async () => calibrationResult());
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      new Date(NOW.getTime() + NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS),
+      [BUSINESSES[0]],
+      options({
+        readSuccessfulJobs: async () => previous,
+        readOperatorResponseRetryBackoffs: async () => new Set(),
+        runCalibration,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+
+    expect(result.results?.[0]).toMatchObject({
+      calibration: { status: "previous_success" },
+      decisions: { status: "previous_success" },
+      operatorResponse: { status: "success", source: "ran" },
+    });
+    expect(runCalibration).not.toHaveBeenCalled();
+    expect(runDecisions).not.toHaveBeenCalled();
+    expect(runOperatorResponse).toHaveBeenCalledOnce();
+  });
+
+  it("does not carry an operator-response retry backoff into the next UTC day", async () => {
+    const nextDay = new Date("2026-07-14T03:30:00.000Z");
+    const previous = new Map<
+      string,
+      Set<typeof AD_CALIBRATION_JOB_NAME | typeof AD_DECISIONS_JOB_NAME>
+    >([
+      [
+        BUSINESSES[0].id,
+        new Set([AD_CALIBRATION_JOB_NAME, AD_DECISIONS_JOB_NAME]),
+      ],
+    ]);
+    const readOperatorResponseRetryBackoffs = vi.fn(async (input) => {
+      expect(input.asOf).toBe("2026-07-14");
+      return new Set<string>();
+    });
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      nextDay,
+      [BUSINESSES[0]],
+      options({
+        readSuccessfulJobs: async () => previous,
+        readOperatorResponseRetryBackoffs,
+        runOperatorResponse,
+      }),
+    );
+
+    expect(result.results?.[0]?.operatorResponse).toMatchObject({
+      status: "success",
+      source: "ran",
+    });
+    expect(readOperatorResponseRetryBackoffs).toHaveBeenCalledOnce();
+    expect(runOperatorResponse).toHaveBeenCalledOnce();
+  });
+
+  it("bulk-reads an honest 60-minute same-day operator-response retry backoff", async () => {
+    const oneMillisecondInside = new Date(
+      NOW.getTime() - NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS + 1,
+    ).toISOString();
+    const exactlyExpired = new Date(
+      NOW.getTime() - NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS,
+    ).toISOString();
+    const db = {
+      query: vi.fn(async () => [
+        {
+          business_ref_id: BUSINESSES[0].id,
+          status: "failed",
+          finished_at: oneMillisecondInside,
+        },
+        {
+          business_ref_id: BUSINESSES[1].id,
+          status: "failed",
+          finished_at: exactlyExpired,
+        },
+      ]),
+    };
+
+    await expect(
+      readNativeAdOperatorResponseRetryBackoffs(
+        {
+          businessIds: BUSINESSES.map((business) => business.id),
+          asOf: "2026-07-13",
+          decisionCutoff: NOW.toISOString(),
+        },
+        db as never,
+      ),
+    ).resolves.toEqual(new Set([BUSINESSES[0].id]));
+
+    expect(db.query).toHaveBeenCalledWith(
+      READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL,
+      [
+        BUSINESSES.map((business) => business.id),
+        "2026-07-13",
+        NATIVE_AD_ENGINE_VERSION,
+        AD_OPERATOR_RESPONSE_JOB_NAME,
+        NOW.toISOString(),
+      ],
+    );
+    expect(READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL).toContain(
+      "run.as_of_date = $2::date",
+    );
+    expect(READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL).toContain(
+      "run.status IN ('success', 'failed')",
+    );
+    expect(READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL).toContain(
+      "run.finished_at <= $5::timestamptz",
+    );
   });
 
   it("continues decisions after an atomic calibration success that contains a currency-blocked account batch", async () => {

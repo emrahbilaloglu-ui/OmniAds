@@ -198,9 +198,13 @@ function metricCell(header: string): string {
   const headers = Array.from(document.querySelectorAll("thead th")).map(
     (cell) => cell.textContent?.trim() ?? "",
   );
-  // Headers carry a direction arrow ("CPA ↓"); match the label, not the arrow.
+  // A header carries two glyphs that are not part of its name: the metric's
+  // "lower is better" arrow ("CPA ↓") and, on whichever column the table is
+  // sorted by, the active sort indicator ("Spend▼"). Strip both and match the
+  // label, so adding or moving a sort cannot silently make this helper assert
+  // a different column.
   const index = headers.findIndex(
-    (text) => text === header || text.startsWith(`${header} `),
+    (text) => text.replace(/[▲▼↑↓]/g, "").trim() === header,
   );
   expect(index, `no "${header}" column is on screen`).toBeGreaterThan(-1);
   const row = document.querySelector("[data-creative-studio-asset-row]");
@@ -211,6 +215,50 @@ function metricCell(header: string): string {
 /** Switch the table to a named column set. A real operator click. */
 function showColumns(set: "Performance" | "Engagement" | "Funnel") {
   fireEvent.click(screen.getByRole("button", { name: set }));
+}
+
+/**
+ * Every metric column currently on screen, as header -> cell text.
+ *
+ * `metricCell` answers about ONE named column, which is the right shape for
+ * "did this cell withhold the right number". The permanent-em-dash law asks the
+ * opposite question — "is ANY column on screen blank" — and naming the columns
+ * it expects would make it blind to the next one added.
+ */
+function visibleMetricCells(): Map<string, string> {
+  const headers = Array.from(document.querySelectorAll("thead th"))
+    .map((cell) => (cell.textContent ?? "").replace(/[▲▼]/g, "").trim())
+    .slice(4, -1);
+  const row = document.querySelector("[data-creative-studio-asset-row]");
+  expect(row, "the Assets table rendered no creative row").not.toBeNull();
+  const cells = Array.from(row!.querySelectorAll("td"))
+    .map((cell) => cell.textContent?.trim() ?? "")
+    .slice(4, -1);
+  expect(cells).toHaveLength(headers.length);
+  return new Map(headers.map((header, index) => [header, cells[index] ?? ""]));
+}
+
+/**
+ * Opt one catalogue metric into the visible columns, through the picker.
+ *
+ * Needed because `thumbstop` is no longer in ANY preset: the warehouse producer
+ * stamps it unavailable on the grain this table reads, so it may not be a
+ * default column. It stays in the catalogue because the live path serves a real
+ * rate for it, and an operator who ticks it is choosing it knowingly — which is
+ * what this helper reproduces. The em-dash assertions that follow are therefore
+ * still about the shipped cell, just no longer about a column the operator was
+ * handed.
+ */
+function showCatalogueMetric(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: "+ Edit metrics" }));
+  const picker = document.querySelector("[data-creative-studio-metric-picker]");
+  expect(picker, "the metric picker did not open").not.toBeNull();
+  const option = Array.from(picker!.querySelectorAll("button[aria-pressed]")).find(
+    (button) => button.textContent?.replace(/[✓↑↓]/g, "").trim() === label,
+  );
+  expect(option, `"${label}" is not in the metric picker`).toBeTruthy();
+  fireEvent.click(option!);
+  fireEvent.click(screen.getByRole("button", { name: "Close metric picker" }));
 }
 
 beforeEach(() => {
@@ -328,7 +376,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     expect(observed?.spend).toBe(120);
 
     renderStudio(rows);
-    showColumns("Engagement");
+    showCatalogueMetric("Thumbstop");
 
     expect(metricCell("Thumbstop")).toBe("—");
     // The measured spend beside it is untouched.
@@ -407,7 +455,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     showColumns("Engagement");
 
     // Frequency was NULL at the source; CPM had both operands measured.
-    expect(metricCell("Frequency")).toBe("—");
+    expect(metricCell("Frequency (daily avg)")).toBe("—");
     expect(metricCell("CPM")).toBe("$20.0");
   });
 
@@ -512,7 +560,7 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     expect(observed?.spend).toBe(500);
 
     renderStudio(rows);
-    showColumns("Engagement");
+    showCatalogueMetric("Thumbstop");
 
     expect(metricCell("Thumbstop")).toBe("—");
   });
@@ -569,8 +617,12 @@ describe("Creative Studio: null and zero survive the whole producer chain", () =
     renderStudio(rows);
     showColumns("Funnel");
 
-    expect(metricCell("Clicks")).toBe("130");
-    expect(metricCell("ATC rate")).toBe("—");
+    // The all-clicks counter is no longer a Funnel column: the ladder is
+    // denominated in LINK clicks, and two clicks columns side by side is the
+    // ambiguity this pass removed. It is still in the catalogue, so opt it in.
+    showCatalogueMetric("Clicks (all)");
+    expect(metricCell("Clicks (all)")).toBe("130");
+    expect(metricCell("ATC rate (link clicks)")).toBe("—");
     expect(metricCell("Purchases")).toBe("5");
   });
 
@@ -679,14 +731,18 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
     // 9,000 impressions is a measured 0.00% click-through rate and must print
     // as one — withholding it here would be the opposite error, hiding a real
     // finding about a creative nobody clicked.
-    expect(metricCell("CTR")).toBe("0.00%");
+    expect(metricCell("CTR (link)")).toBe("0.00%");
     showColumns("Funnel");
     // ATC rate and CVR ARE denominated in link clicks, and a share of zero
     // clicks is undefined. Same row, same available field, different answer —
     // because the arithmetic is different, not because the source is.
-    expect(metricCell("ATC rate")).toBe("—");
-    expect(metricCell("CVR")).toBe("—");
-    expect(metricCell("Clicks")).toBe("12");
+    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    expect(metricCell("CVR (link clicks)")).toBe("—");
+    // The all-clicks counter is no longer a Funnel column: the ladder is
+    // denominated in LINK clicks, and two clicks columns side by side is the
+    // ambiguity this pass removed. It is still in the catalogue, so opt it in.
+    showCatalogueMetric("Clicks (all)");
+    expect(metricCell("Clicks (all)")).toBe("12");
   });
 
   /**
@@ -742,12 +798,16 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
 
     renderStudio(rows);
     showColumns("Engagement");
-    expect(metricCell("CTR")).toBe("—");
+    expect(metricCell("CTR (link)")).toBe("—");
     showColumns("Funnel");
-    expect(metricCell("ATC rate")).toBe("—");
-    expect(metricCell("CVR")).toBe("—");
+    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    expect(metricCell("CVR (link clicks)")).toBe("—");
     // Not blanked out wholesale: the clicks the provider DID report are there.
-    expect(metricCell("Clicks")).toBe("90");
+    // The all-clicks counter is no longer a Funnel column: the ladder is
+    // denominated in LINK clicks, and two clicks columns side by side is the
+    // ambiguity this pass removed. It is still in the catalogue, so opt it in.
+    showCatalogueMetric("Clicks (all)");
+    expect(metricCell("Clicks (all)")).toBe("90");
     showColumns("Performance");
     expect(metricCell("Spend")).toBe("$260");
   });
@@ -790,10 +850,10 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
 
     renderStudio(rows);
     showColumns("Engagement");
-    expect(metricCell("CTR")).toBe("2.00%");
+    expect(metricCell("CTR (link)")).toBe("2.00%");
     showColumns("Funnel");
-    expect(metricCell("ATC rate")).toBe("25.0%");
-    expect(metricCell("CVR")).toBe("6.3%");
+    expect(metricCell("ATC rate (link clicks)")).toBe("25.0%");
+    expect(metricCell("CVR (link clicks)")).toBe("6.3%");
   });
 
   /**
@@ -828,7 +888,7 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
 
     renderStudio(rows);
     showColumns("Funnel");
-    const atcRate = metricCell("ATC rate");
+    const atcRate = metricCell("ATC rate (link clicks)");
     expect(atcRate).toBe("—");
     expect(atcRate).not.toContain("Infinity");
     expect(atcRate).not.toBe("0.0%");
@@ -1053,6 +1113,94 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     expect(metricCell("Purchases")).toBe("0");
   });
 
+  /*
+   * THE AGE COLUMN, PROVEN ALONG THE SAME CHAIN — and pinned to the window's
+   * clock rather than to the wall clock.
+   *
+   * WHY IT IS HERE AND NOT ONLY IN A UNIT TEST. `launch_date` is the ONE date
+   * that survives the whole creative-grain chain: `meta_creative_daily` also
+   * stores `first_seen_at` and `first_spend_at`, and neither is a field on
+   * `MetaCreativeApiRow`, so neither can reach a cell —
+   *
+   *   grep -rn 'first_seen_at\|first_spend_at' lib/meta/creatives-types.ts \
+   *     app/(dashboard)/platforms/meta/creatives/page-support.tsx    -> exit 1
+   *
+   * — which is exactly why the column says "since created" and not "days live".
+   * A unit test on the projector could not see that, because it is handed the
+   * row after the chain has already chosen the date.
+   *
+   * WHAT MAKES 16 THE ONLY PASSING ANSWER. The projection's `launch_date` is
+   * 2026-08-01 and this file's mounted page reads the window
+   * 2026-07-21..2026-08-17 (the `usePersistentDateRange` mock at the top). An
+   * age counted to the window's end is 16 on every day this suite is ever run.
+   * An age counted to `Date.now()` is 16 only if the suite happens to be run on
+   * 2026-08-17 — so a projector that reaches for the system clock fails here
+   * tomorrow and every day after, which is the point of asserting the literal.
+   */
+  it("counts the age from launch_date to the window's end, not to today", () => {
+    const rows = buildApiRowsFromCreativeWarehouse({
+      factRows: [
+        creativeDailyRow({
+          spend: 8,
+          impressions: 300,
+          clicks: 4,
+          conversions: 0,
+          revenue: 0,
+        }),
+      ],
+    });
+
+    // The date really does survive the warehouse chain to the wire.
+    expect(rows[0].launch_date).toBe("2026-08-01");
+    expect(mapApiRowToUiRow(rows[0]).launchDate).toBe("2026-08-01");
+
+    renderStudio(rows);
+
+    // 2026-08-01 -> 2026-08-17. Sixteen days, forever.
+    expect(metricCell("Age (days since created)")).toBe("16");
+    // The evidence base reads as one sentence: eight dollars, three hundred
+    // impressions, no purchases, sixteen days. THAT is a judgeable row; the
+    // same numbers at "2" would not be.
+    expect(metricCell("Spend")).toBe("$8");
+    expect(metricCell("Purchases")).toBe("0");
+  });
+
+  /*
+   * The other half of the same law, on the same chain: a projection that never
+   * carried a launch date.
+   *
+   * THE ABSENCE HAS TWO SHAPES, and the chain is what shows which arrives.
+   * `coerceRawCreativeRow` has two branches: a stored `RawCreativeRow`-shaped
+   * projection — the one production actually stores, recognised by `copy_text`
+   * — is SPREAD through, so a missing `launch_date` stays `undefined` all the
+   * way to the wire; only the api-row branch coalesces it with `?? ""`. Either
+   * way `mapApiRowToUiRow` runs `safeString` over it and the UI row holds the
+   * empty string, which is the value the projector actually has to refuse.
+   *
+   * Refuse it, not floor it: `Date.parse("")` is NaN, and a `|| 0` anywhere
+   * near this path would print 0 — the table then claiming every unread
+   * creative was created on the day the window closed, i.e. that the whole
+   * account is too new to judge.
+   */
+  it("prints an em dash, never 0, when the projection carried no launch date", () => {
+    const rows = buildApiRowsFromCreativeWarehouse({
+      factRows: [creativeDailyRow({ spend: 8, impressions: 300 })],
+      projectionJson: storedProjection({ launch_date: undefined }),
+    });
+
+    expect(rows[0].launch_date).toBeUndefined();
+    // ...and the empty string is what the projector is handed.
+    expect(mapApiRowToUiRow(rows[0]).launchDate).toBe("");
+
+    renderStudio(rows);
+
+    expect(metricCell("Age (days since created)")).toBe("—");
+    // The measured numbers beside it are untouched: the absent date withholds
+    // the age, not the row.
+    expect(metricCell("Spend")).toBe("$8");
+    expect(metricCell("Impressions")).toBe("300");
+  });
+
   /**
    * WHY: this is the defect the wave is named after, at the grain the surface
    * reads. The fact row's `add_to_cart` / `landing_page_views` come from
@@ -1101,8 +1249,12 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
 
     expect(metricCell("Spend")).toBe("$33.5k");
     showColumns("Funnel");
-    expect(metricCell("ATC rate")).toBe("—");
-    expect(metricCell("Clicks")).toBe("900");
+    expect(metricCell("ATC rate (link clicks)")).toBe("—");
+    // The all-clicks counter is no longer a Funnel column: the ladder is
+    // denominated in LINK clicks, and two clicks columns side by side is the
+    // ambiguity this pass removed. It is still in the catalogue, so opt it in.
+    showCatalogueMetric("Clicks (all)");
+    expect(metricCell("Clicks (all)")).toBe("900");
   });
 
   /**
@@ -1207,7 +1359,7 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     expect(observed?.impressions).toBe(0);
 
     renderStudio(rows);
-    showColumns("Engagement");
+    showCatalogueMetric("Thumbstop");
 
     expect(metricCell("Thumbstop")).toBe("—");
     expect(metricCell("CPM")).toBe("—");
@@ -1273,8 +1425,12 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     renderStudio(rows);
     showColumns("Funnel");
 
-    expect(metricCell("Clicks")).toBe("130");
-    expect(metricCell("ATC rate")).toBe("—");
+    // The all-clicks counter is no longer a Funnel column: the ladder is
+    // denominated in LINK clicks, and two clicks columns side by side is the
+    // ambiguity this pass removed. It is still in the catalogue, so opt it in.
+    showCatalogueMetric("Clicks (all)");
+    expect(metricCell("Clicks (all)")).toBe("130");
+    expect(metricCell("ATC rate (link clicks)")).toBe("—");
     expect(metricCell("Purchases")).toBe("5");
   });
 
@@ -1315,5 +1471,169 @@ describe("Creative Studio Assets: the sidecar fires on groupBy=creative", () => 
     const observed = mapApiRowToUiRow(rows[0]).observedMetrics;
     expect(observed?.addToCart).toBe(18);
     expect(observed?.landingPageViews).toBeNull();
+  });
+});
+
+/**
+ * THE LAW THIS WHOLE PASS EXISTS FOR.
+ *
+ * A DEFAULT column that no account can ever fill is worse than a missing
+ * column: it teaches the operator that the table is empty and they stop
+ * reading it. Two shipped here at once —
+ *
+ *   `hold`      the mounted projector assigned it a literal `null`, so it was
+ *               an em dash in every row of every account, forever;
+ *   `thumbstop` the warehouse producer stamps `thumbstop: false`
+ *               unconditionally on this grain, so it was an em dash on the
+ *               window this surface defaults to;
+ *
+ * and between them they were two of the five Engagement columns.
+ *
+ * The test runs the REAL warehouse chain against a day that measured
+ * everything `meta_creative_daily` can measure. Every em dash it finds is
+ * therefore the surface's doing rather than the account's, which is the exact
+ * definition of a permanently blank column. It fails on the old catalogue in
+ * two places at once: Hold (hardcoded null even here) and Thumbstop (stamped
+ * unavailable by the producer this chain actually runs).
+ */
+describe("Creative Studio Assets: no default column is a permanent em dash", () => {
+  /** A day that measured every field this grain carries. */
+  function fullyMeasuredRows() {
+    return buildApiRowsFromCreativeWarehouse({
+      factRows: [
+        creativeDailyRow({
+          spend: 480,
+          impressions: 96_000,
+          clicks: 1_400,
+          reach: 40_000,
+          frequency: 2.4,
+          conversions: 18,
+          revenue: 1_920,
+          roas: 4,
+          linkClicks: 1_100,
+          landingPageViews: 900,
+          addToCart: 120,
+          initiateCheckout: 60,
+        }),
+      ],
+    });
+  }
+
+  it("fills every column of every preset when the producer measured everything", () => {
+    renderStudio(fullyMeasuredRows());
+
+    for (const set of ["Performance", "Engagement", "Funnel"] as const) {
+      showColumns(set);
+      const cells = visibleMetricCells();
+      expect(cells.size, `${set} has no metric columns`).toBeGreaterThan(0);
+      const blank = [...cells.entries()]
+        .filter(([, value]) => value === "—")
+        .map(([header]) => header);
+      expect(blank, `${set} columns blank against a fully measured day`).toEqual([]);
+    }
+  });
+
+  /**
+   * The producer's own refusal, still honoured.
+   *
+   * `thumbstop` is not in a preset because the warehouse stamps it
+   * unavailable — and this proves the stamp is real on this exact chain rather
+   * than taken on trust. It is the reason the metric stays in the picker and
+   * out of the defaults: an operator who ticks it is choosing it knowingly.
+   */
+  it("still withholds thumbstop on this grain, which is why it is not a default", () => {
+    const rows = fullyMeasuredRows();
+    expect(rows[0].metric_presence?.thumbstop).toBe(false);
+
+    renderStudio(rows);
+    showCatalogueMetric("Thumbstop");
+    expect(metricCell("Thumbstop")).toBe("—");
+  });
+
+  /**
+   * The Funnel preset draws the whole ladder, so a drop-off is a thing you can
+   * SEE rather than a thing you compute in your head from four columns.
+   *
+   * The old Funnel set was Clicks / ATC rate / CVR / Purchases: it skipped
+   * landing page views and checkouts entirely although the producer serves
+   * both, and its two rates named no denominator while sitting beside an
+   * all-clicks column called simply "Clicks".
+   */
+  it("draws the whole funnel ladder with each step measured and each rate named", () => {
+    renderStudio(fullyMeasuredRows());
+    showColumns("Funnel");
+    const cells = visibleMetricCells();
+
+    expect([...cells.keys()].map((header) => header.replace(/[↑↓]/g, "").trim())).toEqual([
+      "Impressions",
+      "CTR (link)",
+      "Link clicks",
+      "Landing page views",
+      "Adds to cart",
+      "ATC rate (link clicks)",
+      "Checkouts",
+      "Purchases",
+      "ATC to purchase",
+      "CVR (link clicks)",
+    ]);
+
+    // The counts, exactly, because a rate alone cannot say whether 10.9% of a
+    // thousand clicks or of eleven is on screen.
+    expect(cells.get("Impressions")).toBe("96k");
+    expect(cells.get("Link clicks")).toBe("1.1k");
+    expect(cells.get("Landing page views")).toBe("900");
+    expect(cells.get("Adds to cart")).toBe("120");
+    expect(cells.get("Checkouts")).toBe("60");
+    expect(cells.get("Purchases")).toBe("18");
+
+    // ...and each drop-off rate, named for the denominator it divides by.
+    for (const rate of [
+      "CTR (link) ↑",
+      "ATC rate (link clicks) ↑",
+      "ATC to purchase ↑",
+      "CVR (link clicks) ↑",
+    ]) {
+      expect(cells.get(rate), `${rate} did not render a rate`).toMatch(/^\d+(\.\d+)?%$/);
+    }
+  });
+
+  /**
+   * Revenue is the column this table never had, and the reason it needed one:
+   * ROAS 4.0 on $30 and ROAS 2.1 on $4,000 are not the same decision, and ROAS
+   * alone cannot tell them apart.
+   *
+   * A measured zero revenue is a finding about the creative, not an absence, so
+   * it prints as a zero on the row's own currency.
+   */
+  it("carries revenue beside spend, and prints a measured zero revenue as money", () => {
+    const rows = buildApiRowsFromCreativeWarehouse({
+      factRows: [
+        creativeDailyRow({
+          spend: 33_500,
+          impressions: 900_000,
+          clicks: 900,
+          conversions: 0,
+          revenue: 0,
+          roas: 0,
+          linkClicks: 700,
+        }),
+      ],
+    });
+    // The producer's own presence entry: revenue is a NOT NULL column and is
+    // available unconditionally on this grain.
+    expect(rows[0].metric_presence?.purchase_value).toBe(true);
+
+    renderStudio(rows);
+    showColumns("Performance");
+    const cells = visibleMetricCells();
+
+    expect(cells.get("Spend")).toBe("$33.5k");
+    expect(cells.get("Revenue")).toBe("$0");
+    expect(cells.get("Purchases")).toBe("0");
+    // Spent everything, earned nothing: ROAS over a measured zero revenue is a
+    // measured zero, while CPA over zero purchases is undefined.
+    expect(cells.get("ROAS ↑")).toBe("0.0");
+    expect(cells.get("CPA ↓")).toBe("—");
+    expect(cells.get("AOV ↑")).toBe("—");
   });
 });

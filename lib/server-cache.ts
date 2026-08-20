@@ -33,7 +33,12 @@ function readEntry<T>(key: string): CacheEntry<T> | null {
   return entry;
 }
 
-function writeEntry<T>(key: string, value: T, ttlMs: number, staleWhileRevalidateMs = 0): CacheEntry<T> {
+function writeEntry<T>(
+  key: string,
+  value: T,
+  ttlMs: number,
+  staleWhileRevalidateMs = 0,
+): CacheEntry<T> {
   const now = Date.now();
   const entry: CacheEntry<T> = {
     value,
@@ -49,14 +54,25 @@ async function loadIntoCache<T>(
   key: string,
   loader: () => Promise<T>,
   ttlMs: number,
-  staleWhileRevalidateMs = 0
+  staleWhileRevalidateMs = 0,
+  shouldCache: (value: T) => boolean = () => true,
 ): Promise<CacheEntry<T>> {
   const store = getStore();
-  const existing = store.inflight.get(key) as Promise<CacheEntry<T>> | undefined;
+  const existing = store.inflight.get(key) as
+    Promise<CacheEntry<T>> | undefined;
   if (existing) return existing;
 
   const task = (async () => {
     const value = await loader();
+    if (!shouldCache(value)) {
+      const now = Date.now();
+      return {
+        value,
+        expiresAt: now,
+        staleUntil: now,
+        updatedAt: now,
+      };
+    }
     return writeEntry(key, value, ttlMs, staleWhileRevalidateMs);
   })().finally(() => {
     store.inflight.delete(key);
@@ -71,12 +87,20 @@ export async function getCachedValue<T>(input: {
   ttlMs: number;
   staleWhileRevalidateMs?: number;
   loader: () => Promise<T>;
+  /** Keep transient fail-closed values from replacing a last-known-good read. */
+  shouldCache?: (value: T) => boolean;
 }): Promise<{
   value: T;
   cacheState: "fresh" | "stale" | "miss";
   updatedAt: number;
 }> {
-  const { key, ttlMs, staleWhileRevalidateMs = 0, loader } = input;
+  const {
+    key,
+    ttlMs,
+    staleWhileRevalidateMs = 0,
+    loader,
+    shouldCache = () => true,
+  } = input;
   const now = Date.now();
   const cached = readEntry<T>(key);
   if (cached && cached.expiresAt > now) {
@@ -88,7 +112,7 @@ export async function getCachedValue<T>(input: {
   }
 
   if (cached && cached.staleUntil > now) {
-    void loadIntoCache(key, loader, ttlMs, staleWhileRevalidateMs);
+    void loadIntoCache(key, loader, ttlMs, staleWhileRevalidateMs, shouldCache);
     return {
       value: cached.value,
       cacheState: "stale",
@@ -96,7 +120,13 @@ export async function getCachedValue<T>(input: {
     };
   }
 
-  const loaded = await loadIntoCache(key, loader, ttlMs, staleWhileRevalidateMs);
+  const loaded = await loadIntoCache(
+    key,
+    loader,
+    ttlMs,
+    staleWhileRevalidateMs,
+    shouldCache,
+  );
   return {
     value: loaded.value,
     cacheState: "miss",

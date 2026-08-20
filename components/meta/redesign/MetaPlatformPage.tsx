@@ -16,8 +16,10 @@ import {
 } from "@/components/date-range/DateRangePicker";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import type {
-  MetaCanonicalDecision,
+import {
+  META_DECISIONS_AD_CANDIDATE_LIMIT,
+  META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
+  type MetaCanonicalDecision,
 } from "@/lib/meta/decisions-workspace-contract";
 import {
   describeDecisionWorkspaceFailure,
@@ -25,9 +27,12 @@ import {
 } from "@/lib/meta/workspace-failure";
 import type {
   MetaOsAdDecision,
+  MetaOsDecisionAction,
 } from "@/lib/meta/decisions-os-contract";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import {
+  authorizeLaunchpadHandoff,
   describeLaunchpadHandoffRefusal,
   parseLaunchpadHandoffRefusal,
 } from "@/lib/meta/launchpad-handoff-contract";
@@ -39,14 +44,31 @@ import { cn } from "@/lib/utils";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
 import { MetaLaunchpadOverlay } from "@/components/meta/redesign/MetaLaunchpadOverlay";
 import {
+  authorizeMetaNativeAdPause,
+  describeMetaNativeAdPauseFailure,
+  executeMetaNativeAdPause,
+  type MetaNativeAdPauseAuthorization,
+} from "@/components/meta/redesign/meta-native-ad-pause";
+import {
   MetaDecisionCenterExact,
+  type MetaDecisionCenterExactDisplayValue,
+  type MetaDecisionCenterExactInspectorViewModel,
   type MetaDecisionCenterExactLane,
   type MetaDecisionCenterExactScope,
+  type MetaDecisionCenterExactTone,
   type MetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactWindow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
-import { buildMetaDecisionCenterExactViewModel } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
-import { CreativeEvidenceWindowExact } from "@/components/creatives/CreativeEvidenceWindowExact";
+import {
+  buildMetaDecisionCenterExactViewModel,
+  buildMetaStructureInventoryViewModel,
+  type MetaDecisionCenterExactArchiveItem,
+  type MetaStructureInventoryViewModel,
+} from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
+import {
+  CreativeEvidenceWindowExact,
+  type CreativeEvidenceWindowExactViewModel,
+} from "@/components/creatives/CreativeEvidenceWindowExact";
 import {
   buildCreativeEvidenceWindowExactViewModel,
   buildMetaAdsManagerHref,
@@ -109,6 +131,11 @@ interface MetaPlatformPageProps {
   serverProviderAccountId?: string | null;
 }
 
+type AuthorizedMetaNativeAdPause = Extract<
+  MetaNativeAdPauseAuthorization,
+  { ok: true }
+>;
+
 interface AnomaliesPayload {
   anomalies: MetaAnomaly[];
   snapshotDate: string | null;
@@ -139,8 +166,7 @@ export function interpretMetaSnapshotRunResponse(
   responseOk: boolean,
   payload: unknown,
 ):
-  | { ok: true; status: MetaSnapshotRunStatus }
-  | { ok: false; message: string } {
+  { ok: true; status: MetaSnapshotRunStatus } | { ok: false; message: string } {
   const record =
     payload && typeof payload === "object"
       ? (payload as Record<string, unknown>)
@@ -229,9 +255,9 @@ function parseMetaWorkspaceLane(params: {
  * find their way back. `structure` is the reference's resting scope and stays
  * out of the query string.
  */
-function parseMetaScope(
-  params: { get(name: string): string | null },
-): MetaDecisionCenterExactScope {
+function parseMetaScope(params: {
+  get(name: string): string | null;
+}): MetaDecisionCenterExactScope {
   if (params.get("scope") === "creatives") return "creatives";
   // The live "Open in Decisions" link on a creative row still speaks the
   // retired vocabulary (`creativeId` + `row=ad:<adId>`, minted by
@@ -275,7 +301,9 @@ export const META_DEEP_LINK_SEARCH_MAX_LENGTH = 128;
 export function parseMetaRowSearch(params: {
   get(name: string): string | null;
 }): string {
-  return (params.get("q") ?? "").trim().slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
+  return (params.get("q") ?? "")
+    .trim()
+    .slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
 }
 
 export interface MetaDeepLinkCompatibilityEntry {
@@ -364,8 +392,7 @@ export function describeMetaDeepLinkCompatibility(params: {
     entries.push({
       param: "scope",
       value: rawScope,
-      behaviour:
-        "not a scope this queue serves; opened Campaigns & ad sets",
+      behaviour: "not a scope this queue serves; opened Campaigns & ad sets",
     });
   }
 
@@ -390,6 +417,18 @@ function matchesMetaCreativeSelection(
   if (selection.adId && decisionAdId === selection.adId) return true;
   return Boolean(
     selection.creativeId && decisionCreativeId === selection.creativeId,
+  );
+}
+
+/** Does a served OS Ad decision answer the creative the URL named? */
+function matchesMetaOsCreativeSelection(
+  decision: MetaOsAdDecision,
+  selection: { adId: string | null; creativeId: string | null },
+): boolean {
+  if (selection.adId && decision.adId.trim() === selection.adId) return true;
+  return Boolean(
+    selection.creativeId &&
+    decision.creativeId?.trim() === selection.creativeId,
   );
 }
 
@@ -460,7 +499,11 @@ function metaDateRangeFromParams(
     referenceDate ?? "",
     // A URL with no dates on it still names a preset, and the Meta vocabulary
     // is the one this page parses.
-    { rangePreset: selected === "custom" ? "custom" : selected, customStart: "", customEnd: "" },
+    {
+      rangePreset: selected === "custom" ? "custom" : selected,
+      customStart: "",
+      customEnd: "",
+    },
   );
   if (!resolved) {
     return rangeValueToDateWindow(
@@ -488,12 +531,37 @@ export function campaignKindMatchesMetaLabelFilter(
   return normalized === label;
 }
 
-
-async function readJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
+async function readJson<T>(
+  url: string,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = options.timeoutMs
+    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    : null;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new MetaRequestFailure({
+        message:
+          "The decision read timed out before the backend returned a complete workspace. Check the database connection, then retry.",
+        status: 504,
+        hasServerReason: true,
+      });
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const serverMessage =
@@ -509,18 +577,28 @@ async function readJson<T>(url: string): Promise<T> {
   return payload as T;
 }
 
+// The dev workspace route gives each read-only upstream up to 45 seconds.
+// Cutting the browser request at 30 seconds discarded healthy 200 responses
+// observed at 30-31 seconds under local pool contention. This remains one
+// bounded attempt (React Query retry is disabled), with enough headroom for
+// the server to finish or return its own source-specific failure.
+const DECISION_WORKSPACE_CLIENT_TIMEOUT_MS = 60_000;
+
 function fetchDecisionsWorkspace(
   businessId: string,
   providerAccountId: string,
   window: MetaWindowKey,
   statusFilter: BriefingStatusFilter,
+  adCandidateLimit: number,
   range?: Pick<DateWindowValue, "start" | "end">,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     businessId,
     providerAccountId,
     window,
     status_filter: statusFilter,
+    adLimit: String(adCandidateLimit),
   });
   // The dates travel for EVERY window, not just `custom`. Sending a bare
   // `window=7d` handed the route the job of picking an end date, and it picked
@@ -534,6 +612,7 @@ function fetchDecisionsWorkspace(
   }
   return readJson<MetaDecisionsWorkspacePayload>(
     `/api/meta/decisions-workspace?${params.toString()}`,
+    { timeoutMs: DECISION_WORKSPACE_CLIENT_TIMEOUT_MS, signal },
   );
 }
 
@@ -572,42 +651,6 @@ function fetchAnomalies(
   return readJson<AnomaliesPayload>(`/api/meta/anomalies?${params.toString()}`);
 }
 
-/**
- * Record a decision response.
- *
- * This is a write, and a write that fails must never read as success. The raw
- * `Response` used to be returned unchecked, so a 403 (authority revoked) or a
- * 500 resolved normally: the operator was routed on to Launchpad while nothing
- * was recorded, and the decision reappeared in Action Now on the next
- * snapshot. Same failure contract as every read on this surface — a non-2xx
- * throws carrying the server's own reason when it gave one.
- */
-async function postResponse(input: {
-  businessId: string;
-  recId: string;
-  action: "acted" | "deferred" | "undeferred" | "ignored";
-  actionSubtype?: string;
-  reappearAt?: string;
-}): Promise<void> {
-  const response = await fetch("/api/meta/recommendations/respond", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    cache: "no-store",
-    body: JSON.stringify(input),
-  });
-  if (response.ok) return;
-  const payload = await response.json().catch(() => null);
-  const serverMessage =
-    payload && typeof payload === "object" && "message" in payload
-      ? String((payload as { message?: unknown }).message)
-      : null;
-  throw new MetaRequestFailure({
-    message: serverMessage ?? `Request failed (${response.status})`,
-    status: response.status,
-    hasServerReason: Boolean(serverMessage && serverMessage.trim()),
-  });
-}
-
 export function metaAdsetPauseNotice(status: unknown, dryRun = false) {
   if (dryRun) return "Dry run: ad set would pause.";
   const normalized =
@@ -640,10 +683,7 @@ export function metaActionFailureMessage(
   return fallbackMessage;
 }
 
-export function metaBidApplyNotice(
-  payload: unknown,
-  currency?: string | null,
-) {
+export function metaBidApplyNotice(payload: unknown, currency?: string | null) {
   const record = actionPayloadRecord(payload);
   const dryRun = record?.dryRun === true;
   const bidAmountMinor =
@@ -666,10 +706,7 @@ export function metaBidApplyNotice(
   return {
     tone: "success" as const,
     title: bidAmountMinor
-      ? `Bid cap applied at ${formatCurrency(
-          bidAmountMinor / 100,
-          currency,
-        )}.`
+      ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100, currency)}.`
       : "Bid cap applied.",
     detail: "Meta verified the ad set bid.",
   };
@@ -800,6 +837,35 @@ export function trackingConfirmLabelForRec(
 }
 
 /**
+ * The server action tuple is the authority boundary; the recommendation only
+ * supplies the Launchpad variant after the two contracts agree.
+ *
+ * A recommendation can still carry a legacy `route_launchpad_*` hint while
+ * `structureAction()` deliberately downgrades its served action to `manual` or
+ * `review` (for example when Commercial Truth is unavailable). In that case
+ * this must return null: opening Launchpad and recording the recommendation as
+ * acted would contradict the server response currently on screen.
+ */
+function launchModeForServedStructureAction(
+  recommendation: MetaRecommendation,
+  action: MetaOsDecisionAction,
+): MetaLaunchMode | null {
+  if (action.intent !== "launchpad" || action.providerMutation !== null) {
+    return null;
+  }
+  if (action.code !== recommendation.actionKind) return null;
+  return launchModeForRec(recommendation);
+}
+
+function trackingConfirmLabelForStructureAction(
+  action: MetaOsDecisionAction | null | undefined,
+): string {
+  if (action?.code === "route_launchpad_rebuild") return "Rebuild anyway";
+  if (action?.code === "route_launchpad_duplicate") return "Duplicate anyway";
+  return "Continue anyway";
+}
+
+/**
  * Write gate for tracking anomalies. Pure and dismissal-free BY SIGNATURE:
  * the banner's Dismiss button only hides the banner; it can never unlock
  * pause/rebuild/resume (Codex review: the old gate keyed on dismissal).
@@ -811,10 +877,49 @@ export function isTrackingWriteBlocked(
     | undefined,
 ): boolean {
   return Boolean(
-    pulse?.trackingAnomalyActive ??
-    (pulse?.trackingHealth.status === "blocked" ||
-      pulse?.trackingHealth.status === "degraded"),
+    pulse?.trackingAnomalyActive ||
+    pulse?.trackingHealth.status === "blocked" ||
+    pulse?.trackingHealth.status === "degraded",
   );
+}
+
+/**
+ * Resolution state of one of the evidence drawer's ad-grain helper reads.
+ *
+ * The drawer used to receive only `query.data`, which is `undefined` while the
+ * read is in flight, `undefined` when it failed, and `undefined` when the
+ * account genuinely has no rows. All three printed the same em-dash, so an
+ * unreadable field was indistinguishable from an absent one. This narrows a
+ * react-query result to the three cases the drawer can then state.
+ *
+ * A query that is disabled (no creative/ad identity to read against) reports
+ * "loaded": nothing was withheld, there is simply no identity to ask about, and
+ * an em-dash is the honest answer for that.
+ */
+function metaEvidenceReadState(query: {
+  data: unknown;
+  isError: boolean;
+  fetchStatus: "fetching" | "paused" | "idle";
+}): "loading" | "error" | "unread" | "loaded" {
+  if (query.isError) return "error";
+  if (query.data !== undefined) return "loaded";
+  if (query.fetchStatus === "fetching") return "loading";
+  // No data, not fetching, no error: the read did not happen. It is paused
+  // (react-query pauses when the browser is offline) or it was never enabled.
+  // This returned "loaded", which told the window a completed read had found
+  // nothing — so every cell printed the same em dash a real absence prints.
+  return "unread";
+}
+
+/** The failed read's own message, never a message this client composed. */
+function metaEvidenceReadError(query: {
+  isError: boolean;
+  error: unknown;
+}): string | null {
+  if (!query.isError) return null;
+  const error = query.error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return null;
 }
 
 function titleCaseCompact(value: string | null | undefined) {
@@ -910,11 +1015,19 @@ function MetaMobileCitationList({
 
 function MetaMobileEvidenceScreen({
   item,
+  inspector,
   targetRoas,
   moneyCurrency,
   onBack,
 }: {
   item: MetaDrillItem;
+  /**
+   * The desktop's own evidence inspector for the SAME selected row. Mobile used
+   * to stop at the legacy recommendation's `why` and two citations, so the two
+   * surfaces disagreed about why a row could not be acted on. Optional because
+   * the anomaly mode has no inspector model to speak of.
+   */
+  inspector?: MetaDecisionCenterExactInspectorViewModel | null;
   targetRoas: number | null | undefined;
   moneyCurrency: string | null | undefined;
   onBack: () => void;
@@ -1036,6 +1149,31 @@ function MetaMobileEvidenceScreen({
             .
           </p>
           <MetaMobileCitationList items={citationItems} />
+          {inspector ? (
+            <section
+              className="ad-mobile-posture"
+              data-mobile-posture="inspector"
+              data-tone={
+                inspector.blockerTone === "negative" ? "danger" : "info"
+              }
+            >
+              <b>Authority &amp; readiness</b>
+              <div>contract: {mobileDisplay(inspector.contractDetail)}</div>
+              <div>readiness: {mobileDisplay(inspector.readiness)}</div>
+              <div>blockers: {mobileDisplay(inspector.blockers)}</div>
+              {/*
+                What the server can STATE but cannot measure. It used to arrive
+                inside `blockers` — `risk_tier_unclassified` sat there and
+                vetoed every exact-Ad action, because the risk-tier producer is
+                not persisted. Moving it out of the veto must not also move it
+                off the phone: the desktop inspector grew an Advisories line and
+                this one did not, so a phone silently stopped saying that risk
+                is unclassified at all. Same fact, both surfaces.
+              */}
+              <div>advisories: {mobileDisplay(inspector.advisories)}</div>
+              <div>{mobileDisplay(inspector.provenance)}</div>
+            </section>
+          ) : null}
           <div className="ad-mobile-desktop-note">
             Act on desktop — this device is read-only by design.
           </div>
@@ -1045,131 +1183,888 @@ function MetaMobileEvidenceScreen({
   );
 }
 
-function MetaMobileDecisionRow({
-  rec,
-  targetRoas,
-  moneyCurrency,
-  onOpen,
-}: {
-  rec: MetaRecommendation;
-  targetRoas: number | null | undefined;
-  moneyCurrency: string | null | undefined;
-  onOpen: (rec: MetaRecommendation) => void;
-}) {
-  return (
-    <article className="ad-mobile-row-card">
-      <div>
-        <h3>{scopeNameForRec(rec)}</h3>
-        <p data-tone={mobileDecisionTone(rec)}>
-          {mobileDecisionLine(rec, targetRoas, moneyCurrency)}
-        </p>
-      </div>
-      <div className="ad-mobile-row-footer">
-        <MobileDecisionConfidence confidence={rec.confidence} />
-        <button type="button" onClick={() => onOpen(rec)}>
-          Read evidence →
-        </button>
-      </div>
-    </article>
-  );
+/** Display rule shared with the exact desktop component: blank means unknown. */
+function mobileDisplay(value: MetaDecisionCenterExactDisplayValue): string {
+  if (typeof value === "number")
+    return Number.isFinite(value) ? String(value) : "—";
+  if (typeof value !== "string") return "—";
+  return value.trim() || "—";
 }
 
-function MetaMobileDecisionsScreen({
-  businessName,
-  moneyCurrency,
-  pulse,
-  laneSnapshotDate,
-  loading,
-  error,
-  anomalies,
-  actionRows,
-  watchingRows,
-  targetRoas,
-  onOpenRec,
-  onOpenAnomaly,
+/** The mobile row card only paints three tones; everything else stays caution. */
+function mobileToneAttr(
+  tone: MetaDecisionCenterExactTone | null | undefined,
+): "danger" | "positive" | "caution" {
+  if (tone === "negative") return "danger";
+  if (tone === "positive") return "positive";
+  return "caution";
+}
+
+interface MetaMobileQueueRowModel {
+  id: string;
+  name: MetaDecisionCenterExactDisplayValue;
+  meta?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * The SERVED state, and the served blockers behind it.
+   *
+   * Mobile rendered 60 server-blocked rows with neither, so a decision the
+   * engine withheld read as an ordinary recommendation on the phone while the
+   * same payload showed it as BLOCKED on the desktop. That is the invariant
+   * in INVARIANTS.md, not a styling gap.
+   */
+  stateLabel?: MetaDecisionCenterExactDisplayValue;
+  stateTone?: MetaDecisionCenterExactTone;
+  blockedNote?: MetaDecisionCenterExactDisplayValue;
+  decisionLabel?: MetaDecisionCenterExactDisplayValue;
+  decisionTone?: MetaDecisionCenterExactTone;
+  money?: MetaDecisionCenterExactDisplayValue;
+  moneySub?: MetaDecisionCenterExactDisplayValue;
+  chips?: readonly MetaDecisionCenterExactDisplayValue[];
+  actionLabel?: MetaDecisionCenterExactDisplayValue;
+  onOpen?: () => void;
+}
+
+/**
+ * The mobile queue for the active scope and lane, taken WHOLE from the exact
+ * view model.
+ *
+ * No cap, no re-sort, no re-selection: whatever the desktop lane renders, this
+ * renders. The previous surface sliced the first two rows of a legacy list, so
+ * mobile could report "2" where the same payload gave the desktop 60.
+ */
+function mobileQueueRows(
+  viewModel: MetaDecisionCenterExactViewModel,
+  scope: MetaDecisionCenterExactScope,
+  lane: MetaLaneView,
+): MetaMobileQueueRowModel[] {
+  if (scope === "creatives") {
+    return (viewModel.creativeDecisions ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      meta: row.kindShort,
+      decisionLabel: row.decisionLabel,
+      decisionTone: row.decisionTone,
+      stateLabel: row.stateLabel,
+      stateTone: row.stateTone,
+      blockedNote: row.blockedNote,
+      money: row.money,
+      moneySub: row.moneySub,
+      chips: row.chips,
+      actionLabel: row.actionLabel,
+      onOpen: row.onOpen,
+    }));
+  }
+  if (lane === "watching") {
+    return (viewModel.watchingRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      meta: row.lineage,
+      decisionLabel: row.segment,
+      decisionTone: row.segmentTone,
+      money: row.money,
+      moneySub: row.note,
+      actionLabel: "Review",
+      onOpen: row.onOpen ?? row.onReview,
+    }));
+  }
+  if (lane === "healthy") {
+    return (viewModel.healthyGroups ?? []).map((group) => ({
+      id: group.id,
+      name: group.name,
+      meta: group.strategy,
+      decisionLabel: "Healthy",
+      decisionTone: "positive" as const,
+      money: group.rollup,
+      chips: (group.adsets ?? []).map((adset) => adset.stats ?? adset.name),
+      actionLabel: "No action",
+    }));
+  }
+  if (lane === "nonSales") {
+    return (viewModel.nonSales ?? []).map((card, index) => ({
+      id: card.id ?? `nonsales-${index}`,
+      name: card.name,
+      meta: card.contextLabel,
+      decisionLabel: card.level,
+      decisionTone: "info" as const,
+      moneySub: card.note,
+      chips: (card.metrics ?? []).map(
+        (metric) =>
+          `${mobileDisplay(metric.label)} ${mobileDisplay(metric.value)}`,
+      ),
+      actionLabel: "Informational",
+    }));
+  }
+  if (lane === "archive") {
+    return (viewModel.archiveRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      meta: row.note,
+      decisionLabel: row.status,
+      decisionTone: row.statusTone,
+      money: row.spend,
+      actionLabel: row.showResume ? "Resume" : "Archived",
+    }));
+  }
+  return (viewModel.actionRows ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    meta: row.lineage,
+    decisionLabel: row.decisionLabel,
+    decisionTone: row.decisionTone,
+    money: row.money,
+    moneySub: row.moneySub,
+    chips: row.chips,
+    actionLabel: row.actionLabel,
+    onOpen: row.onOpen ?? row.onMenu,
+  }));
+}
+
+/**
+ * What the server says about its own authority, in the server's own words.
+ *
+ * Every field is read straight off the served payload. Nothing here is derived,
+ * inferred or re-classified: an absent field stays absent rather than becoming
+ * a reassuring default.
+ */
+interface MetaMobilePosture {
+  viewerRole: string | null;
+  viewerReadOnlyReason: string | null;
+  killSwitchReason: string | null;
+  adsSource: string | null;
+  sourceHealth: string | null;
+  structureSource: string | null;
+  fallbackReason: string | null;
+  readModelUnavailable: string | null;
+  limitations: Array<{ code: string; message: string }>;
+  capabilityGaps: Array<{ key: string; status: string; reason: string | null }>;
+  inactiveAdCount: number | null;
+  inactiveUnknownCount: number | null;
+  adCandidates: {
+    sourcePreCap: number;
+    eligiblePreCap: number;
+    selected: number;
+    act: number;
+    monitor: number;
+    blocked: number;
+  } | null;
+}
+
+function buildMetaMobilePosture(input: {
+  workspace: MetaDecisionsWorkspacePayload | undefined;
+  viewerReadOnlyReason: string | null;
+}): MetaMobilePosture {
+  const workspace = input.workspace;
+  const osSource = workspace?.os?.source ?? null;
+  const readModel = workspace?.decisionReadModel ?? null;
+  const capabilities = readModel?.capabilities ?? null;
+  const inactive = readModel?.queue?.inactiveAssets ?? null;
+  const candidates = readModel?.queue?.adCandidates ?? null;
+  return {
+    viewerRole: workspace?.viewer?.role ?? null,
+    viewerReadOnlyReason: input.viewerReadOnlyReason,
+    killSwitchReason: workspace?.system.killSwitchEngaged
+      ? (workspace.system.killSwitchReason ?? "Meta writes are disabled.")
+      : null,
+    adsSource: osSource?.adsSource ?? null,
+    sourceHealth: osSource?.health ?? null,
+    structureSource: osSource?.structureSource ?? null,
+    fallbackReason:
+      osSource?.fallbackReason ?? readModel?.source.fallbackReason ?? null,
+    readModelUnavailable: readModel?.unavailable?.message ?? null,
+    limitations: (workspace?.os?.limitations ?? []).map((limitation) => ({
+      code: limitation.code,
+      message: limitation.message,
+    })),
+    capabilityGaps: capabilities
+      ? Object.entries(capabilities)
+          .filter(([, state]) => state.status !== "available")
+          .map(([key, state]) => ({
+            key,
+            status: state.status,
+            reason: state.reason,
+          }))
+      : [],
+    inactiveAdCount: inactive?.inactiveCount ?? null,
+    inactiveUnknownCount: inactive?.unknownCount ?? null,
+    adCandidates: candidates
+      ? {
+          sourcePreCap: candidates.preCapCount,
+          eligiblePreCap: candidates.eligiblePreCapCount,
+          selected: candidates.selectedCount,
+          act: candidates.stateCounts.act.selectedCount,
+          monitor: candidates.stateCounts.monitor.selectedCount,
+          blocked: candidates.stateCounts.blocked.selectedCount,
+        }
+      : null,
+  };
+}
+
+/**
+ * The creative evidence screen, mobile.
+ *
+ * It is built from the SAME `buildCreativeEvidenceWindowExactViewModel` the
+ * desktop drawer uses — same funnel, same facts, same authority block, same
+ * diagnostics receipts, same read-state caption. The only difference is the
+ * footer: the desktop drawer offers a primary action, and this one offers none,
+ * because writes are desktop-only. The desktop drawer itself is a direct child
+ * of the page root and is hidden by the mobile stylesheet, so without this
+ * screen a creative row on mobile opened nothing at all.
+ */
+function MetaMobileCreativeEvidenceScreen({
+  viewModel,
+  onBack,
 }: {
-  businessName?: string | null;
-  moneyCurrency: string | null | undefined;
-  pulse: MetaPulsePayload | null;
-  laneSnapshotDate: string | null;
-  loading: boolean;
-  error: Error | null;
-  anomalies: MetaAnomaly[];
-  actionRows: MetaRecommendation[];
-  watchingRows: MetaRecommendation[];
-  targetRoas: number | null | undefined;
-  onOpenRec: (rec: MetaRecommendation) => void;
-  onOpenAnomaly: (anomaly: MetaAnomaly) => void;
+  viewModel: CreativeEvidenceWindowExactViewModel;
+  onBack: () => void;
 }) {
-  const actCount =
-    loading || error ? "—" : actionRows.length + anomalies.length;
-  const primaryRows = [...actionRows, ...watchingRows].slice(0, 2);
+  const authority = viewModel.authority ?? [];
+  const diagnostics = viewModel.diagnostics ?? [];
+  const funnel = viewModel.funnel ?? [];
+  const facts = viewModel.facts ?? [];
   return (
     <section
       className="meta-mobile-decision-stage"
-      data-testid="meta-mobile-decisions"
+      data-testid="meta-mobile-creative-evidence"
     >
       <div className="ad-mobile-device">
         <div className="ad-mobile-screen">
           <div className="ad-mobile-status">
             <span>--:--</span>
+            <span>evidence · read-only</span>
+          </div>
+          <button type="button" className="ad-mobile-back" onClick={onBack}>
+            ← Decisions
+          </button>
+          <div className="ad-mobile-title">
+            <h2>{mobileDisplay(viewModel.name)}</h2>
+            <p>
+              {mobileDisplay(viewModel.kind)} · {mobileDisplay(viewModel.band)}
+            </p>
+          </div>
+          {viewModel.readNotice ? (
+            <section
+              className="ad-mobile-posture"
+              data-mobile-posture="read-state"
+              data-tone={
+                viewModel.readNotice.tone === "negative" ? "danger" : "info"
+              }
+            >
+              <b>Evidence read</b>
+              <div>{viewModel.readNotice.text}</div>
+            </section>
+          ) : null}
+          <article className="ad-mobile-heat">
+            <strong>{mobileDisplay(viewModel.verdict)}</strong>
+            <span>
+              {mobileDisplay(viewModel.money)} ·{" "}
+              {mobileDisplay(viewModel.moneySub)}
+            </span>
+          </article>
+          <p className="ad-mobile-copy">
+            {(viewModel.reasons ?? [])
+              .map((reason) => mobileDisplay(reason))
+              .join(" ")}{" "}
+            {mobileDisplay(viewModel.verdictSub)}
+          </p>
+          <MetaMobileCitationList
+            items={funnel.map((step) => ({
+              label: mobileDisplay(step.label),
+              value:
+                `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
+            }))}
+          />
+          <MetaMobileCitationList
+            items={facts.map((fact) => ({
+              label: mobileDisplay(fact.label),
+              value: mobileDisplay(fact.value),
+            }))}
+          />
+          {authority.length > 0 ? (
+            <section
+              className="ad-mobile-posture"
+              data-mobile-posture="authority"
+              data-tone="info"
+            >
+              <b>Authority &amp; eligibility</b>
+              {authority.map((row) => (
+                <div key={row.id}>
+                  {mobileDisplay(row.label)}: {mobileDisplay(row.value)}
+                </div>
+              ))}
+            </section>
+          ) : null}
+          {diagnostics.length > 0 ? (
+            <details className="ad-mobile-diagnostics" data-mobile-diagnostics>
+              <summary>Diagnostics · hashes &amp; lineage</summary>
+              {diagnostics.map((row) => (
+                <div key={row.id}>
+                  {mobileDisplay(row.label)}: {mobileDisplay(row.value)}
+                </div>
+              ))}
+            </details>
+          ) : null}
+          <div className="ad-mobile-desktop-note">
+            {mobileDisplay(viewModel.provenance)} · Act on desktop — this device
+            is read-only by design.
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One row of the mobile queue, projected from the SAME exact view model the
+ * desktop renders.
+ *
+ * It carries the server's own decision label, money line, chips and action
+ * caption, and exactly one control: open evidence. The action caption is TEXT,
+ * never a button — writes are desktop-only, and that law is enforced here by
+ * never wiring `onPrimary`, not by hiding a disabled control.
+ */
+function MetaMobileQueueRow({
+  id,
+  name,
+  meta,
+  decisionLabel,
+  decisionTone,
+  stateLabel,
+  stateTone,
+  blockedNote,
+  money,
+  moneySub,
+  chips,
+  actionLabel,
+  onOpen,
+}: {
+  id: string;
+  name: MetaDecisionCenterExactDisplayValue;
+  meta?: MetaDecisionCenterExactDisplayValue;
+  decisionLabel?: MetaDecisionCenterExactDisplayValue;
+  decisionTone?: MetaDecisionCenterExactTone;
+  stateLabel?: MetaDecisionCenterExactDisplayValue;
+  stateTone?: MetaDecisionCenterExactTone;
+  blockedNote?: MetaDecisionCenterExactDisplayValue;
+  money?: MetaDecisionCenterExactDisplayValue;
+  moneySub?: MetaDecisionCenterExactDisplayValue;
+  chips?: readonly MetaDecisionCenterExactDisplayValue[];
+  actionLabel?: MetaDecisionCenterExactDisplayValue;
+  onOpen?: () => void;
+}) {
+  const moneyLine = [mobileDisplay(money), mobileDisplay(moneySub)]
+    .filter((value) => value !== "—")
+    .join(" · ");
+  return (
+    <article className="ad-mobile-row-card" data-mobile-row-id={id}>
+      <div>
+        <h3>{mobileDisplay(name)}</h3>
+        {meta ? <p data-tone="caution">{mobileDisplay(meta)}</p> : null}
+        {/* The served state, before the decision label. A row the engine
+            blocked must not read here as an ordinary recommendation. */}
+        {stateLabel && mobileDisplay(stateLabel) !== "—" ? (
+          <p
+            data-mobile-state={String(stateLabel).trim()}
+            data-tone={mobileToneAttr(stateTone)}
+          >
+            {mobileDisplay(stateLabel)}
+          </p>
+        ) : null}
+        <p data-tone={mobileToneAttr(decisionTone)}>
+          {mobileDisplay(decisionLabel)}
+          {moneyLine ? ` · ${moneyLine}` : ""}
+        </p>
+        {chips && chips.length > 0 ? (
+          <p data-tone="caution">
+            {chips.map((chip) => mobileDisplay(chip)).join(" · ")}
+          </p>
+        ) : null}
+        {/* The server's own blockers and next step, verbatim. */}
+        {blockedNote && mobileDisplay(blockedNote) !== "—" ? (
+          <p data-mobile-blocked-note="true" data-tone="caution">
+            {mobileDisplay(blockedNote)}
+          </p>
+        ) : null}
+      </div>
+      <div className="ad-mobile-row-footer">
+        <span className="ad-mobile-action-note">
+          {mobileDisplay(actionLabel)} · desktop
+        </span>
+        {onOpen ? (
+          <button type="button" onClick={onOpen}>
+            Read evidence →
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Everything the server says about its own authority, rendered ALONGSIDE the
+ * rows rather than instead of them.
+ *
+ * The desktop equivalent (`creativesNotice`) only appears when the creative
+ * queue is completely empty, so a degraded source under a full queue is silent
+ * and the operator reads low-authority rows as ordinary ones. On this surface
+ * the posture is unconditional: if the payload says the ad source is
+ * `legacy_creative_review_only` with `health: degraded`, that sentence is on
+ * screen whether there are 0 rows or 60.
+ */
+function MetaMobilePosturePanel({ posture }: { posture: MetaMobilePosture }) {
+  const sourceLine = [
+    posture.adsSource ? `ads ${titleCaseCompact(posture.adsSource)}` : null,
+    posture.sourceHealth
+      ? `health ${titleCaseCompact(posture.sourceHealth)}`
+      : null,
+    posture.structureSource
+      ? `structure ${titleCaseCompact(posture.structureSource)}`
+      : null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  const degraded =
+    posture.sourceHealth !== null && posture.sourceHealth !== "healthy";
+  return (
+    <section
+      className="ad-mobile-posture"
+      data-mobile-posture="source"
+      data-tone={degraded ? "danger" : "info"}
+    >
+      <b>Source authority</b>
+      <div>{sourceLine || "—"}</div>
+      {posture.fallbackReason ? (
+        <div>fallback: {posture.fallbackReason}</div>
+      ) : null}
+      {posture.readModelUnavailable ? (
+        <div>read model: {posture.readModelUnavailable}</div>
+      ) : null}
+      {posture.limitations.map((limitation) => (
+        <div key={limitation.code} data-mobile-limitation={limitation.code}>
+          {limitation.message}
+        </div>
+      ))}
+      {posture.capabilityGaps.length > 0 ? (
+        <div data-mobile-capability-gaps>
+          capability gaps:{" "}
+          {posture.capabilityGaps
+            .map(
+              (gap) =>
+                `${titleCaseCompact(gap.key.replace(/([a-z])([A-Z])/g, "$1 $2"))} ${gap.status}`,
+            )
+            .join(" · ")}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** Viewer authority, stated rather than implied by the absence of buttons. */
+function MetaMobileAuthorityPanel({ posture }: { posture: MetaMobilePosture }) {
+  return (
+    <section
+      className="ad-mobile-posture"
+      data-mobile-posture="viewer"
+      data-tone="info"
+    >
+      <b>Viewer authority</b>
+      <div>
+        role {posture.viewerRole ?? "—"} ·{" "}
+        {posture.viewerReadOnlyReason
+          ? "read-only"
+          : "write-capable on desktop"}
+      </div>
+      {posture.viewerReadOnlyReason ? (
+        <div>{posture.viewerReadOnlyReason}</div>
+      ) : null}
+      {posture.killSwitchReason ? (
+        <div>kill switch: {posture.killSwitchReason}</div>
+      ) : null}
+      <div>
+        This device is read-only by design: it shows every decision the desktop
+        shows and executes none of them.
+      </div>
+    </section>
+  );
+}
+
+/** Rows the server withheld from the live queues, counted rather than hidden. */
+function MetaMobileWithheldPanel({ posture }: { posture: MetaMobilePosture }) {
+  const lines: string[] = [];
+  if (posture.inactiveAdCount !== null) {
+    lines.push(
+      `${posture.inactiveAdCount} inactive Ad${posture.inactiveAdCount === 1 ? "" : "s"}` +
+        (posture.inactiveUnknownCount
+          ? ` (${posture.inactiveUnknownCount} unknown status)`
+          : "") +
+        " withheld from the live queues",
+    );
+  }
+  if (posture.adCandidates) {
+    lines.push(
+      `${posture.adCandidates.selected} of ${posture.adCandidates.eligiblePreCap} eligible exact Ad identities selected` +
+        (posture.adCandidates.sourcePreCap !==
+        posture.adCandidates.eligiblePreCap
+          ? ` · ${posture.adCandidates.sourcePreCap} source identities before eligibility`
+          : "") +
+        " · " +
+        `act ${posture.adCandidates.act} · monitor ${posture.adCandidates.monitor} · blocked ${posture.adCandidates.blocked}`,
+    );
+  }
+  if (lines.length === 0) return null;
+  return (
+    <section
+      className="ad-mobile-posture"
+      data-mobile-posture="withheld"
+      data-tone="info"
+    >
+      <b>Withheld from the queue</b>
+      {lines.map((line) => (
+        <div key={line}>{line}</div>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * The mobile Decision surface.
+ *
+ * WHAT CHANGED AND WHY: this used to render its own reduced truth — legacy
+ * `MetaRecommendation` rows only, capped at two, one anomaly, and no blocked or
+ * monitor decisions, no inactive Ads, no capabilities, no source limitations and
+ * no viewer authority. Desktop and mobile therefore disagreed about the same
+ * backend. It now projects the SAME `MetaDecisionCenterExactViewModel` the
+ * desktop renders, through the same scope/lane selection, uncapped. What did
+ * NOT change is write authority: mobile still offers exactly one control per
+ * row (open evidence) and states that execution is desktop-only.
+ */
+function MetaMobileDecisionsScreen({
+  businessName,
+  viewModel,
+  structureInventory,
+  posture,
+  scope,
+  lane,
+  onScopeChange,
+  onLaneChange,
+  loading,
+  error,
+  anomalies,
+  banners,
+  historyHref,
+  pathname,
+  onClearSearch,
+  onOpenAnomaly,
+  anomalyError,
+  canLoadMoreCreatives,
+  loadingMoreCreatives,
+  nextCreativeLimit,
+  onLoadMoreCreatives,
+}: {
+  businessName?: string | null;
+  viewModel: MetaDecisionCenterExactViewModel;
+  structureInventory: MetaStructureInventoryViewModel;
+  posture: MetaMobilePosture;
+  scope: MetaDecisionCenterExactScope;
+  lane: MetaLaneView;
+  onScopeChange: (scope: MetaDecisionCenterExactScope) => void;
+  onLaneChange: (lane: MetaLaneView) => void;
+  loading: boolean;
+  error: Error | null;
+  anomalies: MetaAnomaly[];
+  banners: MetaWorkspaceBanner[];
+  historyHref: string;
+  pathname: string | null;
+  onClearSearch: () => void;
+  onOpenAnomaly: (anomaly: MetaAnomaly) => void;
+  anomalyError: Error | null;
+  canLoadMoreCreatives: boolean;
+  loadingMoreCreatives: boolean;
+  nextCreativeLimit: number;
+  onLoadMoreCreatives: () => void;
+}) {
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const counts = viewModel.counts ?? {};
+  const identity = viewModel.identity ?? {};
+  const actCount = loading || error ? "—" : mobileDisplay(counts.action);
+  const rows = mobileQueueRows(viewModel, scope, lane);
+  if (loading || error) {
+    return (
+      <section
+        className="meta-mobile-decision-stage"
+        data-testid="meta-mobile-decisions"
+        data-mobile-read-state={loading ? "loading" : "error"}
+      >
+        <div className="ad-mobile-device">
+          <div className="ad-mobile-screen">
+            <div className="ad-mobile-status">
+              <span>Meta Decision Center</span>
+              <span>{businessName ?? "Meta"}</span>
+            </div>
+            {loading ? (
+              <article className="ad-mobile-row-card" role="status">
+                <h3>Loading decision data</h3>
+                <p>
+                  Reading the assigned Meta account and its complete server
+                  decision workspace.
+                </p>
+              </article>
+            ) : (
+              <article
+                className="ad-mobile-anomaly"
+                data-tone="danger"
+                role="alert"
+              >
+                <b>Decision workspace could not load.</b>
+                <div>
+                  {error?.message ||
+                    "Backend decision data is unavailable. Retry after connectivity recovers."}
+                </div>
+              </article>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section
+      className="meta-mobile-decision-stage"
+      data-testid="meta-mobile-decisions"
+      data-mobile-scope={scope}
+      data-mobile-lane={lane}
+    >
+      <div className="ad-mobile-device">
+        <div className="ad-mobile-screen">
+          <div className="ad-mobile-status">
+            <span>{mobileDisplay(identity.accountLabel)}</span>
             <span>
               {businessName ?? "Meta"} · Act now {actCount}
             </span>
           </div>
           <div className="ad-mobile-freshness">
-            synced {mobileTimestamp(pulse?.lastSyncAt ?? null)} · snapshot{" "}
-            {laneSnapshotDate ?? "—"}
+            {mobileDisplay(identity.syncedLabel)} ·{" "}
+            {mobileDisplay(identity.snapshotLabel)} ·{" "}
+            {mobileDisplay(identity.engineLabel)} ·{" "}
+            {mobileDisplay(identity.currency)}
           </div>
-          {loading ? (
-            <article className="ad-mobile-row-card">
-              <h3>Decision queue</h3>
-              <p>loading server snapshot —</p>
-            </article>
-          ) : error ? (
-            <article className="ad-mobile-anomaly">
-              <b>Decision queue unavailable.</b>
-              <div>
-                {error.message ||
-                  "Missing data is withheld, never shown as zero."}
-              </div>
-            </article>
-          ) : anomalies[0] ? (
-            <button
-              type="button"
-              className="ad-mobile-anomaly ad-mobile-anomaly-button"
-              onClick={() => onOpenAnomaly(anomalies[0]!)}
+
+          <MetaMobileAuthorityPanel posture={posture} />
+          <MetaMobilePosturePanel posture={posture} />
+
+          {/*
+            Same banners, same order as the desktop chrome
+            (`workspaceBannerPriority`): a blocking kill switch must not sit
+            below a tracking warning on one surface and above it on the other.
+          */}
+          {[...banners]
+            .sort(
+              (left, right) =>
+                workspaceBannerPriority(left) - workspaceBannerPriority(right),
+            )
+            .map((banner) => {
+              /*
+                Same destination as the desk, from the same helper. A phone
+                that is told an action's outcome is unknown and given no way to
+                reach the screen that knows has been handed the alarm without
+                the answer; the link is a READ, which is all this device does.
+              */
+              const destination = workspaceBannerDestination(
+                banner,
+                historyHref,
+                pathname,
+              );
+              return (
+                <article
+                  key={banner.id}
+                  className="ad-mobile-anomaly"
+                  data-tone={banner.tone === "danger" ? "danger" : "info"}
+                  data-mobile-banner={banner.id}
+                  data-mobile-banner-scope={banner.scope ?? "workspace"}
+                >
+                  <b>{banner.title}</b>
+                  <div>{banner.detail}</div>
+                  {destination ? (
+                    <a
+                      className="meta-posture-banner__button"
+                      href={destination.href}
+                    >
+                      {destination.label}
+                    </a>
+                  ) : null}
+                </article>
+              );
+            })}
+
+          {anomalyError ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone="warning"
+              data-mobile-anomaly-error
             >
-              <b>Anomaly:</b> {anomalies[0].title}
+              <b>Integrity scan is unavailable.</b>
               <div>
-                detected {mobileTimestamp(anomalies[0].detectedAt)} · read
-                evidence on mobile, act on desktop
+                {anomalyError.message ||
+                  "Integrity evidence is withheld; the decision queue remains readable."}
               </div>
-            </button>
-          ) : (
-            <article className="ad-mobile-anomaly">
+            </article>
+          ) : anomalies.length === 0 ? (
+            <article className="ad-mobile-anomaly" data-tone="info">
               <b>No active anomaly.</b>
               <div>
                 Rows still open evidence on mobile; execution stays
                 desktop-only.
               </div>
             </article>
+          ) : (
+            anomalies.map((anomaly) => (
+              <button
+                key={anomaly.id}
+                type="button"
+                className="ad-mobile-anomaly ad-mobile-anomaly-button"
+                onClick={() => onOpenAnomaly(anomaly)}
+              >
+                <b>Anomaly:</b> {anomaly.title}
+                <div>
+                  detected {mobileTimestamp(anomaly.detectedAt)} · read evidence
+                  on mobile, act on desktop
+                </div>
+              </button>
+            ))
           )}
-          {primaryRows.map((rec) => (
-            <MetaMobileDecisionRow
-              key={rec.id}
-              rec={rec}
-              targetRoas={targetRoas}
-              moneyCurrency={moneyCurrency}
-              onOpen={onOpenRec}
-            />
+
+          <nav className="ad-mobile-tabs" aria-label="Decision scope">
+            {(
+              [
+                ["structure", "Campaigns & Ad sets", counts.structure],
+                ["creatives", "Creatives", counts.creatives],
+              ] as const
+            ).map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={scope === key}
+                data-active={scope === key ? "true" : "false"}
+                onClick={() => onScopeChange(key)}
+              >
+                {label} {mobileDisplay(count)}
+              </button>
+            ))}
+          </nav>
+
+          {scope === "structure" ? (
+            <nav className="ad-mobile-tabs" aria-label="Decision lane">
+              {(
+                [
+                  ["action", "Action", counts.action],
+                  ["watching", "Watching", counts.watching],
+                  ["healthy", "Healthy", counts.healthy],
+                  ["nonSales", "Non-sales", counts.nonsales],
+                  ["archive", "Archive", counts.archive],
+                ] as const
+              ).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={lane === key}
+                  data-active={lane === key ? "true" : "false"}
+                  onClick={() => onLaneChange(key)}
+                >
+                  {label} {mobileDisplay(count)}
+                </button>
+              ))}
+            </nav>
+          ) : null}
+
+          {rows.map((row) => (
+            <MetaMobileQueueRow key={row.id} {...row} />
           ))}
-          {!loading && !error && primaryRows.length === 0 ? (
+
+          {scope === "creatives" && canLoadMoreCreatives ? (
+            <button
+              type="button"
+              className="ad-mobile-row-card"
+              data-mobile-load-more-creatives
+              disabled={loadingMoreCreatives}
+              onClick={onLoadMoreCreatives}
+            >
+              {loadingMoreCreatives
+                ? "Loading more decisions…"
+                : `Show more decisions · up to ${nextCreativeLimit}`}
+            </button>
+          ) : null}
+
+          {!loading && !error && rows.length === 0 ? (
             <article className="ad-mobile-row-card">
-              <h3>No high-confidence calls</h3>
-              <p>server queue has no mobile-readable action rows</p>
+              <h3>No rows in this lane</h3>
+              <p>the server queue served none for this scope and lane</p>
             </article>
           ) : null}
+
+          {scope === "structure" ? (
+            <details
+              className="ad-mobile-diagnostics"
+              data-mobile-structure-inventory
+              open={inventoryOpen}
+              onToggle={(event) => setInventoryOpen(event.currentTarget.open)}
+            >
+              <summary>
+                Account inventory ·{" "}
+                {structureInventory.servedCount === null
+                  ? "—"
+                  : `${structureInventory.servedCount.toLocaleString("en-US")} served`}
+              </summary>
+              {inventoryOpen ? (
+                <>
+                  <div>
+                    Complete campaign and ad-set census in server order. A row
+                    here is inventory only and grants no action.
+                  </div>
+                  {structureInventory.searchApplied ? (
+                    <div>
+                      {structureInventory.shownCount.toLocaleString("en-US")}{" "}
+                      rows match the active search.{" "}
+                      <button type="button" onClick={onClearSearch}>
+                        Clear active search
+                      </button>
+                    </div>
+                  ) : null}
+                  {structureInventory.unavailableReason ? (
+                    <div data-mobile-structure-inventory-empty>
+                      {structureInventory.unavailableReason}
+                    </div>
+                  ) : structureInventory.rows.length === 0 ? (
+                    <div data-mobile-structure-inventory-empty>
+                      No served entity matches the active search.
+                    </div>
+                  ) : (
+                    structureInventory.rows.map((row) => (
+                      <article
+                        key={row.id}
+                        className="ad-mobile-row-card"
+                        data-mobile-structure-inventory-row={row.id}
+                      >
+                        <h3>{row.name}</h3>
+                        <p>
+                          {row.grain} · {row.lineage} · {row.status}
+                        </p>
+                        <p>
+                          Spend {row.spend} · ROAS {row.roas} · Purchases{" "}
+                          {row.purchases}
+                        </p>
+                        <p>
+                          CPA {row.cpa} · CTR {row.ctr}
+                        </p>
+                        <p>Setup {row.configuration}</p>
+                      </article>
+                    ))
+                  )}
+                </>
+              ) : null}
+            </details>
+          ) : null}
+
+          <MetaMobileWithheldPanel posture={posture} />
+
           <div className="ad-mobile-desktop-note">
             Writes are desktop-only — rows here open evidence, never a pause
             button. Hit targets ≥44px.
@@ -1234,7 +2129,9 @@ async function fetchCreativeEvidenceAdRows(input: {
   }
   const payload: unknown = await response.json();
   const rows: MetaCreativeApiRow[] =
-    payload && typeof payload === "object" && Array.isArray((payload as { rows?: unknown }).rows)
+    payload &&
+    typeof payload === "object" &&
+    Array.isArray((payload as { rows?: unknown }).rows)
       ? ((payload as { rows: MetaCreativeApiRow[] }).rows ?? [])
       : [];
   return rows
@@ -1299,7 +2196,10 @@ async function fetchMetaQueueCtrSeries(input: {
     // `linkCtr` is a different measure and is currently 0 on every stored row.
     const values = (entry.points ?? [])
       .map((point) => point.ctr)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+      .filter(
+        (value): value is number =>
+          typeof value === "number" && Number.isFinite(value),
+      );
     // A single point is not a trend and the spark helper refuses it anyway.
     if (values.length >= 2) byAdId.set(entry.adId, values);
   }
@@ -1324,7 +2224,8 @@ async function fetchCreativeEvidenceAdSeries(input: {
   if (!response.ok) {
     throw new Error("The per-ad daily series is unavailable.");
   }
-  const payload = (await response.json()) as Partial<CreativeEvidenceWindowExactSeriesPayload>;
+  const payload =
+    (await response.json()) as Partial<CreativeEvidenceWindowExactSeriesPayload>;
   return {
     adCount: typeof payload.adCount === "number" ? payload.adCount : 0,
     points: Array.isArray(payload.points) ? payload.points : [],
@@ -1336,20 +2237,107 @@ function numberOrNull(value: number | null | undefined): number | null {
 }
 
 /**
- * Does the served decision offer a Launchpad route at all?
+ * Does the served decision offer a Launchpad route, and if not, why not?
  *
- * This reads the SERVED presentation code and nothing else. It does not decide
- * whether the route is authorized — that is the server's answer, given when the
- * handoff is minted. Keeping the two apart is the point: the screen may offer
- * the control the server captioned, and the server may still refuse it.
+ * WHAT THIS REPLACED, AND WHY. The gate used to be
+ * `code !== "plan_promotion" && code !== "refresh_creative"` — a hand-kept list
+ * of presentation codes maintained on the client, i.e. a re-derivation of an
+ * action the server had already decided. Two things were wrong with it. It read
+ * the wrong field: `refresh_creative` is served with `intent: "brief"` and the
+ * scope note "Creates a replacement brief; does not pause this ad", so the
+ * screen mapped a brief to a Launchpad route on its own authority. And it could
+ * only ever answer yes/no, so a decision the server would refuse still got a
+ * live-looking button whose click produced a bare refusal toast.
+ *
+ * It now runs `authorizeLaunchpadHandoff` — the SAME function
+ * `POST /api/meta/launchpad-handoff` runs before it mints anything, imported
+ * from the pure contract module for exactly this reason. That law is
+ * fail-closed on every count this surface must honour: a non-`native_exact`
+ * source, `actionEligible !== true`, a missing authorized action, any
+ * `decisionState` other than `act`, a non-null `heldAction`, any blocker, and
+ * an authorized action with no Launchpad mode are each refused by name
+ * (lib/meta/launchpad-handoff-contract.ts:288). So a blocked, held, pending or
+ * review-only decision cannot be offered a route here, and the refusal the
+ * client shows is the refusal the server would give.
+ *
+ * This still GRANTS nothing. The server re-reads the canonical decision and
+ * re-runs the same law against its own copy; this call only decides whether the
+ * screen offers the control and what it says when it does not.
+ *
+ * The account in scope is passed rather than the decision's own, so a decision
+ * rendered outside its account refuses with `provider_account_mismatch`
+ * instead of silently authorising itself.
  */
-function creativeEvidenceOffersLaunchpadRoute(input: {
-  decision: MetaOsAdDecision | null;
-  canonical: MetaCanonicalDecision;
-}): boolean {
-  const code = input.decision?.action.code ?? null;
-  if (code !== "plan_promotion" && code !== "refresh_creative") return false;
-  return Boolean(input.canonical.parentChain.creative?.id?.trim());
+function creativeEvidenceLaunchpadRoute(input: {
+  canonical: MetaCanonicalDecision | null;
+  action: MetaOsDecisionAction | null;
+  providerAccountId: string | null;
+}): { offered: boolean; refusalReason: string | null } {
+  /*
+   * FAIL-CLOSED at the top: no envelope, no route.
+   *
+   * `authorizeLaunchpadHandoff` is the server's own law and it reads the
+   * canonical decision — source authority, action eligibility, decision state,
+   * held action, blockers. A row that has no canonical decision cannot be put
+   * through it, and the one thing that must never happen is answering the
+   * question from the presentation decision instead: a served action label is
+   * not an eligibility verdict. So the refusal is stated here, in the same
+   * shape a server refusal takes, and the footer explains itself rather than
+   * going quietly inert.
+   */
+  if (!input.canonical) {
+    return {
+      offered: false,
+      refusalReason:
+        "This row was served with no canonical decision envelope, so no launch handoff can be authorized against it.",
+    };
+  }
+  if (!input.providerAccountId) {
+    return {
+      offered: false,
+      refusalReason:
+        "No Meta ad account is in scope, so no launch handoff can be authorized.",
+    };
+  }
+  const authorized = authorizeLaunchpadHandoff({
+    decision: input.canonical,
+    providerAccountId: input.providerAccountId,
+  });
+  if (!authorized.ok) {
+    return {
+      offered: false,
+      refusalReason: describeLaunchpadHandoffRefusal(authorized.refusal),
+    };
+  }
+  const servedActionMatches =
+    authorized.authorization.authorizedAction === "scale"
+      ? input.action?.code === "plan_promotion" &&
+        input.action.intent === "launchpad" &&
+        input.action.targetLevel === "ad" &&
+        input.action.providerMutation === null
+      : authorized.authorization.authorizedAction === "refresh"
+        ? input.action?.code === "refresh_creative" &&
+          input.action.intent === "brief" &&
+          input.action.targetLevel === "ad" &&
+          input.action.providerMutation === null
+        : false;
+  if (!servedActionMatches) {
+    return {
+      offered: false,
+      refusalReason:
+        "The served action does not match the canonical Launchpad authority. Reopen the row after a fresh server read-back.",
+    };
+  }
+  // Launchpad selects a creative. A verified mode with nothing to select is a
+  // route to an empty picker, so it stays closed and says which half is missing.
+  if (!input.canonical.parentChain.creative?.id?.trim()) {
+    return {
+      offered: false,
+      refusalReason:
+        "The served decision names no creative, so Launchpad has nothing to preselect.",
+    };
+  }
+  return { offered: true, refusalReason: null };
 }
 
 export interface MetaLaunchpadHandoffMintResult {
@@ -1445,19 +2433,234 @@ function launchpadHandoffHref(input: {
   );
 }
 
+/**
+ * Compare in Studio, scoped by whichever envelope named the creative.
+ *
+ * This is navigation, not authority: both envelopes state the provider account
+ * and the creative id as plain served identity, and reading the presentation
+ * decision's copy when the canonical one is absent asserts nothing about
+ * eligibility. Returns null when neither names an account, because a Studio
+ * link with no scope is a link to the wrong account's creatives.
+ */
 function creativeEvidenceStudioHref(input: {
-  canonical: MetaCanonicalDecision;
+  canonical: MetaCanonicalDecision | null;
+  decision: MetaOsAdDecision | null;
   pathname: string | null;
-}): string {
-  const params = new URLSearchParams({
-    providerAccountId: input.canonical.providerAccountId,
-  });
-  const creativeId = input.canonical.parentChain.creative?.id?.trim() || null;
+}): string | null {
+  const providerAccountId =
+    input.canonical?.providerAccountId?.trim() ||
+    input.decision?.providerAccountId?.trim() ||
+    null;
+  if (!providerAccountId) return null;
+  const params = new URLSearchParams({ providerAccountId });
+  const creativeId =
+    input.canonical?.parentChain.creative?.id?.trim() ||
+    input.decision?.creativeId?.trim() ||
+    null;
   if (creativeId) params.set("creativeId", creativeId);
   return dashboardHrefForRouteFamily(
     `/platforms/meta/creatives?${params.toString()}`,
     input.pathname ?? "",
   );
+}
+
+/**
+ * The evidence tokens that mean "this ad account was actually measured".
+ *
+ * Read from the served vocabulary, not guessed: `MetaEvidenceSource`
+ * (lib/meta/operator-policy.ts:35) is "live" | "demo" | "snapshot" |
+ * "fallback" | "unknown", and the pulse route adds "warehouse" for its
+ * warehouse fast path (app/api/meta/account-pulse/route.ts:602 and :639).
+ * Three of those six describe a real read of this account: a live provider
+ * read, the warehouse rollup of the same rows, and a stored decision snapshot
+ * — a measurement taken earlier is still a measurement. The other three do
+ * not, and `metaEvidenceSourceNotice` states which for each.
+ */
+const META_MEASURED_EVIDENCE_SOURCES: ReadonlySet<string> = new Set([
+  "live",
+  "warehouse",
+  "snapshot",
+]);
+
+/**
+ * WHAT THE SERVED EVIDENCE TOKEN MAKES OF THE NUMBERS ON THIS PAGE.
+ *
+ * `pulse.dataReadiness.evidenceSource` names the read path that answered. The
+ * readiness banner next to it fires on `status !== "ok" || isPartial`, and the
+ * demo arm of `lib/meta/campaigns-source.ts:65-72` returns the HEALTHY value of
+ * BOTH — `status: "ok"`, `isPartial: false` — wrapped around
+ * `getDemoMetaCampaigns().rows`, which `app/api/meta/account-pulse/route.ts:855`
+ * copies onto `pulse.dataReadiness` verbatim. So on a demo business no banner
+ * fired, this token reached no surface at all, and the KPI strip drew
+ * fabricated figures in exactly the format measured ones use. Nothing upstream
+ * covered it either: the demo `PostureNotice` lives in
+ * `components/zero-base/shell/client-shell.tsx`, and this page renders under
+ * `app/(dashboard)/layout.tsx` -> `components/layout/dashboard-frame.tsx`,
+ * where `grep -ric demo` returns 0.
+ *
+ * AN UNRECOGNISED TOKEN IS NAMED, NOT ASSUMED. The page contract types the
+ * field as a bare `string`, so a seventh token can arrive. Treating an unknown
+ * token as measured would re-open this exact hole for the next source, and
+ * calling it fabricated would be a claim nothing supports — so the notice says
+ * what the server sent and that this page cannot read it.
+ *
+ * IT REPORTS, AND NOTHING ELSE. No decision, no lane, no write authority: the
+ * served numbers are still drawn exactly as served, and the operator is told
+ * what they are.
+ *
+ * @returns null when the evidence IS a measurement of this account.
+ */
+export function metaEvidenceSourceNotice(
+  evidenceSource: string | null | undefined,
+): {
+  kind: "demonstration" | "fallback" | "unnamed" | "unreadable";
+  title: string;
+  detail: string;
+} | null {
+  const source = (evidenceSource ?? "").trim().toLowerCase();
+  if (META_MEASURED_EVIDENCE_SOURCES.has(source)) return null;
+  if (source === "demo") {
+    return {
+      kind: "demonstration",
+      title: "These are demonstration numbers, not measurements.",
+      detail:
+        "The account pulse was served with evidence source “demo”: the spend, revenue, ROAS and CPA on this page are sample values, not readings of this ad account.",
+    };
+  }
+  if (source === "fallback") {
+    return {
+      kind: "fallback",
+      title: "These numbers came from a fallback source.",
+      detail:
+        "The account pulse named its evidence source “fallback” rather than a measured read of this ad account, so the figures on this page are not this account's verified measurement.",
+    };
+  }
+  if (source === "" || source === "unknown") {
+    return {
+      kind: "unnamed",
+      title: "The source of these numbers is unnamed.",
+      detail:
+        "The account pulse did not name where its figures came from, so they cannot be read as this ad account's verified measurement.",
+    };
+  }
+  return {
+    kind: "unreadable",
+    title: "The source of these numbers is one this page cannot read.",
+    detail: `The account pulse named its evidence source “${source}”. This page has no reading for that token, so it cannot say whether those figures measure this ad account.`,
+  };
+}
+
+/**
+ * THE COUNT OF ACTIONS THAT FAILED WITHOUT TELLING ANYONE.
+ *
+ * `digest.actions.silentFailureCount`
+ * (app/api/meta/decisions-workspace/route.ts:948-951) counts action-log rows
+ * whose status is `silent_failure`. That status is written when the provider
+ * outcome is AMBIGUOUS — `provider_outcome_ambiguous`, an observed successful
+ * mutation attempt inside a failed call, or the explicit `silent_failure` code
+ * (app/api/launchpad/meta/launch/route.ts:106-113,
+ * app/api/launchpad/meta/bulk-ad-status/route.ts:154-160) — so the write may or
+ * may not have landed at Meta and retry is suppressed pending reconciliation.
+ * Until this notice existed the whole repo referenced the field exactly twice:
+ * the route that computes it and the type that declares it. A count of silent
+ * failures, itself silent, is the defect it counts.
+ *
+ * A ZERO IS A MEASURED "NOTHING FAILED" AND STAYS OFF SCREEN. A banner that
+ * stands there saying "0" every day is a banner an operator stops reading, and
+ * this one has to be read the day it appears.
+ *
+ * AND THE SAME GATE IS WHAT KEEPS A READ FAILURE FROM RENDERING AS AN EMPTY
+ * SUCCESS. When the digest source tables are unreachable, or the compact
+ * surface never asked for them, the route returns `unavailableReason` beside
+ * the UNTOUCHED `emptyDecisionDigest` zeros (route.ts:736, :976, :1336) — so
+ * every count that accompanies an `unavailableReason` is zero, the `> 0` gate
+ * already withholds it, and this notice never says "nothing failed" in any
+ * state at all: it only ever appears to report failures. `unavailableReason`
+ * is deliberately NOT a second gate on top of that. A POSITIVE count can only
+ * exist because the action-log query returned those rows, and suppressing a
+ * measured positive because a sibling flag is set would render a measurement
+ * as nothing — the mirror of the defect this notice closes.
+ *
+ * `verifiedCount` is the honest denominator and is stated with it: "2 of 3"
+ * says how much of the workspace's recent activity is in doubt, where a bare
+ * "2" does not.
+ *
+ * AND THE SENTENCE IS NEVER WIDER THAN THE MEASUREMENT UNDER IT. Both counts
+ * are computed by filtering the rows the BOUNDED action-log query returned, so
+ * past `META_ACTION_DIGEST_ROW_CAP` qualifying rows they describe the newest
+ * page of the window and not the window — while "this account's action digest
+ * since <date> carries M recorded actions" reads as the window's total. Every
+ * number was measured and the frame around it was too wide, which is the same
+ * family as a null status read as "archived" erasing 95% of an account's spend
+ * from a rollup. When `countsTruncated` is set the title states a FLOOR ("at
+ * least N") and the detail says the count covers only the newest page, names
+ * the cap that produced it, and refuses to guess how many more the window
+ * holds. An untruncated digest keeps saying exactly what it said before.
+ *
+ * IT REPORTS, AND NOTHING ELSE. It names no entity, asserts no outcome — the
+ * whole point is that the outcome is unknown — and offers no way to act on it.
+ * What it now does name is the READ-ONLY screen that can separate the two
+ * outcomes it cannot: `/platforms/meta/history` labels each action-log row
+ * `Silent failure` or `Verified`
+ * (app/(dashboard)/platforms/meta/history/history-view.tsx:88-97,140-146) off
+ * the same `meta_ads_action_log` rows (lib/meta/history-read-model.ts:502),
+ * over a GET-only route. Raising an alarm and naming nowhere to take it was
+ * the second half of this defect.
+ */
+export function metaSilentActionFailureNotice(
+  digest:
+    | {
+        snapshotDate?: string | null;
+        actions?: {
+          verifiedCount?: number;
+          silentFailureCount?: number;
+          countedRowCap?: number | null;
+          countsTruncated?: boolean | null;
+        } | null;
+      }
+    | null
+    | undefined,
+): { title: string; detail: string } | null {
+  if (!digest) return null;
+  const silent = digest.actions?.silentFailureCount ?? 0;
+  const verified = digest.actions?.verifiedCount ?? 0;
+  if (!Number.isFinite(silent) || silent <= 0) return null;
+  const total = verified + silent;
+  const since = digest.snapshotDate?.trim()
+    ? ` since ${digest.snapshotDate.trim()}`
+    : "";
+  const destination =
+    " Meta History lists each recorded action on its own row with the outcome Meta reported.";
+  if (digest.actions?.countsTruncated === true) {
+    const cap = digest.actions?.countedRowCap;
+    // The cap is named only when the payload actually served one. A digest
+    // that reports truncation without saying what bound it still gets the
+    // floor and the warning; inventing a bound to round out the sentence would
+    // put a fabricated number where a measurement belongs.
+    const capClause =
+      typeof cap === "number" && Number.isFinite(cap) && cap > 0
+        ? `, the most a ${cap}-row cap lets it read,`
+        : ",";
+    /*
+     * The floor in the title is exact; the fourth sentence is not, and must not
+     * pretend to be. `countsTruncated` is `rows.length >= cap`, which cannot
+     * tell a window holding exactly `cap` rows -- a COMPLETE read -- from one
+     * holding four thousand. Asserting "the window holds more" would put an
+     * unmeasured positive claim in the same sentence that exists to stop a
+     * measured count reading wider than its measurement. "May hold" is exactly
+     * as strong as `>=` actually is. A real total would need a second COUNT(*)
+     * over the same predicate on the hot decisions read, which is a cost this
+     * sentence does not justify.
+     */
+    return {
+      title: `At least ${silent} recorded action${silent === 1 ? "" : "s"} ended without a verified outcome.`,
+      detail: `This account's action digest${since} counts only its ${total} most recent recorded action${total === 1 ? "" : "s"}${capClause} and of those ${verified} ${verified === 1 ? "is" : "are"} verified and ${silent} ${silent === 1 ? "is" : "are"} not. The window may hold more recorded actions than this count covers; whether it does, and how many, is unavailable here. An unverified action may or may not have landed at Meta.${destination}`,
+    };
+  }
+  return {
+    title: `${silent} recorded action${silent === 1 ? "" : "s"} ended without a verified outcome.`,
+    detail: `This account's action digest${since} carries ${total} recorded action${total === 1 ? "" : "s"}: ${verified} verified, ${silent} not. An unverified action may or may not have landed at Meta, and this page cannot tell which.${destination}`,
+  };
 }
 
 function workspaceBannerPriority(banner: MetaWorkspaceBanner) {
@@ -1468,8 +2671,15 @@ function workspaceBannerPriority(banner: MetaWorkspaceBanner) {
   if (banner.id === "reviewer_read_only" || banner.id === "workspace_read_only")
     return 3;
   if (banner.blocking) return 3;
+  // An action whose outcome nobody verified is a fact about the ACCOUNT, so it
+  // ranks with snapshot freshness and above the readiness pair, which are
+  // facts about the picture.
+  if (banner.id === "silent_action_failures") return 4;
   if (banner.id === "snapshot_health") return 4;
   if (banner.id === "data_readiness") return 5;
+  // Same question as data_readiness — can these numbers be trusted — so the
+  // same rank; the two can fire together and read as one paragraph.
+  if (banner.id === "readiness_evidence_source") return 5;
   return 6;
 }
 
@@ -1480,23 +2690,74 @@ function workspaceBannerToneClass(banner: MetaWorkspaceBanner) {
   return "info";
 }
 
-function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
-  if (banner.id === "tracking_write_gate") {
-    return `${banner.detail} Pause, bid and rebuild writes ask for confirmation first. Hiding this banner does not unlock writes; the gate stays active.`;
+/**
+ * The one banner in this strip that points somewhere.
+ *
+ * `silent_action_failures` reports an outcome NOBODY KNOWS, so a control that
+ * retried, resumed or reconciled would be asserting an outcome the banner just
+ * said is unknown — and this page has no write authority to assert it with.
+ * A destination is a different thing: Meta History reads the same
+ * `meta_ads_action_log` rows over a GET-only route and labels each one
+ * `Silent failure` or `Verified`, which is exactly the distinction this banner
+ * cannot draw. Naming it trades no safety for usefulness.
+ *
+ * Consistent with the strip rather than novel: `meta_write_kill_switch`
+ * already carries a System Status link and `tracking_write_gate` a details
+ * control, both rendered the same way and keyed on the same id.
+ */
+function workspaceBannerDestination(
+  banner: MetaWorkspaceBanner,
+  historyHref: string,
+  pathname: string | null,
+): { href: string; label: string } | null {
+  const servedHref = banner.action?.href?.trim() ?? "";
+  const servedLabel = banner.action?.label?.trim() ?? "";
+  if (servedHref.startsWith("/") && servedLabel) {
+    return {
+      href: dashboardHrefForRouteFamily(servedHref, pathname ?? ""),
+      label: servedLabel,
+    };
   }
   if (banner.id === "meta_write_kill_switch") {
-    return `${banner.detail} The queue stays readable; execute and route actions are locked until an Admin releases it.`;
+    return {
+      href: dashboardHrefForRouteFamily(
+        "/platforms/meta/automation",
+        pathname ?? "",
+      ),
+      label: "System Status",
+    };
   }
-  return banner.detail;
+  if (banner.id === "silent_action_failures") {
+    return { href: historyHref, label: "Meta History" };
+  }
+  return null;
+}
+
+function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
+  const scopeDetail =
+    banner.scope === "target_hard_actions"
+      ? " This applies to hard Scale/Cut authority; the rest of the queue remains readable."
+      : "";
+  if (banner.id === "tracking_write_gate") {
+    return `${banner.detail} Pause, bid and rebuild writes ask for confirmation first. Hiding this banner does not unlock writes; the gate stays active.${scopeDetail}`;
+  }
+  if (banner.id === "meta_write_kill_switch") {
+    return `${banner.detail} The queue stays readable; execute and route actions are locked until an Admin releases it.${scopeDetail}`;
+  }
+  return `${banner.detail}${scopeDetail}`;
 }
 
 function MetaWorkspacePostureBanners({
   banners,
+  historyHref,
+  pathname,
   trackingDismissed,
   onDismissTracking,
   onOpenTrackingDetails,
 }: {
   banners: MetaWorkspaceBanner[];
+  historyHref: string;
+  pathname: string | null;
   trackingDismissed: boolean;
   onDismissTracking: () => void;
   onOpenTrackingDetails: () => void;
@@ -1523,6 +2784,7 @@ function MetaWorkspacePostureBanners({
             )}
             data-banner-id={banner.id}
             data-banner-blocking={banner.blocking ? "true" : "false"}
+            data-banner-scope={banner.scope ?? "workspace"}
             role={banner.blocking || tone === "danger" ? "alert" : "status"}
           >
             <span className="meta-posture-banner__mark" aria-hidden="true" />
@@ -1531,14 +2793,21 @@ function MetaWorkspacePostureBanners({
               {workspaceBannerDetail(banner)}
             </span>
             <span className="meta-posture-banner__spacer" aria-hidden="true" />
-            {banner.id === "meta_write_kill_switch" ? (
-              <a
-                className="meta-posture-banner__button"
-                href="/platforms/meta/automation"
-              >
-                System Status
-              </a>
-            ) : null}
+            {(() => {
+              const destination = workspaceBannerDestination(
+                banner,
+                historyHref,
+                pathname,
+              );
+              return destination ? (
+                <a
+                  className="meta-posture-banner__button"
+                  href={destination.href}
+                >
+                  {destination.label}
+                </a>
+              ) : null;
+            })()}
             {banner.id === "tracking_write_gate" ? (
               <>
                 <button
@@ -1560,6 +2829,234 @@ function MetaWorkspacePostureBanners({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The served account inventory, browsable without going through Archive.
+ *
+ * MEASURED on Grandmix (5dbc7147-f051-4681-a4d6-20617170074f /
+ * act_805150454596350, window 28d, snapshot 2026-08-18): the payload serves
+ * `lanes.structureInventory` with 1,230 entities — 476 campaigns, 754 ad sets.
+ * The lanes that render them are Action Now 3, Watching 19, Healthy 0,
+ * Non-sales 0, Archive 1,211 structure rows (+83 withheld Ad decisions). So
+ * 1,211 of 1,230 — 98.5% — were reachable ONLY by opening a lane named
+ * Archive, and `os.structure.groups`, the server's grouped census of the same
+ * 1,230 entities, was read at exactly one place in the client
+ * (`structureNodesByRecommendationId`) purely to enrich rows that already had
+ * a lane. It was served and rendered nowhere.
+ *
+ * WHAT THIS IS NOT. Inventory visibility is not recommendation or execution
+ * eligibility (INVARIANTS.md). No row here carries an action, a lane, a
+ * decision label, a priority or an urgency — not because they are suppressed
+ * but because `MetaStructureInventoryEntity` never carried them, and the
+ * builder behind this panel deliberately reads that contract instead of
+ * `os.structure`, whose nodes do. There is no button, no menu and no row
+ * click: the panel cannot hand anything to Launchpad or to a provider write,
+ * and nothing in it re-files a row into a different lane. Rows the server put
+ * in Archive are still in Archive; this panel says the account also HAS them.
+ *
+ * It renders inside the structure scope only, and only when the operator opens
+ * it, so 1,230 rows never land in the DOM behind the creatives scope or behind
+ * a closed disclosure.
+ */
+function MetaStructureInventoryPanel({
+  view,
+  open,
+  onToggle,
+  windowLabel,
+}: {
+  view: MetaStructureInventoryViewModel;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  windowLabel: string;
+}) {
+  const served =
+    view.servedCount === null ? "—" : view.servedCount.toLocaleString("en-US");
+  const grains =
+    view.campaignCount === null || view.adsetCount === null
+      ? "—"
+      : `${view.campaignCount.toLocaleString("en-US")} campaigns · ${view.adsetCount.toLocaleString(
+          "en-US",
+        )} ad sets`;
+  return (
+    <details
+      className={styles.inventoryPanel}
+      data-meta-structure-inventory
+      data-meta-structure-inventory-served={served}
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+    >
+      <summary>
+        Account inventory
+        <span data-meta-structure-inventory-summary>
+          {served} served · {grains}
+          {view.searchApplied
+            ? ` · ${view.shownCount.toLocaleString("en-US")} match the search`
+            : ""}
+        </span>
+      </summary>
+      <p className={styles.inventoryNote}>
+        Everything the server serves for this account, in the order it served
+        it. Listing an entity here is not a recommendation and grants no action
+        — decisions stay in the lanes above.
+      </p>
+      {/*
+        The body is gated on the open state, not on the disclosure triangle.
+
+        `<details>` renders its children whether or not it is open, so leaving
+        the table unconditional put all 1,230 of Grandmix's served rows into
+        the DOM on every render of the Decision Center, behind a closed
+        triangle nobody had clicked. The summary line is always rendered, so
+        the native toggle still fires and brings the table with it.
+      */}
+      {!open ? null : view.unavailableReason ? (
+        <p className={styles.inventoryNote} data-meta-structure-inventory-empty>
+          {view.unavailableReason}
+        </p>
+      ) : view.rows.length === 0 ? (
+        <p className={styles.inventoryNote} data-meta-structure-inventory-empty>
+          No served entity matches the search term. Clear it to see all {served}
+          .
+        </p>
+      ) : (
+        <div className={styles.inventoryScroll}>
+          <table className={styles.inventoryTable}>
+            <thead>
+              <tr>
+                <th>Entity</th>
+                <th>Grain</th>
+                <th>Campaign</th>
+                <th>Status</th>
+                <th>{`Spend · ${windowLabel}`}</th>
+                <th>ROAS</th>
+                <th>Purchases</th>
+                {/*
+                  CPA and CTR were served on every census row
+                  (`MetaStructureInventoryEntity.metrics`) and rendered nowhere,
+                  so the table could say what an entity spent and what it earned
+                  but not what a purchase cost or how the creative was clicked.
+                  Both are formatted in the adapter, which also states their
+                  units. Frequency, the third unrendered metric on the same
+                  object, is deliberately still absent — it is derived from a
+                  reach figure summed across days, which counts one person once
+                  per day and drags the ratio below the truth.
+                  @see components/meta/decision-center/decision-payload-coverage.test.ts
+                */}
+                <th>CPA</th>
+                <th>CTR</th>
+                <th>Setup</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.rows.map((row) => (
+                <tr key={row.id} data-meta-structure-inventory-row={row.id}>
+                  <td>{row.name}</td>
+                  <td>
+                    <span className={styles.inventoryGrain}>{row.grain}</span>
+                  </td>
+                  <td>{row.lineage}</td>
+                  <td>{row.status}</td>
+                  <td>{row.spend}</td>
+                  <td>{row.roas}</td>
+                  <td>{row.purchases}</td>
+                  <td>{row.cpa}</td>
+                  <td>{row.ctr}</td>
+                  <td>{row.configuration}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function MetaNativeAdPauseDialog({
+  open,
+  adName,
+  accountLabel,
+  pending,
+  confirmLocked,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  adName: string | null;
+  accountLabel: string | null;
+  pending: boolean;
+  confirmLocked: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="modal-backdrop"
+      data-meta-native-ad-pause-dialog
+      onMouseDown={() => {
+        if (!pending) onClose();
+      }}
+    >
+      <div
+        aria-describedby="meta-native-ad-pause-description"
+        aria-labelledby="meta-native-ad-pause-title"
+        aria-modal="true"
+        className="meta-label-modal"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="meta-label-modal-head">
+          <div>
+            <h2 id="meta-native-ad-pause-title">Pause this exact Meta Ad?</h2>
+            <p id="meta-native-ad-pause-description">
+              {adName ?? "This Ad"} in{" "}
+              {accountLabel ?? "the selected Meta account"} will be requested as
+              PAUSED. The server will re-read the immutable decision lineage and
+              live hierarchy before one provider attempt.
+            </p>
+          </div>
+        </div>
+        <div className="meta-label-modal-body">
+          <p>
+            No campaign, ad set, sibling Ad, budget or creative is changed by
+            this control. An ambiguous provider result is quarantined for
+            reconciliation and is never retried automatically.
+          </p>
+          {error ? (
+            <p role="alert" data-meta-native-ad-pause-error>
+              {error}
+            </p>
+          ) : null}
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={pending}
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              data-meta-native-ad-pause-confirm
+              disabled={pending || confirmLocked}
+              onClick={onConfirm}
+            >
+              {pending
+                ? "Pausing…"
+                : confirmLocked
+                  ? "Await fresh read-back"
+                  : "Pause exact Ad"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1587,8 +3084,12 @@ export function MetaPlatformPage({
     searchParams.get("providerAccountId")?.trim() || null;
   const [drillItem, setDrillItem] = useState<MetaDrillItem | null>(null);
   const [overlay, setOverlay] = useState<OverlayState>(EMPTY_OVERLAY);
-  const [pendingPrimaryRec, setPendingPrimaryRec] =
-    useState<MetaRecommendation | null>(null);
+  const [pendingStructurePrimary, setPendingStructurePrimary] = useState<{
+    recommendation: MetaRecommendation;
+    action: MetaOsDecisionAction;
+  } | null>(null);
+  const [pendingNativePauseTracking, setPendingNativePauseTracking] =
+    useState<AuthorizedMetaNativeAdPause | null>(null);
   const [trackingDismissed, setTrackingDismissed] = useState(false);
   /**
    * The compatibility answer is computed from the URL the operator arrived
@@ -1634,15 +3135,48 @@ export function MetaPlatformPage({
     useState<MetaDecisionCenterExactScope>(initialScope);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
+  const [adCandidateLimit, setAdCandidateLimit] = useState(
+    META_DECISIONS_AD_CANDIDATE_LIMIT,
+  );
   // `q` is restored, not dropped: the retired contract's search parameter names
   // a control this surface actually has.
   const [rowSearch, setRowSearch] = useState(() =>
     parseMetaRowSearch(searchParams),
   );
+  /*
+   * The row the evidence window is describing, in the two envelopes it can
+   * arrive in. BOTH are nullable and at least one is always present.
+   *
+   * `canonical` used to be required, which made the canonical envelope the gate
+   * on opening the window at all — and on a real account that gate is closed
+   * for every row: Grandmix serves 60 ads, none of which joins a decision
+   * snapshot. The served decision carries real evidence, so it opens the window
+   * on its own; what travels with it is the envelope's ABSENCE, as `null`, so
+   * the window can state it rather than infer around it.
+   */
   const [creativeDrill, setCreativeDrill] = useState<{
     decision: MetaOsAdDecision | null;
-    canonical: MetaCanonicalDecision;
+    canonical: MetaCanonicalDecision | null;
   } | null>(null);
+  const [nativeAdPauseAuthorization, setNativeAdPauseAuthorization] =
+    useState<AuthorizedMetaNativeAdPause | null>(null);
+  const [nativeAdPausePending, setNativeAdPausePending] = useState(false);
+  const nativeAdPausePendingRef = useRef(false);
+  const [nativeAdPauseLockedKey, setNativeAdPauseLockedKey] = useState<
+    string | null
+  >(null);
+  const [nativeAdPauseError, setNativeAdPauseError] = useState<string | null>(
+    null,
+  );
+  /*
+   * The inventory disclosure is closed on arrival and its state lives here.
+   *
+   * Closed means the 1,230 served rows are not in the DOM at all: `<details>`
+   * still mounts its children when it is collapsed, and mounting a table that
+   * large behind a closed triangle on every render of the Decision Center is a
+   * cost the operator never asked for.
+   */
+  const [structureInventoryOpen, setStructureInventoryOpen] = useState(false);
   const latestSearchParamsRef = useRef(searchParams.toString());
 
   useEffect(() => {
@@ -1660,12 +3194,28 @@ export function MetaPlatformPage({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [labelModalOpen]);
 
+  useEffect(() => {
+    if (!nativeAdPauseAuthorization || nativeAdPausePending) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNativeAdPauseAuthorization(null);
+        setNativeAdPauseError(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [nativeAdPauseAuthorization, nativeAdPausePending]);
+
   const providerAccountsQuery = useQuery({
     queryKey: ["meta-provider-accounts", businessId],
     enabled: Boolean(businessId),
-    queryFn: () => fetchMetaHistoryAccounts({ businessId }),
+    queryFn: ({ signal }) =>
+      fetchMetaHistoryAccounts({
+        businessId,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
+      }),
     staleTime: 5 * 60 * 1000,
-    retry: 1,
+    retry: false,
   });
   const providerAccounts = providerAccountsQuery.data ?? [];
   const selectedProviderAccount = useMemo<MetaHistoryAccount | null>(() => {
@@ -1709,7 +3259,7 @@ export function MetaPlatformPage({
   );
 
   const creativeEvidenceCreativeId =
-    creativeDrill?.canonical.parentChain.creative?.id?.trim() ||
+    creativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
     creativeDrill?.decision?.creativeId?.trim() ||
     null;
   const creativeEvidenceQuery = useQuery({
@@ -1742,7 +3292,7 @@ export function MetaPlatformPage({
    * cross-ad frequency would need a deduplicated reach Meta does not report.
    */
   const creativeEvidenceAdId =
-    creativeDrill?.canonical.parentChain.ad?.id?.trim() ||
+    creativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
     creativeDrill?.decision?.adId?.trim() ||
     null;
   const creativeEvidenceSeriesQuery = useQuery({
@@ -1774,21 +3324,25 @@ export function MetaPlatformPage({
       selectedStatusFilter,
       selectedDateRange.start,
       selectedDateRange.end,
+      adCandidateLimit,
     ],
     enabled: Boolean(businessId && providerAccountId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchDecisionsWorkspace(
         businessId,
         providerAccountId!,
         selectedWindow,
         selectedStatusFilter,
+        adCandidateLimit,
         selectedDateRange,
+        signal,
       ),
-    // A transient upstream slowness (e.g. a cold route compile the first time the
-    // decisions-workspace fan-out is hit) previously left a permanent empty shell
-    // because retry was disabled. Retry with backoff so a one-off timeout self-heals.
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 6000),
+    // A failed workspace fan-out is expensive and may already be holding a DB
+    // connection. Repeating it automatically turned one outage into minutes of
+    // spinner time and pool pressure. Surface the verified failure once; the
+    // operator-controlled Retry above is the only retry.
+    retry: false,
+    refetchOnWindowFocus: false,
   });
   /**
    * The CTR trail behind every creative row's sparkline.
@@ -1966,43 +3520,81 @@ export function MetaPlatformPage({
     [actionNow, rowSearch, rowSort],
   );
   const canonicalDecisionModel = workspaceQuery.data?.decisionReadModel ?? null;
-  const creativeDecisionSection =
-    canonicalDecisionModel?.status === "available"
-      ? canonicalDecisionModel.queue.sections.creative_rotation
-      : null;
   const inactiveStructureRows = laneQuery.data?.archive ?? [];
   const inactiveAdDecisions =
     canonicalDecisionModel?.queue.inactiveAssets?.items ?? [];
-  const inactiveViewItems = useMemo(() => {
+  /**
+   * The two inactive grains, filtered by the search box and kept in the order
+   * the server sent them.
+   *
+   * Split deliberately. The combined list below ranks both grains on spend for
+   * the mobile inactive view, and the archive lane must NOT inherit that: a
+   * ranking this page invents is not the ranking the server decided, and a
+   * campaign's spend already contains its ad sets' and ads' spend, so one
+   * money order across grains asserts a comparison no server made.
+   */
+  const inactiveServedGrains = useMemo(() => {
     const query = rowSearch.trim().toLowerCase();
-    const structures = inactiveStructureRows
-      .filter(
-        (row) =>
-          !query ||
-          [row.name, row.campaignName ?? "", row.statusLabel].some((value) =>
-            value.toLowerCase().includes(query),
-          ),
-      )
-      .map((row) => ({ kind: "structure" as const, row, spend: row.spend }));
-    const ads = inactiveAdDecisions
-      .filter((decision) => canonicalCreativeSearchMatch(decision, rowSearch))
-      .map((decision) => ({
-        kind: "ad" as const,
-        decision,
-        spend: decision.metrics.spend ?? -1,
-      }));
+    const structures = inactiveStructureRows.filter(
+      (row) =>
+        !query ||
+        [row.name, row.campaignName ?? "", row.statusLabel].some((value) =>
+          value.toLowerCase().includes(query),
+        ),
+    );
+    const ads = inactiveAdDecisions.filter((decision) =>
+      canonicalCreativeSearchMatch(decision, rowSearch),
+    );
+    return { structures, ads };
+  }, [inactiveAdDecisions, inactiveStructureRows, rowSearch]);
+  const inactiveViewItems = useMemo(() => {
+    const structures = inactiveServedGrains.structures.map((row) => ({
+      kind: "structure" as const,
+      row,
+      spend: row.spend,
+    }));
+    const ads = inactiveServedGrains.ads.map((decision) => ({
+      kind: "ad" as const,
+      decision,
+      spend: decision.metrics.spend ?? -1,
+    }));
     return [...structures, ...ads].sort(
       (left, right) => right.spend - left.spend,
     );
-  }, [inactiveAdDecisions, inactiveStructureRows, rowSearch]);
-  // Presentation-only filters run over the server-selected top-N. They never
-  // reclassify, rerank, or pull suppressed decisions into the client.
-  const creativeActionDecisions = useMemo(() => {
-    if (!creativeDecisionSection) return [] as MetaCanonicalDecision[];
-    return creativeDecisionSection.items.filter((decision) =>
-      canonicalCreativeSearchMatch(decision, rowSearch),
-    );
-  }, [creativeDecisionSection, rowSearch]);
+  }, [inactiveServedGrains]);
+  /**
+   * Every canonical envelope the payload carries, as a LOOKUP TABLE.
+   *
+   * LAW: section membership is a RANKING, not a visibility gate. This list is
+   * handed to the exact adapter so a rendered Ad can find the canonical
+   * decision its evidence window needs. It selects no rows, orders nothing, and
+   * filters nothing -- the rows themselves come from `os.ads.items`, which is
+   * the server's own Ad-grain selection.
+   *
+   * It used to be `queue.sections.creative_rotation` alone, which is the
+   * compact operator queue capped at five. On Grandmix
+   * (act_805150454596350) that section holds 5 `out_of_scope` decisions while
+   * `os.ads.items` carries 60 live Ads, and the two sets do not intersect at
+   * all -- so the Creatives scope rendered ZERO rows out of 60 served. The
+   * union of `adCandidates` and every section is the widest set the payload
+   * actually contains, and it is still only ever read by key.
+   */
+  const canonicalDecisionEnvelopes = useMemo(() => {
+    const queue = canonicalDecisionModel?.queue;
+    if (!queue) return [] as MetaCanonicalDecision[];
+    const seen = new Set<string>();
+    const envelopes: MetaCanonicalDecision[] = [];
+    for (const decision of [
+      ...(queue.adCandidates?.items ?? []),
+      ...Object.values(queue.sections).flatMap((section) => section.items),
+    ]) {
+      const key = `${decision.decisionId}\u0000${decision.sourceSnapshotId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      envelopes.push(decision);
+    }
+    return envelopes;
+  }, [canonicalDecisionModel]);
   const visibleWatchingRecs = useMemo(
     () =>
       sortMetaRecs(
@@ -2024,7 +3616,9 @@ export function MetaPlatformPage({
     return next;
   }, [allRecs]);
 
-  const trackingBlocked = isTrackingWriteBlocked(pulseQuery.data);
+  const trackingBlocked = workspaceQuery.data
+    ? workspaceQuery.data.system.trackingBlocked
+    : isTrackingWriteBlocked(pulseQuery.data);
   const viewerReadOnlyReason = !workspaceQuery.data?.viewer
     ? "Decision authority is unavailable; write controls remain disabled."
     : workspaceQuery.data.viewer.readOnly
@@ -2034,7 +3628,6 @@ export function MetaPlatformPage({
   const isViewerReadOnly = viewerReadOnlyReason !== null;
   const workspaceBanners = useMemo<MetaWorkspaceBanner[]>(() => {
     const served = workspaceQuery.data?.banners ?? [];
-    if (served.length > 0) return served;
     const fallback: MetaWorkspaceBanner[] = [];
     const readiness = pulseQuery.data?.dataReadiness ?? null;
     if (readiness && (readiness.status !== "ok" || readiness.isPartial)) {
@@ -2095,7 +3688,67 @@ export function MetaPlatformPage({
         blocking: false,
       });
     }
-    return fallback;
+    /**
+     * Two facts the server states that no banner on either side repeats.
+     *
+     * They are APPENDED to whichever set won, instead of being pushed onto
+     * `fallback`, and that is the whole point: the fallback is discarded the
+     * moment the server sends any banner at all, so a demo account that also
+     * had a stale snapshot would have lost its demo disclosure to the snapshot
+     * banner and gone back to drawing fabricated numbers in silence.
+     *
+     * SERVED STILL WINS. Neither id is produced by `workspaceBanners()` in
+     * app/api/meta/decisions-workspace/route.ts:981-1100, so appending cannot
+     * duplicate a served banner today; the id guards keep that true if the
+     * route ever starts serving one, and the served copy is the one that
+     * survives.
+     */
+    const base = served.length > 0 ? served : fallback;
+    const notices: MetaWorkspaceBanner[] = [];
+    const evidence = readiness
+      ? metaEvidenceSourceNotice(readiness.evidenceSource)
+      : null;
+    /**
+     * Withheld in exactly one case: the source is UNNAMED and the readiness
+     * banner is already up. "unknown" is what `campaigns-source.ts` returns
+     * when the range came back empty, which is the same event that fills
+     * `notReadyReason` — there the readiness banner really does state the
+     * consequence for the numbers, and a second warning repeating it is how a
+     * banner strip turns into wallpaper. The demo arm, where that excuse is
+     * false because NO banner fires at all, is not this branch.
+     */
+    const evidenceIsUnnamedWithReadinessBannerUp =
+      evidence?.kind === "unnamed" &&
+      base.some((banner) => banner.id === "data_readiness");
+    if (
+      evidence &&
+      !evidenceIsUnnamedWithReadinessBannerUp &&
+      !base.some((banner) => banner.id === "readiness_evidence_source")
+    ) {
+      notices.push({
+        id: "readiness_evidence_source",
+        tone: "warning",
+        title: evidence.title,
+        detail: evidence.detail,
+        blocking: false,
+      });
+    }
+    const silentFailures = metaSilentActionFailureNotice(
+      workspaceQuery.data?.digest,
+    );
+    if (
+      silentFailures &&
+      !base.some((banner) => banner.id === "silent_action_failures")
+    ) {
+      notices.push({
+        id: "silent_action_failures",
+        tone: "danger",
+        title: silentFailures.title,
+        detail: silentFailures.detail,
+        blocking: false,
+      });
+    }
+    return notices.length > 0 ? [...base, ...notices] : base;
   }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
@@ -2111,6 +3764,29 @@ export function MetaPlatformPage({
 
   const metaDecisionsHref = dashboardHrefForRouteFamily(
     "/platforms/meta",
+    pathname,
+  );
+  /**
+   * Where the silent-failure banner sends a reader.
+   *
+   * Scoped to the SAME business and provider account this page is answering
+   * for, because the journal picks its own account otherwise and an operator
+   * sent to a different account's record would be reading someone else's
+   * actions to explain this account's alarm. `buildMetaScopedHref` drops
+   * either id when it is empty rather than writing a blank one, so an
+   * unresolved account degrades to the journal's own default instead of a
+   * malformed query.
+   *
+   * Routed through `dashboardHrefForRouteFamily` for the same reason every
+   * other link on this page is: `/platforms/meta/history` and its `/app`
+   * twin are the same screen, and a link that leaves the family the operator
+   * is browsing in is a link that logs them out of it.
+   */
+  const metaHistoryHref = dashboardHrefForRouteFamily(
+    buildMetaScopedHref("/platforms/meta/history", {
+      businessId,
+      providerAccountId,
+    }),
     pathname,
   );
 
@@ -2149,20 +3825,6 @@ export function MetaPlatformPage({
     router.replace(nextHref);
   };
 
-  const selectExactWindow = (nextWindow: MetaDecisionCenterExactWindow) => {
-    setDateRange(
-      rangeValueToDateWindow(
-        dateWindowToRangeValue({ window: nextWindow, start: "", end: "" }),
-        selectedReferenceDate,
-        // Completed days only — the same expansion the shell picker uses. This
-        // read `includeCurrentDay: true`, so the in-page window tabs and the
-        // shell picker disagreed by one day on the same preset name, and
-        // today's part-day was counted as a whole one.
-        { includeCurrentDay: DATE_WINDOW_INCLUDES_CURRENT_DAY },
-      ),
-    );
-  };
-
   const setProviderAccount = (nextProviderAccountId: string) => {
     const params = currentUrlParams();
     if (nextProviderAccountId) {
@@ -2172,6 +3834,8 @@ export function MetaPlatformPage({
     }
     params.delete("entity");
     setDrillItem(null);
+    setNativeAdPauseAuthorization(null);
+    setNativeAdPauseError(null);
     setCreativeDrill(null);
     replaceMetaParams(params);
   };
@@ -2235,8 +3899,7 @@ export function MetaPlatformPage({
       setNotice({
         tone: "info",
         title: "Snapshot refresh is unavailable.",
-        detail:
-          viewerReadOnlyReason ?? "Current viewer is read-only.",
+        detail: viewerReadOnlyReason ?? "Current viewer is read-only.",
       });
       return;
     }
@@ -2273,40 +3936,6 @@ export function MetaPlatformPage({
       });
     } finally {
       setRefreshingSnapshot(false);
-    }
-  };
-
-  /**
-   * True only when the response was actually recorded.
-   *
-   * The blanket `.catch(() => null)` this replaces absorbed transport errors
-   * and never looked at the status at all, so a refused write was
-   * indistinguishable from a stored one. The caller decides what to do with a
-   * false; what it may not do is carry on as if the decision were recorded.
-   */
-  const markActed = async (
-    rec: MetaRecommendation,
-    subtype: string,
-  ): Promise<boolean> => {
-    if (isViewerReadOnly) return false;
-    try {
-      await postResponse({
-        businessId,
-        recId: rec.id,
-        action: "acted",
-        actionSubtype: subtype,
-      });
-      return true;
-    } catch (error) {
-      setNotice({
-        tone: "danger",
-        title: "Decision could not be recorded.",
-        detail:
-          error instanceof Error
-            ? error.message
-            : "The decision response endpoint refused the write.",
-      });
-      return false;
     }
   };
 
@@ -2384,30 +4013,51 @@ export function MetaPlatformPage({
    * universe do nothing. A named-but-unserved creative gets no drill rather
    * than a fabricated one.
    */
-  const findSelectedCanonicalDecision = () =>
-    creativeSelection
-      ? ([
-          ...(creativeDecisionSection?.items ?? []),
-          ...inactiveAdDecisions,
-        ].find((decision) =>
-          matchesMetaCreativeSelection(decision, creativeSelection),
-        ) ?? null)
-      : null;
+  const findSelectedCreativeDecisionPair = () => {
+    if (!creativeSelection) return null;
+    const canonicalPool = [
+      // Same widening as the queue: a deep link may name any Ad the payload
+      // carries, not just the five the compact section ranked highest.
+      ...canonicalDecisionEnvelopes,
+      ...inactiveAdDecisions,
+    ];
+    const servedDecision = (workspaceQuery.data?.os?.ads?.items ?? []).find(
+      (decision) => matchesMetaOsCreativeSelection(decision, creativeSelection),
+    );
 
-  useEffect(() => {
-    if (!creativeSelection || creativeDrill) return;
-    const canonical = findSelectedCanonicalDecision();
-    if (!canonical) return;
-    // The presentation decision carries CTR, frequency and ad-set identity the
-    // canonical envelope does not; null when the queue served no counterpart,
-    // exactly as the review callback allows.
-    const presentation =
+    if (servedDecision) {
+      // Join only by immutable decision lineage. A pending-native row may have
+      // an older canonical row with the same ad/creative identity; attaching
+      // that stale envelope by identity would turn "pending" into evidence it
+      // was not served with.
+      const canonical =
+        canonicalPool.find(
+          (decision) =>
+            decision.decisionId === servedDecision.decisionId &&
+            decision.sourceSnapshotId === servedDecision.sourceSnapshotId,
+        ) ?? null;
+      return { decision: servedDecision, canonical };
+    }
+
+    const canonical =
+      canonicalPool.find((decision) =>
+        matchesMetaCreativeSelection(decision, creativeSelection),
+      ) ?? null;
+    if (!canonical) return null;
+    const decision =
       (workspaceQuery.data?.os?.ads?.items ?? []).find(
         (item) =>
           item.decisionId === canonical.decisionId &&
           item.sourceSnapshotId === canonical.sourceSnapshotId,
       ) ?? null;
-    setCreativeDrill({ decision: presentation, canonical });
+    return { decision, canonical };
+  };
+
+  useEffect(() => {
+    if (!creativeSelection || creativeDrill) return;
+    const pair = findSelectedCreativeDecisionPair();
+    if (!pair) return;
+    setCreativeDrill(pair);
   }, [creativeSelectionKey, workspaceQuery.data]);
 
   /**
@@ -2427,7 +4077,11 @@ export function MetaPlatformPage({
    */
   const unservedSelectionReportedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!workspaceQuery.data || workspaceQuery.isLoading || workspaceQuery.error)
+    if (
+      !workspaceQuery.data ||
+      workspaceQuery.isLoading ||
+      workspaceQuery.error
+    )
       return;
     const unresolved: MetaDeepLinkCompatibilityEntry[] = [];
     const entityServed =
@@ -2443,7 +4097,7 @@ export function MetaPlatformPage({
           "the workspace did not serve that decision in this window, so no evidence drawer was opened",
       });
     }
-    if (creativeSelection && !findSelectedCanonicalDecision()) {
+    if (creativeSelection && !findSelectedCreativeDecisionPair()) {
       if (creativeSelection.adId) {
         unresolved.push({
           param: "row",
@@ -2484,11 +4138,16 @@ export function MetaPlatformPage({
     workspaceQuery.error,
   ]);
 
-  const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
-    return rec.actionKind === "route_launchpad_rebuild";
+  const isTrackingSensitiveStructureAction = (action: MetaOsDecisionAction) => {
+    return (
+      action.intent === "launchpad" && action.code === "route_launchpad_rebuild"
+    );
   };
 
-  const performPrimary = async (rec: MetaRecommendation) => {
+  const performPrimary = async (
+    rec: MetaRecommendation,
+    action: MetaOsDecisionAction,
+  ) => {
     if (isViewerReadOnly) {
       setNotice({
         tone: "info",
@@ -2499,43 +4158,40 @@ export function MetaPlatformPage({
       return;
     }
     setNotice(null);
-    // Campaign/ad-set recommendation cards are advisory until they carry a
-    // canonical decision-origin execution contract. launchModeForRec fails
-    // closed for stale/injected execute_* values, so this path has no provider
-    // mutation endpoint.
-    const mode = launchModeForRec(rec);
+    // The served action tuple owns routing authority. `rec.actionKind` is used
+    // only to choose the Launchpad variant after code+intent agree; a server
+    // downgrade to review/manual therefore cannot be routed or marked acted.
+    const mode = launchModeForServedStructureAction(rec, action);
     if (mode) {
       openOverlayForRec(rec, mode);
       return;
     }
-    if (
-      rec.actionKind === "execute_pause" ||
-      rec.actionKind === "execute_resume" ||
-      rec.actionKind === "execute_bid"
-    ) {
-      setNotice({
-        tone: "info",
-        title: "Recommendation is review-only.",
-        detail:
-          "The served hint carries no canonical provider-write authority; the evidence inspector holds what is known.",
-      });
-    }
+    setNotice({
+      tone: "info",
+      title: "Recommendation is review-only.",
+      detail:
+        action.scopeNote?.trim() ||
+        `${action.label || "This recommendation"} carries no routed execution authority on this surface.`,
+    });
     openDrillForRec(rec);
   };
 
-  const handlePrimary = async (rec: MetaRecommendation) => {
+  const handlePrimary = async (
+    rec: MetaRecommendation,
+    action: MetaOsDecisionAction,
+  ) => {
     if (isViewerReadOnly) {
       openDrillForRec(rec);
       return;
     }
-    if (trackingBlocked && isTrackingSensitiveRec(rec)) {
-      setPendingPrimaryRec(rec);
+    if (trackingBlocked && isTrackingSensitiveStructureAction(action)) {
+      setPendingStructurePrimary({ recommendation: rec, action });
       return;
     }
-    await performPrimary(rec);
+    await performPrimary(rec, action);
   };
 
-  const confirmOverlay = async () => {
+  const confirmOverlay = () => {
     const rec = overlay.rec;
     if (!rec) return;
     if (isViewerReadOnly) {
@@ -2561,22 +4217,12 @@ export function MetaPlatformPage({
       return;
     }
     const href = launchpadHrefForRec(rec, overlay.mode);
-    const recorded = await markActed(
-      rec,
-      overlay.mode === "rebuild" ? "rebuild_clicked" : "audience_swap_clicked",
-    );
-    // Navigating on a refused write presented a failure as success: the
-    // operator landed on Launchpad believing the decision was taken while it
-    // was still queued in Action Now. Close the overlay so the danger notice
-    // markActed just set is readable, and let the operator confirm again.
-    if (!recorded) {
-      setOverlay(EMPTY_OVERLAY);
-      return;
-    }
     // Say what did NOT travel. A campaign/ad-set recommendation has no
     // canonical ad-grain decision, so there is nothing to mint a
     // server-verified handoff from — Launchpad opens as a manual start in the
     // requested mode, and the decision stays where the evidence for it is.
+    // Opening a wizard is not an operator outcome: no `acted` response is
+    // recorded until an actual execution or durable action receipt exists.
     setNotice({
       tone: "info",
       title: "Launchpad opened without decision lineage.",
@@ -2601,10 +4247,20 @@ export function MetaPlatformPage({
    * draft.
    */
   const [handoffPending, setHandoffPending] = useState(false);
+  const handoffPendingRef = useRef(false);
+  /**
+   * @param servedAction the decision's OWN action tuple, exactly as the payload
+   *   carried it. It is never sent to the server — the mint body names a
+   *   decision and asserts nothing — and it is never used to decide anything
+   *   here. It is carried so a refusal can be reported under the label and
+   *   scope note the server itself wrote, instead of a sentence this page
+   *   composed about an action it re-derived.
+   */
   const openLaunchpadFromCanonicalDecision = async (
     canonical: MetaCanonicalDecision,
+    servedAction: MetaOsDecisionAction | null,
   ) => {
-    if (handoffPending) return;
+    if (handoffPendingRef.current) return;
     if (isViewerReadOnly) {
       setNotice({
         tone: "info",
@@ -2622,6 +4278,7 @@ export function MetaPlatformPage({
       });
       return;
     }
+    handoffPendingRef.current = true;
     setHandoffPending(true);
     setNotice(null);
     try {
@@ -2632,10 +4289,20 @@ export function MetaPlatformPage({
         sourceSnapshotId: canonical.sourceSnapshotId,
       });
       if (!minted.ok || !minted.handoff) {
+        const refusal = minted.message ?? "The launch handoff was refused.";
         setNotice({
           tone: "warning",
           title: "Launchpad handoff refused.",
-          detail: minted.message ?? "The launch handoff was refused.",
+          // The server's reason first, then the SERVER's own caption for the
+          // control that was refused — label, code and intent, verbatim off the
+          // tuple that travelled here. This is the only use the tuple gets, and
+          // it is the point of carrying it: a refusal that cannot name what was
+          // refused sends the operator back to guess, and re-deriving that name
+          // from the decision label would put a classification in an action's
+          // place.
+          detail: servedAction
+            ? `${refusal} Refused control: ${servedAction.label} (${servedAction.code}, intent ${servedAction.intent}).`
+            : refusal,
         });
         return;
       }
@@ -2647,43 +4314,86 @@ export function MetaPlatformPage({
         }),
       );
     } finally {
+      handoffPendingRef.current = false;
       setHandoffPending(false);
     }
   };
 
   const loading = briefingLoading;
-  const error = briefingError ?? ((anomalyQuery.error ?? null) as Error | null);
+  const error = briefingError;
+  const anomalyError = (anomalyQuery.error ?? null) as Error | null;
 
-  const exactCanonicalKeys = new Set(
-    creativeActionDecisions.map(
-      (decision) => `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
-    ),
+  /**
+   * The creative queue is the full set the server served for this account.
+   *
+   * `os.ads.items` IS the server's Ad-grain selection: deduplicated by ad id,
+   * ordered `act` -> `blocked` -> `monitor` then by priority, and already cut
+   * to `queue.adCandidates.limit` (60). Intersecting it with the compact
+   * `creative_rotation` section on top of that was a second, client-side
+   * selection with no contract behind it, and it discarded every Ad the server
+   * had served as blocked or pending. Search is the only filter that stays:
+   * the operator asked for it and can see and clear it.
+   */
+  const exactCreativeDecisions = (
+    workspaceQuery.data?.os?.ads?.items ?? []
+  ).filter((decision) => metaOsCreativeSearchMatch(decision, rowSearch));
+  const servedCreativeCount = workspaceQuery.data?.os?.ads?.items.length ?? 0;
+  const eligibleCreativeCount =
+    workspaceQuery.data?.os?.ads?.eligiblePreCapCount ?? servedCreativeCount;
+  const nextAdCandidateLimit = Math.min(
+    adCandidateLimit + META_DECISIONS_AD_CANDIDATE_LIMIT,
+    META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   );
-  const exactCreativeDecisions = (workspaceQuery.data?.os?.ads?.items ?? []).filter(
-    (decision) =>
-      exactCanonicalKeys.has(
-        `${decision.decisionId}\u0000${decision.sourceSnapshotId}`,
-      ) &&
-      metaOsCreativeSearchMatch(decision, rowSearch),
-  );
-  const exactArchiveRows = inactiveViewItems.flatMap((item) =>
-    item.kind === "structure" ? [item.row] : [],
-  );
+  const canLoadMoreCreatives =
+    adCandidateLimit < META_DECISIONS_AD_CANDIDATE_MAX_LIMIT &&
+    eligibleCreativeCount > servedCreativeCount;
+  const loadMoreCreatives = () => {
+    if (!canLoadMoreCreatives || workspaceQuery.isFetching) return;
+    setAdCandidateLimit(nextAdCandidateLimit);
+  };
+  /**
+   * The archive lane gets BOTH grains it was already holding in memory.
+   *
+   * `inactiveViewItems` merges the served campaign/ad-set archive rows with the
+   * Ad-grain decisions the read model withheld from the live queues. This line
+   * used to be `item.kind === "structure" ? [item.row] : []`, so every one of
+   * those Ads was fetched, filtered against the search box, and then dropped:
+   * 83 served inactive Ads on Grandmix (act_805150454596350) and 319 on TheSwaf
+   * (act_822913786458311) rendered as zero rows.
+   *
+   * Grouped by grain, and each grain in the order the SERVER sent it.
+   *
+   * Built from `inactiveServedGrains`, not from `inactiveViewItems`: the
+   * latter is ranked on spend for the mobile view, and reading the archive out
+   * of it would have re-ordered rows the server ordered while a comment right
+   * here claimed it did not. Sort order is engine output, so it travels
+   * untouched and the adapter names the grain on every row.
+   */
+  const exactArchiveRows: MetaDecisionCenterExactArchiveItem[] = [
+    ...inactiveServedGrains.structures.map((row) => ({
+      kind: "structure" as const,
+      row,
+    })),
+    ...inactiveServedGrains.ads.map((decision) => ({
+      kind: "ad" as const,
+      decision,
+    })),
+  ];
   const exactActionRows = sortMetaRecs(
-    actionNow.filter(
-      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
+    actionNow.filter((recommendation) =>
+      metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
   const exactWatchingRows = sortMetaRecs(
-    watching.filter(
-      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
+    watching.filter((recommendation) =>
+      metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
   const exactNonSalesRows = sortMetaRecs(
-    nonSales.filter(
-      (recommendation) => metaRecSearchMatch(recommendation, rowSearch),
+    nonSales.filter((recommendation) =>
+      metaRecSearchMatch(recommendation, rowSearch),
     ),
     rowSort,
   );
@@ -2693,6 +4403,24 @@ export function MetaPlatformPage({
       [row.name, row.campaignName ?? ""].some((value) =>
         value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
       ),
+  );
+  /*
+   * The served census, built once per payload / search term.
+   *
+   * It honours the SAME search box the queue toolbar owns, because that box
+   * already filters every lane on this page and a second, invisible filter
+   * would be a table narrowing itself for no visible reason. The panel reports
+   * the served total beside the matched total so a typed term can never look
+   * like a shrinking account.
+   */
+  const structureInventoryView = useMemo(
+    () =>
+      buildMetaStructureInventoryViewModel({
+        workspace: workspaceQuery.data,
+        fallbackCurrency: moneyCurrency,
+        search: rowSearch,
+      }),
+    [moneyCurrency, rowSearch, workspaceQuery.data],
   );
   const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
     ? buildMetaDecisionCenterExactViewModel({
@@ -2713,40 +4441,47 @@ export function MetaPlatformPage({
           nonSales: exactNonSalesRows,
           archive: exactArchiveRows,
           creatives: exactCreativeDecisions,
-          canonicalDecisions: creativeActionDecisions,
+          canonicalDecisions: canonicalDecisionEnvelopes,
           creativeCtrSeriesByAdId: queueCtrSeriesQuery.data,
           deferredCount,
         },
         callbacks: {
           onStructurePrimary:
             !isViewerReadOnly && !workspaceQuery.data.system.killSwitchEngaged
-              ? (recommendation) => {
-                  void handlePrimary(recommendation);
+              ? (recommendation, action) => {
+                  void handlePrimary(recommendation, action);
                 }
               : undefined,
           onStructureMenu: openDrillForRec,
           onWatchingReview: openDrillForRec,
           onCreativeReview: (decision, canonicalDecision) => {
-            if (canonicalDecision) {
-              // The presentation decision carries CTR, frequency and the ad
-              // set identity the canonical envelope does not; the evidence
-              // window needs both.
-              emitProductInstrumentation({
-                eventName: "decision_evidence_viewed",
-                surface: "meta_decisions",
-                outcome: "ok",
-                scope: "business",
-                businessId,
-              });
-              setCreativeDrill({ decision, canonical: canonicalDecision });
-              return;
-            }
-            setNotice({
-              tone: "warning",
-              title: "Canonical creative evidence is unavailable.",
-              detail:
-                "The served decision has no canonical envelope, so the evidence window cannot be opened for it.",
+            /*
+             * Every served row opens. The canonical envelope is carried, not
+             * required.
+             *
+             * The presentation decision carries the engine's reading — why now,
+             * assessment, blockers, resolution, lane, availability and the ad's
+             * own metrics — and the canonical envelope carries the audit half.
+             * This used to refuse the open whenever the second was missing and
+             * put up a warning banner instead, which on an account whose ads
+             * source has degraded is EVERY row: the operator was told the
+             * evidence was unavailable while the engine's own evidence sat
+             * unread in the payload.
+             *
+             * So `canonicalDecision` travels as it came, `null` included. It is
+             * never substituted and never reconstructed, and the window states
+             * which half it is missing rather than filling it in.
+             */
+            emitProductInstrumentation({
+              eventName: "decision_evidence_viewed",
+              surface: "meta_decisions",
+              outcome: "ok",
+              scope: "business",
+              businessId,
             });
+            setNativeAdPauseAuthorization(null);
+            setNativeAdPauseError(null);
+            setCreativeDrill({ decision, canonical: canonicalDecision });
           },
         },
       })
@@ -2754,10 +4489,192 @@ export function MetaPlatformPage({
         activeWindow: exactWindowForMetaWindow(selectedWindow),
         identity: {
           accountLabel:
-            selectedProviderAccount?.name ?? selectedProviderAccount?.id ?? null,
+            selectedProviderAccount?.name ??
+            selectedProviderAccount?.id ??
+            null,
           currency: moneyCurrency,
         },
       };
+
+  // Served authority the mobile surface states beside its rows. Read-only
+  // projection of already-fetched fields: no extra query, no derivation.
+  const mobilePosture = buildMetaMobilePosture({
+    workspace: workspaceQuery.data,
+    viewerReadOnlyReason,
+  });
+
+  /**
+   * The server's verdict on this decision's Launchpad route, taken once.
+   *
+   * Read here rather than at each call site so the footer control, the mobile
+   * screen and the authority row that explains them cannot disagree about
+   * whether a route exists.
+   */
+  const creativeEvidenceLaunchpad = creativeDrill
+    ? creativeEvidenceLaunchpadRoute({
+        canonical: creativeDrill.canonical,
+        action: creativeDrill.decision?.action ?? null,
+        providerAccountId,
+      })
+    : null;
+  const creativeEvidenceAction = creativeDrill?.decision?.action ?? null;
+  const creativeEvidenceIsNativePause = Boolean(
+    creativeEvidenceAction?.code === "cut" &&
+    creativeEvidenceAction.intent === "execute" &&
+    creativeEvidenceAction.targetLevel === "ad" &&
+    creativeEvidenceAction.providerMutation === "pause",
+  );
+  const creativeEvidenceNativePause = creativeEvidenceIsNativePause
+    ? authorizeMetaNativeAdPause({
+        businessId,
+        providerAccountId,
+        decision: creativeDrill?.decision ?? null,
+        canonical: creativeDrill?.canonical ?? null,
+      })
+    : null;
+  const creativeEvidencePrimaryAuthority: {
+    kind: "launchpad_handoff" | "native_ad_pause";
+    offered: boolean;
+    refusalReason: string | null;
+  } | null = creativeEvidenceIsNativePause
+    ? creativeEvidenceNativePause?.ok
+      ? isViewerReadOnly
+        ? {
+            kind: "native_ad_pause",
+            offered: false,
+            refusalReason:
+              viewerReadOnlyReason ??
+              "Current viewer is not authorized to mutate Meta Ads.",
+          }
+        : workspaceQuery.data?.system.killSwitchEngaged
+          ? {
+              kind: "native_ad_pause",
+              offered: false,
+              refusalReason:
+                workspaceQuery.data.system.killSwitchReason ??
+                "Meta writes are disabled by the kill switch.",
+            }
+          : {
+              kind: "native_ad_pause",
+              offered: true,
+              refusalReason: null,
+            }
+      : {
+          kind: "native_ad_pause",
+          offered: false,
+          refusalReason:
+            creativeEvidenceNativePause?.refusalReason ??
+            "Exact-Ad pause authority is unavailable.",
+        }
+    : creativeEvidenceLaunchpad
+      ? {
+          kind: "launchpad_handoff",
+          offered: creativeEvidenceLaunchpad.offered,
+          refusalReason: creativeEvidenceLaunchpad.refusalReason,
+        }
+      : null;
+  const creativeEvidenceNativePauseControl =
+    creativeEvidencePrimaryAuthority?.kind === "native_ad_pause" &&
+    creativeEvidencePrimaryAuthority.offered &&
+    creativeEvidenceNativePause?.ok
+      ? creativeEvidenceNativePause
+      : null;
+
+  /**
+   * The evidence inputs the desktop drawer and the mobile screen share.
+   *
+   * ONE object, spread into both builds. They previously repeated the same
+   * twelve fields, which is how the two surfaces drift into two different
+   * accounts of one decision: every field added to one and missed on the other
+   * is a fact a phone silently stops showing. The desktop call adds the FOOTER
+   * — callbacks and hrefs — and nothing else, because writes are desktop-only
+   * and the evidence must be identical.
+   */
+  const creativeEvidenceSharedInput = creativeDrill
+    ? {
+        decision: creativeDrill.decision,
+        canonical: creativeDrill.canonical,
+        adRows: creativeEvidenceQuery.data,
+        adSeries: creativeEvidenceSeriesQuery.data,
+        // An unresolved helper read and an account with no ad-grain rows used
+        // to reach the drawer identically (both `undefined`), so a failing
+        // query printed the same em-dash as a real absence. The state travels
+        // with the data now.
+        adRowsState: metaEvidenceReadState(creativeEvidenceQuery),
+        adSeriesState: metaEvidenceReadState(creativeEvidenceSeriesQuery),
+        adRowsErrorMessage: metaEvidenceReadError(creativeEvidenceQuery),
+        adSeriesErrorMessage: metaEvidenceReadError(
+          creativeEvidenceSeriesQuery,
+        ),
+        capabilities:
+          workspaceQuery.data?.decisionReadModel.capabilities ?? null,
+        // The generation the whole queue was read from. Without it the window
+        // states row-grain authority while staying silent about the authority
+        // of the queue that produced the row.
+        source: workspaceQuery.data?.decisionReadModel.source ?? null,
+        launchpadRoute: creativeEvidenceLaunchpad,
+        primaryActionAuthority: creativeEvidencePrimaryAuthority,
+        fallbackCurrency: moneyCurrency,
+      }
+    : null;
+
+  const creativeEvidenceViewModel: CreativeEvidenceWindowExactViewModel =
+    creativeEvidenceSharedInput
+      ? buildCreativeEvidenceWindowExactViewModel(creativeEvidenceSharedInput)
+      : {};
+
+  const closeNativeAdPauseDialog = () => {
+    if (nativeAdPausePending) return;
+    setNativeAdPauseAuthorization(null);
+    setNativeAdPauseError(null);
+  };
+
+  const confirmNativeAdPause = async () => {
+    if (
+      !nativeAdPauseAuthorization ||
+      nativeAdPausePendingRef.current ||
+      nativeAdPauseAuthorization.request.idempotencyKey ===
+        nativeAdPauseLockedKey
+    )
+      return;
+    nativeAdPausePendingRef.current = true;
+    setNativeAdPausePending(true);
+    setNativeAdPauseError(null);
+    const result = await executeMetaNativeAdPause({
+      request: nativeAdPauseAuthorization.request,
+    });
+    if (!result.ok) {
+      setNativeAdPauseError(describeMetaNativeAdPauseFailure(result));
+      if (
+        result.reconciliationRequired ||
+        result.retryAllowed === false ||
+        result.providerOutcomeAmbiguous === true ||
+        result.providerMutationSucceeded === true
+      ) {
+        setNativeAdPauseLockedKey(
+          nativeAdPauseAuthorization.request.idempotencyKey,
+        );
+      }
+      nativeAdPausePendingRef.current = false;
+      setNativeAdPausePending(false);
+      return;
+    }
+
+    setNativeAdPauseAuthorization(null);
+    setNativeAdPauseError(null);
+    setNativeAdPauseLockedKey(null);
+    setCreativeDrill(null);
+    nativeAdPausePendingRef.current = false;
+    setNativeAdPausePending(false);
+    setNotice({
+      tone: "success",
+      title: result.duplicate
+        ? "Exact Ad pause was already verified."
+        : "Exact Ad paused.",
+      detail: result.message,
+    });
+    await refreshDecisionData();
+  };
 
   return (
     <div
@@ -2766,9 +4683,24 @@ export function MetaPlatformPage({
       data-workspace-query-status={workspaceQuery.status}
       data-workspace-fetch-status={workspaceQuery.fetchStatus}
     >
-      {drillItem ? (
+      {/*
+        The mobile Decision surface. The stylesheet shows exactly this subtree
+        below 720px and hides every sibling, so whatever is NOT projected here
+        is invisible to a phone. It therefore renders the same
+        `exactViewModel` the desktop renders — same rows, same counts, same
+        scope/lane state — and adds the served posture (viewer authority,
+        source authority, limitations, capability gaps, withheld inventory)
+        that the desktop states in its own chrome.
+      */}
+      {creativeDrill ? (
+        <MetaMobileCreativeEvidenceScreen
+          viewModel={creativeEvidenceViewModel}
+          onBack={() => setCreativeDrill(null)}
+        />
+      ) : drillItem ? (
         <MetaMobileEvidenceScreen
           item={drillItem}
+          inspector={exactViewModel.inspector}
           targetRoas={targetRoas}
           moneyCurrency={moneyCurrency}
           onBack={() => setDrillItem(null)}
@@ -2776,16 +4708,25 @@ export function MetaPlatformPage({
       ) : (
         <MetaMobileDecisionsScreen
           businessName={businessName}
-          moneyCurrency={moneyCurrency}
-          pulse={pulseQuery.data ?? null}
-          laneSnapshotDate={laneSnapshotDate}
+          viewModel={exactViewModel}
+          structureInventory={structureInventoryView}
+          posture={mobilePosture}
+          scope={activeScope}
+          lane={activeLane}
+          onScopeChange={selectScope}
+          onLaneChange={selectLane}
           loading={loading}
           error={error}
           anomalies={anomalies}
-          actionRows={visibleActionRecs}
-          watchingRows={visibleWatchingRecs}
-          targetRoas={targetRoas}
-          onOpenRec={(rec) => openDrillForRec(rec)}
+          banners={workspaceBanners}
+          historyHref={metaHistoryHref}
+          pathname={pathname}
+          onClearSearch={() => setRowSearchParam("")}
+          anomalyError={anomalyError}
+          canLoadMoreCreatives={canLoadMoreCreatives}
+          loadingMoreCreatives={workspaceQuery.isFetching}
+          nextCreativeLimit={nextAdCandidateLimit}
+          onLoadMoreCreatives={loadMoreCreatives}
           onOpenAnomaly={(anomaly) =>
             setDrillItem({ mode: "anomaly", anomaly })
           }
@@ -2867,6 +4808,24 @@ export function MetaPlatformPage({
           </div>
         ) : null}
 
+        {briefingLoading && !workspaceQuery.data ? (
+          <div
+            className="banner info"
+            data-testid="meta-briefing-loading"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="icon">i</div>
+            <div className="msg">
+              <b>Loading decision data.</b>
+              <span className="sub">
+                Reading the assigned Meta account and its complete server
+                decision workspace for this date range.
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         {/*
           Narrow, and narrow on purpose: the account RECORD is missing, not the
           workspace. Same `banner warn` presentation as the integrity-scan
@@ -2904,7 +4863,11 @@ export function MetaPlatformPage({
         ) : null}
 
         {anomalyQuery.error && !briefingError ? (
-          <div className="banner warn" data-testid="meta-anomaly-error" role="alert">
+          <div
+            className="banner warn"
+            data-testid="meta-anomaly-error"
+            role="alert"
+          >
             <div className="icon">!</div>
             <div className="msg">
               <b>Integrity scan is unavailable.</b>
@@ -2962,6 +4925,8 @@ export function MetaPlatformPage({
 
         <MetaWorkspacePostureBanners
           banners={workspaceBanners}
+          historyHref={metaHistoryHref}
+          pathname={pathname}
           trackingDismissed={trackingDismissed}
           onDismissTracking={() => setTrackingDismissed(true)}
           onOpenTrackingDetails={() =>
@@ -2971,109 +4936,189 @@ export function MetaPlatformPage({
           }
         />
 
-        <MetaDecisionCenterExact
-          viewModel={exactViewModel}
-          lane={exactLaneForMetaLane(activeLane)}
-          scope={activeScope}
-          onScopeChange={selectScope}
-          // Action Now keeps the reference's resting two-column state. Watching
-          // opens the column only after Review picked a row, so the button has
-          // somewhere to put the evidence instead of doing nothing.
-          inspectorOpen={activeLane !== "watching" || drillItem !== null}
-          onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
-          onWindowChange={selectExactWindow}
-          onRunSnapshot={
-            providerAccountId && !refreshingSnapshot && !isViewerReadOnly
-              ? () => void refreshSnapshotNow()
-              : undefined
-          }
-          onNewCampaign={
-            providerAccountId && !isViewerReadOnly
-              ? () => {
-                  // "+ New campaign" is a manual start, not a decision
-                  // handoff. Sending `fromMetaBriefing=true&mode=duplicate`
-                  // made Launchpad read the URL as decision lineage, and
-                  // Launchpad deliberately fails that closed
-                  // (hasServerAuthorizedLaunchpadHandoff is always false:
-                  // URL identifiers are not execution authority). The handoff
-                  // then suppressed launchpadMode/launchpadStep, so the button
-                  // landed on "Source & mode" announcing missing lineage with
-                  // the Duplicate card disabled — it never started anything.
-                  // A real Duplicate needs a server-authorized lineage
-                  // contract, not an opened gate; this button asks for the
-                  // manual new-campaign start it is named after.
-                  const params = new URLSearchParams({
-                    providerAccountId,
-                    launchpadMode: "new_campaign",
-                    launchpadStep: "source",
-                  });
-                  router.push(
-                    dashboardHrefForRouteFamily(
-                      "/platforms/meta/launchpad?" + params.toString(),
-                      pathname,
-                    ),
-                  );
-                }
-              : undefined
-          }
-          onManageLabels={
-            providerAccountId && !isViewerReadOnly
-              ? () => setLabelModalOpen(true)
-              : undefined
-          }
-          onSortChange={setRowSort}
-          onSearchChange={setRowSearchParam}
-          initialQuery={rowSearch}
-          onOpenCreativeStudio={() => {
-            const query = providerAccountId
-              ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
-              : "";
-            router.push(
-              dashboardHrefForRouteFamily(
-                "/platforms/meta/creatives" + query,
-                pathname,
-              ),
-            );
-          }}
-        />
+        {workspaceQuery.data ? (
+          <MetaDecisionCenterExact
+            viewModel={exactViewModel}
+            lane={exactLaneForMetaLane(activeLane)}
+            scope={activeScope}
+            onScopeChange={selectScope}
+            // Action Now keeps the reference's resting two-column state. Watching
+            // opens the column only after Review picked a row, so the button has
+            // somewhere to put the evidence instead of doing nothing.
+            inspectorOpen={activeLane !== "watching" || drillItem !== null}
+            onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
+            onRunSnapshot={
+              providerAccountId && !refreshingSnapshot && !isViewerReadOnly
+                ? () => void refreshSnapshotNow()
+                : undefined
+            }
+            onNewCampaign={
+              providerAccountId && !isViewerReadOnly
+                ? () => {
+                    // "+ New campaign" is a manual start, not a decision
+                    // handoff. Sending `fromMetaBriefing=true&mode=duplicate`
+                    // made Launchpad read the URL as decision lineage, and
+                    // Launchpad deliberately fails that closed
+                    // (hasServerAuthorizedLaunchpadHandoff is always false:
+                    // URL identifiers are not execution authority). The handoff
+                    // then suppressed launchpadMode/launchpadStep, so the button
+                    // landed on "Source & mode" announcing missing lineage with
+                    // the Duplicate card disabled — it never started anything.
+                    // A real Duplicate needs a server-authorized lineage
+                    // contract, not an opened gate; this button asks for the
+                    // manual new-campaign start it is named after.
+                    const params = new URLSearchParams({
+                      providerAccountId,
+                      launchpadMode: "new_campaign",
+                      launchpadStep: "source",
+                    });
+                    router.push(
+                      dashboardHrefForRouteFamily(
+                        "/platforms/meta/launchpad?" + params.toString(),
+                        pathname,
+                      ),
+                    );
+                  }
+                : undefined
+            }
+            onManageLabels={
+              providerAccountId && !isViewerReadOnly
+                ? () => setLabelModalOpen(true)
+                : undefined
+            }
+            onSortChange={setRowSort}
+            onSearchChange={setRowSearchParam}
+            initialQuery={rowSearch}
+            onOpenCreativeStudio={() => {
+              const query = providerAccountId
+                ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
+                : "";
+              router.push(
+                dashboardHrefForRouteFamily(
+                  "/platforms/meta/creatives" + query,
+                  pathname,
+                ),
+              );
+            }}
+          />
+        ) : null}
+
+        {activeScope === "creatives" && canLoadMoreCreatives ? (
+          <div data-meta-load-more-creatives>
+            <button
+              type="button"
+              className="btn btn--sm"
+              disabled={workspaceQuery.isFetching}
+              onClick={loadMoreCreatives}
+            >
+              {workspaceQuery.isFetching
+                ? "Loading more decisions…"
+                : `Show more decisions · up to ${nextAdCandidateLimit}`}
+            </button>
+          </div>
+        ) : null}
+
+        {/*
+          The census, under the queue it is not part of.
+
+          It renders only inside the structure scope: the creatives scope has
+          its own served set and a campaign/ad-set census sitting beneath it
+          would be a list with no relationship to what is above it.
+        */}
+        {workspaceQuery.data && activeScope === "structure" ? (
+          <MetaStructureInventoryPanel
+            view={structureInventoryView}
+            open={structureInventoryOpen}
+            onToggle={setStructureInventoryOpen}
+            windowLabel={exactViewModel.activeWindow ?? "—"}
+          />
+        ) : null}
       </div>
 
-      {creativeDrill ? (
+      {creativeDrill && creativeEvidenceSharedInput ? (
         <CreativeEvidenceWindowExact
-          onClose={() => setCreativeDrill(null)}
+          onClose={() => {
+            if (nativeAdPausePending || nativeAdPauseAuthorization) return;
+            setNativeAdPauseAuthorization(null);
+            setNativeAdPauseError(null);
+            setCreativeDrill(null);
+          }}
           viewModel={buildCreativeEvidenceWindowExactViewModel({
-            decision: creativeDrill.decision,
-            canonical: creativeDrill.canonical,
-            adRows: creativeEvidenceQuery.data,
-            adSeries: creativeEvidenceSeriesQuery.data,
-            fallbackCurrency: moneyCurrency,
+            ...creativeEvidenceSharedInput,
             // The primary is a control, not a link, because the destination
             // does not exist until the server mints it. Same slot, same label,
             // same styling — what changed is that clicking it now produces a
             // verified handoff or a stated refusal instead of a URL Launchpad
             // was always going to throw away.
-            callbacks: creativeEvidenceOffersLaunchpadRoute({
-              decision: creativeDrill.decision,
-              canonical: creativeDrill.canonical,
-            })
+            //
+            // The callback receives the SERVED action tuple by reference. It is
+            // not rebuilt, renamed or narrowed on the way: `action.code`,
+            // `action.intent` and `action.providerMutation` reach this boundary
+            // exactly as the payload carried them, and the handler asserts
+            // nothing about them — it names a decision and lets the server
+            // re-read it.
+            //
+            // The `&& creativeDrill.canonical` is the fail-closed half, not a
+            // type ceremony: `openLaunchpadFromCanonicalDecision` mints against
+            // a canonical decision, and a row that has none must reach no
+            // provider-write path at all. `creativeEvidenceLaunchpadRoute`
+            // already refuses such a row, so the two agree; this makes the
+            // agreement unfalsifiable rather than assumed.
+            callbacks: creativeEvidenceNativePauseControl
               ? {
-                  onPrimary: () => {
-                    void openLaunchpadFromCanonicalDecision(
-                      creativeDrill.canonical,
+                  onPrimary: (action: MetaOsDecisionAction) => {
+                    if (action !== creativeDrill.decision?.action) {
+                      setNotice({
+                        tone: "danger",
+                        title: "Served action changed.",
+                        detail:
+                          "The evidence control no longer matches the decision row. Reopen the row before acting.",
+                      });
+                      return;
+                    }
+                    const requestWasLocked =
+                      creativeEvidenceNativePauseControl.request
+                        .idempotencyKey === nativeAdPauseLockedKey;
+                    setNativeAdPauseError(
+                      requestWasLocked
+                        ? "This exact pause request already has a non-retryable or reconciliation result. Wait for a fresh server read-back before acting again."
+                        : null,
+                    );
+                    if (trackingBlocked && !requestWasLocked) {
+                      setPendingNativePauseTracking(
+                        creativeEvidenceNativePauseControl,
+                      );
+                      return;
+                    }
+                    setNativeAdPauseAuthorization(
+                      creativeEvidenceNativePauseControl,
                     );
                   },
                 }
-              : undefined,
+              : creativeEvidenceLaunchpad?.offered && creativeDrill.canonical
+                ? {
+                    onPrimary: (action: MetaOsDecisionAction) => {
+                      void openLaunchpadFromCanonicalDecision(
+                        creativeDrill.canonical!,
+                        action,
+                      );
+                    },
+                  }
+                : undefined,
             hrefs: {
               primary: null,
               compareInStudio: creativeEvidenceStudioHref({
                 canonical: creativeDrill.canonical,
+                decision: creativeDrill.decision,
                 pathname,
               }),
               adsManager: buildMetaAdsManagerHref({
-                providerAccountId: creativeDrill.canonical.providerAccountId,
+                providerAccountId:
+                  creativeDrill.canonical?.providerAccountId ??
+                  creativeDrill.decision?.providerAccountId ??
+                  null,
                 adId:
-                  creativeDrill.canonical.parentChain.ad?.id ??
+                  creativeDrill.canonical?.parentChain.ad?.id ??
                   creativeDrill.decision?.adId ??
                   null,
               }),
@@ -3081,6 +5126,30 @@ export function MetaPlatformPage({
           })}
         />
       ) : null}
+
+      <MetaNativeAdPauseDialog
+        open={nativeAdPauseAuthorization !== null}
+        adName={
+          creativeDrill?.canonical?.parentChain.ad?.name ??
+          creativeDrill?.decision?.adName ??
+          null
+        }
+        accountLabel={
+          selectedProviderAccount?.name ??
+          selectedProviderAccount?.id ??
+          providerAccountId
+        }
+        pending={nativeAdPausePending}
+        confirmLocked={
+          nativeAdPauseAuthorization?.request.idempotencyKey ===
+          nativeAdPauseLockedKey
+        }
+        error={nativeAdPauseError}
+        onClose={closeNativeAdPauseDialog}
+        onConfirm={() => {
+          void confirmNativeAdPause();
+        }}
+      />
 
       {labelModalOpen ? (
         <div
@@ -3136,13 +5205,52 @@ export function MetaPlatformPage({
       />
 
       <TrackingConfirmModal
-        open={pendingPrimaryRec != null}
-        primaryLabel={trackingConfirmLabelForRec(pendingPrimaryRec)}
-        onClose={() => setPendingPrimaryRec(null)}
+        open={
+          pendingStructurePrimary != null || pendingNativePauseTracking != null
+        }
+        primaryLabel={
+          pendingNativePauseTracking
+            ? "Pause anyway"
+            : trackingConfirmLabelForStructureAction(
+                pendingStructurePrimary?.action,
+              )
+        }
+        description={
+          pendingNativePauseTracking
+            ? "Pausing an exact Ad while tracking is degraded may rely on incomplete purchase evidence. Continue to the exact-Ad confirmation, or resolve tracking first?"
+            : undefined
+        }
+        onClose={() => {
+          setPendingStructurePrimary(null);
+          setPendingNativePauseTracking(null);
+        }}
         onConfirm={() => {
-          const rec = pendingPrimaryRec;
-          setPendingPrimaryRec(null);
-          if (rec) void performPrimary(rec);
+          const pendingPause = pendingNativePauseTracking;
+          const pending = pendingStructurePrimary;
+          setPendingStructurePrimary(null);
+          setPendingNativePauseTracking(null);
+          if (pendingPause) {
+            if (
+              isViewerReadOnly ||
+              workspaceQuery.data?.system.killSwitchEngaged
+            ) {
+              setNotice({
+                tone: "danger",
+                title: "Exact-Ad pause is no longer available.",
+                detail:
+                  viewerReadOnlyReason ??
+                  workspaceQuery.data?.system.killSwitchReason ??
+                  "Meta writes are unavailable. Reopen the row after a fresh server read-back.",
+              });
+              return;
+            }
+            setNativeAdPauseError(null);
+            setNativeAdPauseAuthorization(pendingPause);
+            return;
+          }
+          if (pending) {
+            void performPrimary(pending.recommendation, pending.action);
+          }
         }}
       />
     </div>

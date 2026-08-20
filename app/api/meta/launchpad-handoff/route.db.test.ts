@@ -141,7 +141,12 @@ function decision(overrides: Record<string, unknown> = {}): MetaCanonicalDecisio
       adStatus: "ACTIVE",
       reason: "active_hierarchy",
     },
-    classification: { decisionState: "act", heldAction: null, blockers: [] },
+    classification: {
+      decisionState: "act",
+      heldAction: null,
+      blockers: [],
+      lifecycleRole: { value: "main" },
+    },
     ...overrides,
   } as unknown as MetaCanonicalDecision;
 }
@@ -365,7 +370,13 @@ suite("POST /api/meta/launchpad-handoff", () => {
   it("reports a scale as duplicate without inventing the mode", async () => {
     decisionSource.readServedMetaDecision.mockResolvedValue({
       status: "found",
-      decision: decision(authority({ authorizedAction: "scale" })),
+      decision: decision({
+        ...authority({ authorizedAction: "scale" }),
+        classification: {
+          ...(decision().classification as object),
+          lifecycleRole: { value: "test" },
+        },
+      }),
     });
 
     const response = await POST(request(VALID_BODY, "operator"));

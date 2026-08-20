@@ -1486,6 +1486,100 @@
       padding: 9px 12px;
     }
 
+    /* Mobile decision surface: posture strips, lane tabs and the read-only
+       action caption. New affordances, so they MEET the floors rather than
+       joining an exception list — every size here is >= 12px and every colour
+       pair is a --adc ink on its own light ground. */
+
+    .ad-mobile-posture {
+      margin: 6px 10px;
+      border: 1px solid var(--adc-info-bd);
+      border-radius: 10px;
+      background: var(--adc-info-bg);
+      color: var(--adc-info-fg);
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 9px 12px;
+    }
+
+    .ad-mobile-posture[data-tone="danger"] {
+      border-color: var(--adc-danger-bd);
+      background: var(--adc-danger-bg);
+      color: var(--adc-danger-fg);
+    }
+
+    .ad-mobile-posture b {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .ad-mobile-posture div {
+      margin-top: 3px;
+      color: var(--adc-ink3);
+      font-size: 12px;
+    }
+
+    .ad-mobile-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 10px;
+    }
+
+    .ad-mobile-tabs button {
+      min-height: 44px;
+      border: 1px solid var(--adc-b2);
+      border-radius: 10px;
+      background: var(--adc-s2);
+      color: var(--adc-ink2);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 0 11px;
+    }
+
+    .ad-mobile-tabs button[data-active="true"] {
+      border-color: var(--adc-ink);
+      background: var(--adc-s1);
+      color: var(--adc-ink);
+      font-weight: 600;
+    }
+
+    .ad-mobile-action-note {
+      color: var(--adc-ink3);
+      font-size: 12px;
+    }
+
+    .ad-mobile-diagnostics {
+      margin: 8px 10px;
+      border: 1px solid var(--adc-b1);
+      border-radius: 10px;
+      background: var(--adc-s2);
+      color: var(--adc-ink2);
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 9px 12px;
+    }
+
+    .ad-mobile-diagnostics summary {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      color: var(--adc-ink2);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .ad-mobile-diagnostics div {
+      margin-top: 3px;
+      color: var(--adc-ink3);
+      font-family: var(--font-ibm-plex-mono), var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
     .meta-decisions-final {
       min-height: calc(100vh - 92px);
       padding: 12px 0;
@@ -7797,6 +7891,17 @@
    ========================================================================== */
 @layer components {
   .adv-shell {
+    /*
+     * The console's two width constants, declared on the SHARED ancestor so both
+     * the rail and anything inside the page column can read them. The rail is a
+     * sibling of that column, so a variable declared on the rail never reaches
+     * the content.
+     *
+     * They exist because Creative Studio's asset table has to reach past
+     * `--adv-page-max`, and computing that overhang from hardcoded copies of
+     * these numbers is how the two drift apart.
+     */
+    --adv-rail-w: 248px;
     display: flex;
     height: 100vh;
     overflow: hidden;
@@ -7820,7 +7925,7 @@
 
   /* ---------- rail ---------- */
   .adv-rail {
-    width: 248px;
+    width: var(--adv-rail-w, 248px);
     flex-shrink: 0;
     background: var(--adv-rail);
     display: flex;
@@ -8305,9 +8410,18 @@
   }
 
   .adv-page {
-    max-width: 1560px;
+    /*
+     * Published as variables so a surface that needs to reach PAST this cap can
+     * compute the overhang exactly instead of hardcoding the same two numbers a
+     * second time. Creative Studio's asset table is the one consumer today: it
+     * has eleven metric columns and a wide screen leaves 400px+ of this column
+     * unused on either side of the cap.
+     */
+    --adv-page-max: 1560px;
+    --adv-page-gutter: 28px;
+    max-width: var(--adv-page-max);
     margin: 0 auto;
-    padding: 24px 28px 48px;
+    padding: 24px var(--adv-page-gutter) 48px;
   }
 
   .adv-card {
@@ -8689,6 +8803,17 @@
    ========================================================================== */
 @layer components {
   .adv-shell {
+    /*
+     * The console's two width constants, declared on the SHARED ancestor so both
+     * the rail and anything inside the page column can read them. The rail is a
+     * sibling of that column, so a variable declared on the rail never reaches
+     * the content.
+     *
+     * They exist because Creative Studio's asset table has to reach past
+     * `--adv-page-max`, and computing that overhang from hardcoded copies of
+     * these numbers is how the two drift apart.
+     */
+    --adv-rail-w: 248px;
     display: flex;
     height: 100vh;
     overflow: hidden;
@@ -8712,7 +8837,7 @@
 
   /* ---------- rail ---------- */
   .adv-rail {
-    width: 248px;
+    width: var(--adv-rail-w, 248px);
     flex-shrink: 0;
     background: var(--adv-rail);
     display: flex;
@@ -9197,9 +9322,18 @@
   }
 
   .adv-page {
-    max-width: 1560px;
+    /*
+     * Published as variables so a surface that needs to reach PAST this cap can
+     * compute the overhang exactly instead of hardcoding the same two numbers a
+     * second time. Creative Studio's asset table is the one consumer today: it
+     * has eleven metric columns and a wide screen leaves 400px+ of this column
+     * unused on either side of the cap.
+     */
+    --adv-page-max: 1560px;
+    --adv-page-gutter: 28px;
+    max-width: var(--adv-page-max);
     margin: 0 auto;
-    padding: 24px 28px 48px;
+    padding: 24px var(--adv-page-gutter) 48px;
   }
 
   .adv-card {

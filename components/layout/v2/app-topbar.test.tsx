@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   fetch: vi.fn(),
   pickerProps: [] as Array<Record<string, unknown>>,
   hookReferenceDates: [] as Array<string | null>,
+  syncOptions: [] as Array<{ providerStatusEnabled?: boolean }>,
   businesses: [
     {
       id: "business_A",
@@ -120,11 +121,14 @@ vi.mock("@/components/date-range/DateRangePicker", async (importOriginal) => {
 });
 
 vi.mock("@/components/layout/v2/use-shell-signals", () => ({
-  useWorkspaceSyncState: () => ({
-    tone: "fresh",
-    label: "Synced 12m ago",
-    freshnessState: "ready",
-  }),
+  useWorkspaceSyncState: (options?: { providerStatusEnabled?: boolean }) => {
+    state.syncOptions.push(options ?? {});
+    return {
+      tone: "fresh",
+      label: "Synced 12m ago",
+      freshnessState: "ready",
+    };
+  },
   // The shell's one answer to "which workspace". It is also the ITEM 10 gate:
   // null means the clock is not known yet, and nothing may be stated from it.
   useConfirmedShellBusinessId: () => state.confirmedBusinessId,
@@ -155,6 +159,7 @@ vi.mock("@/lib/auth-diagnostics", () => ({ logClientAuthEvent: vi.fn() }));
 
 import {
   AppTopbar,
+  isMetaDecisionsRoute,
   scopedBusinessSwitchDestination,
 } from "@/components/layout/v2/app-topbar";
 
@@ -218,6 +223,7 @@ describe("business-scoped Dashboard v2 topbar", () => {
     state.fetch.mockResolvedValue({ ok: true });
     state.pickerProps.length = 0;
     state.hookReferenceDates.length = 0;
+    state.syncOptions.length = 0;
     state.setDateRange.mockReset();
     state.dateRange = {
       rangePreset: "28d",
@@ -238,6 +244,47 @@ describe("business-scoped Dashboard v2 topbar", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    "/platforms/meta",
+    "/platforms/meta/",
+    "/app/meta/decisions",
+    "/c/business_A/meta/decisions",
+  ])("suppresses both shell provider reads on Decision route %s", (pathname) => {
+    state.pathname = pathname;
+    window.history.replaceState(null, "", `${pathname}?${STATED_WINDOW}`);
+
+    renderTopbar();
+
+    expect(isMetaDecisionsRoute(pathname)).toBe(true);
+    expect(state.syncOptions.length).toBeGreaterThan(0);
+    expect(
+      state.syncOptions.every(
+        (options) => options.providerStatusEnabled === false,
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "/platforms/meta/creatives",
+    "/app/meta/automation",
+    "/app/google/overview",
+    "/c/business_A/home",
+    "/c/business_A/google/overview",
+  ])("preserves shell provider fallback on non-Decision route %s", (pathname) => {
+    state.pathname = pathname;
+    window.history.replaceState(null, "", `${pathname}?${STATED_WINDOW}`);
+
+    renderTopbar();
+
+    expect(isMetaDecisionsRoute(pathname)).toBe(false);
+    expect(state.syncOptions.length).toBeGreaterThan(0);
+    expect(
+      state.syncOptions.every(
+        (options) => options.providerStatusEnabled === true,
+      ),
+    ).toBe(true);
   });
 
   it("paints route A and resolves its date clock even when the session store says B", () => {

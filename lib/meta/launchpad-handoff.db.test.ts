@@ -82,7 +82,12 @@ function decision(
       adStatus: "ACTIVE",
       reason: "active_hierarchy",
     },
-    classification: { decisionState: "act", heldAction: null, blockers: [] },
+    classification: {
+      decisionState: "act",
+      heldAction: null,
+      blockers: [],
+      lifecycleRole: { value: "main" },
+    },
     ...overrides,
   } as unknown as MetaCanonicalDecision;
 }
@@ -244,6 +249,10 @@ suite("meta launchpad handoff persistence", () => {
           realAdId: "ad_1",
           authorizedAction: "scale",
           jobRunId: null,
+        },
+        classification: {
+          ...(decision().classification as object),
+          lifecycleRole: { value: "test" },
         },
       }),
     });

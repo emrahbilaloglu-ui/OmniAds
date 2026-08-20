@@ -1300,6 +1300,19 @@ describe("buildMetaOsDecisionsPresentation", () => {
         providerMutation: null,
       },
     });
+    /*
+     * LAW: a fabricated constant must never be served as a measurement.
+     *
+     * This row is SYNTHESISED — Meta says the Ad is live, no Ad-grain decision
+     * snapshot exists, and the placeholder's own `whyNow` says so. No engine
+     * produced a confidence for it. It used to carry `confidenceScore: 0`, and
+     * the creative evidence window rendered that constant as "low · score 0.00"
+     * in the same format a real engine score is rendered in. Null is the honest
+     * value; the "low" BAND stays, because that is a stated property of a
+     * placeholder rather than a number nobody computed.
+     */
+    expect(result.ads.items[0]?.confidenceScore).toBeNull();
+    expect(result.ads.items[0]?.confidence).toBe("low");
     expect(result.ads.blockedCount).toBe(1);
     expect(JSON.stringify(result)).not.toContain("label_needed");
     expect(result.limitations).toEqual(
@@ -1309,6 +1322,174 @@ describe("buildMetaOsDecisionsPresentation", () => {
         }),
       ]),
     );
+  });
+
+  it("selects canonical and pending Ads before the cap with stable 60, 120 and 300 prefixes", () => {
+    const canonical = Array.from({ length: 320 }, (_, index) =>
+      canonicalDecision({
+        id: `canonical-act-${index + 1}`,
+        adId: `120000${String(index + 1).padStart(12, "0")}`,
+        buyerAction: "cut",
+      }),
+    );
+    const pendingAd = {
+      providerAccountId: "act_1",
+      adId: "120000999999999999",
+      adName: "Current Ad awaiting exact evidence",
+      campaignId: "cmp_1",
+      adsetId: "adset_1",
+      creativeId: "creative_pending",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      providerUpdatedAt: null,
+      fetchedAt: "2026-07-13T09:00:00.000Z",
+    } as const;
+    const modelAt = (limit: 60 | 120 | 300) => {
+      const selected = canonical.slice(0, limit);
+      const model = readModel(selected);
+      model.queue.adCandidates = {
+        selectionVersion: "meta-decisions-ad-candidate-selection.v2",
+        limit,
+        preCapCount: canonical.length,
+        eligiblePreCapCount: canonical.length,
+        selectedCount: selected.length,
+        stateCounts: {
+          act: { preCapCount: canonical.length, selectedCount: selected.length },
+          blocked: { preCapCount: 0, selectedCount: 0 },
+          monitor: { preCapCount: 0, selectedCount: 0 },
+        },
+        omittedAmbiguousIdentity: 0,
+        omittedWithoutVerifiedAdId: 0,
+        omittedNotApplicable: 0,
+        items: selected,
+      };
+      return model;
+    };
+
+    const first = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: modelAt(60),
+      currentAds: [pendingAd],
+      currency: "EUR",
+    });
+    const expanded = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: modelAt(120),
+      currentAds: [pendingAd],
+      currency: "EUR",
+    });
+    const full = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: modelAt(300),
+      currentAds: [pendingAd],
+      currency: "EUR",
+    });
+
+    expect(first.ads.items).toHaveLength(60);
+    expect(first.ads).toMatchObject({
+      actCount: 59,
+      blockedCount: 1,
+      monitorCount: 0,
+      statePreCapCounts: { act: 320, blocked: 1, monitor: 0 },
+      eligiblePreCapCount: 321,
+    });
+    expect(first.ads.items).toContainEqual(
+      expect.objectContaining({
+        adId: pendingAd.adId,
+        lane: "blocked",
+        decisionAvailability: "pending_native_evidence",
+      }),
+    );
+    expect(expanded.ads.items.slice(0, 60).map((item) => item.decisionId)).toEqual(
+      first.ads.items.map((item) => item.decisionId),
+    );
+    expect(full.ads.items.slice(0, 120).map((item) => item.decisionId)).toEqual(
+      expanded.ads.items.map((item) => item.decisionId),
+    );
+    expect(full.ads).toMatchObject({
+      actCount: 299,
+      blockedCount: 1,
+      monitorCount: 0,
+      statePreCapCounts: { act: 320, blocked: 1, monitor: 0 },
+      eligiblePreCapCount: 321,
+    });
+    expect(
+      first.limitations.find(
+        (item) => item.code === "active_ad_inventory_pending_native_decision",
+      )?.message,
+    ).toContain("1 ACTIVE Ad is visible");
+  });
+
+  it("states when pending ACTIVE inventory is withheld by the response cap", () => {
+    const canonical = Array.from({ length: 60 }, (_, index) =>
+      canonicalDecision({
+        id: `canonical-blocked-${index + 1}`,
+        adId: `120001${String(index + 1).padStart(12, "0")}`,
+        buyerAction: "diagnose_data",
+      }),
+    );
+    const model = readModel(canonical);
+    model.queue.adCandidates = {
+      selectionVersion: "meta-decisions-ad-candidate-selection.v2",
+      limit: 60,
+      preCapCount: canonical.length,
+      eligiblePreCapCount: canonical.length,
+      selectedCount: canonical.length,
+      stateCounts: {
+        act: { preCapCount: 0, selectedCount: 0 },
+        blocked: {
+          preCapCount: canonical.length,
+          selectedCount: canonical.length,
+        },
+        monitor: { preCapCount: 0, selectedCount: 0 },
+      },
+      omittedAmbiguousIdentity: 0,
+      omittedWithoutVerifiedAdId: 0,
+      omittedNotApplicable: 0,
+      items: canonical,
+    };
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120001999999999999",
+          adName: "Pending row outside the cap",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_pending_withheld",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+      currency: "EUR",
+    });
+
+    expect(result.ads.items).toHaveLength(60);
+    expect(result.ads.blockedCount).toBe(60);
+    expect(result.ads.statePreCapCounts.blocked).toBe(61);
+    expect(
+      result.ads.items.some(
+        (item) => item.decisionAvailability === "pending_native_evidence",
+      ),
+    ).toBe(false);
+    const limitation = result.limitations.find(
+      (item) => item.code === "active_ad_inventory_pending_native_decision",
+    );
+    expect(limitation?.message).toContain("1 ACTIVE Ad is withheld");
+    expect(limitation?.message).not.toContain("is visible");
   });
 
   it("auto-assigns a non-authoritative role when the daily context row is missing", () => {

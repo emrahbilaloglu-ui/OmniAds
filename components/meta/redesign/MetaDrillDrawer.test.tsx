@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -384,5 +385,39 @@ describe("drill KPIs prefer structured metrics", () => {
       />,
     );
     expect(html).toContain("1.90x");
+  });
+});
+
+/**
+ * THE LAW, recorded where the next reader will look: this component is NOT the
+ * drawer the operator opens.
+ *
+ * `MetaDrillDrawer` is mounted by nothing in the app. The Decisions surface
+ * renders its structure evidence in `MetaDecisionCenterExact`'s inspector and
+ * its creative evidence in `CreativeEvidenceWindowExact`, and
+ * `MetaPlatformPage.test.tsx` separately pins that MetaPlatformPage must not
+ * mount this component (it carries a Launchpad bridge, and write authority on
+ * that surface has to come from the server, never from a drawer prop).
+ *
+ * This matters because a defect report that says "the evidence drawer drops the
+ * audit surface" points at the drawer the operator actually opens. Widening
+ * THIS file would have satisfied the words and changed nothing on screen. The
+ * assertion below fails the moment that stops being true, at which point this
+ * file becomes live and the audit surface has to be brought here too.
+ */
+describe("MetaDrillDrawer mount surface", () => {
+  it("is imported by tests only, so widening it would ship nothing", () => {
+    const importers = execSync(
+      "grep -rl 'MetaDrillDrawer' --include='*.ts' --include='*.tsx' app components lib || true",
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((file) => !file.endsWith("MetaDrillDrawer.tsx"));
+    expect(importers.sort()).toEqual([
+      "components/meta/redesign/MetaDrillDrawer.test.tsx",
+      "components/meta/redesign/MetaPlatformPage.test.tsx",
+    ]);
   });
 });

@@ -20,12 +20,18 @@ import {
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
+import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
+import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
 
-vi.mock("@/lib/db", () => ({
-  getDb: vi.fn(),
-}));
+vi.mock("@/lib/db", () => {
+  const getDb = vi.fn();
+  return {
+    getDb,
+    getDbWithTimeout: vi.fn(() => getDb()),
+  };
+});
 
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   resolveCampaignContextMode: vi.fn(() => "automatic"),
@@ -225,7 +231,10 @@ function nativeSnapshot(
   };
 }
 
-function nativeModel(rows: MetaNativeDecisionSnapshotSourceRow[]) {
+function nativeModel(
+  rows: MetaNativeDecisionSnapshotSourceRow[],
+  options: { adCandidateLimit?: number } = {},
+) {
   const adIds = rows.map((row) => row.ad_id);
   return buildNativeMetaDecisionsWorkspaceReadModel({
     businessId: "biz_1",
@@ -248,6 +257,7 @@ function nativeModel(rows: MetaNativeDecisionSnapshotSourceRow[]) {
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
     generatedAt: "2026-07-12T12:00:00.000Z",
+    adCandidateLimit: options.adCandidateLimit,
   });
 }
 
@@ -709,15 +719,11 @@ describe("Meta Decisions workspace canonical read model", () => {
       status: "unavailable",
       validationIssue: "input_hash_invalid",
     });
-    expect(
-      validate([{ ...row, blocked_action_type: "cut" }]),
-    ).toMatchObject({
+    expect(validate([{ ...row, blocked_action_type: "cut" }])).toMatchObject({
       status: "unavailable",
       validationIssue: "snapshot_authority_invalid",
     });
-    expect(
-      validate([{ ...row, authorized_action: null }]),
-    ).toMatchObject({
+    expect(validate([{ ...row, authorized_action: null }])).toMatchObject({
       status: "unavailable",
       validationIssue: "snapshot_authority_invalid",
     });
@@ -914,9 +920,22 @@ describe("Meta Decisions workspace canonical read model", () => {
       currency: "USD",
       attribution: "meta_attributed",
     });
+    // `risk_tier_unclassified` is a statement about THIS pipeline — the
+    // risk-tier producer is not persisted — so it informs and never gates. It
+    // used to be appended to every canonical decision's blocker list
+    // unconditionally, which made `blockers.length > 0` true for every ad the
+    // server could produce and silently vetoed every action guarded on it.
     expect(
       item.classification.blockers.map((blocker) => blocker.code),
-    ).toContain("risk_tier_unclassified");
+    ).not.toContain("risk_tier_unclassified");
+    expect(item.classification.advisories).toEqual([
+      expect.objectContaining({
+        code: "risk_tier_unclassified",
+        label: "Risk is unclassified",
+        category: "risk",
+        reason: "risk_tier_producer_not_persisted",
+      }),
+    ]);
     expect(item.promotionBasis).toEqual({
       status: "proposed",
       value: null,
@@ -943,6 +962,112 @@ describe("Meta Decisions workspace canonical read model", () => {
       responses: { status: "unavailable" },
       providerWrites: { status: "unavailable" },
     });
+  });
+
+  it("demoting the risk-tier advisory changes no lane and no classification", () => {
+    // The read model also injected `risk_tier_unclassified` into the blocker
+    // codes it hands the semantics projector. No branch in
+    // `projectMetaDecisionSemantics` reads that code and it is not one of the
+    // freshness authority blockers, so the injection was inert — this proves
+    // it, rather than asserting it in a comment. If a future resolution branch
+    // starts consulting the code, this fails and the demotion has to be
+    // re-argued instead of quietly reclassifying rows.
+    const shapes = [
+      {
+        legacyBuyerAction: "cut" as const,
+        sourceLabel: "cut",
+        lifecycleRole: "main" as const,
+        badgeCodes: [] as string[],
+        heldAction: null,
+        authorityBlocker: null,
+      },
+      {
+        legacyBuyerAction: "scale" as const,
+        sourceLabel: "scale",
+        lifecycleRole: "test" as const,
+        badgeCodes: ["fatigue_fatigued"],
+        heldAction: "scale" as const,
+        authorityBlocker: "profile_hard_action_ineligible" as const,
+      },
+      {
+        legacyBuyerAction: "diagnose_data" as const,
+        sourceLabel: "diagnose",
+        lifecycleRole: "label_needed" as const,
+        badgeCodes: [] as string[],
+        heldAction: null,
+        authorityBlocker: null,
+      },
+    ];
+    for (const shape of shapes) {
+      const without = projectMetaDecisionSemantics({
+        ...shape,
+        blockerCodes: [],
+      });
+      const with_ = projectMetaDecisionSemantics({
+        ...shape,
+        blockerCodes: ["risk_tier_unclassified"],
+      });
+      expect(with_).toEqual(without);
+    }
+
+    // And end to end: the served classification for a decision that used to
+    // carry the code is unchanged in every field a lane is read from.
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_1", { label: "cut" })],
+      identityRows: [identity("creative_1")],
+      campaignContextRows: [context()],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    });
+    const item = model.queue.sections.creative_rotation.items[0]!;
+    expect(item.classification).toMatchObject({
+      queueSection: "creative_rotation",
+      decisionState: "monitor",
+      buyerAction: "cut",
+      heldAction: null,
+      resolution: null,
+      blockers: [],
+    });
+  });
+
+  it("keeps every real gate in the blocker list that action authority reads", () => {
+    // The demotion moved exactly one code. An authority blocker persisted by
+    // the engine and a lifecycle-role blocker are both still blockers, and both
+    // still sit in the field `blockers.length > 0` guards read.
+    const held = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [
+        snapshot("creative_held", {
+          label: "keep",
+          pre_authority_label: "cut",
+          authority_blocker: "recent_recovery_unverifiable",
+          blocked_action_type: "cut",
+        }),
+      ],
+      identityRows: [identity("creative_held")],
+      campaignContextRows: [context()],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    });
+    const heldItem = held.queue.sections.creative_rotation.items[0]!;
+    expect(
+      heldItem.classification.blockers.map((blocker) => blocker.code),
+    ).toContain("recent_recovery_unverifiable");
+    expect(heldItem.classification.decisionState).toBe("blocked");
+
+    const unlabeled = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_unlabeled")],
+      identityRows: [identity("creative_unlabeled")],
+      campaignContextRows: [],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    });
+    const unlabeledItem = unlabeled.queue.sections.creative_rotation.items[0]!;
+    expect(
+      unlabeledItem.classification.blockers.map((blocker) => blocker.code),
+    ).toContain("campaign_context_unresolved");
   });
 
   it("never promotes a synthetic grouped creative id to an actionable Meta ad", () => {
@@ -1278,6 +1403,149 @@ describe("Meta Decisions workspace canonical read model", () => {
         .slice(0, 60)
         .map((item) => item.decisionId),
     ).toEqual(first.queue.adCandidates?.items.map((item) => item.decisionId));
+  });
+
+  it("keeps mixed-lane 60 and 120 responses as prefixes of the 300-row response", () => {
+    const adId = (index: number) =>
+      `120000${String(index + 1).padStart(12, "0")}`;
+    const act = Array.from({ length: 200 }, (_, index) =>
+      nativeSnapshot(adId(index)),
+    );
+    const blocked = Array.from({ length: 80 }, (_, index) =>
+      nativeSnapshot(adId(200 + index), {
+        label: "test_more",
+        pre_authority_label: "cut",
+        authority_blocker: "profile_hard_action_ineligible",
+        raw_label: "test_more",
+        blocked_action_type: "cut",
+        authorized_action: null,
+        badges: [
+          {
+            type: "campaign_context_unresolved",
+            label: "Campaign context unresolved",
+            severity: "warning",
+          },
+        ],
+      }),
+    );
+    const monitor = Array.from({ length: 80 }, (_, index) =>
+      nativeSnapshot(adId(280 + index), {
+        label: "keep",
+        pre_authority_label: "keep",
+        raw_label: "keep",
+        authorized_action: null,
+      }),
+    );
+    const rows = [...act, ...blocked, ...monitor];
+
+    const first = nativeModel(rows);
+    const expanded = nativeModel(rows, { adCandidateLimit: 120 });
+    const full = nativeModel(rows, { adCandidateLimit: 300 });
+    const firstItems = first.queue.adCandidates?.items ?? [];
+    const expandedItems = expanded.queue.adCandidates?.items ?? [];
+    const fullItems = full.queue.adCandidates?.items ?? [];
+
+    expect(first.queue.adCandidates).toMatchObject({
+      limit: 60,
+      eligiblePreCapCount: 360,
+      selectedCount: 60,
+      stateCounts: {
+        act: { preCapCount: 200, selectedCount: 40 },
+        blocked: { preCapCount: 80, selectedCount: 10 },
+        monitor: { preCapCount: 80, selectedCount: 10 },
+      },
+    });
+    expect(expanded.queue.adCandidates).toMatchObject({
+      limit: 120,
+      eligiblePreCapCount: 360,
+      selectedCount: 120,
+      stateCounts: {
+        act: { preCapCount: 200, selectedCount: 100 },
+        blocked: { preCapCount: 80, selectedCount: 10 },
+        monitor: { preCapCount: 80, selectedCount: 10 },
+      },
+    });
+    expect(full.queue.adCandidates).toMatchObject({
+      limit: 300,
+      eligiblePreCapCount: 360,
+      selectedCount: 300,
+      stateCounts: {
+        act: { preCapCount: 200, selectedCount: 200 },
+        blocked: { preCapCount: 80, selectedCount: 80 },
+        monitor: { preCapCount: 80, selectedCount: 20 },
+      },
+    });
+    expect(expandedItems.slice(0, 60).map((item) => item.decisionId)).toEqual(
+      firstItems.map((item) => item.decisionId),
+    );
+    expect(fullItems.slice(0, 120).map((item) => item.decisionId)).toEqual(
+      expandedItems.map((item) => item.decisionId),
+    );
+    const truePendingAdId = "120000999999999999";
+    const os = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: full,
+      currentAds: [
+        ...rows.map((row) => ({
+          providerAccountId: "act_1",
+          adId: row.ad_id,
+          adName: row.ad_name,
+          campaignId: row.campaign_id,
+          adsetId: row.adset_id,
+          creativeId: row.creative_id,
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        })),
+        {
+          providerAccountId: "act_1",
+          adId: truePendingAdId,
+          adName: "Current Ad awaiting exact evidence",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_pending",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+      currency: "USD",
+    });
+    expect(os.ads.eligiblePreCapCount).toBe(361);
+    expect(os.ads.statePreCapCounts).toEqual({
+      act: 200,
+      blocked: 81,
+      monitor: 80,
+    });
+    expect(
+      os.ads.items
+        .filter(
+          (item) => item.decisionAvailability === "pending_native_evidence",
+        )
+        .map((item) => item.adId),
+    ).toEqual([truePendingAdId]);
+    expect(
+      new Set(firstItems.map((item) => item.classification.decisionState)),
+    ).toEqual(new Set(["act", "blocked", "monitor"]));
+    expect(
+      firstItems
+        .slice(0, 10)
+        .every((item) => item.classification.decisionState === "act"),
+    ).toBe(true);
+    expect(
+      firstItems
+        .slice(10, 20)
+        .every((item) => item.classification.decisionState === "blocked"),
+    ).toBe(true);
+    expect(
+      firstItems
+        .slice(20, 30)
+        .every((item) => item.classification.decisionState === "monitor"),
+    ).toBe(true);
   });
 
   it("serves a held cut as blocked resolution without erasing its assessment", () => {
@@ -2406,37 +2674,113 @@ describe("the native snapshot read stays inside its query budget", () => {
   );
 
   /**
-   * The episode lateral has to be index-addressable, not merely correct.
+   * Every history lookup in the snapshot read has to be index-addressable AND
+   * bounded, not merely correct.
    *
-   * It looks up an ad's own decision history, and it used to name only
-   * `history.ad_id`. That left `decision_entity_type` and `decision_entity_id`
-   * unconstrained in the middle of `engine_v3_ad_snapshots_ad_identity_unique`,
-   * so Postgres scanned ~15k history rows per snapshot row and discarded them:
-   * 309 million buffer hits, 258 seconds, against an 8 second query timeout.
+   * Two separate defects have shipped here, and each one produced the same
+   * symptom: the read blew the 8 second query timeout, the catch reported
+   * `native_schema_or_generation_read_failed`, and the Decision Center quietly
+   * served an empty Creatives scope on every real account. Nothing looked
+   * broken. A correctness test cannot see either of them; only the shape can
+   * be pinned.
    *
-   * The read caught the timeout, reported `native_schema_or_generation_read_failed`
-   * and fell back to `legacy_creative`. Nothing looked broken — the Decision
-   * Center simply served an empty Creatives scope on every real account, and
-   * had done since the native path shipped. A correctness test cannot see this;
-   * only the predicate shape can be pinned.
+   * 1. UNDER-CONSTRAINED PREDICATE. The lookup once named only
+   *    `history.ad_id`, leaving `decision_entity_type` and
+   *    `decision_entity_id` unconstrained in the middle of
+   *    `engine_v3_ad_snapshots_ad_identity_unique`, so Postgres scanned ~15k
+   *    history rows per snapshot row and discarded them: 309 million buffer
+   *    hits, 258 seconds.
+   *
+   * 2. QUADRATIC RE-SCAN. With the predicate fixed, the run boundary was still
+   *    found by a NOT EXISTS anti-join evaluated once per history row --
+   *    O(ads x history x history). On a 3,200-ad account that inner scan ran
+   *    25,453 times and burned 1,149,283 of the statement's 1,289,559 buffers;
+   *    the read measured 12,068-23,052 ms and two production accounts timed
+   *    out on every single request.
+   *
+   * The boundary must therefore be found ONCE per ad, by a bounded backward
+   * scan that stops at the first differently-labelled day -- never by asking
+   * the same question again for every day of the ad's history.
    */
-  it("constrains the episode lookup on the decision entity, not the ad id alone", () => {
-    const lateral = source.slice(
+  it("constrains both episode lookups on the decision entity, not the ad id alone", () => {
+    const boundary = source.slice(
+      source.indexOf("SELECT changed.as_of_date"),
+      source.indexOf(") episode_boundary ON TRUE"),
+    );
+    const episode = source.slice(
       source.indexOf("SELECT MIN(history.as_of_date) AS episode_started_at"),
       source.indexOf(") episode ON TRUE"),
     );
-    expect(lateral).not.toBe("");
+    expect(boundary).not.toBe("");
+    expect(episode).not.toBe("");
 
-    for (const alias of ["history", "changed"]) {
+    for (const [alias, lateral] of [
+      ["changed", boundary],
+      ["history", episode],
+    ] as const) {
       expect(
         lateral,
         `${alias} must pin decision_entity_type so the unique index is usable`,
-      ).toContain(`AND ${alias}.decision_entity_type = snapshot.decision_entity_type`);
+      ).toContain(
+        `AND ${alias}.decision_entity_type = snapshot.decision_entity_type`,
+      );
       expect(
         lateral,
         `${alias} must pin decision_entity_id so the unique index is usable`,
-      ).toContain(`AND ${alias}.decision_entity_id = snapshot.decision_entity_id`);
+      ).toContain(
+        `AND ${alias}.decision_entity_id = snapshot.decision_entity_id`,
+      );
     }
+  });
+
+  it("finds the episode boundary once per ad, not once per history row", () => {
+    const episode = source.slice(
+      source.indexOf("SELECT MIN(history.as_of_date) AS episode_started_at"),
+      source.indexOf(") episode ON TRUE"),
+    );
+    const boundary = source.slice(
+      source.indexOf("SELECT changed.as_of_date"),
+      source.indexOf(") episode_boundary ON TRUE"),
+    );
+    // The anti-join is what made this quadratic. The equivalent closed form is
+    // "the last differently-labelled day at or before the served day", which
+    // one backward index scan answers in a single bounded lookup.
+    expect(
+      episode,
+      "the episode lookup must not re-scan the timeline per history row",
+    ).not.toContain("NOT EXISTS");
+    expect(boundary).toContain("ORDER BY changed.as_of_date DESC");
+    expect(boundary).toContain("LIMIT 1");
+    expect(
+      episode,
+      "the episode lookup must be bounded below by the boundary it just found",
+    ).toContain("history.as_of_date >= episode_boundary.as_of_date");
+  });
+
+  /**
+   * The served currency is read once for the whole account, not once per ad.
+   *
+   * The per-ad LATERAL was sargable, but two indexes both offered its ordering
+   * and the planner costed them 59.07 against 61.35. On one production account
+   * it took the account-wide unique index and walked every ad of every day
+   * backwards looking for one ad_id: 872,487 buffers and 8,910-11,214 ms for
+   * this one column, past the 8,000 ms statement timeout on its own.
+   *
+   * DISTINCT ON is the same row and cannot drift on a tie, because
+   * `meta_ad_daily_business_id_provider_account_id_date_ad_id_key` makes
+   * (business, account, date, ad) unique -- date alone already decides. Keep
+   * the ORDER BY in step with that key if it ever moves.
+   */
+  it("reads the account currency in one pass, not once per ad", () => {
+    expect(source).toContain("WITH ad_daily AS MATERIALIZED (");
+    expect(source).toContain("SELECT DISTINCT ON (daily.ad_id)");
+    expect(source).toContain(
+      "ORDER BY daily.ad_id, daily.date DESC, daily.updated_at DESC",
+    );
+    expect(
+      source,
+      "the currency must not be correlated back to a single snapshot row",
+    ).not.toContain("AND daily.ad_id = snapshot.ad_id");
   });
 
   it("keeps the lifecycle lineage join the creative surfaces read from", () => {

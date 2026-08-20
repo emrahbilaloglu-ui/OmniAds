@@ -74,12 +74,31 @@ Mutation routes used directly by the page:
 - `/api/triage/event` + `/api/triage/state` — scope-level defer state
   (`useDeferState` in `components/common/briefing/DeferChip.tsx:132`).
 
-The recommendation page performs **no direct Meta provider write**. Its
-campaign/ad-set recommendations are advisory until those entity levels have an
-immutable canonical execution-authority contract. Rebuild/duplicate controls
-only route the operator into Launchpad; any later provider write is a separate
-manual Launchpad flow with its own confirmation, write guard, intent lineage,
-action log, and verify-after-write boundary.
+The page performs **exactly one direct Meta provider write**: the exact-Ad
+pause, `POST /api/meta/ads/{adId}/pause` with
+`actionOrigin: "native_decision_v1"`, issued from the creative evidence drawer
+by `executeMetaNativeAdPause`
+(`components/meta/redesign/meta-native-ad-pause.ts`). It is the only one, and
+its authority is READ, never derived: `authorizeMetaNativeAdPause` refuses
+unless the canonical envelope already carries exact native eligible Cut
+authority for the same ad, and the offer is withheld for a read-only viewer or
+an engaged kill switch. The server repeats every check before mutating, so a
+forged client payload gains nothing.
+
+STATE OF THAT CONTROL, recorded because a reader will otherwise assume it is
+live: it is currently **unofferable on every real account**. `buildBlockers`
+(`lib/meta/decisions-workspace-read-model.ts:928`) appends
+`risk_tier_unclassified` unconditionally, so every canonical decision carries at
+least one blocker and the authorization refuses on
+`classification.blockers.length > 0`. Whether that advisory code should gate an
+action is an open decision, not an accident of this page.
+
+**Campaign and ad-set recommendations remain advisory**, and no write executes
+at those levels from here — they have no immutable canonical execution-authority
+contract. Rebuild/duplicate controls only route the operator into Launchpad; any
+provider write at those levels is a separate manual Launchpad flow with its own
+confirmation, write guard, intent lineage, action log, and verify-after-write
+boundary.
 
 ## Page anatomy
 

@@ -12,7 +12,8 @@ import {
   fetchMetaActiveAdConfigsReceipt,
   resolveMetaCredentials,
 } from "@/lib/api/meta";
-import { getDb } from "@/lib/db";
+import { getDb, getDbRuntimeDiagnostics } from "@/lib/db";
+import { META_ACTION_DIGEST_ROW_CAP } from "./action-digest-window";
 import {
   classifyDecisionDateFallback,
   describeDecisionDateFallback,
@@ -75,7 +76,9 @@ interface CurrentMetaAdsResult {
 
 function inputAdScopeKey(input: CurrentMetaAdsResult) {
   if (!input.complete) return "unavailable";
-  const ids = [...new Set(input.rows.map((row) => row.adId.trim()).filter(Boolean))].sort();
+  const ids = [
+    ...new Set(input.rows.map((row) => row.adId.trim()).filter(Boolean)),
+  ].sort();
   return ids.length > 0
     ? createHash("sha256").update(ids.join("\n"), "utf8").digest("hex")
     : "empty";
@@ -279,10 +282,16 @@ function resolveWorkspaceWindow(
   }
   const days = workspaceWindowDays(source.get("window"));
   if (statedEnd) {
-    return { startDate: shiftIsoDate(statedEnd, -(days - 1)), endDate: statedEnd };
+    return {
+      startDate: shiftIsoDate(statedEnd, -(days - 1)),
+      endDate: statedEnd,
+    };
   }
   if (statedStart) {
-    return { startDate: statedStart, endDate: shiftIsoDate(statedStart, days - 1) };
+    return {
+      startDate: statedStart,
+      endDate: shiftIsoDate(statedStart, days - 1),
+    };
   }
   return {
     startDate: shiftIsoDate(resolvedEndDate, -(days - 1)),
@@ -300,7 +309,8 @@ function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
   // to live recommendations by the server presentation layer.
   params.set(
     "status_filter",
-    source.get("status_filter") ?? (source.get("surface") === "os" ? "active" : "all"),
+    source.get("status_filter") ??
+      (source.get("surface") === "os" ? "active" : "all"),
   );
   const window = resolveWorkspaceWindow(source, resolvedEndDate);
   // Both dates always travel. Leaving `startDate` off let each upstream derive
@@ -733,7 +743,16 @@ function emptyDecisionDigest(snapshotDate: string | null): DecisionDigest {
     snapshotDate,
     unavailableReason: null,
     labelFlips: { count: 0, publishedCount: 0, items: [] },
-    actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
+    actions: {
+      verifiedCount: 0,
+      silentFailureCount: 0,
+      countedRowCap: META_ACTION_DIGEST_ROW_CAP,
+      // Nothing was counted, so nothing was cut off. The cap is still stated:
+      // it describes this reader, not this account, and a consumer that has to
+      // explain its own numbers needs it in every arm.
+      countsTruncated: false,
+      items: [],
+    },
     anomalies: { openedCount: 0, items: [] },
     deferrals: { dueCount: 0, items: [] },
   };
@@ -950,6 +969,22 @@ async function readDecisionDigest(input: {
         silentFailureCount: actions.filter(
           (item) => item.status === "silent_failure",
         ).length,
+        countedRowCap: META_ACTION_DIGEST_ROW_CAP,
+        /**
+         * BOTH COUNTS ABOVE DESCRIBE THE RETURNED ROWS, NOT THE WINDOW.
+         *
+         * The action-log query is ordered newest-first and bounded by
+         * `META_ACTION_DIGEST_ROW_CAP`, so a full page is the query telling us
+         * it stopped early: rows older than the newest N were never read and
+         * cannot have been counted. That is the whole fact a consumer needs to
+         * keep its sentence no wider than its measurement, and it is the only
+         * one available without a second COUNT(*) over the same predicate.
+         *
+         * `>=` rather than `===` on purpose. It is the same claim while the
+         * bound holds, and it stays TRUE rather than silently flipping to
+         * "complete" if the query ever returns more than it asked for.
+         */
+        countsTruncated: actionRows.length >= META_ACTION_DIGEST_ROW_CAP,
         items: actions,
       },
       anomalies: {
@@ -1040,27 +1075,6 @@ function workspaceBanners(input: {
       scope: "target_hard_actions",
       action: {
         label: "Set commercial truth",
-        href: "/commercial-truth",
-      },
-    });
-  } else if (
-    input.commercialTargets?.source === "configured_targets" &&
-    input.commercialTargets.freshness !== "fresh"
-  ) {
-    const freshnessUnknown = input.commercialTargets.freshness === "unknown";
-    banners.push({
-      id: "stale_commercial_target_authority",
-      tone: "warning",
-      title: freshnessUnknown
-        ? "Commercial target freshness is unknown."
-        : "Commercial target review is due.",
-      detail: freshnessUnknown
-        ? "Configured targets have no trustworthy confirmation time. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed."
-        : "Configured targets are older than the review interval. This is advisory only; age does not suppress the decision engine's Scale/Cut authority.",
-      blocking: false,
-      scope: "target_hard_actions",
-      action: {
-        label: "Review commercial truth",
         href: "/commercial-truth",
       },
     });
@@ -1174,6 +1188,35 @@ export async function GET(request: NextRequest) {
     currentAdsCompletedAt = performance.now();
     return result;
   });
+  let decisionReadCompletedAt = endDateResolvedAt;
+  const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
+    const loadDecisionRead = () =>
+      canonicalDecisionReadModel({
+        businessId,
+        providerAccountId,
+        adCandidateLimit,
+        asOfDate: servedEndDate,
+        currentAds,
+        activeOnly: compactOsSurface,
+      });
+    const decisionRead =
+      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+        ? await loadDecisionRead()
+        : (
+            await getCachedValue({
+              key: `meta-decisions-read-v7:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              ttlMs: 60_000,
+              staleWhileRevalidateMs: 240_000,
+              loader: loadDecisionRead,
+              // A transient schema/query timeout is useful fail-closed truth
+              // for this request, but never the next five minutes of truth.
+              shouldCache: (result) =>
+                result.ok && result.model.status === "available",
+            })
+          ).value;
+    decisionReadCompletedAt = performance.now();
+    return decisionRead;
+  });
 
   try {
     const loadUpstreams = () =>
@@ -1210,47 +1253,39 @@ export async function GET(request: NextRequest) {
       ...lanes.watching,
       ...lanes.nonSales,
     ];
-    const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
-      const campaignContextIds = normalizeMetaDecisionCampaignContextIds({
-        currentAds: currentAds.rows,
-        structureCampaignIds: [
-          ...scopedRecommendations.map((rec) => rec.campaignId),
-          ...(lanes.structureInventory ?? []).map((row) => row.campaignId),
-        ],
-      });
-      const loadDecisionBundle = async () => {
-        const [decisionRead, currentAdCampaignContexts] = await Promise.all([
-          canonicalDecisionReadModel({
-            businessId,
-            providerAccountId,
-            adCandidateLimit,
-            asOfDate: servedEndDate,
-            currentAds,
-            activeOnly: compactOsSurface,
-          }),
-          readCurrentCampaignContexts({
-            businessId,
-            providerAccountId,
-            snapshotAsOf: servedEndDate,
-            campaignIds: campaignContextIds,
-          }),
-        ]);
-        return { currentAds, decisionRead, currentAdCampaignContexts };
-      };
-      if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
-        return loadDecisionBundle();
-      }
-      return (
-        await getCachedValue({
-          key: `meta-decisions-bundle-v5:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
-          ttlMs: 60_000,
-          staleWhileRevalidateMs: 240_000,
-          loader: loadDecisionBundle,
-        })
-      ).value;
+    const campaignContextIds = normalizeMetaDecisionCampaignContextIds({
+      currentAds: (await currentAdsPromise).rows,
+      structureCampaignIds: [
+        ...scopedRecommendations.map((rec) => rec.campaignId),
+        ...(lanes.structureInventory ?? []).map((row) => row.campaignId),
+      ],
     });
-    const [decisionBundle, digest, commercialTargetRead] = await Promise.all([
+    const loadCurrentCampaignContexts = () =>
+      readCurrentCampaignContexts({
+        businessId,
+        providerAccountId,
+        snapshotAsOf: servedEndDate,
+        campaignIds: campaignContextIds,
+      });
+    const currentCampaignContextsPromise =
+      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+        ? loadCurrentCampaignContexts()
+        : getCachedValue({
+            key: `meta-decisions-context-v1:${businessId}:${providerAccountId ?? "none"}:${servedEndDate}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
+            ttlMs: 60_000,
+            staleWhileRevalidateMs: 240_000,
+            loader: loadCurrentCampaignContexts,
+          }).then((cached) => cached.value);
+    const [
+      currentAds,
+      decisionRead,
+      currentAdCampaignContexts,
+      digest,
+      commercialTargetRead,
+    ] = await Promise.all([
+      currentAdsPromise,
       decisionReadPromise,
+      currentCampaignContextsPromise,
       compactOsSurface
         ? Promise.resolve(null)
         : readDecisionDigest({
@@ -1274,8 +1309,6 @@ export async function GET(request: NextRequest) {
       commercialTargetsPromise,
     ]);
     const decisionBundleCompletedAt = performance.now();
-    const { currentAds, decisionRead, currentAdCampaignContexts } =
-      decisionBundle;
     if (!decisionRead.ok) {
       return NextResponse.json(decisionRead.payload, {
         status: decisionRead.status,
@@ -1337,7 +1370,13 @@ export async function GET(request: NextRequest) {
         snapshotDate: servedLanes.snapshotDate,
         unavailableReason: "not_requested_for_compact_surface",
         labelFlips: { count: 0, publishedCount: 0, items: [] },
-        actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
+        actions: {
+          verifiedCount: 0,
+          silentFailureCount: 0,
+          countedRowCap: META_ACTION_DIGEST_ROW_CAP,
+          countsTruncated: false,
+          items: [],
+        },
         anomalies: { openedCount: 0, items: [] },
         deferrals: { dueCount: 0, items: [] },
       },
@@ -1355,6 +1394,40 @@ export async function GET(request: NextRequest) {
         targetHardActionEligibility,
       }),
     };
+    const responseReadyAt = performance.now();
+    const workspaceTimings = {
+      resolveEndDateMs: endDateResolvedAt - requestStartedAt,
+      upstreamsMs: upstreamsCompletedAt - endDateResolvedAt,
+      currentAdsMs: currentAdsCompletedAt - endDateResolvedAt,
+      decisionReadMs: decisionReadCompletedAt - endDateResolvedAt,
+      decisionBundleMs: decisionBundleCompletedAt - upstreamsCompletedAt,
+      responseBuildMs: responseReadyAt - decisionBundleCompletedAt,
+      totalMs: responseReadyAt - requestStartedAt,
+    };
+    const serverTiming = [
+      `resolve_end_date;dur=${workspaceTimings.resolveEndDateMs.toFixed(1)}`,
+      `upstreams;dur=${workspaceTimings.upstreamsMs.toFixed(1)}`,
+      `current_ads;dur=${workspaceTimings.currentAdsMs.toFixed(1)}`,
+      `decision_read;dur=${workspaceTimings.decisionReadMs.toFixed(1)}`,
+      `decision_bundle;dur=${workspaceTimings.decisionBundleMs.toFixed(1)}`,
+      `response_build;dur=${workspaceTimings.responseBuildMs.toFixed(1)}`,
+      `total;dur=${workspaceTimings.totalMs.toFixed(1)}`,
+    ].join(", ");
+    if (workspaceTimings.totalMs >= 5_000) {
+      const diagnostics = getDbRuntimeDiagnostics();
+      logRuntimeWarn("meta_decisions", "slow_workspace_read", {
+        ...Object.fromEntries(
+          Object.entries(workspaceTimings).map(([key, value]) => [
+            key,
+            Number(value.toFixed(1)),
+          ]),
+        ),
+        adCandidateLimit,
+        compactOsSurface,
+        dbPool: diagnostics.pool,
+        dbCounters: diagnostics.counters,
+      });
+    }
     if (compactOsSurface) {
       const compactPayload: MetaDecisionsOsWorkspacePayload = {
         businessId: payload.businessId,
@@ -1386,17 +1459,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(compactPayload, {
         headers: {
           "Cache-Control": "private, max-age=0",
-          "Server-Timing": [
-            `resolve_end_date;dur=${(endDateResolvedAt - requestStartedAt).toFixed(1)}`,
-            `upstreams;dur=${(upstreamsCompletedAt - endDateResolvedAt).toFixed(1)}`,
-            `current_ads;dur=${(currentAdsCompletedAt - endDateResolvedAt).toFixed(1)}`,
-            `decision_bundle;dur=${(decisionBundleCompletedAt - upstreamsCompletedAt).toFixed(1)}`,
-            `total;dur=${(decisionBundleCompletedAt - requestStartedAt).toFixed(1)}`,
-          ].join(", "),
+          "Server-Timing": serverTiming,
         },
       });
     }
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, {
+      headers: {
+        "Cache-Control": "private, max-age=0",
+        "Server-Timing": serverTiming,
+      },
+    });
   } catch (error) {
     if (error instanceof UpstreamError) {
       return NextResponse.json(
@@ -1404,16 +1476,20 @@ export async function GET(request: NextRequest) {
           error: "upstream_failed",
           source: error.source,
           detail: error.payload,
+          message: `The ${error.source} decision source could not be read. Check backend connectivity, then retry.`,
         },
         { status: error.status },
       );
     }
+    const detail =
+      error instanceof Error
+        ? error.message
+        : "Failed to build Meta decisions workspace.";
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to build Meta decisions workspace.",
+        error: detail,
+        message:
+          "The Meta decision workspace could not be assembled from its backend sources. Check backend connectivity, then retry.",
       },
       { status: 500 },
     );

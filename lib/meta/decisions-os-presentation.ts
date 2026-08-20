@@ -1,7 +1,8 @@
-import type {
-  MetaCanonicalDecision,
-  MetaDecisionAuthorityBlocker,
-  MetaDecisionsWorkspaceReadModel,
+import {
+  META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
+  type MetaCanonicalDecision,
+  type MetaDecisionAuthorityBlocker,
+  type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import {
   resolveProvisionalCampaignKind,
@@ -28,6 +29,24 @@ import {
   type MetaOsStructureGroup,
   type MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
+
+const META_DECISION_CANONICAL_AD_UNIVERSE = Symbol.for(
+  "adsecute.meta.decisions.canonical-ad-universe",
+);
+
+type ReadModelWithCanonicalAdUniverse = MetaDecisionsWorkspaceReadModel & {
+  [META_DECISION_CANONICAL_AD_UNIVERSE]?: ReadonlySet<string>;
+};
+
+function readCanonicalAdUniverseIds(
+  readModel: MetaDecisionsWorkspaceReadModel,
+): ReadonlySet<string> | null {
+  return (
+    (readModel as ReadModelWithCanonicalAdUniverse)[
+      META_DECISION_CANONICAL_AD_UNIVERSE
+    ] ?? null
+  );
+}
 
 const AUTHORITY_BLOCKER_PRESENTATION: Record<
   MetaDecisionAuthorityBlocker,
@@ -1202,7 +1221,12 @@ function activeInventoryAd(
     },
     assessment: "Ad-grain evidence pending",
     confidence: "low",
-    confidenceScore: 0,
+    // No engine ran for this row, so there is no score to serve. A 0 here was a
+    // fabricated constant that the evidence window printed as "score 0.00" — a
+    // measurement the placeholder's own `whyNow` denies having. Null is the
+    // honest value and renders as an em dash; the "low" band above stays,
+    // because THAT is a stated property of a placeholder.
+    confidenceScore: null,
     riskTier: null,
     confirmationCeremony: "highest",
     whyNow:
@@ -1370,6 +1394,75 @@ function compactQueueItems(readModel: MetaDecisionsWorkspaceReadModel) {
 
 function adCandidateItems(readModel: MetaDecisionsWorkspaceReadModel) {
   return readModel.queue?.adCandidates?.items ?? compactQueueItems(readModel);
+}
+
+const OS_AD_LANES = ["act", "blocked", "monitor"] as const satisfies readonly MetaOsDecisionLane[];
+
+const OS_AD_LANE_WEIGHT: Record<MetaOsDecisionLane, number> = {
+  act: 3,
+  blocked: 2,
+  monitor: 1,
+};
+
+function compareOsAdDecisions(
+  left: MetaOsAdDecision,
+  right: MetaOsAdDecision,
+) {
+  return (
+    OS_AD_LANE_WEIGHT[right.lane] - OS_AD_LANE_WEIGHT[left.lane] ||
+    (right.priority.rank ?? -1) - (left.priority.rank ?? -1) ||
+    left.adId.localeCompare(right.adId) ||
+    left.decisionId.localeCompare(right.decisionId)
+  );
+}
+
+/**
+ * One final, deterministic Ad sequence across canonical decisions and current
+ * ACTIVE inventory whose exact decision is pending.
+ *
+ * The response used to append pending rows after the canonical list had
+ * already filled the cap, then slice. When pending inventory was the only
+ * Blocked population, all of it disappeared even though the response claimed
+ * a non-empty Blocked pre-cap count. The fixed lane-reserve prefix below is the
+ * same selection law as the canonical read model: every non-empty lane is
+ * represented first, then the remaining capacity is filled by global priority.
+ * The completed selection is deliberately not re-sorted, so increasing the
+ * limit exposes a longer prefix instead of moving newly admitted Act rows ahead
+ * of Blocked/Monitor rows the smaller response had already served.
+ */
+function selectOsAdDecisions(
+  items: readonly MetaOsAdDecision[],
+  limit: number,
+): MetaOsAdDecision[] {
+  const buckets = Object.fromEntries(
+    OS_AD_LANES.map((lane) => [
+      lane,
+      items
+        .filter((item) => item.lane === lane)
+        .sort(compareOsAdDecisions),
+    ]),
+  ) as Record<MetaOsDecisionLane, MetaOsAdDecision[]>;
+  const nonEmptyLanes = OS_AD_LANES.filter(
+    (lane) => buckets[lane].length > 0,
+  );
+  const reserve =
+    nonEmptyLanes.length === 0
+      ? 0
+      : Math.min(
+          META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
+          Math.floor(limit / nonEmptyLanes.length),
+        );
+  const selected = nonEmptyLanes.flatMap((lane) =>
+    buckets[lane].slice(0, reserve),
+  );
+  const selectedAdIds = new Set(selected.map((item) => item.adId));
+  selected.push(
+    ...items
+      .filter((item) => !selectedAdIds.has(item.adId))
+      .sort(compareOsAdDecisions)
+      .slice(0, Math.max(0, limit - selected.length)),
+  );
+  return selected;
 }
 
 export function buildMetaOsDecisionsPresentation(input: {
@@ -1578,31 +1671,40 @@ export function buildMetaOsDecisionsPresentation(input: {
             a.decisionId.localeCompare(b.decisionId),
         )[0]!,
     )
-    .sort((a, b) => {
-      const laneWeight: Record<MetaOsDecisionLane, number> = {
-        act: 3,
-        blocked: 2,
-        monitor: 1,
-      };
-      return (
-        laneWeight[b.lane] - laneWeight[a.lane] ||
-        (b.priority.rank ?? -1) - (a.priority.rank ?? -1) ||
-        a.adId.localeCompare(b.adId)
-      );
-    });
+    .sort(compareOsAdDecisions);
   const canonicalAdIds = new Set(canonicalAds.map((item) => item.adId));
+  const canonicalAdUniverseIds =
+    readCanonicalAdUniverseIds(input.decisionReadModel) ?? canonicalAdIds;
   const pendingInventoryAds = (input.currentAds ?? [])
     .map((row) =>
       activeInventoryAd(row, input.currency, currentAdCampaignContexts),
     )
     .filter((item): item is MetaOsAdDecision => Boolean(item))
-    .filter((item) => !canonicalAdIds.has(item.adId))
+    .filter((item) => !canonicalAdUniverseIds.has(item.adId))
     .sort((left, right) => left.adId.localeCompare(right.adId));
   const adLimit =
     input.decisionReadModel.queue?.adCandidates?.limit ??
     canonicalAds.length + pendingInventoryAds.length;
-  const ads = [...canonicalAds, ...pendingInventoryAds].slice(0, adLimit);
+  const ads = selectOsAdDecisions(
+    [...canonicalAds, ...pendingInventoryAds],
+    adLimit,
+  );
   const pendingInventoryPreCapCount = pendingInventoryAds.length;
+  const pendingInventorySelectedCount = ads.filter(
+    (item) => item.decisionAvailability === "pending_native_evidence",
+  ).length;
+  const pendingInventoryWithheldCount = Math.max(
+    0,
+    pendingInventoryPreCapCount - pendingInventorySelectedCount,
+  );
+  const pendingInventoryLimitation =
+    pendingInventoryPreCapCount === 0
+      ? null
+      : pendingInventoryWithheldCount === 0
+        ? `${pendingInventorySelectedCount} ACTIVE ${pendingInventorySelectedCount === 1 ? "Ad is" : "Ads are"} visible from the current provider inventory but remain blocked until exact Ad-grain decisions exist.`
+        : pendingInventorySelectedCount === 0
+          ? `${pendingInventoryWithheldCount} ACTIVE ${pendingInventoryWithheldCount === 1 ? "Ad is" : "Ads are"} withheld by the response cap and remain blocked until exact Ad-grain decisions exist.`
+          : `${pendingInventorySelectedCount} of ${pendingInventoryPreCapCount} ACTIVE Ads are visible from the current provider inventory; ${pendingInventoryWithheldCount} ${pendingInventoryWithheldCount === 1 ? "is" : "are"} withheld by the response cap. All remain blocked until exact Ad-grain decisions exist.`;
 
   const allStructureNodes = groups.flatMap((group) => [
     group.campaign,
@@ -1676,11 +1778,9 @@ export function buildMetaOsDecisionsPresentation(input: {
             ?.preCapCount ??
           ads.filter((item) => item.lane === "monitor").length,
       },
-      eligiblePreCapCount: Math.max(
-        input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
-          canonicalAds.length,
-        canonicalAds.length + pendingInventoryPreCapCount,
-      ),
+      eligiblePreCapCount:
+        (input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
+          canonicalAds.length) + pendingInventoryPreCapCount,
       omittedWithoutVerifiedAdId,
       omittedAmbiguousIdentity,
       omittedNotApplicable,
@@ -1715,7 +1815,7 @@ export function buildMetaOsDecisionsPresentation(input: {
         ? [
             {
               code: "active_ad_inventory_pending_native_decision",
-              message: `${pendingInventoryPreCapCount} ACTIVE Ads are visible from the current provider inventory but remain blocked until exact Ad-grain decisions exist.`,
+              message: pendingInventoryLimitation!,
             },
           ]
         : []),

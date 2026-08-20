@@ -8,7 +8,9 @@ function read(relativePath: string) {
 }
 
 const PLATFORM_PAGE = read("components/meta/redesign/MetaPlatformPage.tsx");
-const COPIES_PAGE = read("app/(dashboard)/platforms/meta/copies/legacy-page.tsx");
+const COPIES_PAGE = read(
+  "app/(dashboard)/platforms/meta/copies/legacy-page.tsx",
+);
 
 /**
  * Every module a route can actually reach, tests excluded.
@@ -79,11 +81,17 @@ function productionModulesMounting(component: string): string[] {
 
 describe("Creative evidence window route wiring", () => {
   it("mounts the exact evidence window on the design's own trigger", () => {
-    expect(PLATFORM_PAGE).toContain(
-      'import { CreativeEvidenceWindowExact } from "@/components/creatives/CreativeEvidenceWindowExact"',
+    // The law is that the page imports THIS window from THIS module, not that
+    // the import is written on one line: the page now also imports the window's
+    // view-model type (the mobile evidence screen renders the same view model),
+    // which turns the single-line form into a braced list.
+    expect(PLATFORM_PAGE).toMatch(
+      /import \{[^}]*\bCreativeEvidenceWindowExact\b[^}]*\} from "@\/components\/creatives\/CreativeEvidenceWindowExact"/,
     );
     expect(PLATFORM_PAGE).toContain("<CreativeEvidenceWindowExact");
-    expect(PLATFORM_PAGE).toContain("buildCreativeEvidenceWindowExactViewModel({");
+    expect(PLATFORM_PAGE).toContain(
+      "buildCreativeEvidenceWindowExactViewModel({",
+    );
     expect(PLATFORM_PAGE).not.toContain("MetaCreativeEvidenceDrawer");
   });
 
@@ -108,7 +116,9 @@ describe("Creative evidence window route wiring", () => {
     expect(PLATFORM_PAGE).toContain("/api/meta/ads/series?");
     expect(PLATFORM_PAGE).toContain("meta-creative-evidence-series");
     expect(PLATFORM_PAGE).toContain("adIds: [creativeEvidenceAdId!]");
-    expect(PLATFORM_PAGE).toContain("adSeries: creativeEvidenceSeriesQuery.data,");
+    expect(PLATFORM_PAGE).toContain(
+      "adSeries: creativeEvidenceSeriesQuery.data,",
+    );
   });
 
   it("gives the footer the decision's own action, Compare in Studio and Ads Manager", () => {
@@ -128,10 +138,104 @@ describe("Creative evidence window route wiring", () => {
   it("does not hand the drawer a second, unguarded provider-write trigger", () => {
     // The primary only gets a destination for draft-routing decisions; the
     // confirmation ceremony stays on the decision row.
-    // Same gate, restated as a refusal instead of a match: only these two
-    // decision codes may offer a Launchpad route at all.
-    expect(PLATFORM_PAGE).toContain('code !== "plan_promotion" && code !== "refresh_creative"');
-    expect(PLATFORM_PAGE).not.toContain("/api/meta/decision-action\", { method");
+    //
+    // THE LAW, and why it is no longer spelled as a string match. This used to
+    // assert the literal source text
+    // `code !== "plan_promotion" && code !== "refresh_creative"` — the page's
+    // own hand-kept list of presentation codes. Two problems. It pinned a
+    // CLIENT-SIDE RE-DERIVATION of an action the server had already decided, so
+    // the test's passing was evidence that the defect was still there; and a
+    // string assertion is satisfied by the words appearing anywhere, including
+    // inside a comment explaining why they were removed, which is exactly how
+    // this assertion went green against a page that no longer contained the
+    // gate at all.
+    //
+    // The law is that the page decides eligibility with the SERVER's function,
+    // never with its own list. `authorizeLaunchpadHandoff` is the same law
+    // `POST /api/meta/launchpad-handoff` runs, and it refuses a non-native
+    // source, an ineligible action, a `decisionState` other than `act`, a
+    // held action and any blocker — which is what keeps a blocked / held /
+    // pending / review-only decision from ever reaching a Launchpad mode.
+    expect(PLATFORM_PAGE).toContain("authorizeLaunchpadHandoff({");
+    expect(PLATFORM_PAGE).toContain("creativeEvidenceLaunchpadRoute({");
+    // Asserted OUTSIDE comments: the old list must not be live code again.
+    const code = PLATFORM_PAGE.replace(/\/\*[\s\S]*?\*\//g, "").replace(
+      /^\s*\/\/.*$/gm,
+      "",
+    );
+    expect(code).not.toContain('code !== "plan_promotion"');
+    expect(code).not.toContain('code !== "refresh_creative"');
+    expect(code).toContain("authorizeLaunchpadHandoff({");
+    expect(PLATFORM_PAGE).not.toContain('/api/meta/decision-action", { method');
+  });
+
+  it("carries the served action tuple to the callback boundary unchanged", () => {
+    // The tuple travels by reference. `onPrimary` receives `decision.action`
+    // itself — not a code, not a label, not a rebuilt object — so the boundary
+    // sees the same `{code,label,intent,targetLevel,providerMutation,scopeNote}`
+    // the server wrote. The adapter's own test proves identity; this pins that
+    // the page's handler accepts and forwards it rather than re-deriving one.
+    expect(PLATFORM_PAGE).toContain(
+      "onPrimary: (action: MetaOsDecisionAction)",
+    );
+    expect(PLATFORM_PAGE).toContain(
+      "servedAction: MetaOsDecisionAction | null,",
+    );
+    // The mint body still NAMES a decision and asserts nothing about it: the
+    // tuple must not be smuggled into the request.
+    expect(PLATFORM_PAGE).not.toContain("action: servedAction");
+    expect(PLATFORM_PAGE).not.toContain("authorizedAction: servedAction");
+  });
+
+  it("feeds the window the queue-grain source envelope, not only the row's", () => {
+    // On an account whose ads source degrades, every row still renders and the
+    // only statement of that degradation is this envelope. It reaches the
+    // window through the SHARED input, so desktop and mobile cannot disagree.
+    expect(PLATFORM_PAGE).toContain("creativeEvidenceSharedInput");
+    expect(PLATFORM_PAGE).toContain(
+      "source: workspaceQuery.data?.decisionReadModel.source ?? null,",
+    );
+    expect(PLATFORM_PAGE).toContain(
+      "launchpadRoute: creativeEvidenceLaunchpad,",
+    );
+  });
+
+  /**
+   * LAW: an envelope-less row OPENS, and opens fail-closed.
+   *
+   * The page used to answer `onCreativeReview` with a warning banner whenever
+   * the canonical envelope was missing — "the evidence window cannot be opened
+   * for it" — and on an account whose ads source has degraded that is every
+   * row: Grandmix serves 60 ads and none of them joins a decision snapshot, so
+   * zero of 60 rows could reach the window built to explain that state.
+   *
+   * Three things have to hold together for the open to be safe, and all three
+   * are pinned here: the drill state ADMITS a null envelope, the server's
+   * handoff law is still the only thing that grants a route, and the
+   * provider-write callback is wired only when a canonical decision actually
+   * exists to mint against.
+   */
+  it("opens the window on a served row with no envelope, and stays fail-closed", () => {
+    const code = PLATFORM_PAGE.replace(/\/\*[\s\S]*?\*\//g, "").replace(
+      /^\s*\/\/.*$/gm,
+      "",
+    );
+    // The refusal banner is gone as LIVE CODE, not merely reworded.
+    expect(code).not.toContain("Canonical creative evidence is unavailable.");
+    // The envelope travels as served — null included — and is never rebuilt.
+    expect(code).toContain("canonical: MetaCanonicalDecision | null;");
+    expect(PLATFORM_PAGE).toContain(
+      "setCreativeDrill({ decision, canonical: canonicalDecision })",
+    );
+    // The route verdict still comes from the server's own law, and the write
+    // path additionally demands the canonical decision it mints against.
+    expect(code).toMatch(
+      /canonical: MetaCanonicalDecision \| null;\s+action: MetaOsDecisionAction \| null;\s+providerAccountId/,
+    );
+    expect(code).toContain(
+      "creativeEvidenceLaunchpad?.offered && creativeDrill.canonical",
+    );
+    expect(code).toContain("authorizeLaunchpadHandoff({");
   });
 
   it("leaves exactly one evidence window in the app", () => {
@@ -165,9 +269,10 @@ describe("Creative evidence window route wiring", () => {
       "Trends (7 / 28 / 90d)",
       "Take to Decisions",
     ]) {
-      expect(productionModulesContaining(marker), `${marker} reappeared`).toEqual(
-        [],
-      );
+      expect(
+        productionModulesContaining(marker),
+        `${marker} reappeared`,
+      ).toEqual([]);
     }
   });
 
@@ -195,7 +300,9 @@ describe("Copy detail drawer route wiring", () => {
   });
 
   it("feeds the account medians from the same served rows the table renders", () => {
-    expect(COPIES_PAGE).toContain("const drawerPeers = useMemo(() => rows.map(toCopyDrawerRow)");
+    expect(COPIES_PAGE).toContain(
+      "const drawerPeers = useMemo(() => rows.map(toCopyDrawerRow)",
+    );
     expect(COPIES_PAGE).toContain("peers: drawerPeers");
   });
 

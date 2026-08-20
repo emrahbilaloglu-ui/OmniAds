@@ -48,7 +48,10 @@ const SYSTEM_TIME = new Date("2026-08-18T06:00:00.000Z");
 const state = vi.hoisted(() => ({
   search: "",
   pathname: "/platforms/meta",
-  captured: [] as Array<{ queryKey: unknown[]; queryFn?: () => unknown }>,
+  captured: [] as Array<{
+    queryKey: unknown[];
+    queryFn?: (context: { signal: AbortSignal }) => unknown;
+  }>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -75,9 +78,25 @@ vi.mock("@/components/states/useTierZeroFreshness", () => ({
  * model would only add fixture surface that could fail for reasons unrelated to
  * the window.
  */
-vi.mock("@/components/meta/decision-center/meta-decision-center-exact-adapter", () => ({
-  buildMetaDecisionCenterExactViewModel: () => ({ stub: true }),
-}));
+vi.mock(
+  "@/components/meta/decision-center/meta-decision-center-exact-adapter",
+  () => ({
+    buildMetaDecisionCenterExactViewModel: () => ({ stub: true }),
+    // This file asserts the WINDOW chain, so every other adapter export is
+    // stubbed rather than exercised. It must list them all: a factory mock
+    // replaces the module wholesale, so an export added later makes the page
+    // throw here for a reason that has nothing to do with dates.
+    buildMetaStructureInventoryViewModel: () => ({
+      servedCount: null,
+      campaignCount: null,
+      adsetCount: null,
+      shownCount: 0,
+      searchApplied: false,
+      rows: [],
+      unavailableReason: null,
+    }),
+  }),
+);
 
 vi.mock("@/components/meta/decision-center/MetaDecisionCenterExact", () => ({
   MetaDecisionCenterExact: () => null,
@@ -85,7 +104,10 @@ vi.mock("@/components/meta/decision-center/MetaDecisionCenterExact", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  useQuery: (input: { queryKey: unknown[]; queryFn?: () => unknown }) => {
+  useQuery: (input: {
+    queryKey: unknown[];
+    queryFn?: (context: { signal: AbortSignal }) => unknown;
+  }) => {
     state.captured.push(input);
     return {
       data: queryData(String(input.queryKey[0])),
@@ -100,9 +122,8 @@ vi.mock("@tanstack/react-query", () => ({
   },
 }));
 
-const { MetaPlatformPage } = await import(
-  "@/components/meta/redesign/MetaPlatformPage"
-);
+const { MetaPlatformPage } =
+  await import("@/components/meta/redesign/MetaPlatformPage");
 
 /**
  * Enough of the served payload for the page to reach its per-ad series read.
@@ -231,7 +252,9 @@ function shellUrlForPreset(preset: "7d" | "14d" | "28d"): URLSearchParams {
 }
 
 /** Render the Meta surface at `search` and return the requests it would send. */
-async function requestsAt(search: string): Promise<Map<string, URLSearchParams>> {
+async function requestsAt(
+  search: string,
+): Promise<Map<string, URLSearchParams>> {
   state.search = search;
   state.captured.length = 0;
   renderToStaticMarkup(
@@ -247,7 +270,9 @@ async function requestsAt(search: string): Promise<Map<string, URLSearchParams>>
       json: async () => ({ rows: [], series: [], points: [], anomalies: [] }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    await Promise.resolve(query.queryFn()).catch(() => null);
+    await Promise.resolve(
+      query.queryFn({ signal: new AbortController().signal }),
+    ).catch(() => null);
     for (const call of fetchMock.mock.calls) {
       const url = String(call[0]);
       const [path, query_ = ""] = url.split("?", 2);
@@ -291,7 +316,10 @@ describe("one picked preset produces one window", () => {
     const requests = await requestsAt(shellParams.toString());
 
     const workspace = requests.get("/api/meta/decisions-workspace");
-    expect(workspace, "the surface never issued a workspace read").toBeDefined();
+    expect(
+      workspace,
+      "the surface never issued a workspace read",
+    ).toBeDefined();
     // This was the proven defect: `window=7d` went out alone and the route
     // resolved an end date of its own.
     expect(workspace!.get("startDate")).toBe(start);
@@ -300,14 +328,20 @@ describe("one picked preset produces one window", () => {
     expect(workspace!.get("window")).toBe("7d");
 
     const series = requests.get("/api/meta/ads/series");
-    expect(series, "the surface never issued a per-ad series read").toBeDefined();
+    expect(
+      series,
+      "the surface never issued a per-ad series read",
+    ).toBeDefined();
     // This one used to read 2026-08-12..2026-08-18 while the caption said
     // "Last 7 days" over 08-11..08-17.
     expect(series!.get("start")).toBe(start);
     expect(series!.get("end")).toBe(end);
 
     const anomalies = requests.get("/api/meta/anomalies");
-    expect(anomalies, "the surface never issued an anomalies read").toBeDefined();
+    expect(
+      anomalies,
+      "the surface never issued an anomalies read",
+    ).toBeDefined();
     // Undated, this showed TODAY's anomalies above a historical week's
     // decisions.
     expect(anomalies!.get("endDate")).toBe(end);
@@ -347,7 +381,9 @@ describe("one picked preset produces one window", () => {
     expect(shellUrlForPreset("7d").get("startDate")).toBe(
       workspace.get("startDate"),
     );
-    expect(shellUrlForPreset("7d").get("endDate")).toBe(workspace.get("endDate"));
+    expect(shellUrlForPreset("7d").get("endDate")).toBe(
+      workspace.get("endDate"),
+    );
   });
 
   it("keeps the shared resolver and the shell writer in exact agreement for every preset", () => {

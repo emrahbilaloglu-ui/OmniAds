@@ -13,8 +13,9 @@ import React from "react";
 import { act } from "react";
 
 // React needs to be told this is an act() environment before anything renders.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,6 +24,10 @@ import {
   metaRec,
 } from "@/components/meta/redesign/test-fixtures";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import type {
+  MetaOsAdDecision,
+  MetaOsDecisionAction,
+} from "@/lib/meta/decisions-os-contract";
 
 const state = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -38,6 +43,10 @@ const state = vi.hoisted(() => ({
   >,
   refetched: [] as string[],
   queryKeys: [] as unknown[][],
+  queryOptions: {} as Record<
+    string,
+    { retry?: unknown; refetchOnWindowFocus?: unknown }
+  >,
   adapterInput: null as any,
   exactProps: null as any,
   overlayProps: null as any,
@@ -74,9 +83,17 @@ vi.mock("@/store/app-store", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  useQuery: (input: { queryKey: unknown[] }) => {
+  useQuery: (input: {
+    queryKey: unknown[];
+    retry?: unknown;
+    refetchOnWindowFocus?: unknown;
+  }) => {
     const key = String(input.queryKey[0]);
     state.queryKeys.push(input.queryKey);
+    state.queryOptions[key] = {
+      retry: input.retry,
+      refetchOnWindowFocus: input.refetchOnWindowFocus,
+    };
     const override = state.queryOverrides[key];
     const base =
       key === "meta-decisions-workspace"
@@ -105,19 +122,16 @@ vi.mock("@tanstack/react-query", () => ({
   },
 }));
 
-vi.mock(
-  "@/components/meta/decision-center/MetaDecisionCenterExact",
-  () => ({
-    MetaDecisionCenterExact: (props: any) => {
-      state.exactProps = props;
-      return React.createElement("div", {
-        "data-stub-exact": "true",
-        "data-stub-scope": props.scope,
-        "data-stub-lane": props.lane,
-      });
-    },
-  }),
-);
+vi.mock("@/components/meta/decision-center/MetaDecisionCenterExact", () => ({
+  MetaDecisionCenterExact: (props: any) => {
+    state.exactProps = props;
+    return React.createElement("div", {
+      "data-stub-exact": "true",
+      "data-stub-scope": props.scope,
+      "data-stub-lane": props.lane,
+    });
+  },
+}));
 
 vi.mock("@/components/meta/redesign/MetaLaunchpadOverlay", () => ({
   MetaLaunchpadOverlay: (props: any) => {
@@ -125,7 +139,11 @@ vi.mock("@/components/meta/redesign/MetaLaunchpadOverlay", () => ({
     return props.open
       ? React.createElement(
           "button",
-          { type: "button", "data-stub-overlay-confirm": "true", onClick: props.onConfirm },
+          {
+            type: "button",
+            "data-stub-overlay-confirm": "true",
+            onClick: props.onConfirm,
+          },
           "Confirm",
         )
       : null;
@@ -138,9 +156,10 @@ vi.mock("@/components/meta/redesign/MetaLaunchpadOverlay", () => ({
 vi.mock(
   "@/components/meta/decision-center/meta-decision-center-exact-adapter",
   async (importOriginal) => {
-    const actual = await importOriginal<
-      typeof import("@/components/meta/decision-center/meta-decision-center-exact-adapter")
-    >();
+    const actual =
+      await importOriginal<
+        typeof import("@/components/meta/decision-center/meta-decision-center-exact-adapter")
+      >();
     return {
       ...actual,
       buildMetaDecisionCenterExactViewModel: (input: any) => {
@@ -158,9 +177,8 @@ vi.mock("@/components/creatives/CreativeEvidenceWindowExact", () => ({
   },
 }));
 
-const { MetaPlatformPage } = await import(
-  "@/components/meta/redesign/MetaPlatformPage"
-);
+const { MetaPlatformPage } =
+  await import("@/components/meta/redesign/MetaPlatformPage");
 
 /**
  * Duplicated deliberately from MetaPlatformPage.test.tsx rather than exported
@@ -246,6 +264,47 @@ function canonicalDecision(over: Partial<MetaCanonicalDecision> = {}): any {
       blockers: [],
       provenance: { source: "engine_v3", asOf: "2026-07-10" },
     },
+    /*
+     * The authority envelope a real canonical decision always carries.
+     *
+     * This fixture omitted `sourceAuthority` entirely, which was harmless only
+     * while the page decided Launchpad eligibility from a hand-kept list of
+     * presentation codes. It now runs `authorizeLaunchpadHandoff` — the same
+     * function the mint endpoint runs — and that law reads THIS envelope: a
+     * source that is not `native_exact`, `actionEligible` other than true, a
+     * missing `authorizedAction`, or an authorized action with no Launchpad
+     * mode each refuse the route by name.
+     *
+     * So the fixture states what the contract requires
+     * (`MetaDecisionSourceAuthority`) for a decision that genuinely may route:
+     * an exact native source, eligible, with `authorizedAction: "refresh"` —
+     * which is what `launchpadModeForAuthorizedAction` maps to the `rebuild`
+     * mode this test expects back from the server. Weakening any one of these
+     * fields must close the control, and that is the property the sibling test
+     * below asserts.
+     */
+    sourceAuthority: {
+      status: "native_exact",
+      actionEligible: true,
+      reviewOnlyReason: null,
+      snapshotId: "snapshot_1",
+      evaluationId: "eval_1",
+      inputHash: "in_hash_1",
+      decisionHash: "dec_hash_1",
+      providerAccountRefId: "ref_1",
+      engineVersion: "v3-test",
+      realAdId: "120000000000000001",
+      authorizedAction: "refresh",
+      jobRunId: "job_1",
+    },
+    deliveryScope: {
+      state: "active",
+      campaignStatus: "ACTIVE",
+      adsetStatus: "ACTIVE",
+      adStatus: "ACTIVE",
+      reason: "active_hierarchy",
+      provenance: { source: "engine_v3", asOf: "2026-07-10" },
+    },
     riskTier: null,
     confirmationCeremony: "highest",
     riskTierProvenance: { source: "engine_v3", asOf: "2026-07-10" },
@@ -261,6 +320,138 @@ function canonicalDecision(over: Partial<MetaCanonicalDecision> = {}): any {
       grain: "ad",
     },
     ...over,
+  };
+}
+
+function structureAction(
+  over: Partial<MetaOsDecisionAction> = {},
+): MetaOsDecisionAction {
+  return {
+    code: "route_launchpad_rebuild",
+    label: "Rebuild in Launchpad",
+    intent: "launchpad",
+    targetLevel: "campaign",
+    providerMutation: null,
+    scopeNote: "Opens a PAUSED rebuild draft for this campaign",
+    ...over,
+  };
+}
+
+function pendingOsDecision(
+  over: Partial<MetaOsAdDecision> = {},
+): MetaOsAdDecision {
+  return {
+    id: "os_pending_ad",
+    decisionId: "inventory:ad_pending",
+    sourceSnapshotId: "pending-native:2026-07-10",
+    episodeId: "inventory:ad_pending",
+    providerAccountId: "act_1",
+    adId: "ad_pending",
+    adName: "Pending native evidence",
+    campaignId: "cmp_1",
+    campaignName: "Prospecting",
+    adsetId: "adset_1",
+    adsetName: "Broad",
+    creativeId: "creative_pending",
+    creativeName: "Pending creative",
+    thumbnailUrl: null,
+    lifecycleRole: "unknown",
+    campaignRoleSource: "unknown",
+    campaignRoleConfidence: "unknown",
+    campaignRoleTrustedForAction: false,
+    action: {
+      code: "await_ad_grain_evidence",
+      label: "Evidence pending",
+      intent: "review",
+      targetLevel: "ad",
+      providerMutation: null,
+      scopeNote: "Exact Ad-grain decision evidence is unavailable",
+    },
+    lane: "blocked",
+    priority: {
+      band: "unrankable",
+      rank: null,
+      version: "meta-os-decisions.presentation.v5",
+    },
+    assessment: "pending_native_evidence",
+    confidence: "low",
+    confidenceScore: null,
+    riskTier: null,
+    confirmationCeremony: "highest",
+    whyNow:
+      "Meta confirms this Ad is ACTIVE, but exact Ad-grain evidence is pending.",
+    blockers: [
+      {
+        code: "native_ad_decision_unavailable",
+        label: "Exact Ad-grain decision evidence is unavailable",
+      },
+    ],
+    resolution: {
+      code: "produce_native_ad_decision",
+      category: "system",
+      owner: "system",
+      label: "Produce exact Ad decision",
+      nextStep: "Complete native Ad decision lineage.",
+    },
+    metrics: {
+      spend: null,
+      purchases: null,
+      roas: null,
+      cpa: null,
+      ctr: null,
+      frequency: null,
+      effectiveTargetRoas: null,
+      ratioToTarget: null,
+      currency: "USD",
+      attribution: "meta_attributed",
+      grain: "ad",
+    },
+    rawLabel: null,
+    publishedLabel: "Evidence pending",
+    engineVersion: "v3-test",
+    snapshotAsOf: "2026-07-10",
+    sourceGrain: "ad",
+    decisionAvailability: "pending_native_evidence",
+    ...over,
+  };
+}
+
+function osPresentation(items: MetaOsAdDecision[]) {
+  return {
+    contractVersion: "meta-os-decisions.presentation.v5",
+    generatedAt: "2026-07-10T12:00:00.000Z",
+    source: {
+      snapshotAsOf: "2026-07-10",
+      engineVersion: "v3-test",
+      structureSource: "meta_recommendations",
+      adsSource: "native_ad_decision",
+      health: "healthy",
+      fallbackReason: null,
+    },
+    structure: {
+      groups: [],
+      actCount: 0,
+      blockedCount: 0,
+      monitorCount: 0,
+      suppressedAlternativeCount: 0,
+    },
+    ads: {
+      items,
+      actCount: items.filter((item) => item.lane === "act").length,
+      blockedCount: items.filter((item) => item.lane === "blocked").length,
+      monitorCount: items.filter((item) => item.lane === "monitor").length,
+      statePreCapCounts: {
+        act: items.filter((item) => item.lane === "act").length,
+        blocked: items.filter((item) => item.lane === "blocked").length,
+        monitor: items.filter((item) => item.lane === "monitor").length,
+      },
+      eligiblePreCapCount: items.length,
+      omittedWithoutVerifiedAdId: 0,
+      omittedAmbiguousIdentity: 0,
+      omittedNotApplicable: 0,
+      sourcePreCapCount: items.length,
+    },
+    limitations: [],
   };
 }
 
@@ -386,6 +577,7 @@ beforeEach(() => {
   state.queryOverrides = {};
   state.refetched = [];
   state.queryKeys = [];
+  state.queryOptions = {};
   state.adapterInput = null;
   state.exactProps = null;
   state.overlayProps = null;
@@ -401,6 +593,16 @@ afterEach(() => {
 });
 
 describe("Decisions error recovery", () => {
+  it("does not automatically repeat an expensive failed workspace fan-out", () => {
+    render({ serverProviderAccountId: "act_server" });
+
+    expect(state.queryOptions["meta-decisions-workspace"]?.retry).toBe(false);
+    expect(
+      state.queryOptions["meta-decisions-workspace"]?.refetchOnWindowFocus,
+    ).toBe(false);
+    expect(state.queryOptions["meta-provider-accounts"]?.retry).toBe(false);
+  });
+
   // Law: Retry must retry the read that failed.
   //
   // The accounts read gates every workspace read, so when /api/meta/history/
@@ -440,7 +642,9 @@ describe("Decisions error recovery", () => {
     const dom = render();
     act(() =>
       dom
-        .querySelector<HTMLButtonElement>('[data-testid="meta-briefing-retry"]')!
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="meta-briefing-retry"]',
+        )!
         .click(),
     );
 
@@ -472,6 +676,56 @@ describe("Decisions error recovery", () => {
   });
 });
 
+describe("Decision queue expansion and auxiliary failures", () => {
+  it("asks the server for the next 60 creative decisions without appending locally", () => {
+    const presentation = osPresentation([pendingOsDecision()]);
+    presentation.ads.eligiblePreCapCount = 140;
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: presentation,
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+    const dom = render();
+
+    const initialWorkspaceKey = state.queryKeys
+      .filter((key) => key[0] === "meta-decisions-workspace")
+      .at(-1);
+    expect(initialWorkspaceKey?.at(-1)).toBe(60);
+    expect(state.adapterInput.overrides.creatives).toHaveLength(1);
+
+    act(() => {
+      dom
+        .querySelector<HTMLButtonElement>(
+          "[data-meta-load-more-creatives] button",
+        )!
+        .click();
+    });
+
+    const expandedWorkspaceKey = state.queryKeys
+      .filter((key) => key[0] === "meta-decisions-workspace")
+      .at(-1);
+    expect(expandedWorkspaceKey?.at(-1)).toBe(120);
+    expect(state.adapterInput.overrides.creatives).toHaveLength(1);
+  });
+
+  it("keeps the mobile decision queue readable when only anomalies fail", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    state.queryOverrides["meta-anomalies"] = {
+      error: new Error("Anomaly read timed out."),
+    };
+    const dom = render();
+
+    expect(
+      dom.querySelector("[data-mobile-anomaly-error]")?.textContent,
+    ).toContain("Anomaly read timed out.");
+    expect(dom.textContent).not.toContain("Decision queue unavailable.");
+    expect(state.exactProps.viewModel.counts.creatives).toBe(1);
+  });
+});
+
 describe("Decisions write honesty", () => {
   function actionableRec() {
     return metaRec({ id: "rec_rebuild", type: "rebuild_with_constraints" });
@@ -481,7 +735,10 @@ describe("Decisions write honesty", () => {
     state.workspaceData = workspacePayload();
     const dom = render();
     await act(async () => {
-      state.adapterInput.callbacks.onStructurePrimary(actionableRec());
+      state.adapterInput.callbacks.onStructurePrimary(
+        actionableRec(),
+        structureAction(),
+      );
     });
     const confirm = dom.querySelector<HTMLButtonElement>(
       "[data-stub-overlay-confirm]",
@@ -494,35 +751,41 @@ describe("Decisions write honesty", () => {
     return dom;
   }
 
-  // Law: a write that failed must never be presented as a write that
-  // succeeded. `postResponse` used to return the raw Response and the caller
-  // swallowed everything with `.catch(() => null)`, so a 403 (authority
-  // revoked) or a 500 routed the operator to Launchpad believing the decision
-  // was recorded — while it stayed queued and reappeared in Action Now on the
-  // next snapshot.
-  it("shows a danger notice and does not navigate when the acted write is refused", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-        json: async () => ({ message: "Decision authority was revoked." }),
-      }),
-    );
+  it("obeys the served action tuple when a legacy route hint was downgraded to review", async () => {
+    state.workspaceData = workspacePayload();
+    const dom = render();
+    const recommendation = actionableRec();
+    await act(async () => {
+      state.adapterInput.callbacks.onStructurePrimary(
+        recommendation,
+        structureAction({
+          code: "review_commercial_truth",
+          label: "Review Commercial Truth",
+          intent: "review",
+          providerMutation: null,
+          scopeNote:
+            "Current target ROAS authority is unavailable; no Scale action is authorized",
+        }),
+      );
+    });
 
-    const dom = await openAndConfirmOverlay();
-
+    expect(state.overlayProps.open).toBe(false);
     expect(state.routerPush).not.toHaveBeenCalled();
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
-    expect(notice?.textContent).toContain("Decision could not be recorded.");
-    expect(notice?.textContent).toContain("Decision authority was revoked.");
+    expect(notice?.textContent).toContain("Recommendation is review-only.");
+    expect(notice?.textContent).toContain(
+      "Current target ROAS authority is unavailable",
+    );
+    expect(state.adapterInput.selection).toEqual({
+      kind: "structure",
+      recommendationId: "rec_rebuild",
+    });
   });
 
-  // Positive control for the same law: a recorded write still routes onward,
-  // so the failure path above is the check working and not the button breaking.
-  //
-  // REWRITTEN, not deleted. This assertion used to end with "and shows no
-  // notice", which encoded the wrong law: it made silence the success signal.
+  // Opening a manual Launchpad wizard is navigation, not an operator outcome.
+  // Recording `acted` here contaminated outcome accrual before any launch or
+  // provider receipt existed. The decision remains queued until a real action
+  // produces its own durable receipt.
   // A campaign/ad-set recommendation has no canonical ad-grain decision behind
   // it, so no server-verified handoff can be minted for it and NO decision
   // lineage travels to Launchpad. The old URL pretended otherwise
@@ -531,11 +794,9 @@ describe("Decisions write honesty", () => {
   // screen blaming their own link. The correct law is: route onward, and say
   // out loud what did not come with you. So the notice is now REQUIRED here,
   // and the URL must carry no lineage claim.
-  it("routes to Launchpad once the acted write is recorded, and states that no decision lineage travelled", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }),
-    );
+  it("routes to manual Launchpad without recording a false acted outcome", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
     const dom = await openAndConfirmOverlay();
 
@@ -550,6 +811,11 @@ describe("Decisions write honesty", () => {
     expect(href).not.toContain("adsetIds");
     // It does carry the manual start Launchpad can honour.
     expect(href).toContain("launchpadMode=new_campaign");
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes("/api/meta/recommendations/respond"),
+      ),
+    ).toHaveLength(0);
 
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
     expect(notice?.textContent).toContain(
@@ -580,6 +846,32 @@ describe("Decisions deep links", () => {
     expect(state.exactProps.scope).toBe("creatives");
     expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
     expect(state.evidenceProps).not.toBeNull();
+  });
+
+  it("restores an OS-only pending-native Ad without inventing a canonical envelope", async () => {
+    const pending = pendingOsDecision();
+    state.canonicalCreatives = [];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pending]),
+    };
+    state.search =
+      "providerAccountId=act_1&scope=creatives&creativeId=creative_pending&row=ad:ad_pending";
+
+    const dom = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+    expect(state.evidenceProps.viewModel.coverage?.state).toBe("served-only");
+    expect(
+      state.evidenceProps.viewModel.primaryAction?.onClick,
+    ).toBeUndefined();
+    expect(
+      dom.querySelector('[data-testid="meta-decision-notice"]'),
+    ).toBeNull();
   });
 
   // The same law's honest half: a link naming a creative the served universe
@@ -935,6 +1227,75 @@ describe("Decisions provider-account metadata degradation", () => {
   });
 });
 
+describe("mobile served structure inventory", () => {
+  it("mounts the complete read-only census only after the operator opens it", () => {
+    state.workspaceData = workspacePayload({
+      structureInventory: [
+        {
+          id: "camp_inventory",
+          level: "campaign",
+          name: "Inventory Campaign",
+          campaignId: "camp_inventory",
+          campaignName: "Inventory Campaign",
+          campaignKind: "main",
+          status: "ACTIVE",
+          statusLabel: "Active",
+          metrics: {
+            spend: 120,
+            purchases: 4,
+            roas: 3.5,
+            cpa: 30,
+            ctr: 1.25,
+            frequency: null,
+          },
+          entityConfiguration: {
+            source: "account_scoped_campaign_row",
+            budgetOwner: "campaign",
+            budgetMode: "campaign_budget",
+            controlOwner: "campaign",
+            status: "ACTIVE",
+            optimizationGoal: "PURCHASE",
+            bidStrategyType: "lowest_cost",
+            bidStrategyLabel: "Lowest Cost",
+            dailyBudget: null,
+            lifetimeBudget: null,
+            budgetUtilization: null,
+          },
+        },
+      ],
+    });
+    const dom = render({ currency: "USD" });
+    const disclosure = dom.querySelector<HTMLDetailsElement>(
+      "[data-mobile-structure-inventory]",
+    )!;
+
+    expect(disclosure).not.toBeNull();
+    expect(disclosure.textContent).toContain("1 served");
+    expect(
+      disclosure.querySelector("[data-mobile-structure-inventory-row]"),
+    ).toBeNull();
+
+    act(() => {
+      disclosure.open = true;
+      disclosure.dispatchEvent(new Event("toggle", { bubbles: true }));
+    });
+
+    const row = disclosure.querySelector(
+      '[data-mobile-structure-inventory-row="campaign:camp_inventory"]',
+    );
+    expect(row?.textContent).toContain("Inventory Campaign");
+    expect(row?.textContent).toContain("Spend $120");
+    expect(row?.textContent).toContain("ROAS 3.50");
+    expect(row?.textContent).toContain("Purchases 4");
+    expect(row?.textContent).toContain("CPA $30");
+    expect(row?.textContent).toContain("CTR 1.25%");
+    expect(row?.textContent).toContain("Lowest Cost");
+    // Inventory is visibility, not authority.
+    expect(disclosure.querySelector("button")).toBeNull();
+    expect(disclosure.querySelector("a")).toBeNull();
+  });
+});
+
 /**
  * The Decisions -> Launchpad handoff, from the click.
  *
@@ -968,10 +1329,25 @@ describe("Decisions to Launchpad handoff", () => {
       campaignRoleSource: "automatic",
       campaignRoleConfidence: "high",
       campaignRoleTrustedForAction: true,
+      /*
+       * The action tuple in the shape the contract actually serves
+       * (`MetaOsDecisionAction`). This fixture carried `{code, label, kind:
+       * "route_launchpad"}` — a `kind` field no producer emits and no consumer
+       * reads — while the served tuple has `intent`, `targetLevel`,
+       * `providerMutation` and `scopeNote`. It travels to the callback
+       * boundary by reference now, so a fixture missing three of its six
+       * fields would have proved the carry against a shape that does not
+       * exist. `intent: "brief"` is what `decisions-os-presentation.ts` really
+       * serves for `refresh_creative`, and it is deliberately NOT what grants
+       * the route: eligibility comes from `sourceAuthority`, never from this.
+       */
       action: {
         code: "refresh_creative",
         label: "Refresh creative",
-        kind: "route_launchpad",
+        intent: "brief",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "Creates a replacement brief; does not pause this ad",
       },
       lane: "act",
       priority: "high",
@@ -987,6 +1363,85 @@ describe("Decisions to Launchpad handoff", () => {
       rawLabel: "refresh",
       publishedLabel: "Refresh",
     } as any;
+  }
+
+  function exactCutCanonical() {
+    const base = canonicalDecision();
+    return {
+      ...base,
+      identityResolution: {
+        basis: "native_ad_exact",
+        candidateAdCount: 1,
+        metricsEquivalent: true,
+        adActionEligible: true,
+      },
+      sourceDecision: {
+        ...base.sourceDecision,
+        label: "cut",
+        preAuthorityLabel: "cut",
+        rawLabel: "cut",
+      },
+      classification: {
+        ...base.classification,
+        assessment: "fatigued_loser",
+        legacyBuyerAction: "cut",
+        buyerAction: "cut",
+        buyerLabel: "Cut",
+        executionAction: "pause",
+      },
+      sourceAuthority: {
+        ...base.sourceAuthority,
+        authorizedAction: "cut",
+        decisionHash: "a".repeat(64),
+      },
+    };
+  }
+
+  function servedCutPresentation(): MetaOsAdDecision {
+    return {
+      ...(servedRefreshPresentation() as MetaOsAdDecision),
+      action: {
+        code: "cut",
+        label: "Cut",
+        intent: "execute",
+        targetLevel: "ad",
+        providerMutation: "pause",
+        scopeNote: "Pauses this exact ad only",
+      },
+      lane: "act",
+      assessment: "fatigued_loser",
+      blockers: [],
+      resolution: null,
+      decisionAvailability: "available",
+    };
+  }
+
+  async function openExactCutEvidence(
+    fetchImpl: unknown,
+    options: { trackingBlocked?: boolean } = {},
+  ) {
+    vi.stubGlobal("fetch", fetchImpl);
+    const canonical = exactCutCanonical();
+    const decision = servedCutPresentation();
+    state.canonicalCreatives = [canonical];
+    const workspace = workspacePayload();
+    state.workspaceData = {
+      ...workspace,
+      system: {
+        ...workspace.system,
+        trackingBlocked: options.trackingBlocked ?? false,
+      },
+      os: osPresentation([decision]),
+    };
+    state.search = "providerAccountId=act_1&creativeId=creative_1";
+    const dom = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const primary = state.evidenceProps?.viewModel?.primaryAction;
+    expect(primary?.label).toBe("Cut");
+    expect(primary?.onClick).toBeTypeOf("function");
+    return { dom, primary };
   }
 
   async function openEvidenceAndClickPrimary(fetchImpl: unknown) {
@@ -1042,6 +1497,47 @@ describe("Decisions to Launchpad handoff", () => {
     return { dom, onPrimary: onPrimary as () => void };
   }
 
+  it("does not mint a Scale handoff when the served action is review-only", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const canonical = canonicalDecision({
+      sourceAuthority: {
+        ...canonicalDecision().sourceAuthority,
+        authorizedAction: "scale",
+      },
+    });
+    const decision = {
+      ...servedRefreshPresentation(),
+      action: {
+        code: "protect",
+        label: "Keep Running",
+        intent: "none",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "Main creative remains active",
+      },
+    } as MetaOsAdDecision;
+    state.canonicalCreatives = [canonical];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([decision]),
+    };
+    state.search = "providerAccountId=act_1&creativeId=creative_1";
+
+    render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(state.evidenceProps?.viewModel?.primaryAction?.label).toBe(
+      "Keep Running",
+    );
+    expect(
+      state.evidenceProps?.viewModel?.primaryAction?.onClick,
+    ).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("mints the handoff server-side and navigates with only the reference", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -1079,6 +1575,39 @@ describe("Decisions to Launchpad handoff", () => {
     expect(href).not.toContain("mode=");
   });
 
+  it("mints only one handoff under rapid double activation", async () => {
+    let resolveFetch: ((value: unknown) => void) | null = null;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const { onPrimary } = await openEvidenceAndClickPrimary(fetchMock);
+
+    act(() => {
+      onPrimary();
+      onPrimary();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFetch?.({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          handoff: "0f1e2d3c-4b5a-4c7d-8e9f-a0b1c2d3e4f5.tok",
+          mode: "rebuild",
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(state.routerPush).toHaveBeenCalledTimes(1);
+  });
+
   it("stays put and states the server's reason when the handoff is refused", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -1098,7 +1627,458 @@ describe("Decisions to Launchpad handoff", () => {
     const notice = dom.querySelector('[data-testid="meta-decision-notice"]');
     expect(notice?.textContent).toContain("Launchpad handoff refused.");
     expect(notice?.textContent).toContain("held");
+    // The refusal names the control that was refused, in the SERVER's words —
+    // its label, its code and its intent, straight off the tuple that
+    // travelled to this handler. Nothing here is composed from the decision
+    // label.
+    expect(notice?.textContent).toContain("Refresh creative");
+    expect(notice?.textContent).toContain("refresh_creative");
+    expect(notice?.textContent).toContain("intent brief");
   });
+
+  it("confirms one exact native Ad pause with immutable lineage and no manual claims", async () => {
+    let resolveFetch: ((value: unknown) => void) | null = null;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const { dom, primary } = await openExactCutEvidence(fetchMock);
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const dialog = dom.querySelector("[data-meta-native-ad-pause-dialog]");
+    expect(dialog?.textContent).toContain("Pause this exact Meta Ad?");
+
+    const confirm = dom.querySelector<HTMLButtonElement>(
+      "[data-meta-native-ad-pause-confirm]",
+    )!;
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/meta/ads/120000000000000001/pause");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      contractVersion: "meta-decision-origin-ad-execution.v1",
+      actionOrigin: "native_decision_v1",
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adId: "120000000000000001",
+      creativeId: "creative_1",
+      snapshotId: "snapshot_1",
+      evaluationId: "eval_1",
+      engineVersion: "v3-test",
+      decisionHash: "a".repeat(64),
+      action: "pause",
+    });
+    expect(body.idempotencyKey).toBe(
+      `decision-ad-action:biz_1:act_1:120000000000000001:pause:snapshot_1:eval_1:v3-test:${"a".repeat(64)}:execute`,
+    );
+    expect(body).not.toHaveProperty("actionKind");
+    expect(body).not.toHaveProperty("buyerAction");
+    expect(body).not.toHaveProperty("confirmation");
+
+    await act(async () => {
+      resolveFetch?.({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          action: "pause",
+          adId: "120000000000000001",
+          status: "PAUSED",
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(dom.querySelector("[data-meta-native-ad-pause-dialog]")).toBeNull();
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-decision-notice"]')?.textContent,
+    ).toContain("Exact Ad paused.");
+    // Provider execution is not an operator-response shortcut.
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes("/api/meta/recommendations/response"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("requires the tracking interstitial before the exact-Ad pause confirmation", async () => {
+    const fetchMock = vi.fn();
+    const { dom, primary } = await openExactCutEvidence(fetchMock, {
+      trackingBlocked: true,
+    });
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dom.querySelector("[data-modal='tracking-confirm']")).not.toBeNull();
+    expect(dom.querySelector("[data-meta-native-ad-pause-dialog]")).toBeNull();
+
+    act(() => {
+      dom.querySelector<HTMLButtonElement>("[data-tracking-continue]")!.click();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dom.querySelector("[data-modal='tracking-confirm']")).toBeNull();
+    expect(
+      dom.querySelector("[data-meta-native-ad-pause-dialog]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps reconciliation visible, makes no retry, and allows cancel with zero writes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        ok: false,
+        error: {
+          code: "provider_outcome_ambiguous",
+          message: "Meta accepted the request but verification is incomplete.",
+        },
+        reconciliationRequired: true,
+        retryAllowed: false,
+        providerOutcomeAmbiguous: true,
+      }),
+    });
+    const { dom, primary } = await openExactCutEvidence(fetchMock);
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      dom
+        .querySelector<HTMLButtonElement>(
+          "[data-meta-native-ad-pause-confirm]",
+        )!
+        .click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const error = dom.querySelector("[data-meta-native-ad-pause-error]");
+    expect(error?.textContent).toContain("verification is incomplete");
+    expect(error?.textContent).toContain("requires reconciliation");
+    expect(error?.textContent).toContain("Do not retry");
+    expect(
+      dom.querySelector("[data-meta-native-ad-pause-dialog]"),
+    ).not.toBeNull();
+
+    act(() => {
+      dom
+        .querySelector<HTMLButtonElement>(".meta-label-modal .btn--ghost")!
+        .click();
+    });
+    expect(dom.querySelector("[data-meta-native-ad-pause-dialog]")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows verified provider success during receipt reconciliation and locks the same request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        ok: false,
+        error: {
+          code: "provider_verification_persistence_failed",
+          message:
+            "The prior receipt still requires reconciliation; no new provider write was attempted.",
+        },
+        reconciliationRequired: true,
+        retryAllowed: false,
+        providerMutationSucceeded: true,
+        providerOutcomeAmbiguous: false,
+      }),
+    });
+    const { dom, primary } = await openExactCutEvidence(fetchMock);
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+    const confirm = dom.querySelector<HTMLButtonElement>(
+      "[data-meta-native-ad-pause-confirm]",
+    )!;
+    await act(async () => {
+      confirm.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const error = dom.querySelector("[data-meta-native-ad-pause-error]");
+    expect(error?.textContent).toContain("Provider mutation status: succeeded");
+    expect(error?.textContent).toContain("requires reconciliation");
+    expect(confirm.disabled).toBe(true);
+    expect(confirm.textContent).toContain("Await fresh read-back");
+
+    act(() => confirm.click());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("distinguishes a non-retryable in-flight response from reconciliation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        ok: false,
+        error: {
+          code: "action_in_flight",
+          message: "This exact Ad action is already in flight.",
+        },
+        retryAllowed: false,
+      }),
+    });
+    const { dom, primary } = await openExactCutEvidence(fetchMock);
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      dom
+        .querySelector<HTMLButtonElement>(
+          "[data-meta-native-ad-pause-confirm]",
+        )!
+        .click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const error = dom.querySelector("[data-meta-native-ad-pause-error]");
+    expect(error?.textContent).toContain("already in flight");
+    expect(error?.textContent).toContain("non-retryable");
+    expect(error?.textContent).not.toContain("requires reconciliation");
+    const confirm = dom.querySelector<HTMLButtonElement>(
+      "[data-meta-native-ad-pause-confirm]",
+    )!;
+    expect(confirm.disabled).toBe(true);
+    act(() => confirm.click());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Escape close only the pause confirmation before the evidence drawer", async () => {
+    const fetchMock = vi.fn();
+    const { dom, primary } = await openExactCutEvidence(fetchMock);
+
+    await act(async () => {
+      primary.onClick();
+      await Promise.resolve();
+    });
+    expect(
+      dom.querySelector("[data-meta-native-ad-pause-dialog]"),
+    ).not.toBeNull();
+    expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+
+    expect(dom.querySelector("[data-meta-native-ad-pause-dialog]")).toBeNull();
+    expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * THE INVARIANT, asserted on the surface rather than in the contract module.
+   *
+   * "A blocked / held / pending / review-only decision must never render as an
+   * ordinary recommendation and must never map to a Launchpad mode." The page
+   * no longer decides this from a list of presentation codes it maintains
+   * itself — it runs the server's own `authorizeLaunchpadHandoff` — so the
+   * property to pin is that each refusal the server knows closes the control
+   * HERE, with the server's own sentence on screen instead of a live-looking
+   * button that fails after the click.
+   *
+   * `refresh_creative` stays the served action throughout: the point is that
+   * the SAME presentation code is offered in one case and refused in the
+   * others, which the old code-list gate could not express at all.
+   */
+  it.each([
+    [
+      "held",
+      {
+        classification: {
+          decisionState: "act",
+          heldAction: "refresh",
+          blockers: [],
+        },
+      },
+      "held",
+    ],
+    [
+      "blocked",
+      {
+        classification: {
+          decisionState: "blocked",
+          heldAction: null,
+          blockers: [],
+        },
+      },
+      "blocked",
+    ],
+    [
+      "carrying a blocker",
+      {
+        classification: {
+          decisionState: "act",
+          heldAction: null,
+          blockers: [
+            { code: "risk_tier_unclassified", label: "Risk is unclassified" },
+          ],
+        },
+      },
+      "blocked",
+    ],
+    [
+      "review-only at the source",
+      {
+        sourceAuthority: {
+          status: "legacy_review_only",
+          actionEligible: false,
+          reviewOnlyReason: "legacy_creative_grain_is_not_ad_action_authority",
+          snapshotId: "snapshot_1",
+          evaluationId: null,
+          inputHash: null,
+          decisionHash: null,
+          providerAccountRefId: null,
+          engineVersion: "v3-test",
+          realAdId: null,
+          authorizedAction: null,
+          jobRunId: null,
+        },
+      },
+      "review-only",
+    ],
+    [
+      "authorized for an action with no Launchpad mode",
+      {
+        sourceAuthority: {
+          status: "native_exact",
+          actionEligible: true,
+          reviewOnlyReason: null,
+          snapshotId: "snapshot_1",
+          evaluationId: "eval_1",
+          inputHash: "in_hash_1",
+          decisionHash: "dec_hash_1",
+          providerAccountRefId: "ref_1",
+          engineVersion: "v3-test",
+          realAdId: "120000000000000001",
+          authorizedAction: "cut",
+          jobRunId: "job_1",
+        },
+      },
+      "does not open Launchpad",
+    ],
+  ])(
+    "closes the primary and states why for a decision that is %s",
+    async (_name, override, expectedFragment) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const base = canonicalDecision();
+      state.canonicalCreatives = [
+        {
+          ...base,
+          ...override,
+          classification: {
+            ...base.classification,
+            ...((override as Record<string, unknown>).classification ?? {}),
+          },
+        },
+      ];
+      state.workspaceData = {
+        ...(workspacePayload() as Record<string, unknown>),
+        os: {
+          contractVersion: "meta-os-decisions.presentation.v5",
+          generatedAt: "2026-08-17T10:00:00.000Z",
+          source: {
+            snapshotAsOf: "2026-08-16",
+            engineVersion: "server-engine-v1",
+            structureSource: "meta_recommendations",
+            adsSource: "native_ad_decision",
+            health: "healthy",
+            fallbackReason: null,
+          },
+          structure: {
+            groups: [],
+            actCount: 0,
+            blockedCount: 0,
+            monitorCount: 0,
+            suppressedAlternativeCount: 0,
+          },
+          ads: {
+            items: [servedRefreshPresentation()],
+            actCount: 1,
+            blockedCount: 0,
+            monitorCount: 0,
+            statePreCapCounts: { act: 1, blocked: 0, monitor: 0 },
+            eligiblePreCapCount: 1,
+            omittedWithoutVerifiedAdId: 0,
+            omittedAmbiguousIdentity: 0,
+            omittedNotApplicable: 0,
+            sourcePreCapCount: 1,
+          },
+          limitations: [],
+        },
+      };
+      state.search = "providerAccountId=act_1&creativeId=creative_1";
+      render();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const primary = state.evidenceProps?.viewModel?.primaryAction;
+      // Fail-closed: no callback, no destination, nothing to press.
+      expect(primary?.onClick).toBeUndefined();
+      expect(primary?.href).toBeNull();
+      // And no provider round-trip was even attempted.
+      expect(
+        fetchMock.mock.calls.filter(
+          (args) => String(args[0]) === "/api/meta/launchpad-handoff",
+        ),
+      ).toHaveLength(0);
+
+      // The window says WHY, in the server's own refusal sentence, rather than
+      // leaving a dead button to explain itself.
+      const route = state.evidenceProps?.viewModel?.authority?.find(
+        (row: { id: string }) => row.id === "launchpad-route",
+      );
+      expect(String(route?.value)).toContain("refused");
+      expect(String(route?.value)).toContain(expectedFragment);
+    },
+  );
+
+  /*
+   * Where the "lossless tuple" law is actually proven, and why not here.
+   *
+   * Reference identity — that the callback receives `decision.action` ITSELF
+   * and not a spread or a `{code,label}` narrowing — is a property of the
+   * adapter boundary, and it is asserted there, by identity, in
+   * `creative-evidence-window-exact-adapter.test.ts` ("hands the callback the
+   * served action object itself, not a copy"). It cannot be re-proved from
+   * outside the page: the only observable is the notice, and a page that
+   * rebuilt the tuple could print the same three strings. Asserting the served
+   * object equals itself would be a green test that proves nothing, so the
+   * page-level law is stated as what it can actually observe — the refusal
+   * above names the SERVED label, code and intent, none of which the page has
+   * any other source for.
+   */
 
   // The Launchpad read site sends a refused handoff back here with its code.
   // Landing on Decisions with no explanation would read as "nothing happened".

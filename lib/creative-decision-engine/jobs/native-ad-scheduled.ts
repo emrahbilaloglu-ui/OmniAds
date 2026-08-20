@@ -27,6 +27,7 @@ import {
 import { engineV3JobsDisabled } from "./job-switch";
 
 export const NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR = 3;
+export const NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS = 60 * 60 * 1_000;
 
 const NATIVE_AD_SHADOW_JOB_NAMES = [
   AD_CALIBRATION_JOB_NAME,
@@ -53,7 +54,7 @@ export interface NativeAdScheduledStep<TResult> {
     | "skipped"
     | "previous_success"
     | "dependency_blocked";
-  source: "ran" | "previous_success" | "dependency_blocked";
+  source: "ran" | "previous_success" | "dependency_blocked" | "retry_backoff";
   result: TResult | null;
   reason: string | null;
   errorMessage: string | null;
@@ -109,6 +110,12 @@ interface CalibrationReuseReceiptRow extends Record<string, unknown> {
 
 interface MetaEligibleBusinessRow extends Record<string, unknown> {
   business_id: unknown;
+}
+
+interface OperatorResponseRetryBackoffRow extends Record<string, unknown> {
+  business_ref_id: unknown;
+  status: unknown;
+  finished_at: unknown;
 }
 
 export const READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL = `
@@ -224,6 +231,11 @@ export interface NativeAdShadowScheduleOptions {
     asOf: string;
     decisionCutoff: string;
   }) => Promise<Map<string, Set<NativeAdShadowJobName>>>;
+  readOperatorResponseRetryBackoffs?: (input: {
+    businessIds: readonly string[];
+    asOf: string;
+    decisionCutoff: string;
+  }) => Promise<Set<string>>;
   hasSuccessfulJob?: (input: {
     businessId: string;
     asOf: string;
@@ -326,6 +338,74 @@ export async function listNativeAdMetaEligibleBusinessIds(
     const businessId = String(row.business_id ?? "").trim();
     return businessId ? [businessId] : [];
   });
+}
+
+export const READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL = `
+WITH latest_terminal AS (
+  SELECT DISTINCT ON (run.business_ref_id)
+    run.business_ref_id::text AS business_ref_id,
+    run.status,
+    run.finished_at
+  FROM engine_v3_job_runs run
+  WHERE run.business_ref_id::text = ANY($1::text[])
+    AND run.as_of_date = $2::date
+    AND run.engine_version = $3
+    AND run.job_name = $4
+    AND run.status IN ('success', 'failed')
+    AND run.started_at <= $5::timestamptz
+    AND run.finished_at IS NOT NULL
+    AND run.finished_at <= $5::timestamptz
+  ORDER BY
+    run.business_ref_id,
+    run.finished_at DESC,
+    run.started_at DESC,
+    run.id DESC
+)
+SELECT latest.business_ref_id, latest.status, latest.finished_at
+FROM latest_terminal latest
+ORDER BY latest.business_ref_id
+`;
+
+export async function readNativeAdOperatorResponseRetryBackoffs(
+  input: {
+    businessIds: readonly string[];
+    asOf: string;
+    decisionCutoff: string;
+  },
+  db: DbClient = getDb(),
+) {
+  const businessIds = Array.from(
+    new Set(
+      input.businessIds.map((businessId) => businessId.trim()).filter(Boolean),
+    ),
+  );
+  if (businessIds.length === 0) return new Set<string>();
+  const rows = await db.query<OperatorResponseRetryBackoffRow>(
+    READ_NATIVE_AD_OPERATOR_RESPONSE_RETRY_BACKOFFS_SQL,
+    [
+      businessIds,
+      input.asOf,
+      NATIVE_AD_ENGINE_VERSION,
+      AD_OPERATOR_RESPONSE_JOB_NAME,
+      input.decisionCutoff,
+    ],
+  );
+  const eligible = new Set(businessIds);
+  const cutoffMs = timestampMs(input.decisionCutoff);
+  if (cutoffMs === null) return new Set<string>();
+  return new Set(
+    rows.flatMap((row) => {
+      const businessId = String(row.business_ref_id ?? "").trim();
+      const finishedAtMs = timestampMs(row.finished_at);
+      return businessId &&
+        eligible.has(businessId) &&
+        row.status === "failed" &&
+        finishedAtMs !== null &&
+        finishedAtMs > cutoffMs - NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS
+        ? [businessId]
+        : [];
+    }),
+  );
 }
 
 export async function readSuccessfulNativeJobs(
@@ -637,6 +717,16 @@ function dependencyBlockedStep<TResult>(
   };
 }
 
+function retryBackoffStep<TResult>(): NativeAdScheduledStep<TResult> {
+  return {
+    status: "skipped",
+    source: "retry_backoff",
+    result: null,
+    reason: "retry_backoff",
+    errorMessage: null,
+  };
+}
+
 function ranStep<
   TResult extends {
     status: "success" | "failed" | "skipped";
@@ -693,6 +783,7 @@ async function runBusinessChain(input: {
   asOf: string;
   cutoff: string;
   previousSuccesses: Set<NativeAdShadowJobName>;
+  operatorResponseRetryBackoff: boolean;
   options: NativeAdShadowScheduleOptions;
 }): Promise<NativeAdShadowBusinessResult> {
   const hasSuccessfulJob =
@@ -743,14 +834,18 @@ async function runBusinessChain(input: {
       )
     : input.previousSuccesses.has(AD_OPERATOR_RESPONSE_JOB_NAME)
       ? previousSuccessStep<AdOperatorResponseJobResult>()
-      : await (input.options.runOperatorResponse ?? runAdOperatorResponseJob)({
-          businessId: input.business.id,
-          cutoff: input.cutoff,
-          engineVersion: NATIVE_AD_ENGINE_VERSION,
-        }).then(
-          ranStep<AdOperatorResponseJobResult>,
-          failedStep<AdOperatorResponseJobResult>,
-        );
+      : input.operatorResponseRetryBackoff
+        ? retryBackoffStep<AdOperatorResponseJobResult>()
+        : await (input.options.runOperatorResponse ?? runAdOperatorResponseJob)(
+            {
+              businessId: input.business.id,
+              cutoff: input.cutoff,
+              engineVersion: NATIVE_AD_ENGINE_VERSION,
+            },
+          ).then(
+            ranStep<AdOperatorResponseJobResult>,
+            failedStep<AdOperatorResponseJobResult>,
+          );
 
   return {
     businessId: input.business.id,
@@ -826,6 +921,15 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
     return { ...base, skipped: true, reason: "already_ran" };
   }
 
+  const operatorResponseRetryBackoffs = await (
+    options.readOperatorResponseRetryBackoffs ??
+    readNativeAdOperatorResponseRetryBackoffs
+  )({
+    businessIds: businesses.map((business) => business.id),
+    asOf,
+    decisionCutoff: now.toISOString(),
+  });
+
   const results: NativeAdShadowBusinessResult[] = [];
   for (const business of businesses) {
     results.push(
@@ -835,6 +939,9 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
         cutoff: now.toISOString(),
         previousSuccesses:
           successes.get(business.id) ?? new Set<NativeAdShadowJobName>(),
+        operatorResponseRetryBackoff: operatorResponseRetryBackoffs.has(
+          business.id,
+        ),
         options,
       }),
     );

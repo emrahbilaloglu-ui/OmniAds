@@ -63,6 +63,58 @@ export interface CreativeEvidenceWindowExactAction {
   external?: boolean;
 }
 
+/**
+ * One audit field. Used for both the authority block (evidence that qualifies
+ * the numbers) and the diagnostics disclosure (receipts that prove them).
+ */
+export interface CreativeEvidenceWindowExactAuditRow {
+  id: string;
+  label?: CreativeEvidenceWindowExactDisplayValue;
+  value?: CreativeEvidenceWindowExactDisplayValue;
+  tone?: CreativeEvidenceWindowExactTone;
+}
+
+/**
+ * The state of the drawer's ad-grain helper reads, in words.
+ *
+ * Without this every unresolved cell printed the same em-dash a genuinely
+ * unserved cell prints, so a broken read looked exactly like an empty account.
+ */
+export interface CreativeEvidenceWindowExactReadNotice {
+  tone: CreativeEvidenceWindowExactTone;
+  text: string;
+}
+
+/**
+ * Which half of this row's evidence the window is actually holding.
+ *
+ * A Meta ad decision arrives in two envelopes and they are not interchangeable.
+ * The SERVED presentation decision carries the engine's reading — why now, the
+ * assessment, blockers, resolution, lane, availability and the ad's own metrics.
+ * The CANONICAL decision snapshot carries the audit half — hashes, provider
+ * lineage, identity resolution, action eligibility, operator responses,
+ * provider-write outcome, risk tier and confirmation ceremony.
+ *
+ * A row can be served with only the first. When that happens the window must
+ * not stay silent about it: an operator reading a screen full of dashes cannot
+ * tell "the engine measured nothing" from "this row has no audit envelope at
+ * all", and the second is the only one that also means the row carries no
+ * authority. So the window says which half it has, in words, above the
+ * evidence — and nothing below it is inferred to fill the other half in.
+ */
+export interface CreativeEvidenceWindowExactCoverage {
+  /** `served-only` is the row with no canonical envelope. */
+  state: "served-and-canonical" | "served-only" | "canonical-only";
+  tone: CreativeEvidenceWindowExactTone;
+  headline: string;
+  servedLabel: string;
+  served: readonly string[];
+  unavailableLabel: string;
+  unavailable: readonly string[];
+  /** The authority sentence. Empty string when there is nothing to withhold. */
+  note: string;
+}
+
 export interface CreativeEvidenceWindowExactViewModel {
   name?: CreativeEvidenceWindowExactDisplayValue;
   decisionLabel?: CreativeEvidenceWindowExactDisplayValue;
@@ -84,6 +136,14 @@ export interface CreativeEvidenceWindowExactViewModel {
   placements?: readonly CreativeEvidenceWindowExactPlacement[];
   adSets?: readonly CreativeEvidenceWindowExactAdSet[];
   facts?: readonly CreativeEvidenceWindowExactFact[];
+  /** Loading / failed state of the ad-grain helper reads. Null when resolved. */
+  readNotice?: CreativeEvidenceWindowExactReadNotice | null;
+  /** Which half of the evidence is served and which is canonical-only. */
+  coverage?: CreativeEvidenceWindowExactCoverage | null;
+  /** Source authority, eligibility, identity, risk, responses, write outcome. */
+  authority?: readonly CreativeEvidenceWindowExactAuditRow[];
+  /** Hashes, lineage ids and receipts. Closed by default. */
+  diagnostics?: readonly CreativeEvidenceWindowExactAuditRow[];
   provenance?: CreativeEvidenceWindowExactDisplayValue;
   primaryAction?: CreativeEvidenceWindowExactAction;
   compareAction?: CreativeEvidenceWindowExactAction;
@@ -188,6 +248,8 @@ export function CreativeEvidenceWindowExact({
   const placements = slots(viewModel.placements, 3);
   const adSets = slots(viewModel.adSets, 2);
   const facts = slots(viewModel.facts, 6);
+  const authority = viewModel.authority ?? [];
+  const diagnostics = viewModel.diagnostics ?? [];
   const stripeA = viewModel.stripeA?.trim() || "#EAF0FF";
   const stripeB = viewModel.stripeB?.trim() || "#F7F9FC";
   const previewUrl = viewModel.previewUrl?.trim() || null;
@@ -232,6 +294,49 @@ export function CreativeEvidenceWindowExact({
         </div>
 
         <div className={styles.body}>
+          {viewModel.readNotice ? (
+            <p
+              className={`${styles.readNotice} ${toneClass(viewModel.readNotice.tone)}`}
+              data-creative-evidence-read-state={
+                viewModel.readNotice.tone === "negative" ? "error" : "loading"
+              }
+              role="status"
+            >
+              {viewModel.readNotice.text}
+            </p>
+          ) : null}
+          {viewModel.coverage ? (
+            <section
+              aria-label="Evidence coverage"
+              className={`${styles.coverage} ${toneClass(viewModel.coverage.tone)}`}
+              data-creative-evidence-coverage={viewModel.coverage.state}
+            >
+              <p className={styles.coverageHeadline}>{viewModel.coverage.headline}</p>
+              <p className={styles.coverageLine}>
+                <span className={styles.coverageLabel}>
+                  {viewModel.coverage.servedLabel}
+                </span>
+                <span className={styles.coverageItems}>
+                  {viewModel.coverage.served.length > 0
+                    ? viewModel.coverage.served.join(" · ")
+                    : EM_DASH}
+                </span>
+              </p>
+              <p className={styles.coverageLine} data-creative-evidence-coverage-withheld>
+                <span className={styles.coverageLabel}>
+                  {viewModel.coverage.unavailableLabel}
+                </span>
+                <span className={styles.coverageItems}>
+                  {viewModel.coverage.unavailable.length > 0
+                    ? viewModel.coverage.unavailable.join(" · ")
+                    : "none — every audit field below came from this row's own envelope"}
+                </span>
+              </p>
+              {viewModel.coverage.note ? (
+                <p className={styles.coverageNote}>{viewModel.coverage.note}</p>
+              ) : null}
+            </section>
+          ) : null}
           <div className={styles.previewCard}>
             <div
               className={styles.previewStage}
@@ -396,6 +501,40 @@ export function CreativeEvidenceWindowExact({
               );
             })}
           </div>
+
+          {authority.length > 0 ? (
+            <BodyCard>
+              <p className={styles.cardEyebrowSpaced}>Authority &amp; eligibility</p>
+              <div data-creative-evidence-authority>
+                {authority.map((row) => (
+                  <div
+                    className={styles.auditRow}
+                    data-tone={row.tone ?? "neutral"}
+                    key={row.id}
+                  >
+                    <span className={styles.auditLabel}>{display(row.label)}</span>
+                    <span className={styles.auditValue}>{display(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </BodyCard>
+          ) : null}
+
+          {diagnostics.length > 0 ? (
+            <details className={styles.diagnostics} data-creative-evidence-diagnostics>
+              <summary className={styles.diagnosticsSummary}>
+                Diagnostics · hashes &amp; lineage
+              </summary>
+              <div className={styles.diagnosticsBody}>
+                {diagnostics.map((row) => (
+                  <div className={styles.auditRow} key={row.id}>
+                    <span className={styles.auditLabel}>{display(row.label)}</span>
+                    <span className={styles.diagnosticsValue}>{display(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
 
           <p className={styles.provenance}>{display(viewModel.provenance)}</p>
         </div>

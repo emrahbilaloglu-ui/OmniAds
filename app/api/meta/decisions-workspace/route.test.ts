@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -6,6 +7,7 @@ import {
   metaRec,
 } from "@/components/meta/redesign/test-fixtures";
 import { GET } from "@/app/api/meta/decisions-workspace/route";
+import { META_ACTION_DIGEST_ROW_CAP } from "@/app/api/meta/decisions-workspace/action-digest-window";
 
 const accessMock = vi.hoisted(() => ({
   requireBusinessAccess: vi.fn(),
@@ -15,6 +17,21 @@ const reviewerMock = vi.hoisted(() => ({
 }));
 const dbMock = vi.hoisted(() => ({
   getDb: vi.fn(),
+  getDbRuntimeDiagnostics: vi.fn(() => ({
+    pool: {
+      max: 10,
+      totalCount: 0,
+      idleCount: 0,
+      waitingCount: 0,
+      utilizationPercent: 0,
+      saturationState: "idle",
+      maxObservedWaitingCount: 0,
+      maxObservedUtilizationPercent: 0,
+      poolWaitEventCount: 0,
+      lastPoolWaitAt: null,
+    },
+    counters: {},
+  })),
 }));
 const assignmentsMock = vi.hoisted(() => ({
   getProviderAccountAssignments: vi.fn(),
@@ -60,6 +77,7 @@ vi.mock("@/lib/reviewer-access", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: dbMock.getDb,
+  getDbRuntimeDiagnostics: dbMock.getDbRuntimeDiagnostics,
 }));
 
 vi.mock("@/lib/provider-account-assignments", () => ({
@@ -100,6 +118,18 @@ function stubWorkspaceHttpUpstreams() {
       return jsonResponse({ error: "unexpected" }, 404);
     }),
   );
+}
+
+/**
+ * The row bound the action-log query actually ends on.
+ *
+ * Anchored on the END of the statement rather than the first `LIMIT` it can
+ * find, because the digest's other three queries are also bounded and a lazy
+ * match would happily prove the wrong one.
+ */
+function actionQueryRowLimit(query: string): number | null {
+  const match = query.trimEnd().match(/LIMIT\s+(\d+)\s*$/);
+  return match ? Number(match[1]) : null;
 }
 
 function mockDigestSql(input?: {
@@ -276,6 +306,62 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(accountPulseRequest.headers.get("cookie")).toBe(
       "session=test-session",
     );
+  });
+
+  it("starts the expensive decision read while pulse and lane upstreams are still running", async () => {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      businessId: "biz_1",
+      accessToken: "test-token",
+      accountIds: ["act_1"],
+      currency: "USD",
+      accountProfiles: {},
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "complete",
+      rows: [],
+    });
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(
+      jsonResponse(metaPulse()),
+    );
+    let releaseLanes!: (response: Response) => void;
+    const lanesPending = new Promise<Response>((resolve) => {
+      releaseLanes = resolve;
+    });
+    upstreamRouteMock.laneClassificationGet.mockReturnValue(lanesPending);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        throw new Error("HTTP self-fetch must not run");
+      }),
+    );
+
+    const responsePending = GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&surface=os",
+        { headers: { cookie: "session=test-session" } },
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        readModelMock.readMetaDecisionsWorkspaceReadModel,
+      ).toHaveBeenCalledTimes(1);
+    });
+    expect(upstreamRouteMock.laneClassificationGet).toHaveBeenCalledTimes(1);
+
+    releaseLanes(jsonResponse(metaLanePayload()));
+    const response = await responsePending;
+    expect(response.status).toBe(200);
   });
 
   it("keeps the canonical read model unavailable until providerAccountId is explicit", async () => {
@@ -702,6 +788,10 @@ describe("GET /api/meta/decisions-workspace", () => {
       actions: {
         verifiedCount: 1,
         silentFailureCount: 1,
+        // Two rows against a 20-row cap: the query saw the whole window, so
+        // the sentence built from these counts may speak for the whole window.
+        countedRowCap: META_ACTION_DIGEST_ROW_CAP,
+        countsTruncated: false,
         items: [
           { target: "Broad LAL 2", status: "verified" },
           {
@@ -714,6 +804,114 @@ describe("GET /api/meta/decisions-workspace", () => {
       anomalies: { openedCount: 1 },
       deferrals: { dueCount: 1 },
     });
+  });
+
+  /**
+   * A CAPPED COUNT MUST NOT BE SERVED AS THE WINDOW'S TOTAL.
+   *
+   * `actions.verifiedCount` and `actions.silentFailureCount` are both computed
+   * by filtering the rows the action-log query RETURNED, and that query is
+   * ordered newest-first under `META_ACTION_DIGEST_ROW_CAP`. On an account
+   * with more qualifying rows in the window than the cap allows, the two
+   * numbers describe the newest page — while the banner that reads them said
+   * "This account's action digest since <date> carries M recorded actions",
+   * which a reader takes as the window's total. Every number was measured; the
+   * frame around it was wider than the measurement.
+   *
+   * The route already knows: a full page IS the evidence that rows were left
+   * behind. These tests pin that it says so, and that the cap it reports is
+   * the same number the query was bound by — a digest claiming a 20-row cap
+   * over a query that ran with 50 would be a fresh lie in the same shape.
+   */
+  it("reports the cap it read under and flags a full page as truncated", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    // Exactly a full page: 17 verified and 3 silent failures, which is what an
+    // account busier than the cap looks like from inside the route.
+    const actionRows = Array.from(
+      { length: META_ACTION_DIGEST_ROW_CAP },
+      (_unused, index) => ({
+        id: `action_${index}`,
+        action: "pause",
+        status: index < 3 ? "silent_failure" : "success",
+        target: `Ad ${index}`,
+        actor: "Autopilot",
+        occurred_at: "2026-05-07T06:41:00.000Z",
+        error_code: index < 3 ? "silent_failure" : null,
+        error_message: index < 3 ? "Meta verification disagreed." : null,
+      }),
+    );
+    const sql = mockDigestSql({ actionRows });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&window=28d&status_filter=all",
+        { headers: { cookie: "session=abc" } },
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.digest.actions).toMatchObject({
+      verifiedCount: META_ACTION_DIGEST_ROW_CAP - 3,
+      silentFailureCount: 3,
+      countedRowCap: META_ACTION_DIGEST_ROW_CAP,
+      countsTruncated: true,
+    });
+    // The two counts still sum to what was actually read, and what was
+    // actually read is the cap - which is precisely why neither may be
+    // presented as the window's total.
+    expect(
+      payload.digest.actions.verifiedCount +
+        payload.digest.actions.silentFailureCount,
+    ).toBe(META_ACTION_DIGEST_ROW_CAP);
+
+    // The digest is only allowed to describe itself as capped at 20 because
+    // the query it read really stopped at 20.
+    const actionCall = sql.mock.calls.find((call) =>
+      Array.from(call[0] as TemplateStringsArray)
+        .join("?")
+        .includes("FROM meta_ads_action_log log"),
+    );
+    expect(actionCall).toBeDefined();
+    expect(actionQueryRowLimit(Array.from(actionCall![0]).join("?"))).toBe(
+      META_ACTION_DIGEST_ROW_CAP,
+    );
+  });
+
+  /**
+   * THE SERVED CAP AND THE QUERY'S BOUND ARE ONE NUMBER.
+   *
+   * The bound stays a LITERAL in the SQL on purpose: `LIMIT ${cap}` in a
+   * tagged template makes it a bind parameter, and a parameterised LIMIT lets
+   * Postgres build a generic plan where the literal pins one — the shape of
+   * change that once turned a Decision Center read into 258s against an 8s
+   * timeout. The cost of keeping the literal is that two places now state 20,
+   * so this reads the route's own source and refuses to let them differ. A
+   * digest that reported a 20-row cap over a query bounded at 50 would be a
+   * fresh measurement-shaped lie in the same family as the one being closed.
+   */
+  it("pins the served cap to the literal bound in the route's own SQL", () => {
+    const source = readFileSync(
+      "app/api/meta/decisions-workspace/route.ts",
+      "utf8",
+    );
+    const start = source.indexOf("FROM meta_ads_action_log log");
+    // Guards the guard: an anchor that stopped matching would make the
+    // assertion below vacuous rather than failing.
+    expect(start).toBeGreaterThan(0);
+    const end = source.indexOf("` as Promise<ActionDigestRow[]>", start);
+    expect(end).toBeGreaterThan(start);
+    expect(actionQueryRowLimit(source.slice(start, end))).toBe(
+      META_ACTION_DIGEST_ROW_CAP,
+    );
   });
 
   it("serves a compact OS payload without duplicate lane, digest, or canonical queues", async () => {
@@ -776,16 +974,18 @@ describe("GET /api/meta/decisions-workspace", () => {
     // states -- a projection of the pulse already loaded, not a second read.
     expect(payload.pulse.lastSyncAt).toBe("2026-07-13T03:05:00.000Z");
     expect(payload.pulse.roasHistory).toEqual([3.9, 4.05, 4.26]);
-    expect(Object.keys(payload.pulse).sort()).toEqual([
-      "labelCoverage",
-      "lastSyncAt",
-      "operatingMode",
-      "pacing",
-      "roas",
-      "roasHistory",
-      "seasonalRegime",
-      "trackingHealth",
-    ].sort());
+    expect(Object.keys(payload.pulse).sort()).toEqual(
+      [
+        "labelCoverage",
+        "lastSyncAt",
+        "operatingMode",
+        "pacing",
+        "roas",
+        "roasHistory",
+        "seasonalRegime",
+        "trackingHealth",
+      ].sort(),
+    );
     // Still compact: the heavy lane/queue/digest sections stay stripped.
     expect(payload.decisionReadModel).toEqual({
       status: "available",
@@ -819,7 +1019,9 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.decisionReadModel.unavailable).toMatchObject({
       code: "source_read_failed",
     });
-    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
+    expect(
+      readModelMock.readMetaDecisionsWorkspaceReadModel,
+    ).not.toHaveBeenCalled();
   });
 
   it("surfaces missing-data, tracking, snapshot, and kill-switch banners without fabricating zeros", async () => {
@@ -898,54 +1100,50 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).toBe(0);
   });
 
-  it("serves old-target review as advisory without suppressing engine authority", async () => {
-    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
-      source: "configured_targets",
-      targetRoas: 2.5,
-      breakEvenRoas: 1.8,
-      targetCpa: null,
-      breakEvenCpa: null,
-      riskPosture: "balanced",
-      freshness: "stale",
-      updatedAt: "2026-05-01T00:00:00.000Z",
-    });
-    const pulse = metaPulse();
-    const lanes = metaLanePayload();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string | URL | Request) => {
-        const pathname = new URL(String(url)).pathname;
-        if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
-        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
-        return jsonResponse({ error: "unexpected" }, 404);
-      }),
-    );
+  it.each(["stale", "unknown"] as const)(
+    "does not warn when commercial targets are configured with %s freshness",
+    async (freshness) => {
+      commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+        source: "configured_targets",
+        targetRoas: 2.5,
+        breakEvenRoas: 1.8,
+        targetCpa: null,
+        breakEvenCpa: null,
+        riskPosture: "balanced",
+        freshness,
+        updatedAt: freshness === "stale" ? "2026-05-01T00:00:00.000Z" : null,
+      });
+      const pulse = metaPulse();
+      const lanes = metaLanePayload();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL | Request) => {
+          const pathname = new URL(String(url)).pathname;
+          if (pathname === "/api/meta/account-pulse")
+            return jsonResponse(pulse);
+          if (pathname === "/api/meta/lane-classify")
+            return jsonResponse(lanes);
+          return jsonResponse({ error: "unexpected" }, 404);
+        }),
+      );
 
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
-      ),
-    );
-    const payload = await response.json();
-    const banner = payload.banners.find(
-      (item: { id: string }) => item.id === "stale_commercial_target_authority",
-    );
-
-    expect(response.status).toBe(200);
-    expect(
-      commercialTargetsMock.readMetaCommercialTargets,
-    ).toHaveBeenCalledWith("biz_1");
-    expect(banner).toMatchObject({
-      scope: "target_hard_actions",
-      blocking: false,
-      action: {
-        label: "Review commercial truth",
-        href: "/commercial-truth",
-      },
-    });
-    expect(banner.detail).toContain("age does not suppress");
-    expect(banner.detail).not.toContain("authority is suppressed");
-  });
+      const response = await GET(
+        new NextRequest(
+          "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+        ),
+      );
+      const payload = await response.json();
+      expect(response.status).toBe(200);
+      expect(
+        commercialTargetsMock.readMetaCommercialTargets,
+      ).toHaveBeenCalledWith("biz_1");
+      expect(
+        payload.banners.some(
+          (item: { scope?: string }) => item.scope === "target_hard_actions",
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("does not show a target-authority warning for fresh configured targets", async () => {
     commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
@@ -985,62 +1183,36 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).toBe(false);
   });
 
-  it.each([
-    {
-      name: "missing",
-      targets: {
-        source: "none",
-        targetRoas: null,
-        breakEvenRoas: null,
-        targetCpa: null,
-        breakEvenCpa: null,
-        riskPosture: "balanced",
-        freshness: "unknown",
-        updatedAt: null,
-      },
-      expectedId: "commercial_target_authority_missing",
-      expectedTitle: "Commercial targets are not configured.",
-    },
-    {
-      name: "configured with unknown freshness",
-      targets: {
-        source: "configured_targets",
-        targetRoas: 2.5,
-        breakEvenRoas: 1.8,
-        targetCpa: null,
-        breakEvenCpa: null,
-        riskPosture: "balanced",
-        freshness: "unknown",
-        updatedAt: null,
-      },
-      expectedId: "stale_commercial_target_authority",
-      expectedTitle: "Commercial target freshness is unknown.",
-    },
-  ])(
-    "surfaces $name target authority as a scoped warning",
-    async ({ targets, expectedId, expectedTitle }) => {
-      commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue(
-        targets,
-      );
-      stubWorkspaceHttpUpstreams();
-      const response = await GET(
-        new NextRequest(
-          "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
-        ),
-      );
-      const payload = await response.json();
-      const banner = payload.banners.find(
-        (item: { id: string }) => item.id === expectedId,
-      );
+  it("warns when commercial targets are not configured", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "none",
+      targetRoas: null,
+      breakEvenRoas: null,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "unknown",
+      updatedAt: null,
+    });
+    stubWorkspaceHttpUpstreams();
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+      ),
+    );
+    const payload = await response.json();
+    const banner = payload.banners.find(
+      (item: { id: string }) =>
+        item.id === "commercial_target_authority_missing",
+    );
 
-      expect(response.status).toBe(200);
-      expect(banner).toMatchObject({
-        title: expectedTitle,
-        scope: "target_hard_actions",
-        blocking: false,
-      });
-    },
-  );
+    expect(response.status).toBe(200);
+    expect(banner).toMatchObject({
+      title: "Commercial targets are not configured.",
+      scope: "target_hard_actions",
+      blocking: false,
+    });
+  });
 
   it("surfaces a target read failure without globally blocking review flows", async () => {
     commercialTargetsMock.readMetaCommercialTargets.mockRejectedValue(
@@ -1261,6 +1433,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.error).toBe("upstream_failed");
     expect(payload.source).toBe("account-pulse");
     expect(payload.detail).toEqual({ message: "not allowed" });
+    expect(payload.message).toContain("account-pulse decision source");
   });
 });
 
@@ -1414,7 +1587,9 @@ describe("GET /api/meta/decisions-workspace window resolution", () => {
   });
 
   it("states both dates even when the caller named only a preset", async () => {
-    const seen = await callWith("businessId=biz_1&window=14d&endDate=2026-08-17");
+    const seen = await callWith(
+      "businessId=biz_1&window=14d&endDate=2026-08-17",
+    );
     // Both upstreams are told the same fourteen days rather than each deriving
     // a start from its own copy of the rule.
     expect(seen.pulse.start).toBe("2026-08-04");

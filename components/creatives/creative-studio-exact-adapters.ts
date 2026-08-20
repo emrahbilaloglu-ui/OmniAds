@@ -20,8 +20,13 @@ function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function divide(numerator: number | null, denominator: number | null, scale = 1) {
-  if (numerator === null || denominator === null || denominator <= 0) return null;
+function divide(
+  numerator: number | null,
+  denominator: number | null,
+  scale = 1,
+) {
+  if (numerator === null || denominator === null || denominator <= 0)
+    return null;
   return (numerator / denominator) * scale;
 }
 
@@ -42,6 +47,59 @@ function ratioWithDenominator(
   return value;
 }
 
+const MS_PER_DAY = 86_400_000;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isoDateMs(value: string | null | undefined): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed || !ISO_DATE.test(trimmed)) return null;
+  const parsed = Date.parse(`${trimmed}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * How many whole days the creative had existed by the END OF THE WINDOW the
+ * row's numbers were measured over.
+ *
+ * ONE IMPLEMENTATION, imported by the mounted projector in
+ * `app/(dashboard)/platforms/meta/creatives/legacy-page.tsx`, because a clock
+ * that exists twice is a clock that will eventually disagree with itself.
+ *
+ * WHICH END, decided rather than defaulted. The default window ends YESTERDAY —
+ * `lib/dashboard/date-window-presets.ts` states it: "a rolling preset ends
+ * YESTERDAY, on completed days only" — so `Date.now()` would put the age on a
+ * different clock from every other number in the same row, and a creative
+ * created two days before the window closed would read 3 rather than 2. The
+ * subtraction is against `windowEndIso`, so the row answers as of one instant.
+ *
+ * ELAPSED DAYS, NOT DAYS INCLUSIVE. A creative created ON the window's last day
+ * is 0 — zero days have elapsed since it was created — and 0 is a MEASUREMENT
+ * that prints as "0". The em dash is reserved for the two cases where no age
+ * exists to state:
+ *
+ *   - no date. An unsupplied `launch_date` reaches the wire as `undefined` when
+ *     the stored projection was spread through `coerceRawCreativeRow`, and as
+ *     `""` on its api-row branch; `mapApiRowToUiRow` then runs `safeString`
+ *     over either, so what this function is handed is the EMPTY STRING, not a
+ *     null. Printing 0 for it would claim the creative was created on the day
+ *     the window closed.
+ *   - a date AFTER the window's end. Nothing was measured between those two
+ *     instants; the row is asserting a creation date later than the last day it
+ *     reports numbers for, which is a contradiction in the data rather than a
+ *     negative age. It is withheld instead of clamped, because clamping would
+ *     publish the contradiction as a measured 0.
+ */
+export function creativeAgeDays(
+  launchDate: string | null | undefined,
+  windowEndIso: string | null | undefined,
+): number | null {
+  const launchMs = isoDateMs(launchDate);
+  const windowEndMs = isoDateMs(windowEndIso);
+  if (launchMs === null || windowEndMs === null) return null;
+  const days = Math.round((windowEndMs - launchMs) / MS_PER_DAY);
+  return days < 0 ? null : days;
+}
+
 function titleCaseStatus(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   if (!normalized) return null;
@@ -51,14 +109,6 @@ function titleCaseStatus(value: string | null | undefined): string | null {
     .filter(Boolean)
     .map((part) => part[0]!.toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function statusTone(value: string | null | undefined): CreativeStudioTone {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  if (["active", "enabled", "live"].includes(normalized)) return "positive";
-  if (["error", "disapproved", "rejected"].includes(normalized)) return "negative";
-  if (["pending", "in_process", "in review", "limited"].includes(normalized)) return "warning";
-  return "neutral";
 }
 
 function previewUrl(row: MetaCreativeRow) {
@@ -86,6 +136,12 @@ export function buildCreativeStudioAssetsModel(input: {
   rows: MetaCreativeRow[];
   state: CreativeStudioDataState;
   message?: string | null;
+  /**
+   * The last day the rows' numbers cover, as `YYYY-MM-DD`. Required, not
+   * defaulted: an age has to be counted to something, and a caller that omitted
+   * it would silently blank the column rather than fail.
+   */
+  windowEnd: string | null;
 }): CreativeStudioAssetsModel {
   const rows: CreativeStudioAssetRow[] = input.rows.map((row) => {
     const metric = (
@@ -103,7 +159,6 @@ export function buildCreativeStudioAssetsModel(input: {
     const purchaseValue = metric("purchaseValue", row.purchaseValue);
     const impressions = metric("impressions", row.impressions);
     const spend = metric("spend", row.spend);
-    const status = titleCaseStatus(row.effectiveStatus);
 
     return {
       id: row.id,
@@ -114,14 +169,32 @@ export function buildCreativeStudioAssetsModel(input: {
           .filter(Boolean)
           .join(" · ") || "—",
       imageUrl: previewUrl(row),
-      status,
-      statusTone: statusTone(row.effectiveStatus),
-      marketingAngle: row.aiTags.messagingAngle?.find((value) => value.trim()) ?? null,
+      // The Status column carries the ENGINE's classification, and this builder
+      // is handed no engine read — only provider rows. It therefore states the
+      // explicit non-decision state rather than leaving a blank. The live
+      // surface gets its classification in
+      // `toCreativeStudioAssetRows`
+      // (app/(dashboard)/platforms/meta/creatives/legacy-page.tsx) from the
+      // briefing index. Putting the delivery enum back here would restore the
+      // exact defect that change fixed.
+      status: "Not evaluated",
+      statusTone: "neutral",
+      decisionSegment: null,
+      statusDetail: "No decision context was supplied to this adapter",
+      decisionCount: 0,
+      deliveryStatus: titleCaseStatus(row.effectiveStatus),
+      marketingAngle:
+        row.aiTags.messagingAngle?.find((value) => value.trim()) ?? null,
       currency: row.currency?.trim() || null,
       metrics: {
         spend,
         impressions,
+        revenue: purchaseValue,
         clicks: metric("clicks", row.clicks),
+        linkClicks,
+        landingPageViews: metric("landingPageViews", row.landingPageViews),
+        addToCart,
+        initiateCheckout: metric("initiateCheckout", row.initiateCheckout),
         purchases,
         // Producer-computed ratios, withheld when their denominator makes them
         // undefined. `normalizeCreativeMetricFields` ends each of these with
@@ -130,18 +203,33 @@ export function buildCreativeStudioAssetsModel(input: {
         roas: ratioWithDenominator(metric("roas", row.roas), spend),
         cpa: ratioWithDenominator(metric("cpa", row.cpa), purchases),
         cpm: ratioWithDenominator(metric("cpm", row.cpm), impressions),
+        cpcLink: ratioWithDenominator(
+          metric("cpcLink", row.cpcLink),
+          linkClicks,
+        ),
         aov: divide(purchaseValue, purchases),
         ctr: ratioWithDenominator(metric("ctrAll", row.ctrAll), impressions),
         thumbstop: ratioWithDenominator(
           metric("thumbstop", row.thumbstop),
           impressions,
         ),
-        // The current creative payload has no Hold 15s field. Video-completion
-        // rates are not a valid proxy for the canonical metric.
-        hold: null,
+        // `hold` is gone from `CreativeAssetMetricId` entirely: the creative
+        // payload has no Hold 15s field, `META_OBSERVED_METRIC_KEYS` has no key
+        // for one, and video-completion rates are a different question rather
+        // than a proxy. It used to be assigned a literal `null` here and in the
+        // mounted projector, which made it a permanent em dash in every row.
         frequency: metric("frequency", row.frequency),
         atcRate: divide(addToCart, linkClicks, 100),
+        atcToPurchase: ratioWithDenominator(
+          metric("atcToPurchaseRatio", row.atcToPurchaseRatio),
+          addToCart,
+        ),
         cvr: divide(purchases, linkClicks, 100),
+        // Not a metric the provider serves — a subtraction between two dates
+        // this row already carries. See `creativeAgeDays` for which clock and
+        // which end, and `CreativeAssetMetricId` for the greps that establish
+        // that "first seen" and "first spend" never reach this grain.
+        ageDays: creativeAgeDays(row.launchDate, input.windowEnd),
       },
     };
   });
@@ -194,7 +282,10 @@ function copyKind(row: CopyMotionRow) {
 function buildCopyAngles(rows: CopyMotionRow[]): CreativeStudioCopyAngle[] {
   // Only served numbers enter a total. A row that carried no `spend` adds
   // nothing and, unlike a row that carried 0, was never counted as evidence.
-  const totalSpend = rows.reduce((sum, row) => sum + (copyMetric(row.spend) ?? 0), 0);
+  const totalSpend = rows.reduce(
+    (sum, row) => sum + (copyMetric(row.spend) ?? 0),
+    0,
+  );
   const groups = new Map<string, CopyMotionRow[]>();
   for (const row of rows) {
     const angle = row.copyAngle?.trim();
@@ -206,7 +297,10 @@ function buildCopyAngles(rows: CopyMotionRow[]): CreativeStudioCopyAngle[] {
 
   return [...groups.entries()]
     .map(([name, bucket]) => {
-      const spend = bucket.reduce((sum, row) => sum + (copyMetric(row.spend) ?? 0), 0);
+      const spend = bucket.reduce(
+        (sum, row) => sum + (copyMetric(row.spend) ?? 0),
+        0,
+      );
       const value = bucket.reduce(
         (sum, row) => sum + (copyMetric(row.purchaseValue) ?? 0),
         0,
@@ -222,7 +316,8 @@ function buildCopyAngles(rows: CopyMotionRow[]): CreativeStudioCopyAngle[] {
       const best = bucket
         .filter((row) => copyMetric(row.roas) !== null)
         .sort(
-          (left, right) => (copyMetric(right.roas) ?? 0) - (copyMetric(left.roas) ?? 0),
+          (left, right) =>
+            (copyMetric(right.roas) ?? 0) - (copyMetric(left.roas) ?? 0),
         )[0];
 
       return {
@@ -340,10 +435,14 @@ export function buildCreativeStudioLandingModel(input: {
       const linkClicks = sum((row) => finite(row.link_clicks));
       const landingPageViews = sum((row) => finite(row.landing_page_views));
       const currencies = new Set(
-        bucket.map((row) => row.currency?.trim()).filter((value): value is string => Boolean(value)),
+        bucket
+          .map((row) => row.currency?.trim())
+          .filter((value): value is string => Boolean(value)),
       );
       const ads = bucket.reduce(
-        (total, row) => total + Math.max(1, Math.round(finite(row.associated_ads_count) ?? 1)),
+        (total, row) =>
+          total +
+          Math.max(1, Math.round(finite(row.associated_ads_count) ?? 1)),
         0,
       );
       return {

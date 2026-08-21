@@ -26,7 +26,6 @@ import {
 } from "@/lib/zero-base/creative/studio-adapters";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
-import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 
 function Surface({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -303,23 +302,23 @@ export function SharesView({
   error,
   unavailableReason,
   initialTitle = "",
-  initialAudience = "creative_team",
+  initialAudience = "creator",
   initialExpiresAt = "",
   initialAcknowledged = false,
-  initialOpen = false,
+  initialOpen = true,
   showAlternateGateProof = false,
   onCancel,
 }: {
   rows: readonly ShareRow[];
   onRevoke?: (token: string) => void;
   onRotate?: (token: string) => void;
-  onCreate?: (input: { title: string; audience: ShareAudience; expiresAt: string }) => void;
+  onCreate?: (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => void;
   busyToken?: string | null;
   error?: string | null;
   unavailableReason?: string | null;
   /** Draft state to open in; a share form part-way through is a real state. */
   initialTitle?: string;
-  initialAudience?: ShareAudience;
+  initialAudience?: "buyer" | "creator";
   initialExpiresAt?: string;
   initialAcknowledged?: boolean;
   initialOpen?: boolean;
@@ -335,11 +334,11 @@ export function SharesView({
   const t = useCopy();
   const copy = useCopy();
   const [title, setTitle] = useState(initialTitle);
-  const [audience, setAudience] = useState<ShareAudience>(initialAudience);
+  const [audience, setAudience] = useState<"buyer" | "creator">(initialAudience);
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
   const [acknowledged, setAcknowledged] = useState(initialAcknowledged);
   const [createOpen, setCreateOpen] = useState(initialOpen);
-  const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience !== "buyer" || acknowledged));
+  const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
   if (unavailableReason) {
     return (
       <Surface title={copy.shares}>
@@ -375,15 +374,6 @@ export function SharesView({
             render: (row) =>
               row.status === "active" ? (
                 <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <a
-                    data-share-open={row.token}
-                    href={`/share/creative/${row.token}`}
-                    rel="noreferrer"
-                    target="_blank"
-                    style={{ alignItems: "center", color: "var(--ledger-accent-action)", display: "inline-flex", fontSize: 12 }}
-                  >
-                    Open link
-                  </a>
                   <Button
                     variant="secondary"
                     data-share-rotate={row.token}
@@ -412,15 +402,9 @@ export function SharesView({
         ]}
       />
 
-      {onCreate ? (
-        <div style={{ marginTop: 12 }}>
-          <Button variant="secondary" data-ctl="live:CREATIVE-10 open-create" onClick={() => setCreateOpen(true)}>{copy.createAShare}</Button>
-        </div>
-      ) : (
-        <p data-share-create-guidance="" style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-          Create a share from selected creatives in Creative Studio. This ledger manages existing links.
-        </p>
-      )}
+      <div style={{ marginTop: 12 }}>
+        <Button variant="secondary" data-ctl="live:CREATIVE-10 open-create" onClick={() => setCreateOpen(true)}>{copy.createAShare}</Button>
+      </div>
       {createOpen ? (
       <div data-share-dialog-backdrop="" style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--ledger-scrim)" }}>
       <section role="dialog" aria-modal="true" aria-label={copy.createAShare} style={{ width: "calc(100% - 32px)", maxWidth: 500, padding: 18, display: "grid", gap: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 14, background: "var(--ledger-bg-surface)", boxShadow: "var(--ledger-elevation-2)" }}>
@@ -429,7 +413,7 @@ export function SharesView({
         <div data-el="share-tiers">
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
-          {(["creative_team", "external", "buyer"] as const).map((option) => (
+          {(["creator", "buyer"] as const).map((option) => (
             <label key={option} style={{ fontSize: 12, display: "flex", gap: 6 }}>
               <input
                 type="radio"
@@ -439,11 +423,7 @@ export function SharesView({
                 checked={audience === option}
                 onChange={() => setAudience(option)}
               />
-              {option === "buyer"
-                ? "Buyer / client"
-                : option === "creative_team"
-                  ? "Creative team"
-                  : "External party"}
+              {option === "buyer" ? "Buyer (outside this workspace)" : "Creator (inside this workspace)"}
             </label>
           ))}
         </fieldset>

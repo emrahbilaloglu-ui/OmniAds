@@ -25,6 +25,7 @@ import {
   type ServedBrief,
   type ServedShare,
 } from "@/lib/zero-base/creative/studio-adapters";
+import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
@@ -305,7 +306,7 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
 /* --------------------------------------------------------------- shares */
 
 export function CreativeSharesClient(props: ScopeProps) {
-  const { data, surface, refresh } = useJson<{ grants?: ServedShare[] }>(
+  const { data, surface, refresh } = useJson<{ shares?: ServedShare[] }>(
     scoped("/api/creatives/share", props, {}, false),
     "Shares",
   );
@@ -341,13 +342,58 @@ export function CreativeSharesClient(props: ScopeProps) {
     [props.businessId, refresh],
   );
 
+  /**
+   * Create a share.
+   *
+   * A buyer share carries the acknowledgement the server requires; without it
+   * the POST is a 400 by design, so the UI sends it explicitly rather than
+   * hoping. Creator shares do not carry it, matching the server contract.
+   */
+  const create = useCallback(
+    async (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => {
+      setBusy("new");
+      setError(null);
+      try {
+        const response = await fetch("/api/creatives/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: props.businessId,
+            providerAccountId: props.providerAccountId,
+            title: input.title,
+            dateRange: `${props.start}..${props.end}`,
+            expiresAt: input.expiresAt,
+            metrics: [],
+            creatives: [],
+            audience: input.audience,
+            ...(input.audience === "buyer"
+              ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
+              : {}),
+          }),
+        });
+        if (!response.ok) {
+          const json = (await response.json().catch(() => null)) as { message?: string } | null;
+          setError(json?.message ?? `The share could not be created (HTTP ${response.status}).`);
+          return;
+        }
+        refresh();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "The share API could not be reached.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [props.businessId, props.providerAccountId, props.start, props.end, refresh],
+  );
+
   const now = new Date();
   return (
     <SurfaceStateBoundary state={surface}>
       <SharesView
-        rows={(data?.grants ?? []).map((share) => toShareRow(share, now))}
+        rows={(data?.shares ?? []).map((share) => toShareRow(share, now))}
         busyToken={busyToken}
         error={error}
+        onCreate={create}
         onRevoke={(token) => void mutate(token, "revoke")}
         onRotate={(token) => void mutate(token, "rotate")}
       />

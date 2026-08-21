@@ -114,11 +114,7 @@ describe("share ledger", () => {
   function shares(rows = [base], handlers: Partial<React.ComponentProps<typeof SharesView>> = {}) {
     render(
       <ZeroBasePortalHost>
-        <SharesView
-          rows={rows.map((share) => toShareRow(share, NOW))}
-          initialOpen={Boolean(handlers.onCreate)}
-          {...handlers}
-        />
+        <SharesView rows={rows.map((share) => toShareRow(share, NOW))} {...handlers} />
       </ZeroBasePortalHost>,
     );
   }
@@ -159,16 +155,22 @@ describe("share ledger", () => {
     expect(document.querySelector("[data-share-error]")!.textContent).toMatch(/HTTP 503/);
   });
 
-  it("does not invent a source-less share form when the caller cannot create", () => {
+  it("lets the operator out of the create dialog with no cancel handler supplied", async () => {
+    // The production client passes no onCancel; a modal that opens with the
+    // surface and only closes for callers who opted in is a trap.
     shares();
+    expect(document.querySelector("[data-share-dialog-backdrop]")).not.toBeNull();
+    const cancel = document.querySelector("[data-share-cancel]") as HTMLElement;
+    expect(cancel).not.toBeNull();
+
+    await userEvent.setup().click(cancel);
     expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
-    expect(document.querySelector("[data-share-create-guidance]")?.textContent).toMatch(
-      /selected creatives in Creative Studio/,
-    );
+    // The ledger underneath is reachable again.
+    expect(document.querySelector('[data-share-rotate="t1"]')).not.toBeNull();
   });
 
   it("discards the draft when the dialog is dismissed and reopened", async () => {
-    shares([base], { onCreate: vi.fn() });
+    shares();
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Title"), "Abandoned draft");
     await user.click(document.querySelector("[data-share-cancel]") as HTMLElement);
@@ -227,13 +229,13 @@ describe("share creation carries the acknowledgement the server requires", () =>
   function shareForm(onCreate = vi.fn()) {
     render(
       <ZeroBasePortalHost>
-        <SharesView rows={[]} onCreate={onCreate} initialOpen />
+        <SharesView rows={[]} onCreate={onCreate} />
       </ZeroBasePortalHost>,
     );
     return onCreate;
   }
 
-  it("shows no acknowledgement for a creative-team share", () => {
+  it("shows no acknowledgement for a creator share", () => {
     shareForm();
     expect(document.querySelector("[data-share-ack-block]")).toBeNull();
   });
@@ -261,7 +263,7 @@ describe("share creation carries the acknowledgement the server requires", () =>
     });
   });
 
-  it("creates a creative-team share without an acknowledgement", async () => {
+  it("creates a creator share without an acknowledgement", async () => {
     const onCreate = shareForm();
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Title"), "Internal");
@@ -269,7 +271,7 @@ describe("share creation carries the acknowledgement the server requires", () =>
     await user.click(document.querySelector("[data-share-create]") as HTMLElement);
     expect(onCreate).toHaveBeenCalledWith({
       title: "Internal",
-      audience: "creative_team",
+      audience: "creator",
       expiresAt: "2026-09-01",
     });
   });

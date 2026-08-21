@@ -11835,6 +11835,17 @@ export async function runMigrations(options?: {
           WHERE provider_account_id IS NOT NULL`,
       ]);
 
+      // A share's `payload` is the FROZEN snapshot -- "the link contains these
+      // creatives exactly as they exist right now, it never updates" is a
+      // promise the store already keeps. The public notes thread is the
+      // opposite: live, appended to after creation, by people who never see the
+      // workspace. It belongs in its own column so a new note never rewrites
+      // the frozen blob it sits beside.
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE creative_share_snapshots
+          ADD COLUMN IF NOT EXISTS messages JSONB NOT NULL DEFAULT '[]'::jsonb`,
+      ]);
+
       // LaunchIntent is the immutable account-bound command envelope between
       // Decisions/Creative Briefs and guarded provider writes. All executions
       // remain PAUSED-only; outcome receipts explicitly deny retry/rollback.

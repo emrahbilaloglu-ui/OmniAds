@@ -7,6 +7,8 @@ import {
   rotateCreativeShareSnapshot,
 } from "@/lib/creative-share-store";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { normalizeCreativeShareToken } from "@/lib/creative-share-link";
+import { toPublicShare } from "@/lib/zero-base/creative/public-share";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +28,15 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ token: string }> }
 ) {
-  const { token } = await context.params;
+  const token = normalizeCreativeShareToken((await context.params).token);
+  if (!token) return shareNotFoundResponse();
   const payload = await getCreativeShareSnapshot(token);
   if (!payload) {
     return shareNotFoundResponse();
   }
-  return NextResponse.json({ payload }, { headers: NO_STORE_HEADERS });
+  // This endpoint is public. Return the same closed projection as the public
+  // page, never the stored buyer payload with workspace/account identifiers.
+  return NextResponse.json({ payload: toPublicShare(payload) }, { headers: NO_STORE_HEADERS });
 }
 
 export async function DELETE(

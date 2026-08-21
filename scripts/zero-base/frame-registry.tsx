@@ -239,14 +239,21 @@ const homeFrame = (ready: boolean, narrow = false, narrowest = false) => {
 const publicShare = (kind: "image" | "video") => ({
   title: "Halcyon Supply Co. — August creative review",
   dateRange: "Jul 13 – Aug 9",
+  frozenAt: "2026-08-09",
   expiresAt: "2026-09-08",
   audience: "buyer" as const,
   financialWarning: "Figures are the advertiser's own reported results.",
+  allowCsv: false,
+  actions: [],
   captionsSupported: false as const,
+  note: null,
+  messages: [],
   creatives: [
     {
       key: "k1",
       name: "Summer hero",
+      format: kind,
+      launchDate: "2026-07-13",
       media: {
         kind,
         url: kind === "video" ? "https://example.test/hero.mp4" : PIXEL,
@@ -255,9 +262,10 @@ const publicShare = (kind: "image" | "video") => ({
         alt: "Summer hero creative",
       },
       mediaUnavailableReason: null,
+      story: null,
       metrics: [
-        { key: "purchases" as const, label: "Purchases", value: "96" },
-        { key: "roas" as const, label: "Result trend", value: "Improving" },
+        { key: "purchases" as const, label: "Purchases", value: "96", rawValue: 96 },
+        { key: "roas" as const, label: "ROAS", value: "2.4x", rawValue: 2.4 },
       ],
     },
   ],
@@ -971,7 +979,7 @@ const SHARE_ROWS = [
   {
     token: "tk_gone",
     title: "July review",
-    audience: "creator" as const,
+      audience: "creative_team" as const,
     createdAt: "2026-07-01",
     expiresAt: "2026-07-31",
     revokedAt: "2026-07-20",

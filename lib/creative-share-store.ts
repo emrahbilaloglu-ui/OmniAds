@@ -9,9 +9,12 @@ import {
   type SharePayload,
   type SharePayloadCreative,
   type SharedClientAction,
+  type SharedMessage,
 } from "@/components/creatives/shareCreativeTypes";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { normalizeCreativeShareToken } from "@/lib/creative-share-link";
+import { MediaCacheService } from "@/lib/media-cache/media-service";
 
 type CreateCreativeSharePayload = Omit<SharePayload, "token" | "createdAt">;
 type StoredCreativeSharePayload = CreateCreativeSharePayload &
@@ -114,6 +117,67 @@ function sanitizeClientActions(actions: SharedClientAction[] | undefined) {
     }));
 }
 
+/**
+ * Prefer a durable internal image/thumbnail when the media cache has one.
+ * Missing cache infrastructure never blocks link creation; the original frozen
+ * source remains as the honest fallback while the cache worker is queued.
+ */
+async function hydrateShareMediaFromCache<T extends { creatives: SharePayloadCreative[] }>(
+  payload: T,
+  businessId: string,
+): Promise<T> {
+  if (!businessId.trim() || payload.creatives.length === 0) return payload;
+  try {
+    const resolutions = await MediaCacheService.resolveUrls(
+      payload.creatives.map((creative) => ({
+        creative_id: creative.id,
+        thumbnail_url:
+          creative.cachedThumbnailUrl ??
+          creative.tableThumbnailUrl ??
+          creative.thumbnailUrl ??
+          creative.preview?.poster_url ??
+          null,
+        image_url:
+          creative.mediaPreviewUrl ??
+          creative.cardPreviewUrl ??
+          creative.previewUrl ??
+          creative.preview?.image_url ??
+          creative.imageUrl ??
+          null,
+      })),
+      businessId,
+    );
+    return {
+      ...payload,
+      creatives: payload.creatives.map((creative) => {
+        const resolution = resolutions.get(creative.id);
+        if (resolution?.source !== "cache") return creative;
+        const url = resolution.url;
+        return {
+          ...creative,
+          cachedThumbnailUrl: url,
+          cardPreviewUrl: url,
+          tableThumbnailUrl: url,
+          thumbnailUrl: url,
+          preview: {
+            ...creative.preview,
+            image_url:
+              creative.preview.render_mode === "image"
+                ? url
+                : creative.preview.image_url,
+            poster_url:
+              creative.preview.render_mode === "video"
+                ? url
+                : creative.preview.poster_url,
+          },
+        };
+      }),
+    };
+  } catch {
+    return payload;
+  }
+}
+
 function isCreatorTier0Metric(value: ShareMetricKey): boolean {
   return CREATOR_TIER_0_METRIC_SET.has(value);
 }
@@ -164,7 +228,13 @@ function projectCreatorSafePayloadFields(
     businessName: payload.businessName,
     filters: [],
     metrics: payload.metrics.filter(isCreatorTier0Metric),
-    includeNotes: false,
+    // A sender's note is a communication channel, not a metric tier — the
+    // reference design never lists it in either audience's included/removed
+    // set, and the live notes thread already applies to every audience the
+    // same way. Gating it to buyer-only silently dropped what the sender
+    // typed for the DEFAULT (creative_team) audience.
+    includeNotes: payload.includeNotes === true,
+    note: payload.note,
     audience,
     presetId: payload.presetId,
     presetLabel: payload.presetLabel,
@@ -241,8 +311,12 @@ export async function createCreativeShareSnapshot(
   await ensureShareTable();
   const sql = getDb();
   const token = randomUUID().replace(/-/g, "");
+  const storedPayload = await hydrateShareMediaFromCache(
+    sanitizeCreativeSharePayloadForStorage(payload),
+    attribution.businessId,
+  );
   const snapshot: SharePayload = {
-    ...sanitizeCreativeSharePayloadForStorage(payload),
+    ...storedPayload,
     token,
   };
   await sql`
@@ -281,6 +355,41 @@ function parseSharePayload(payload: unknown): SharePayload | null {
   const candidate = parsed as Partial<SharePayload>;
   if (!Array.isArray(candidate.metrics) || !Array.isArray(candidate.creatives)) return null;
   return candidate as SharePayload;
+}
+
+/** A column that fails to parse is empty, never a thrown read. */
+function parseSharedMessages(value: unknown): SharedMessage[] {
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : value;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Partial<SharedMessage>;
+    if (
+      typeof candidate.id !== "string" ||
+      typeof candidate.text !== "string" ||
+      typeof candidate.postedAt !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: candidate.id,
+        who: candidate.who === "sender" ? "sender" : "viewer",
+        name: typeof candidate.name === "string" && candidate.name.trim() ? candidate.name : "Client",
+        text: candidate.text,
+        postedAt: candidate.postedAt,
+      },
+    ];
+  });
 }
 
 type CreativeShareLedgerRow = {
@@ -351,6 +460,8 @@ export async function getCreativeShareSnapshot(
   token: string,
   options: { recordOpen?: boolean } = {},
 ): Promise<SharePayload | null> {
+  const normalizedToken = normalizeCreativeShareToken(token);
+  if (!normalizedToken) return null;
   const readiness = await getDbSchemaReadiness({
     tables: ["creative_share_snapshots"],
   });
@@ -359,12 +470,17 @@ export async function getCreativeShareSnapshot(
   }
   const sql = getDb();
   const rows = (await sql`
-    SELECT payload, expires_at
+    SELECT payload, expires_at, business_id, messages
     FROM creative_share_snapshots
-    WHERE token = ${token}
+    WHERE token = ${normalizedToken}
       AND revoked_at IS NULL
     LIMIT 1
-  `) as Array<{ payload?: unknown; expires_at?: string }>;
+  `) as Array<{
+    payload?: unknown;
+    expires_at?: string;
+    business_id?: string;
+    messages?: unknown;
+  }>;
   const row = rows[0];
   if (!row?.payload || !row.expires_at) return null;
 
@@ -375,23 +491,42 @@ export async function getCreativeShareSnapshot(
 
   const parsedPayload = parseSharePayload(row.payload);
   if (!parsedPayload) return null;
-  const payload = sanitizeCreativeSharePayloadForRead(parsedPayload);
+  const sanitizedPayload = sanitizeCreativeSharePayloadForRead(parsedPayload);
+  const messages = parseSharedMessages(row.messages);
+  const payload = sanitizedPayload
+    ? await hydrateShareMediaFromCache(
+        { ...sanitizedPayload, messages },
+        row.business_id?.trim() || sanitizedPayload.businessId?.trim() || "",
+      )
+    : null;
   if (!payload || !options.recordOpen) return payload;
 
-  const openCount = safeNumber(payload.openCount) + 1;
   const updatedRows = (await sql`
     UPDATE creative_share_snapshots
-    SET payload = jsonb_set(payload, '{openCount}', to_jsonb(${openCount}::integer), true)
-    WHERE token = ${token}
+    SET payload = jsonb_set(
+      payload,
+      '{openCount}',
+      to_jsonb(
+        (
+          CASE
+            WHEN COALESCE(payload->>'openCount', '') ~ '^[0-9]+$'
+              THEN (payload->>'openCount')::integer
+            ELSE 0
+          END
+        ) + 1
+      ),
+      true
+    )
+    WHERE token = ${normalizedToken}
       AND revoked_at IS NULL
       AND expires_at > NOW()
-    RETURNING token
-  `) as Array<{ token: string }>;
+    RETURNING token, (payload->>'openCount')::integer AS open_count
+  `) as Array<{ token: string; open_count: number }>;
   if (!updatedRows[0]) return null;
 
   return {
     ...payload,
-    openCount,
+    openCount: safeNumber(updatedRows[0].open_count),
   };
 }
 
@@ -399,7 +534,7 @@ export async function revokeCreativeShareSnapshot(
   input: RevokeCreativeShareInput,
 ): Promise<boolean> {
   await ensureShareTable();
-  const token = input.token.trim();
+  const token = normalizeCreativeShareToken(input.token);
   const businessId = input.businessId.trim();
   const revokedBy = input.revokedBy.trim();
   if (!token || !businessId || !revokedBy) return false;
@@ -424,7 +559,7 @@ export async function rotateCreativeShareSnapshot(
   input: RotateCreativeShareInput,
 ): Promise<{ token: string; url: string } | null> {
   await ensureShareTable();
-  const currentToken = input.token.trim();
+  const currentToken = normalizeCreativeShareToken(input.token);
   const businessId = input.businessId.trim();
   const revokedBy = input.revokedBy.trim();
   if (!currentToken || !businessId || !revokedBy) return null;
@@ -452,7 +587,10 @@ export async function rotateCreativeShareSnapshot(
     if (!source || !parsed || !providerAccountId) return null;
 
     const token = randomUUID().replace(/-/g, "");
-    const rotatedPayload: SharePayload = { ...parsed, token };
+    // Rotation preserves the frozen content and expiry, but creates a new
+    // bearer link. Opens belong to the link, not the underlying snapshot, so
+    // the new token starts at zero rather than inheriting the old URL's count.
+    const rotatedPayload: SharePayload = { ...parsed, token, openCount: 0 };
     await sql`
       INSERT INTO creative_share_snapshots (
         token,
@@ -473,4 +611,77 @@ export async function rotateCreativeShareSnapshot(
     `;
     return { token, url: `/share/creative/${token}` };
   });
+}
+
+/** Longer than this is not a note, and nothing on the public page needs it. */
+const SHARE_MESSAGE_MAX_LENGTH = 600;
+/** Bounds worst-case growth of an append-only column an anonymous visitor can write to. */
+const SHARE_MESSAGE_LIMIT = 200;
+
+export type AppendCreativeShareMessageResult =
+  | { ok: true; messages: SharedMessage[] }
+  | { ok: false; reason: "not_found" | "limit_reached" | "invalid_text" };
+
+/**
+ * Post one message to a share's live thread.
+ *
+ * PUBLIC surface: the caller supplies only a token and text, never a business
+ * or user identity — this is reachable by anyone holding the link, by design,
+ * the same way the page itself is. The one bound that exists is
+ * `SHARE_MESSAGE_LIMIT`: once a snapshot's thread reaches it, further posts are
+ * refused with a stated reason rather than silently dropping earlier history.
+ *
+ * The row-level lock the UPDATE takes serializes concurrent posts to the same
+ * token, so the length check and the append happen against the same row a
+ * second writer cannot see mid-flight — no separate read-then-write race.
+ */
+export async function appendCreativeShareMessage(input: {
+  token: string;
+  text: string;
+}): Promise<AppendCreativeShareMessageResult> {
+  const token = normalizeCreativeShareToken(input.token);
+  const text = input.text.trim();
+  if (!token || !text || text.length > SHARE_MESSAGE_MAX_LENGTH) {
+    return { ok: false, reason: "invalid_text" };
+  }
+  await ensureShareTable();
+  const sql = getDb();
+  const message: SharedMessage = {
+    id: randomUUID(),
+    who: "viewer",
+    name: "Client",
+    text,
+    postedAt: new Date().toISOString(),
+  };
+  const updatedRows = (await sql`
+    UPDATE creative_share_snapshots
+    SET messages = messages || ${JSON.stringify([message])}::jsonb
+    WHERE token = ${token}
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+      AND jsonb_array_length(messages) < ${SHARE_MESSAGE_LIMIT}
+    RETURNING messages
+  `) as Array<{ messages: unknown }>;
+  const updated = updatedRows[0];
+  if (updated) {
+    return { ok: true, messages: parseSharedMessages(updated.messages) };
+  }
+
+  // The write did not land. Find out why, so the caller can say something
+  // truthful rather than a generic failure for three different causes.
+  const existingRows = (await sql`
+    SELECT expires_at, revoked_at, jsonb_array_length(messages) AS message_count
+    FROM creative_share_snapshots
+    WHERE token = ${token}
+    LIMIT 1
+  `) as Array<{ expires_at?: string; revoked_at?: string | null; message_count?: number }>;
+  const existing = existingRows[0];
+  const stillLive =
+    existing &&
+    !existing.revoked_at &&
+    new Date(existing.expires_at ?? "").getTime() > Date.now();
+  if (stillLive && (existing?.message_count ?? 0) >= SHARE_MESSAGE_LIMIT) {
+    return { ok: false, reason: "limit_reached" };
+  }
+  return { ok: false, reason: "not_found" };
 }

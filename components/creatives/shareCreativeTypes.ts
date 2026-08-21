@@ -127,6 +127,36 @@ export interface SharedClientAction {
 }
 
 /**
+ * A note posted on the public share page, after the link was created.
+ *
+ * Separate from `SharePayload.note` (the sender's one-way note, fixed at
+ * creation) and from the frozen `creatives` array: this is a live, append-only
+ * thread. Nothing here is derived — `text` is exactly what was typed.
+ */
+export interface SharedMessage {
+  id: string;
+  who: "viewer" | "sender";
+  name: string;
+  text: string;
+  postedAt: string;
+}
+
+/**
+ * The account's own typical creative, at the metric the story cards compare
+ * against — computed from the SAME rows the operator was looking at when they
+ * shared, never a fabricated constant. A metric absent here means there were
+ * too few comparable creatives to call anything "typical"; the public page
+ * must show the raw number with no Strong/Typical/Weak verdict in that case,
+ * rather than inventing a comparison point.
+ */
+export interface CreativeShareBenchmarks {
+  thumbstop?: number | null;
+  videoCompletion50?: number | null;
+  ctrAll?: number | null;
+  linkCtr?: number | null;
+}
+
+/**
  * Creative object used in public share pages
  */
 export interface SharedCreative {
@@ -220,6 +250,8 @@ export interface ShareLinkConfig {
   includeDecisionLanguage?: boolean;
   allowCsv?: boolean;
   snapshotOnly?: boolean;
+  /** Explicit buyer-only acknowledgement required by the share API. */
+  buyerAcknowledged?: boolean;
 }
 
 /**
@@ -269,6 +301,16 @@ export interface SharePayload {
 
   creatives: SharePayloadCreative[];
   benchmarkCreatives?: SharePayloadCreative[];
+  /** The account's typical-creative comparison points; see `CreativeShareBenchmarks`. */
+  benchmarks?: CreativeShareBenchmarks;
 
   note?: string;
+
+  /**
+   * The live public thread. NOT part of the frozen snapshot — stored in its
+   * own column (`creative_share_snapshots.messages`) and merged onto this
+   * object by the store at read time, never written back through
+   * `sanitizeCreativeSharePayloadForStorage`.
+   */
+  messages?: SharedMessage[];
 }

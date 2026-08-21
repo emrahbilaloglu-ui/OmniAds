@@ -1,0 +1,306 @@
+/* dashboard-v2-exact-font-exception: canonical Shared links manager labels use 9px-11.5px IBM Plex Mono type. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  background: rgba(11, 16, 32, 0.46);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.panel {
+  width: 660px;
+  max-width: 96vw;
+  height: 100%;
+  background: #f3f5f9;
+  box-shadow: -28px 0 70px rgba(11, 16, 32, 0.35);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, sans-serif;
+}
+
+.header {
+  flex-shrink: 0;
+  padding: 14px 18px;
+  background: #0b1020;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerText {
+  min-width: 0;
+  flex: 1;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #8b93a7;
+}
+
+.title {
+  margin: 3px 0 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.countChip {
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e7ecf5;
+  padding: 3px 9px;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+
+.closeButton {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #8b93a7;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.closeButton:hover {
+  color: #fff;
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intro {
+  margin: 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #98a4ba;
+}
+
+.loading,
+.error,
+.empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: #45526b;
+}
+
+.error {
+  color: #e11d48;
+  font-weight: 600;
+}
+
+.linkCard {
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e4e8f0;
+  padding: 12px 14px;
+}
+
+.linkHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.linkTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.audienceChip,
+.statusChip,
+.emptyWarnChip {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audienceChip[data-tone="buyer"] {
+  background: #eaf0ff;
+  color: #2f6bff;
+}
+
+.audienceChip[data-tone="creative_team"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.audienceChip[data-tone="external"] {
+  background: #f1f4f9;
+  color: #45526b;
+}
+
+.statusChip {
+  font-weight: 700;
+}
+
+.statusChip[data-status="active"] {
+  background: #e7f6f0;
+  color: #0e9f6e;
+}
+
+.statusChip[data-status="expired"] {
+  background: #f1f4f9;
+  color: #7a869e;
+}
+
+.statusChip[data-status="revoked"] {
+  background: #fdecf0;
+  color: #e11d48;
+}
+
+.emptyWarnChip {
+  background: #fbf3e1;
+  color: #b45309;
+}
+
+.linkMeta {
+  margin: 5px 0 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #7a869e;
+}
+
+.linkActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  flex-wrap: wrap;
+}
+
+.linkUrl {
+  flex: 1;
+  min-width: 170px;
+  border-radius: 8px;
+  border: 1px solid #edf0f6;
+  background: #f7f9fc;
+  padding: 6px 10px;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #45526b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actionButton,
+.actionButtonAccent,
+.actionButtonDanger {
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.actionButton {
+  border: 1px solid #e4e8f0;
+  background: #fff;
+  color: #45526b;
+}
+
+.actionButton:hover {
+  background: #f7f9fc;
+}
+
+.actionButtonAccent {
+  border: 1px solid #e4e8f0;
+  background: #fff;
+  color: #2f6bff;
+}
+
+.actionButtonAccent:hover {
+  background: #eaf0ff;
+}
+
+.actionButtonDanger {
+  border: 1px solid #f6c6d2;
+  background: #fff;
+  color: #e11d48;
+}
+
+.actionButtonDanger:hover {
+  background: #fdecf0;
+}
+
+.actionButton:focus-visible,
+.actionButtonAccent:focus-visible {
+  outline: 2px solid #2f6bff;
+  outline-offset: 2px;
+}
+
+.actionButtonDanger:focus-visible {
+  outline: 2px solid #e11d48;
+  outline-offset: 2px;
+}
+
+.footerCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  border: 1px dashed #c9d2e0;
+  background: #fbfcfe;
+  padding: 11px 14px;
+  flex-wrap: wrap;
+}
+
+.footerCard p {
+  margin: 0;
+  flex: 1;
+  min-width: 220px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7a869e;
+}
+
+.footerLink {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #e4e8f0;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2f6bff;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.footerLink:hover {
+  background: #eaf0ff;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    width: 100%;
+    max-width: 100vw;
+  }
+}

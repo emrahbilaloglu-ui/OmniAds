@@ -80,6 +80,110 @@
   background: #f7f9fc;
 }
 
+.headerActions .sharedLinksButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sharedLinksCount {
+  border-radius: 9999px;
+  padding: 1px 7px;
+  background: #f1f4f9;
+  color: #7a869e;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+
+.shareEntryWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.headerActions .shareButtonIdle,
+.headerActions .shareButtonActive {
+  white-space: nowrap;
+}
+
+.headerActions .shareButtonActive {
+  border-color: #2f6bff;
+  background: #2f6bff;
+  color: #fff;
+}
+
+.headerActions .shareButtonActive:not(:disabled):hover {
+  background: #1e4fd6;
+  border-color: #1e4fd6;
+}
+
+.shareNudge {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 40;
+  width: 268px;
+  border-radius: 12px;
+  background: #0b1020;
+  color: #e7ecf5;
+  padding: 12px 14px;
+  box-shadow: 0 16px 38px rgba(11, 16, 32, 0.32);
+  text-align: left;
+}
+
+.shareNudge::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: 26px;
+  width: 10px;
+  height: 10px;
+  background: #0b1020;
+  transform: rotate(45deg);
+}
+
+.shareNudgeTitle {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+
+.shareNudgeBody {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  /* Painted against the tooltip's own #0b1020 fill, not the page's white —
+     named here too so the contrast floor measures the pair it is really on. */
+  background: #0b1020;
+  color: #8b93a7;
+}
+
+.shareNudgeDismiss {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  height: auto;
+  width: auto;
+  padding: 2px 4px;
+  border: none;
+  /* Named for the same reason as .shareNudgeBody above. */
+  background: #0b1020;
+  /* --adv-rail-ink-2 (app/globals.css): this app's own established
+     secondary-ink value for text on this exact navy fill. #5b6577, the
+     reference's own dismiss colour, measures 3.16:1 here — below the floor. */
+  color: #a8b3c7;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.shareNudgeDismiss:hover {
+  /* --adv-rail-ink: this app's own primary-ink value for the dark rail. */
+  color: #e7ecf5;
+  background: #0b1020;
+}
+
 .tabs {
   display: flex;
   align-items: center;

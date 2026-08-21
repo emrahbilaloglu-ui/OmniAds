@@ -80,6 +80,12 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   "media/meta-preview": "image proxy restricted to an allow-list of Meta CDN hosts",
   "media/cache/[...key]": "opaque storage-key capability URL, existence-checked, traversal-guarded",
   "oauth/shopify/start": "pre-authentication leg of the Shopify install flow",
+  "creatives/share/[token]/messages":
+    "the public share page has no session; posting a note is reachable by anyone " +
+    "holding the token, the same reach the page itself already has. The token " +
+    "must resolve to a live, non-revoked, non-expired snapshot or the write is " +
+    "refused (appendCreativeShareMessage), and a length + stored-count bound " +
+    "caps the write surface this endpoint can do.",
 };
 
 /**

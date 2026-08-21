@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
@@ -2194,12 +2195,41 @@ export function CreativeStudioExact({
   counts,
   onExport,
   onShare,
+  shareSelectedCount,
+  sharedLinksCount,
+  onOpenSharedLinks,
   assets,
   copies,
   landingPages,
   inbox,
   audiences,
 }: CreativeStudioExactProps) {
+  const selectedCount = shareSelectedCount ?? 0;
+  const [shareNudgeVisible, setShareNudgeVisible] = useState(false);
+  const nudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (nudgeTimeoutRef.current) clearTimeout(nudgeTimeoutRef.current);
+    },
+    [],
+  );
+
+  const handleShareClick = () => {
+    if (!onShare) return;
+    if (selectedCount === 0) {
+      if (nudgeTimeoutRef.current) clearTimeout(nudgeTimeoutRef.current);
+      setShareNudgeVisible(true);
+      nudgeTimeoutRef.current = setTimeout(() => setShareNudgeVisible(false), 5200);
+      return;
+    }
+    setShareNudgeVisible(false);
+    onShare();
+  };
+
+  const shareLabel =
+    selectedCount > 0 ? `Share with client · ${selectedCount}` : "Share with client";
+
   return (
     <section
       className={styles.root}
@@ -2217,9 +2247,60 @@ export function CreativeStudioExact({
           <button disabled={!onExport} onClick={onExport} type="button">
             Export CSV
           </button>
-          <button disabled={!onShare} onClick={onShare} type="button">
-            Share with client
+          <button
+            className={styles.sharedLinksButton}
+            data-creative-studio-shared-links-button="true"
+            disabled={!onOpenSharedLinks}
+            onClick={onOpenSharedLinks}
+            type="button"
+          >
+            Shared links
+            <span className={styles.sharedLinksCount}>
+              {sharedLinksCount == null ? "—" : sharedLinksCount}
+            </span>
           </button>
+          <span className={styles.shareEntryWrap}>
+            <button
+              aria-label="Share selected creatives with client"
+              className={
+                selectedCount > 0
+                  ? styles.shareButtonActive
+                  : styles.shareButtonIdle
+              }
+              data-creative-studio-share-button="true"
+              disabled={!onShare}
+              onClick={handleShareClick}
+              type="button"
+            >
+              {shareLabel}
+            </button>
+            {shareNudgeVisible ? (
+              <span
+                className={styles.shareNudge}
+                data-screen-label="Share entry — no selection"
+                role="status"
+              >
+                <span className={styles.shareNudgeTitle}>
+                  Select at least one creative to create a frozen snapshot.
+                </span>
+                <span className={styles.shareNudgeBody}>
+                  Tick rows in the All creatives table below — nothing is
+                  auto-selected for you.
+                </span>
+                <button
+                  aria-label="Dismiss"
+                  className={styles.shareNudgeDismiss}
+                  onClick={() => {
+                    if (nudgeTimeoutRef.current) clearTimeout(nudgeTimeoutRef.current);
+                    setShareNudgeVisible(false);
+                  }}
+                  type="button"
+                >
+                  ✕
+                </button>
+              </span>
+            ) : null}
+          </span>
         </div>
       </header>
 

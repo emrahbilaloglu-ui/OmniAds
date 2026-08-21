@@ -16,7 +16,8 @@
  * - **Source states.** Inbox and copy rows carry where they came from, so a
  *   row with no recoverable source is visibly unsourced rather than looking the
  *   same as a sourced one.
- */
+*/
+import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 
 /* --------------------------------------------------------- landing pages */
 
@@ -202,10 +203,15 @@ export type ShareStatus = "active" | "expired" | "revoked";
 export interface ServedShare {
   token: string;
   title: string;
-  audience: "buyer" | "creator";
+  audience: ShareAudience;
+  status?: ShareStatus;
   createdAt: string;
   expiresAt: string;
   revokedAt?: string | null;
+  openCount?: number;
+  creativeCount?: number;
+  firstCreativeName?: string | null;
+  providerAccountId?: string;
 }
 
 export interface ShareRow extends ServedShare {
@@ -220,6 +226,9 @@ export interface ShareRow extends ServedShare {
  * which happened. The PUBLIC surface must not — see `PUBLIC_SHARE_GONE`.
  */
 export function shareStatus(share: ServedShare, now: Date): ShareStatus {
+  if (share.status === "revoked" || share.status === "expired" || share.status === "active") {
+    return share.status;
+  }
   if (share.revokedAt) return "revoked";
   const expiry = new Date(share.expiresAt).getTime();
   if (!Number.isFinite(expiry) || expiry <= now.getTime()) return "expired";

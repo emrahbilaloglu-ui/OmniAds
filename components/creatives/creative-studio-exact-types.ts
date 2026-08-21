@@ -435,6 +435,16 @@ export interface CreativeStudioExactProps {
   counts: Partial<Record<CreativeStudioTabId, number | null>>;
   onExport?: () => void;
   onShare?: () => void;
+  /**
+   * Rows currently ticked in the Assets table — the only way this toolbar
+   * knows whether "Share with client" has anything to share. `undefined`
+   * (no assets model wired yet) reads the same as 0: the button offers a
+   * nudge instead of opening with nothing selected.
+   */
+  shareSelectedCount?: number;
+  /** Served count of this account's live share links, or null while unread. */
+  sharedLinksCount?: number | null;
+  onOpenSharedLinks?: () => void;
   assets?: CreativeStudioAssetsModel;
   copies?: CreativeStudioCopiesModel;
   landingPages?: CreativeStudioLandingModel;

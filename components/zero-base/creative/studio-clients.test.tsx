@@ -5,13 +5,12 @@
  *
  * Both defects these cover were missing props rather than broken views: the
  * briefs client never supplied `backHref`, so "Back to creatives" pointed at
- * the marketing landing page, and the shares client never supplied a way out of
- * the create dialog it opens with.
+ * the marketing landing page, and the shares client read the wrong response
+ * envelope while exposing a source-less create form.
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, render, screen } from "@testing-library/react";
 
 import {
   CreativeBriefsClient,
@@ -100,8 +99,27 @@ describe("CreativeBriefsClient", () => {
 });
 
 describe("CreativeSharesClient", () => {
-  it("offers a way out of the create dialog it opens with", async () => {
-    serve({ "/api/creatives/share": { shares: [] } });
+  it("reads the real grants envelope and links to an active snapshot", async () => {
+    const token = "a".repeat(32);
+    serve({
+      "/api/creatives/share": {
+        grants: [
+          {
+            token,
+            title: "Frozen comparison",
+            audience: "creative_team",
+            status: "active",
+            createdAt: "2026-08-20T00:00:00.000Z",
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            revokedAt: null,
+            openCount: 0,
+            creativeCount: 3,
+            firstCreativeName: "Creative one",
+            providerAccountId: "act_1",
+          },
+        ],
+      },
+    });
 
     render(
       <ZeroBasePortalHost>
@@ -109,13 +127,9 @@ describe("CreativeSharesClient", () => {
       </ZeroBasePortalHost>,
     );
 
-    await waitFor(() =>
-      expect(document.querySelector("[data-share-dialog-backdrop]")).not.toBeNull(),
-    );
-    const cancel = document.querySelector("[data-share-cancel]") as HTMLElement;
-    expect(cancel, "the create dialog has a dismiss control").not.toBeNull();
-
-    await userEvent.setup().click(cancel);
+    const open = await screen.findByRole("link", { name: "Open link" });
+    expect(open.getAttribute("href")).toBe(`/share/creative/${token}`);
     expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+    expect(document.querySelector("[data-share-create-guidance]")).not.toBeNull();
   });
 });

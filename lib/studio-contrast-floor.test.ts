@@ -113,6 +113,10 @@ function paintedEssentialText(): { measured: Painted[]; unresolved: string[] } {
  */
 const BELOW_FLOOR_REFERENCE_PAIRS: readonly string[] = [
   "#2f6bff on #eaf0ff", // 3.94:1 — insight pill, test estimate
+  // 3.32:1 — the Shared-links toolbar count, on the same muted-badge fill
+  // `.tabCount` already ships at this exact colour pair; this is a second
+  // instance of that established palette, not a new one.
+  "#7a869e on #f1f4f9",
   "#7a869e on #f7f9fc", // 3.47:1 — copy / landing / matrix table headers
   "#7a869e on #ffffff", // 3.66:1 — eyebrows, table headers, notes
   "#98a4ba on #ffffff", // 2.51:1 — row metadata, counts, empty states

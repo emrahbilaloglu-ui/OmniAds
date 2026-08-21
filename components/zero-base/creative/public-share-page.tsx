@@ -9,96 +9,591 @@
  *
  * The unavailable state is deliberately one message for every cause. Expired,
  * revoked, rotated-away and never-existed look identical, because telling a
- * stranger holding a dead link which one it was confirms the link was once real
- * and that this workspace issued it.
+ * stranger holding a dead link which one it was confirms the link was once
+ * real and that this workspace issued it.
  */
+import { useState } from "react";
 import { ShareMedia } from "@/components/zero-base/creative/share-media";
-import type { PublicShare } from "@/lib/zero-base/creative/public-share";
+import type { PublicShare, PublicShareCreative } from "@/lib/zero-base/creative/public-share";
 import { PUBLIC_SHARE_GONE } from "@/lib/zero-base/creative/public-share";
+import { toneStyle } from "@/lib/zero-base/creative/public-share-story";
+import type { SharedMessage } from "@/components/creatives/shareCreativeTypes";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import styles from "./PublicSharePage.module.css";
+
+const VERDICT_ICON_PATH: Record<"good" | "mixed" | "bad", string> = {
+  good: "M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4 12 14.01l-3-3",
+  mixed: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 8v4 M12 16h.01",
+  bad: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M15 9l-6 6 M9 9l6 6",
+};
+
+const MEDIA_MISSING_ICON =
+  "M21 15V5a2 2 0 0 0-2-2H9 M3 7v12a2 2 0 0 0 2 2h12 M2 2l20 20 M21 15l-5-5L5 21";
+
+function formatDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  // UTC, not the viewer's local zone — a date-only string like "2026-09-01"
+  // parses as UTC midnight, and formatting it in a negative-offset zone would
+  // otherwise roll it back a day.
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
+function BrandMark() {
+  return (
+    <span className={styles.brandMark} aria-hidden="true">
+      <img
+        src="/adsecute-mark.svg"
+        alt=""
+        width={14}
+        height={14}
+        style={{ filter: "brightness(0) invert(1)" }}
+      />
+    </span>
+  );
+}
 
 export function PublicShareUnavailable() {
-  const copy = useCopy();
   return (
-    <main
-      data-public-share="unavailable"
-      style={{ maxWidth: 640, margin: "0 auto", padding: 24, fontSize: 14, lineHeight: "22px" }}
-    >
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{copy.linkNotAvailable}</h1>
-      <p style={{ marginTop: 8 }}>{PUBLIC_SHARE_GONE}</p>
+    <main className={styles.unavailablePage} data-public-share="unavailable">
+      <div className={styles.unavailableCard}>
+        <span className={styles.unavailableIcon} aria-hidden="true">
+          <svg fill="none" height="20" stroke="#7a869e" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20">
+            <path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M2 2l20 20" />
+          </svg>
+        </span>
+        <h1>This shared snapshot is no longer available.</h1>
+        <p>{PUBLIC_SHARE_GONE}</p>
+        <div className={styles.unavailableFooter}>
+          <BrandMark />
+          <span>share.adsecute.com</span>
+        </div>
+      </div>
     </main>
   );
 }
 
-export function PublicSharePage({ share }: { share: PublicShare }) {
+function EmptySnapshotPage({ share }: { share: PublicShare }) {
   const copy = useCopy();
   return (
-    <main
-      data-public-share="ready"
-      data-el="public-share"
-      data-share-audience={share.audience}
-      style={{ minHeight: "100vh", background: "var(--ledger-bg-app)", display: "grid", gridTemplateRows: "52px 1fr auto" }}
-    >
-      <header style={{ padding: "0 clamp(20px, 3vw, 40px)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottom: "1px solid var(--ledger-border-subtle)", background: "var(--ledger-bg-surface)" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 9, fontSize: 13, color: "var(--ledger-ink-secondary)" }}>
-          <span aria-hidden="true" style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: 5, background: "var(--ledger-accent-action)", color: "var(--ledger-bg-surface)", fontSize: 12, fontWeight: 800 }}>A</span>
-          {copy.sharedVia} <strong style={{ color: "var(--ledger-ink-primary)" }}>{copy.brandName}</strong>
-        </span>
-        <span style={{ font: "12px/1.3 var(--font-mono, monospace)", color: "var(--ledger-ink-secondary)" }}>no login · no workspace identity</span>
-      </header>
-      <section aria-label={copy.creatives} style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "18px clamp(20px, 3vw, 40px)", display: "grid", gap: 14, alignContent: "start" }}>
-        {share.creatives.length > 0 && share.financialWarning ? (
-          <p data-share-financial-warning="" style={{ margin: 0, padding: "8px 10px", border: "1px solid var(--ledger-semantic-warn)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
-            {share.financialWarning}
-          </p>
-        ) : null}
-        {share.creatives.length === 0 ? (
-          <p data-share-creatives="empty" style={{ margin: 0, fontSize: 13 }}>
-            {copy.shareHasNoCreatives}
-          </p>
-        ) : (
-          share.creatives.map((creative) => (
-            <article key={creative.key} data-share-creative={creative.key} style={{ display: "grid", gridTemplateColumns: "minmax(280px, 420px) minmax(0, 1fr)", alignItems: "start", gap: 26 }}>
-              <div data-public-media-frame="" style={{ aspectRatio: "1 / 1", border: "1px solid var(--ledger-border-subtle)", borderRadius: 14, overflow: "hidden", background: "var(--ledger-bg-inset)", display: "grid", placeItems: "center" }}>
-              {creative.media && (creative.media.kind === "image" || creative.media.kind === "video") ? (
-                <ShareMedia source={creative.media} />
-              ) : (
-                <p
-                  data-share-media="missing"
-                  data-share-media-for={creative.key}
-                  style={{ margin: 0, padding: 24, fontSize: 13, color: "var(--ledger-ink-tertiary)" }}
-                >
-                  {creative.mediaUnavailableReason ?? (creative.media as { reason?: string } | null)?.reason ?? "No preview was captured for this creative."}
-                </p>
-              )}
-              </div>
-              <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
-                <div>
-                  <h1 style={{ margin: 0, fontSize: 22, fontWeight: 750, lineHeight: "28px" }}>{creative.name}</h1>
-                  {share.dateRange ? <p style={{ margin: "4px 0 0", font: "12px/1.4 var(--font-mono, monospace)", color: "var(--ledger-ink-secondary)" }}>{share.dateRange}</p> : null}
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                  {(creative.metrics ?? []).map((metric) => (
-                    <div key={metric.key} data-public-metric={metric.key} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
-                      <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{metric.label}</span>
-                      <strong style={{ display: "block", marginTop: 3, font: "700 18px/1.25 var(--font-mono, monospace)" }}>{metric.value}</strong>
-                    </div>
-                  ))}
-                  <div style={{ padding: 12, border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", fontSize: 12, lineHeight: "17px", color: "var(--ledger-ink-secondary)" }}>
-                    {share.audience === "buyer" ? "Financials are not included in this share tier" : "Performance data is not included in this creator share"}
-                  </div>
-                </div>
-                <p style={{ margin: 0, padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", fontSize: 12, lineHeight: "18px" }}><strong>{copy.commentary}</strong><span style={{ display: "block", marginTop: 3, color: "var(--ledger-ink-secondary)" }}>{copy.publicShareCommentary}</span></p>
-              </div>
-            </article>
-          ))
-        )}
-      </section>
-      <footer style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", padding: "12px clamp(20px, 3vw, 40px)", borderTop: "1px solid var(--ledger-border-subtle)", background: "var(--ledger-bg-surface)", font: "12px/1.4 var(--font-mono, monospace)", color: "var(--ledger-ink-secondary)" }}>
-        <span>Link expires {share.expiresAt || "at the issuer-defined time"}</span>
-        <span>Audience tier: {share.audience} · workspace identity excluded</span>
-      </footer>
-      <style>{`[data-public-media-frame] [data-share-media="image"],[data-public-media-frame] [data-share-media="video"]{width:100%!important;height:100%!important;object-fit:cover!important;border-radius:0!important}@media(max-width:720px){[data-share-creative]{grid-template-columns:1fr!important}}`}</style>
+    <main className={styles.emptyPage} data-el="public-share" data-public-share="ready" data-share-audience={share.audience}>
+      <div className={styles.emptyPageInner}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <BrandMark />
+            <span className={styles.brandName}>Adsecute</span>
+            <span className={styles.snapshotTag}>Snapshot</span>
+            <span className={styles.flexSpacer} />
+            <span className={styles.frozenPill}>
+              <svg fill="none" height="11" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="11">
+                <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Frozen snapshot
+            </span>
+          </div>
+        </header>
+        <p className={styles.emptyCreatives} data-share-creatives="empty">
+          {copy.shareHasNoCreatives}
+        </p>
+        <p className={styles.emptyFooterLine}>
+          frozen, read-only · available until {share.expiresAt ? formatDate(share.expiresAt) : "—"}
+        </p>
+      </div>
     </main>
   );
 }
+
+function CsvButton({ href }: { href: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "fail">("idle");
+
+  const handleClick = async () => {
+    if (state === "busy") return;
+    setState("busy");
+    try {
+      const response = await fetch(href);
+      if (!response.ok) throw new Error("csv_fetch_failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "snapshot-creatives.csv";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setState("done");
+    } catch {
+      setState("fail");
+    }
+  };
+
+  return (
+    <div className={styles.csvRow}>
+      <div className={styles.csvText}>
+        <p>CSV export</p>
+        <span>Contains exactly the creatives and metrics on this page — nothing more.</span>
+      </div>
+      {state === "fail" ? (
+        <span className={styles.csvMessageFail}>
+          The CSV couldn&rsquo;t be generated. Metrics on this page are unaffected.
+        </span>
+      ) : state === "done" ? (
+        <span className={styles.csvMessageDone}>snapshot-creatives.csv saved</span>
+      ) : null}
+      <button
+        className={styles.csvButton}
+        data-public-share-csv=""
+        data-public-share-csv-href={href}
+        disabled={state === "busy"}
+        onClick={handleClick}
+        type="button"
+      >
+        {state === "busy" ? <span className={styles.csvSpinner} aria-hidden="true" /> : null}
+        {state === "busy"
+          ? "Preparing CSV…"
+          : state === "done"
+            ? "Downloaded"
+            : state === "fail"
+              ? "Try again"
+              : "Download CSV"}
+      </button>
+    </div>
+  );
+}
+
+function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]> }) {
+  const tone = toneStyle(story.tone);
+  const iconPath = story.tone === "unclear" ? null : VERDICT_ICON_PATH[story.tone];
+  return (
+    <>
+      {story.verdict ? (
+        <div
+          className={styles.verdictBox}
+          style={{ background: tone.bg, borderColor: tone.border, color: tone.fg }}
+        >
+          {iconPath ? (
+            <svg fill="none" height="14" stroke={tone.fg} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="14">
+              <path d={iconPath} />
+            </svg>
+          ) : null}
+          <p>{story.verdict}</p>
+        </div>
+      ) : null}
+      <div className={styles.stageList}>
+        {story.stages.map((stage) => (
+          <div key={stage.key}>
+            <div className={styles.stageHead}>
+              <span className={styles.stageLabel}>{stage.label}</span>
+              {stage.band ? (
+                <span className={styles.stageBand} data-band={stage.band}>
+                  {stage.band}
+                </span>
+              ) : null}
+            </div>
+            <div className={styles.stageTrack}>
+              <span
+                className={styles.stageFill}
+                data-band={stage.band ?? "none"}
+                style={{ width: `${stage.widthPercent}%` }}
+              />
+              {stage.benchmarkPercent !== null ? (
+                <span
+                  className={styles.stageTick}
+                  style={{ left: `${stage.benchmarkPercent}%` }}
+                  title="typical creative in this account"
+                />
+              ) : null}
+            </div>
+            <p className={styles.stagePlain}>
+              {stage.plainText}
+              {stage.benchmarkValueLabel !== null ? (
+                <span className={styles.stageTypical}> · typical: {stage.benchmarkValueLabel}</span>
+              ) : null}
+            </p>
+          </div>
+        ))}
+      </div>
+      {story.dropOff && story.dropOffCaption ? (
+        <div className={styles.dropOff}>
+          <p className={styles.dropOffTitle}>Where viewers stop watching</p>
+          <div className={styles.dropOffBars}>
+            {story.dropOff.map((bar, index) => (
+              <span className={styles.dropOffBarWrap} key={`${bar.label}-${index}`}>
+                <span
+                  className={styles.dropOffBar}
+                  data-highlight={bar.highlighted ? "true" : "false"}
+                  style={{ height: `${bar.heightPercent}%` }}
+                />
+              </span>
+            ))}
+          </div>
+          <div className={styles.dropOffLabels}>
+            {story.dropOff.map((bar, index) => (
+              <span key={`${bar.label}-${index}-label`}>{bar.label}</span>
+            ))}
+          </div>
+          <p className={styles.dropOffCaption}>{story.dropOffCaption}</p>
+        </div>
+      ) : null}
+      {story.suggestion ? (
+        <div className={styles.suggestion}>
+          <svg fill="none" height="13" stroke="#2f6bff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="13">
+            <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+          </svg>
+          <div>
+            <p className={styles.suggestionEyebrow}>Suggested next step · from this data</p>
+            <p>{story.suggestion}</p>
+          </div>
+        </div>
+      ) : null}
+      <p className={styles.rawLine}>{story.rawLine}</p>
+    </>
+  );
+}
+
+function CreativeCard({ creative }: { creative: PublicShareCreative }) {
+  const metrics = creative.metrics ?? [];
+  const hasStory = Boolean(creative.story);
+  const formatLabel =
+    creative.format === "video" ? "Video" : creative.format === "catalog" ? "Catalog" : "Image";
+  const missingMedia = (iconSize: number) => (
+    <p className={styles.mediaMissing} data-share-media="missing" data-share-media-for={creative.key}>
+      <svg fill="none" height={iconSize} stroke="#98a4ba" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width={iconSize}>
+        <path d={MEDIA_MISSING_ICON} />
+      </svg>
+      {creative.mediaUnavailableReason ?? "No preview was captured for this creative."}
+    </p>
+  );
+  const hasRealMedia = creative.media && (creative.media.kind === "image" || creative.media.kind === "video");
+
+  return (
+    <article className={styles.creativeCard} data-share-creative={creative.key}>
+      {hasStory ? (
+        <div className={styles.mediaFrame} data-variant="story">
+          <span className={styles.formatBadge}>{formatLabel}</span>
+          <div className={styles.phoneFrame}>
+            {hasRealMedia ? <ShareMedia source={creative.media} /> : missingMedia(16)}
+          </div>
+        </div>
+      ) : (
+        <div className={styles.mediaFrame} data-variant="row">
+          <span className={styles.formatBadge}>{formatLabel}</span>
+          {hasRealMedia ? <ShareMedia source={creative.media} /> : missingMedia(18)}
+        </div>
+      )}
+      <div className={styles.cardBody}>
+        <p className={styles.creativeName}>{creative.name}</p>
+        <p className={styles.creativeLaunch}>
+          {creative.launchDate ? `Launched ${formatDate(creative.launchDate)}` : "Launch date unavailable"}
+        </p>
+        {creative.story ? (
+          <StoryCard story={creative.story} />
+        ) : metrics.length > 0 ? (
+          <div className={styles.metricRows}>
+            {metrics.map((metric) => (
+              <div className={styles.metricRow} data-public-metric={metric.key} key={metric.key}>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className={styles.metricsEmpty} data-public-metrics="empty">
+            No metrics were included in this frozen snapshot.
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ComparisonTable({ share }: { share: PublicShare }) {
+  const metricOrder: Array<{ key: string; label: string }> = [];
+  const seen = new Set<string>();
+  for (const creative of share.creatives) {
+    for (const metric of creative.metrics ?? []) {
+      if (seen.has(metric.key)) continue;
+      seen.add(metric.key);
+      metricOrder.push({ key: metric.key, label: metric.label });
+    }
+  }
+  if (metricOrder.length === 0) return null;
+
+  let missingSeen = false;
+
+  return (
+    <>
+      <article className={styles.comparisonTable}>
+        <div className={styles.comparisonHead}>
+          <h2>Side-by-side comparison</h2>
+          <span>same order as the cards above · frozen values</span>
+        </div>
+        <div className={styles.tableScroll}>
+          <table>
+            <thead>
+              <tr>
+                <th>Creative</th>
+                {metricOrder.map((metric) => (
+                  <th key={metric.key}>{metric.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {share.creatives.map((creative) => {
+                const values = new Map<string, string>(
+                  (creative.metrics ?? []).map((metric) => [metric.key, metric.value]),
+                );
+                return (
+                  <tr key={creative.key}>
+                    <td>{creative.name}</td>
+                    {metricOrder.map((metric) => {
+                      const value = values.get(metric.key);
+                      if (value === undefined) missingSeen = true;
+                      return (
+                        <td className={value === undefined ? styles.tableMissing : styles.tablePresent} key={metric.key}>
+                          {value ?? "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      {missingSeen ? (
+        <p className={styles.tableNote}>
+          — appears where a metric was not yet statistically mature when this snapshot was frozen.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function NotesThread({
+  share,
+  messagesHref,
+}: {
+  share: PublicShare;
+  messagesHref: string | null;
+}) {
+  const [messages, setMessages] = useState<SharedMessage[]>(share.messages ?? []);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || !messagesHref || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const response = await fetch(messagesHref, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { messages?: SharedMessage[]; message?: string }
+        | null;
+      if (!response.ok || !payload?.messages) {
+        throw new Error(payload?.message ?? "The note could not be sent.");
+      }
+      setMessages(payload.messages);
+      setDraft("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The note could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section aria-label="Notes and questions" data-public-notes-href={messagesHref ?? undefined}>
+      <div className={styles.notesHead}>
+        <h2>Notes &amp; questions</h2>
+        <span>anyone with this link can reply · the thread stays with this snapshot</span>
+      </div>
+      <div className={styles.notesCard}>
+        <div className={styles.notesList}>
+          {messages.length === 0 ? (
+            <p className={styles.notesEmpty}>No notes yet — start the thread below.</p>
+          ) : (
+            messages.map((message) => (
+              <div className={styles.noteRow} key={message.id}>
+                <span className={styles.noteAvatar} data-role={message.who}>
+                  {message.name.slice(0, 2).toUpperCase()}
+                </span>
+                <div className={styles.noteBody}>
+                  <p className={styles.noteMeta}>
+                    <span className={styles.noteName}>{message.name}</span>
+                    {message.who === "sender" ? <span className={styles.senderTag}>SENDER</span> : null}
+                    <span className={styles.noteTime}>{formatDate(message.postedAt)}</span>
+                  </p>
+                  <p className={styles.noteText}>{message.text}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {messagesHref ? (
+          <div className={styles.noteComposer}>
+            <div className={styles.noteInputRow}>
+              <input
+                aria-label="Write a note"
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void send();
+                }}
+                placeholder="Ask a question or leave a note…"
+                value={draft}
+              />
+              <button disabled={sending || !draft.trim()} onClick={() => void send()} type="button">
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+            {error ? <p className={styles.noteError}>{error}</p> : null}
+            <p className={styles.noteFooter}>
+              replies are visible to everyone with this link · snapshot metrics stay read-only
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function PublicSharePage({
+  share,
+  csvHref = null,
+  messagesHref = null,
+}: {
+  share: PublicShare;
+  csvHref?: string | null;
+  messagesHref?: string | null;
+}) {
+  const copy = useCopy();
+  const creatives = share.creatives ?? [];
+
+  if (creatives.length === 0) {
+    return <EmptySnapshotPage share={share} />;
+  }
+
+  const disclosure =
+    share.audience === "buyer"
+      ? share.financialWarning
+      : share.audience === "creative_team"
+        ? "This view contains creative-quality metrics only. Spend, revenue and delivery data are not part of this snapshot."
+        : "This read-only snapshot contains creative-quality metrics only. No financial, delivery or account information is included.";
+
+  const gridClass =
+    share.audience === "buyer"
+      ? styles.gridBuyer
+      : share.audience === "creative_team"
+        ? styles.gridCreativeTeam
+        : styles.gridExternal;
+
+  const showCsv = Boolean(csvHref) && share.allowCsv;
+  const showCsvOffNote = !showCsv && share.audience === "buyer";
+  const actions = share.actions ?? [];
+
+  return (
+    <main className={styles.page} data-el="public-share" data-public-share="ready" data-share-audience={share.audience}>
+      <div className={styles.pageInner}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <BrandMark />
+            <span className={styles.brandName}>Adsecute</span>
+            <span className={styles.snapshotTag}>Snapshot</span>
+            <span className={styles.flexSpacer} />
+            <span className={styles.frozenPill}>
+              <svg fill="none" height="11" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="11">
+                <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Frozen snapshot
+            </span>
+            <span className={styles.readOnlyPill}>Read-only</span>
+          </div>
+          <h1 className={styles.title}>{share.title}</h1>
+          <p className={styles.metaLine}>
+            {creatives.length} creative{creatives.length === 1 ? "" : "s"}
+            {share.dateRange ? ` · ${share.dateRange}` : ""}
+            {share.frozenAt ? ` · Captured ${formatDate(share.frozenAt)}` : ""}
+            {share.expiresAt ? ` · Available until ${formatDate(share.expiresAt)}` : ""}
+          </p>
+        </header>
+
+        {disclosure ? (
+          <div
+            className={styles.disclosure}
+            data-share-financial-warning={share.audience === "buyer" ? "" : undefined}
+            data-tone={share.audience === "buyer" ? "warn" : "neutral"}
+          >
+            {disclosure}
+          </div>
+        ) : null}
+
+        {share.note ? (
+          <div className={styles.senderNote}>
+            <p className={styles.senderNoteLabel}>Note from the sender</p>
+            <p>{share.note}</p>
+          </div>
+        ) : null}
+
+        {showCsv && csvHref ? <CsvButton href={csvHref} /> : null}
+        {showCsvOffNote ? <p className={styles.csvOffNote}>CSV export was not enabled for this link.</p> : null}
+
+        <div aria-label={copy.creatives} className={gridClass}>
+          {creatives.map((creative) => (
+            <CreativeCard creative={creative} key={creative.key} />
+          ))}
+        </div>
+
+        {share.audience === "buyer" ? <ComparisonTable share={share} /> : null}
+
+        {actions.length > 0 ? (
+          <section aria-label="What changed and why" data-public-share-actions="">
+            <div className={styles.actionsHead}>
+              <h2>What changed and why</h2>
+              <span>actions recorded during this window · frozen with the snapshot</span>
+            </div>
+            <div className={styles.actionsList}>
+              {actions.map((action, index) => (
+                <article data-public-share-action="" key={`${action.date}:${action.what}:${index}`}>
+                  <div className={styles.actionHead}>
+                    <p>{action.what}</p>
+                    <span>{action.date}</span>
+                  </div>
+                  <p className={styles.actionWhy}>{action.why}</p>
+                  {action.outcome ? (
+                    <span className={styles.actionOutcome} data-tone={action.outcomeTone}>
+                      {action.outcome}
+                    </span>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <NotesThread messagesHref={messagesHref} share={share} />
+
+        <footer className={styles.footer}>
+          <p>
+            This is a frozen, read-only snapshot · Available until{" "}
+            {share.expiresAt ? formatDate(share.expiresAt) : "the issuer-defined time"}
+          </p>
+          <p className={styles.footerSub}>
+            It contains only the creatives and metrics shown above. No ad-account
+            credentials, workspace access or live data are attached, and the page
+            never updates.
+          </p>
+          <p className={styles.footerBrand}>Adsecute · share.adsecute.com</p>
+        </footer>
+      </div>
+    </main>
+  );
+}
+
+export default PublicSharePage;

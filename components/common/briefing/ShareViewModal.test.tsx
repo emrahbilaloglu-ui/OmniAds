@@ -17,7 +17,7 @@ describe("ShareViewModal", () => {
     ).toBe("");
   });
 
-  it("renders audience picker, options, and a default share URL when open", () => {
+  it("renders audience options but never fabricates a default share URL", () => {
     const html = renderToStaticMarkup(
       <ShareViewModal
         open
@@ -34,7 +34,9 @@ describe("ShareViewModal", () => {
     expect(html).toContain(">External<");
     expect(html).toContain("Hide all decision language");
     expect(html).toContain("Freeze data snapshot");
-    expect(html).toContain("/share/creative/[token]");
+    expect(html).toContain("Link is created only by a connected share flow");
+    expect(html).not.toContain("/share/creative/[token]");
+    expect(html).toContain("disabled");
     expect(html).toContain("Create share link");
   });
 

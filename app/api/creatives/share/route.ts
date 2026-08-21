@@ -3,7 +3,10 @@ import {
   BUYER_FINANCIAL_WARNING,
   requireShareAcknowledgement,
 } from "@/lib/zero-base/creative/share-acknowledgement";
-import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
+import {
+  SHARE_METRIC_KEYS,
+  type SharePayload,
+} from "@/components/creatives/shareCreativeTypes";
 import {
   createCreativeShareSnapshot,
   getCreativeShareLedgerCapability,
@@ -15,8 +18,12 @@ import { requireBusinessAccess } from "@/lib/access";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
+import { creativeSharePath } from "@/lib/creative-share-link";
 
 type CreateShareRequest = Omit<SharePayload, "token" | "createdAt">;
+const SHARE_METRIC_KEY_SET = new Set<string>(SHARE_METRIC_KEYS);
+const SHARE_FORMAT_SET = new Set(["image", "video", "catalog"]);
+const SHARE_RENDER_MODE_SET = new Set(["image", "video", "unavailable"]);
 
 export const dynamic = "force-dynamic";
 
@@ -25,15 +32,48 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
 } as const;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isValidCreative(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.preview)) return false;
+  if (typeof value.id !== "string" || !value.id.trim()) return false;
+  if (typeof value.name !== "string" || !value.name.trim()) return false;
+  if (typeof value.format !== "string" || !SHARE_FORMAT_SET.has(value.format)) {
+    return false;
+  }
+  if (
+    typeof value.preview.render_mode !== "string" ||
+    !SHARE_RENDER_MODE_SET.has(value.preview.render_mode)
+  ) {
+    return false;
+  }
+  if (typeof value.launchDate !== "string") return false;
+  for (const metric of SHARE_METRIC_KEYS) {
+    const metricValue = value[metric];
+    if (
+      typeof metricValue !== "undefined" &&
+      (typeof metricValue !== "number" || !Number.isFinite(metricValue))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function isValidPayload(payload: unknown): payload is CreateShareRequest {
   if (!payload || typeof payload !== "object") return false;
   const obj = payload as Partial<CreateShareRequest>;
+  const expiresAt = typeof obj.expiresAt === "string" ? Date.parse(obj.expiresAt) : Number.NaN;
   return (
-    typeof obj.title === "string" &&
-    typeof obj.dateRange === "string" &&
-    typeof obj.expiresAt === "string" &&
+    typeof obj.title === "string" && obj.title.trim().length > 0 &&
+    typeof obj.dateRange === "string" && obj.dateRange.trim().length > 0 &&
+    Number.isFinite(expiresAt) && expiresAt > Date.now() &&
     Array.isArray(obj.metrics) &&
-    Array.isArray(obj.creatives) &&
+    obj.metrics.every((metric) => typeof metric === "string" && SHARE_METRIC_KEY_SET.has(metric)) &&
+    Array.isArray(obj.creatives) && obj.creatives.length > 0 &&
+    obj.creatives.every(isValidCreative) &&
     resolveCreativeShareAudience(obj.audience) !== null
   );
 }
@@ -206,10 +246,20 @@ export async function POST(request: NextRequest) {
     providerAccountId: accountScope.providerAccountId,
     createdBy: access.session.user.id,
   });
+  const path = creativeSharePath(token);
+  if (!path) {
+    return NextResponse.json(
+      { error: "invalid_share_token", message: "The share was created with an invalid token." },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
   return NextResponse.json(
     {
       token,
-      url: `/share/creative/${token}`,
+      path,
+      // Compatibility alias. It is intentionally a path; the browser composes
+      // the trusted current origin rather than accepting a Host-derived URL.
+      url: path,
     },
     { headers: NO_STORE_HEADERS },
   );

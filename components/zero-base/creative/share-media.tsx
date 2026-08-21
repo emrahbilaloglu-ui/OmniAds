@@ -15,6 +15,8 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 export interface ShareMediaSource {
   kind: "image" | "video";
   url: string;
+  /** A durable cached poster when one was available at read time. */
+  posterUrl?: string | null;
   /** Served captions track. Absent means none was served — never faked. */
   captionsUrl?: string | null;
   captionsLabel?: string | null;
@@ -82,6 +84,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
         controls
         preload="metadata"
         playsInline
+        poster={source.posterUrl ?? undefined}
         onError={() => setFailed(true)}
         style={{ width: "100%", maxWidth: "100%", height: "auto", borderRadius: "var(--ledger-radius-card)" }}
       >

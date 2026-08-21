@@ -388,6 +388,7 @@ describe("AssetLibrarySection", () => {
         includeCampaignNames={false}
         includeDecisionLanguage={false}
         allowCsv={false}
+        buyerAcknowledged={false}
         generatedShareUrl={null}
         presetTitle="Creative teams"
         rowScopeLabel="selected"
@@ -400,6 +401,7 @@ describe("AssetLibrarySection", () => {
         onToggleCampaignNames={() => undefined}
         onToggleDecisionLanguage={() => undefined}
         onToggleCsv={() => undefined}
+        onBuyerAcknowledgedChange={() => undefined}
         onSaveLink={() => undefined}
         onCopyLink={() => undefined}
         onCopyAndClose={() => undefined}

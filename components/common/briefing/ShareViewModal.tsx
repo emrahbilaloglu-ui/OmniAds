@@ -17,8 +17,9 @@ interface ShareViewModalProps {
   presetLabel: string;
   itemCount: number;
   initialState?: Partial<ShareViewState>;
-  buildShareUrl?: (state: ShareViewState) => string;
-  onConfirm?: (state: ShareViewState, url: string) => void;
+  /** A persisted URL supplied by a connected share controller. */
+  buildShareUrl?: (state: ShareViewState) => string | null;
+  onConfirm?: (state: ShareViewState, url: string | null) => void;
   onClose: () => void;
   testId?: string;
 }
@@ -66,7 +67,9 @@ export function ShareViewModal({
     ...DEFAULT_STATE,
     ...initialState,
   });
-  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
 
   useEffect(() => {
     if (open) {
@@ -85,26 +88,27 @@ export function ShareViewModal({
   }, [open, onClose]);
 
   const url = useMemo(() => {
-    if (buildShareUrl) return buildShareUrl(state);
-    const params = new URLSearchParams({
-      audience: state.audience,
-      expires: String(state.expiresInDays),
-      snapshot: state.freezeSnapshot ? "1" : "0",
-    });
-    return `/share/creative/[token]?${params.toString()}`;
+    return buildShareUrl?.(state) ?? null;
   }, [buildShareUrl, state]);
 
   if (!open) return null;
 
-  function handleCopy() {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(url);
+  async function handleCopy() {
+    if (!url) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard_unavailable");
+      }
+      await navigator.clipboard.writeText(url);
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1600);
+    } catch {
+      setCopyState("error");
     }
-    setCopyState("copied");
-    window.setTimeout(() => setCopyState("idle"), 1600);
   }
 
   function handleConfirm() {
+    if (!onConfirm) return;
     onConfirm?.(state, url);
     onClose();
   }
@@ -233,23 +237,27 @@ export function ShareViewModal({
             <div className="mt-1.5 flex items-stretch overflow-hidden rounded-md border border-neutral-200">
               <input
                 type="text"
-                value={url}
+                value={url ?? "Link is created only by a connected share flow"}
                 readOnly
                 className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[11.5px] text-neutral-700 focus:outline-none"
                 aria-label="Share URL"
               />
               <button
                 type="button"
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1 border-l border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
+                onClick={() => void handleCopy()}
+                disabled={!url}
+                className="inline-flex items-center gap-1 border-l border-neutral-200 bg-white px-3 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Copy size={12} aria-hidden="true" />
-                {copyState === "copied" ? "Copied" : "Copy"}
+                {copyState === "copied"
+                  ? "Copied"
+                  : copyState === "error"
+                    ? "Copy failed"
+                    : "Copy"}
               </button>
             </div>
             <div className="mt-1.5 text-[10.5px] text-neutral-500">
-              Public URL pattern · /share/creative/[token] — token is minted on
-              Confirm. Backend signing is future work.
+              Only a URL returned by the persisted share service can be copied.
             </div>
           </section>
         </div>
@@ -265,7 +273,8 @@ export function ShareViewModal({
           <button
             type="button"
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1 rounded-md bg-[var(--adc-info-fg)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--adc-info-fg)]"
+            disabled={!onConfirm}
+            className="inline-flex items-center gap-1 rounded-md bg-[var(--adc-info-fg)] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--adc-info-fg)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Create share link
           </button>

@@ -235,7 +235,7 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Share with client" }),
+      screen.getByRole("button", { name: "Share selected creatives with client" }),
     ).toBeDisabled();
     expect(textOf("[data-creative-studio-tab]")).toEqual([
       "Assets2",
@@ -300,12 +300,58 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
   it("keeps header actions callback-only", () => {
     const onExport = vi.fn();
     const onShare = vi.fn();
-    renderStudio("assets", { onExport, onShare });
+    // Share requires a real selection to reach onShare at all — see the nudge
+    // test below for the zero-selection path.
+    renderStudio("assets", { onExport, onShare, shareSelectedCount: 2 });
 
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
-    fireEvent.click(screen.getByRole("button", { name: "Share with client" }));
+    fireEvent.click(screen.getByRole("button", { name: "Share selected creatives with client" }));
     expect(onExport).toHaveBeenCalledOnce();
     expect(onShare).toHaveBeenCalledOnce();
+  });
+
+  it("labels and colours the Share button by the live selection count", () => {
+    renderStudio("assets", { onShare: vi.fn(), shareSelectedCount: 3 });
+    const button = screen.getByRole("button", {
+      name: "Share selected creatives with client",
+    });
+    expect(button.textContent).toBe("Share with client · 3");
+  });
+
+  it("nudges instead of opening Share when nothing is selected", () => {
+    const onShare = vi.fn();
+    renderStudio("assets", { onShare, shareSelectedCount: 0 });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Share selected creatives with client" }),
+    );
+
+    expect(onShare).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Select at least one creative to create a frozen snapshot."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(
+      screen.queryByText("Select at least one creative to create a frozen snapshot."),
+    ).toBeNull();
+  });
+
+  it("shows the served shared-links count and opens the manager on click", () => {
+    const onOpenSharedLinks = vi.fn();
+    renderStudio("assets", { onOpenSharedLinks, sharedLinksCount: 4 });
+
+    const button = screen.getByRole("button", { name: /Shared links/ });
+    expect(button.textContent).toBe("Shared links4");
+    fireEvent.click(button);
+    expect(onOpenSharedLinks).toHaveBeenCalledOnce();
+  });
+
+  it("shows an em dash for the shared-links count while unread, not a zero", () => {
+    renderStudio("assets", { onOpenSharedLinks: vi.fn(), sharedLinksCount: null });
+    expect(screen.getByRole("button", { name: /Shared links/ }).textContent).toBe(
+      "Shared links—",
+    );
   });
 });
 

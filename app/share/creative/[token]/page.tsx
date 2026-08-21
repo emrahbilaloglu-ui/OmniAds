@@ -5,6 +5,7 @@ import {
   PublicShareUnavailable,
 } from "@/components/zero-base/creative/public-share-page";
 import { getCreativeShareSnapshot } from "@/lib/creative-share-store";
+import { creativeSharePath, normalizeCreativeShareToken } from "@/lib/creative-share-link";
 import { toPublicShare } from "@/lib/zero-base/creative/public-share";
 
 export const dynamic = "force-dynamic";
@@ -46,5 +47,16 @@ export default async function ShareCreativePage({
   const payload = await getCreativeShareSnapshot(token, { recordOpen: true }).catch(() => null);
   if (!payload) return <PublicShareUnavailable />;
 
-  return <PublicSharePage share={toPublicShare(payload)} />;
+  const share = toPublicShare(payload);
+  const path = creativeSharePath(token);
+  // The messages endpoint lives under /api/creatives/share, a different
+  // route tree from the page itself — it is not a sibling of csvHref's path.
+  const normalizedToken = normalizeCreativeShareToken(token);
+  return (
+    <PublicSharePage
+      share={share}
+      csvHref={share.allowCsv && path ? `${path}/csv` : null}
+      messagesHref={normalizedToken ? `/api/creatives/share/${normalizedToken}/messages` : null}
+    />
+  );
 }

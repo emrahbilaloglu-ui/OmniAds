@@ -2,9 +2,9 @@
 
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact";
@@ -50,8 +50,13 @@ import {
   getTodayIsoForTimeZone,
 } from "@/components/date-range/DateRangePicker";
 import { standardDateRangeToCreative } from "@/components/creatives/creatives-top-section-support";
-import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 import {
+  SHARE_METRIC_KEYS,
+  type CreativeShareLedgerEntry,
+  type ShareAudience,
+} from "@/components/creatives/shareCreativeTypes";
+import {
+  computeCreativeShareBenchmarks,
   describeMetaCreativesSourceHealth,
   fetchMetaCreatives,
   mapApiRowToUiRow,
@@ -64,6 +69,22 @@ import {
   BUYER_ACKNOWLEDGEMENT_VALUE,
   BUYER_FINANCIAL_WARNING,
 } from "@/lib/zero-base/creative/share-acknowledgement";
+import { resolveCreativeShareUrl } from "@/lib/creative-share-link";
+import { PUBLIC_METRICS } from "@/lib/zero-base/creative/public-share";
+import {
+  ShareSnapshotModal,
+  type ShareAudiencePresetViewModel,
+  type ShareSnapshotPhase,
+} from "@/components/creatives/share/ShareSnapshotModal";
+import {
+  SharedLinksManager,
+  type SharedLinksManagerRowViewModel,
+} from "@/components/creatives/share/SharedLinksManager";
+import {
+  RevokeLinkDialog,
+  RotateLinkDialog,
+  type LinkDialogPhase,
+} from "@/components/creatives/share/LinkActionDialogs";
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -408,14 +429,31 @@ export default function MetaCreativeStudioPage({
   const [dashboardDateRange] = usePersistentDateRange();
   const topMetricIds = DEFAULT_TOP_METRIC_IDS;
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [shareLoading, setShareLoading] = useState(false);
+
+  // ---- Share a frozen snapshot: config -> creating -> failed | ready ----
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareAudience, setShareAudience] = useState<ShareAudience>("buyer");
+  const [sharePhase, setSharePhase] = useState<ShareSnapshotPhase>("config");
+  const [shareAudience, setShareAudience] = useState<ShareAudience>("creative_team");
   const [buyerAcknowledged, setBuyerAcknowledged] = useState(false);
-  const [anonymize, setAnonymize] = useState(true);
-  const [allowCsv, setAllowCsv] = useState(true);
+  const [buyerAckErrorShown, setBuyerAckErrorShown] = useState(false);
+  const [shareCsv, setShareCsv] = useState(false);
+  const [shareExpiryDays, setShareExpiryDays] = useState<7 | 14 | 30>(7);
+  const [shareNote, setShareNote] = useState("");
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<{ token: string; url: string } | null>(null);
+  const [shareCopyStatus, setShareCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const shareRequestRef = useRef<Promise<{ token: string; url: string } | null> | null>(null);
+
+  // ---- Shared links manager, and rotate / revoke ----
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [rotateFor, setRotateFor] = useState<string | null>(null);
+  const [rotatePhase, setRotatePhase] = useState<LinkDialogPhase>("confirm");
+  const [rotatedUrl, setRotatedUrl] = useState<string | null>(null);
+  const [revokeFor, setRevokeFor] = useState<string | null>(null);
+  const [revokePhase, setRevokePhase] = useState<LinkDialogPhase>("confirm");
+  const [linkCopyStatus, setLinkCopyStatus] = useState<
+    Record<string, "idle" | "copied" | "failed">
+  >({});
   const requestedProviderAccountId = hasServerAuthorizedScope
     ? ""
     : (searchParams?.get("providerAccountId")?.trim() ?? "");
@@ -640,103 +678,284 @@ export default function MetaCreativeStudioPage({
     [allRows, selectedRowIds],
   );
 
+  const queryClient = useQueryClient();
+
+  // The account's own typical creative, per story metric — a real median
+  // across every synced row (not just the selection), computed once per
+  // account read so the public "attention story" cards can compare against
+  // something measured rather than a fabricated constant.
+  const shareBenchmarks = useMemo(
+    () => computeCreativeShareBenchmarks(allRows),
+    [allRows],
+  );
+
+  const sharedLinksQuery = useQuery({
+    queryKey: ["creative-share-links", businessId, providerAccountId],
+    enabled: Boolean(businessId && providerAccountId),
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/creatives/share?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      const payload = (await response.json().catch(() => null)) as {
+        grants?: CreativeShareLedgerEntry[];
+        message?: string;
+      } | null;
+      if (!response.ok || !payload) {
+        throw new Error(payload?.message ?? "Shared links could not be read.");
+      }
+      return payload.grants ?? [];
+    },
+    staleTime: 30_000,
+  });
+  const invalidateSharedLinks = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["creative-share-links", businessId, providerAccountId],
+    });
+
   // The Studio Share action mints an audience-aware, frozen snapshot link. The
   // POST carries only backend-supported ShareLinkConfig fields — no fabricated
   // config, and Tier-0 audiences structurally remove financial fields.
   const openShareModal = () => {
     setShareError(null);
-    setShareUrl(null);
+    setShareLink(null);
+    shareRequestRef.current = null;
+    setShareCopyStatus("idle");
+    setSharePhase("config");
     setShareAudience("creative_team");
     setBuyerAcknowledged(false);
+    setBuyerAckErrorShown(false);
+    setShareCsv(false);
+    setShareExpiryDays(7);
+    setShareNote("");
     setShareModalOpen(true);
   };
 
-  const submitShare = async (): Promise<string | null> => {
-    setShareError(null);
-    if (shareAudience === "buyer" && !buyerAcknowledged) {
-      setShareError(
-        "A buyer share requires the financial-limitation acknowledgement.",
-      );
-      return null;
-    }
-    setShareLoading(true);
-    try {
-      const rows = selectedRows;
-      if (rows.length === 0)
-        throw new Error("Select at least one creative first.");
-      const expiresAt = new Date(
-        Date.now() + 7 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const sharePolicy = resolveCreativeStudioSharePolicy({
-        audience: shareAudience,
-        selectedMetricIds: topMetricIds,
-        buyerDecisionLanguage: false,
-        allowCsv,
-        anonymizeCampaignNames: anonymize,
-      });
-      const response = await fetch("/api/creatives/share", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          title: "Creative Studio snapshot",
-          businessId,
-          providerAccountId,
-          dateRange: `${drStart} - ${drEnd}`,
-          expiresAt,
-          metrics: sharePolicy.metrics,
-          includeNotes: false,
+  const shareExpiresAtIso = () =>
+    new Date(Date.now() + shareExpiryDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const submitShareCreate = async (): Promise<{ token: string; url: string } | null> => {
+    if (shareRequestRef.current) return shareRequestRef.current;
+    const request = (async () => {
+      setShareError(null);
+      try {
+        const rows = selectedRows;
+        if (rows.length === 0) {
+          throw new Error("Select at least one creative first.");
+        }
+        const sharePolicy = resolveCreativeStudioSharePolicy({
           audience: shareAudience,
-          ...(shareAudience === "buyer"
-            ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
-            : {}),
-          presetId: "creative-studio",
-          presetLabel: "Creative Studio",
-          includeCampaignNames: sharePolicy.includeCampaignNames,
-          includeDecisionLanguage: sharePolicy.includeDecisionLanguage,
-          allowCsv: sharePolicy.allowCsv,
-          snapshotOnly: true,
-          filters: ["Creative Studio", "selected assets"],
-          selectedRowIds: rows.map((row) => row.id),
-          totalRows: allRows.length,
-          creatives: rows.map((row) =>
-            sharePolicy.creatorTier0
-              ? toCreatorTier0SharedCreative(row)
-              : toSharedCreative(row),
-          ),
-        }),
-      });
-      const payload = (await response.json().catch(() => null)) as {
-        url?: string;
-        message?: string;
-      } | null;
-      if (!response.ok || !payload?.url) {
-        throw new Error(payload?.message ?? "Share link could not be created.");
+          selectedMetricIds: topMetricIds,
+          buyerDecisionLanguage: false,
+          allowCsv: shareCsv,
+          // This Studio payload has no campaign-name field. Keep the storage
+          // contract explicit instead of exposing a toggle that cannot change
+          // the recipient's output.
+          anonymizeCampaignNames: true,
+        });
+        const response = await fetch("/api/creatives/share", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            title: `Creative Studio snapshot · ${rows.length} creative${rows.length === 1 ? "" : "s"}`,
+            businessId,
+            providerAccountId,
+            dateRange: `${drStart} - ${drEnd}`,
+            expiresAt: shareExpiresAtIso(),
+            metrics: sharePolicy.metrics,
+            includeNotes: shareNote.trim().length > 0,
+            note: shareNote.trim() || undefined,
+            audience: shareAudience,
+            ...(shareAudience === "buyer"
+              ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
+              : {}),
+            presetId: "creative-studio",
+            presetLabel: "Creative Studio",
+            includeCampaignNames: sharePolicy.includeCampaignNames,
+            includeDecisionLanguage: sharePolicy.includeDecisionLanguage,
+            allowCsv: sharePolicy.allowCsv,
+            snapshotOnly: true,
+            filters: ["Creative Studio", "selected assets"],
+            selectedRowIds: rows.map((row) => row.id),
+            totalRows: allRows.length,
+            benchmarks: shareBenchmarks,
+            creatives: rows.map((row) =>
+              sharePolicy.creatorTier0
+                ? toCreatorTier0SharedCreative(row)
+                : toSharedCreative(row),
+            ),
+          }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          token?: string;
+          path?: string;
+          url?: string;
+          message?: string;
+        } | null;
+        if (!response.ok || !payload) {
+          throw new Error(payload?.message ?? "Share link could not be created.");
+        }
+        const absoluteUrl = resolveCreativeShareUrl(
+          payload,
+          typeof window === "undefined" ? "" : window.location.origin,
+        );
+        const token = typeof payload.token === "string" ? payload.token : null;
+        if (!absoluteUrl || !token) {
+          throw new Error("The server created a share but returned an invalid link.");
+        }
+        invalidateSharedLinks();
+        return { token, url: absoluteUrl };
+      } catch (error) {
+        setShareError(
+          error instanceof Error
+            ? error.message
+            : "Share link could not be created.",
+        );
+        return null;
       }
-      setShareUrl(payload.url);
-      return payload.url;
-    } catch (error) {
-      setShareError(
-        error instanceof Error
-          ? error.message
-          : "Share link could not be created.",
-      );
-      return null;
+    })();
+    shareRequestRef.current = request;
+    try {
+      return await request;
     } finally {
-      setShareLoading(false);
+      if (shareRequestRef.current === request) shareRequestRef.current = null;
     }
   };
 
+  const runShareCreate = async () => {
+    if (sharePhase === "creating" || sharePhase === "ready") return;
+    if (shareAudience === "buyer" && !buyerAcknowledged) {
+      setBuyerAckErrorShown(true);
+      setShareError("Confirm the financial-data notice to continue.");
+      return;
+    }
+    setBuyerAckErrorShown(false);
+    setSharePhase("creating");
+    const result = await submitShareCreate();
+    if (!result) {
+      setSharePhase("failed");
+      return;
+    }
+    setShareLink(result);
+    setSharePhase("ready");
+  };
+
   const handleShareCopyLink = async () => {
-    const url = await submitShare();
-    if (
-      url &&
-      typeof navigator !== "undefined" &&
-      navigator.clipboard?.writeText
-    ) {
-      await navigator.clipboard.writeText(url).catch(() => {});
+    if (!shareLink) return;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("clipboard_unavailable");
+      }
+      await navigator.clipboard.writeText(shareLink.url);
+      setShareCopyStatus("copied");
+    } catch {
+      setShareCopyStatus("failed");
+    }
+  };
+
+  const handleSharePreview = async () => {
+    if (sharePhase === "ready" && shareLink) {
+      window.open(shareLink.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (sharePhase === "creating") return;
+    if (shareAudience === "buyer" && !buyerAcknowledged) {
+      setBuyerAckErrorShown(true);
+      setShareError("Confirm the financial-data notice to continue.");
+      return;
+    }
+    setBuyerAckErrorShown(false);
+    const previewWindow =
+      typeof window === "undefined" ? null : window.open("about:blank", "_blank");
+    if (previewWindow) previewWindow.opener = null;
+    setSharePhase("creating");
+    const result = await submitShareCreate();
+    if (!result) {
+      previewWindow?.close();
+      setSharePhase("failed");
+      return;
+    }
+    setShareLink(result);
+    setSharePhase("ready");
+    if (previewWindow) previewWindow.location.replace(result.url);
+    else window.open(result.url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleShareNewSnapshot = () => {
+    setShareLink(null);
+    setShareCopyStatus("idle");
+    setShareError(null);
+    setBuyerAcknowledged(false);
+    setBuyerAckErrorShown(false);
+    setSharePhase("config");
+  };
+
+  const handleLinkCopy = async (token: string, url: string) => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("clipboard_unavailable");
+      }
+      await navigator.clipboard.writeText(url);
+      setLinkCopyStatus((previous) => ({ ...previous, [token]: "copied" }));
+    } catch {
+      setLinkCopyStatus((previous) => ({ ...previous, [token]: "failed" }));
+    }
+  };
+
+  const handleLinkOpen = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleRotateConfirm = async () => {
+    if (!rotateFor) return;
+    try {
+      const response = await fetch(`/api/creatives/share/${rotateFor}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ businessId, action: "rotate" }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { token?: string; url?: string; message?: string }
+        | null;
+      if (!response.ok || !payload?.url) {
+        throw new Error(payload?.message ?? "The link could not be rotated.");
+      }
+      const absoluteUrl = resolveCreativeShareUrl(
+        payload,
+        typeof window === "undefined" ? "" : window.location.origin,
+      );
+      setRotatedUrl(absoluteUrl ?? payload.url);
+      setRotatePhase("done");
+      invalidateSharedLinks();
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : "The link could not be rotated.");
+      setRotateFor(null);
+      setRotatePhase("confirm");
+    }
+  };
+
+  const handleRevokeConfirm = async () => {
+    if (!revokeFor) return;
+    try {
+      const response = await fetch(
+        `/api/creatives/share/${revokeFor}?businessId=${encodeURIComponent(businessId)}`,
+        { method: "DELETE", headers: { Accept: "application/json" } },
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | { revoked?: boolean; message?: string }
+        | null;
+      if (!response.ok || !payload?.revoked) {
+        throw new Error(payload?.message ?? "The link could not be revoked.");
+      }
+      setRevokePhase("done");
+      invalidateSharedLinks();
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : "The link could not be revoked.");
+      setRevokeFor(null);
+      setRevokePhase("confirm");
     }
   };
 
@@ -863,6 +1082,91 @@ export default function MetaCreativeStudioPage({
     [businessId, drEnd, drStart, pathname, providerAccountId],
   );
 
+  const sharePolicyPreview = resolveCreativeStudioSharePolicy({
+    audience: shareAudience,
+    selectedMetricIds: topMetricIds,
+    buyerDecisionLanguage: false,
+    allowCsv: shareCsv,
+    anonymizeCampaignNames: true,
+  });
+  const shareIncluded = sharePolicyPreview.metrics.map((key) => PUBLIC_METRICS[key].label);
+  // Buyer sends exactly the columns the operator picked in the table — there
+  // is no tier reduction to report. Creator-tier audiences are held to a
+  // fixed metric allow-list, and everything outside it is a real removal.
+  const shareRemovedMetrics =
+    shareAudience === "buyer"
+      ? []
+      : SHARE_METRIC_KEYS.filter((key) => !sharePolicyPreview.metrics.includes(key));
+  const shareRemoved = [
+    ...(sharePolicyPreview.includeCampaignNames ? [] : ["Campaign names"]),
+    "Account & workspace identifiers",
+    ...(sharePolicyPreview.includeDecisionLanguage ? [] : ["Decision language"]),
+    ...(sharePolicyPreview.allowCsv ? [] : ["CSV download"]),
+    ...shareRemovedMetrics.map((key) => PUBLIC_METRICS[key].label),
+  ];
+  const shareThumbnails = selectedRows.slice(0, 4).map((row) => ({
+    id: row.id,
+    name: row.name,
+    imageUrl: assetImageUrl(row),
+  }));
+  const shareExpiresOnLabel = new Date(shareExpiresAtIso()).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const shareAudienceLabel =
+    SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === shareAudience)?.name ?? shareAudience;
+  const shareKeepChips = [
+    shareAudienceLabel,
+    `${selectedRows.length} creative${selectedRows.length === 1 ? "" : "s"}`,
+    `${shareExpiryDays}-day expiry`,
+    sharePolicyPreview.allowCsv ? "CSV on" : "CSV off",
+  ];
+  const shareReadyMeta = shareLink
+    ? [
+        { label: "Audience preset", value: shareAudienceLabel },
+        { label: "Creatives", value: String(selectedRows.length) },
+        { label: "Date range", value: `${drStart} – ${drEnd}` },
+        {
+          label: "Created",
+          value: new Date().toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+        },
+        { label: "Expires", value: shareExpiresOnLabel },
+        { label: "CSV download", value: sharePolicyPreview.allowCsv ? "Allowed" : "Off" },
+      ]
+    : [];
+
+  const sharedLinksRows: SharedLinksManagerRowViewModel[] = (sharedLinksQuery.data ?? []).map(
+    (entry) => {
+      const url =
+        resolveCreativeShareUrl(
+          { token: entry.token },
+          typeof window === "undefined" ? "" : window.location.origin,
+        ) ?? `/share/creative/${entry.token}`;
+      const copyState = linkCopyStatus[entry.token] ?? "idle";
+      return {
+        entry,
+        url,
+        audienceLabel:
+          SHARE_AUDIENCE_PRESETS.find((preset) => preset.value === entry.audience)?.name ??
+          entry.audience,
+        statusLabel:
+          entry.status === "active" ? "Active" : entry.status === "expired" ? "Expired" : "Revoked",
+        metaLine: `${entry.creativeCount} creative${entry.creativeCount === 1 ? "" : "s"} · created ${new Date(entry.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · expires ${new Date(entry.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${entry.openCount} open${entry.openCount === 1 ? "" : "s"}`,
+        copyLabel: copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy",
+      };
+    },
+  );
+  const rotateEntry = rotateFor ? sharedLinksRows.find((row) => row.entry.token === rotateFor) : null;
+  const revokeEntry = revokeFor ? sharedLinksRows.find((row) => row.entry.token === revokeFor) : null;
+  const rotateCopyState = rotateFor ? (linkCopyStatus[`rotate:${rotateFor}`] ?? "idle") : "idle";
+
   if (!businessId) return <BusinessEmptyState />;
 
   return (
@@ -894,30 +1198,164 @@ export default function MetaCreativeStudioPage({
           // tabs already apply.
           onExport={allRows.length > 0 ? handleCsvExport : undefined}
           onShare={openShareModal}
+          shareSelectedCount={selectedRows.length}
+          sharedLinksCount={sharedLinksQuery.data ? sharedLinksQuery.data.length : null}
+          onOpenSharedLinks={() => setLinksOpen(true)}
           assets={assetsModel}
         />
 
         {shareModalOpen ? (
           <ShareSnapshotModal
             audience={shareAudience}
-            buyerAcknowledged={buyerAcknowledged}
-            anonymize={anonymize}
-            allowCsv={allowCsv}
-            decisionLanguageAvailable={false}
-            shareLoading={shareLoading}
-            shareError={shareError}
-            shareUrl={shareUrl}
-            selectedCount={selectedRows.length}
             onAudienceChange={(nextAudience) => {
               setShareAudience(nextAudience);
-              if (nextAudience !== "buyer") setBuyerAcknowledged(false);
+              if (nextAudience !== "buyer") {
+                setBuyerAcknowledged(false);
+                setBuyerAckErrorShown(false);
+              }
             }}
-            onBuyerAcknowledgedChange={setBuyerAcknowledged}
-            onAnonymizeChange={setAnonymize}
-            onAllowCsvChange={setAllowCsv}
-            onCopyLink={handleShareCopyLink}
-            onPreview={submitShare}
-            onClose={() => setShareModalOpen(false)}
+            buyerAckErrorShown={buyerAckErrorShown}
+            buyerAckOn={buyerAcknowledged}
+            buyerAckRequired={shareAudience === "buyer"}
+            copyFailedShown={shareCopyStatus === "failed"}
+            copyLabel={
+              shareCopyStatus === "copied"
+                ? "Link copied"
+                : shareCopyStatus === "failed"
+                  ? "Copy failed"
+                  : "Copy link"
+            }
+            csvOn={sharePolicyPreview.allowCsv}
+            csvShown={shareAudience === "buyer"}
+            dateRangeLabel={`${drStart} – ${drEnd}`}
+            errorMessage={shareError}
+            expiresOnLabel={shareExpiresOnLabel}
+            expiryDays={shareExpiryDays}
+            frozenAsOfLabel={drEnd}
+            included={shareIncluded}
+            keepChips={shareKeepChips}
+            note={shareNote}
+            onBackToConfig={() => {
+              setSharePhase("config");
+              setShareError(null);
+            }}
+            onBuyerAckToggle={() => {
+              setBuyerAcknowledged((value) => !value);
+              setBuyerAckErrorShown(false);
+              setShareError(null);
+            }}
+            onCancel={() => setShareModalOpen(false)}
+            onClose={() => {
+              if (sharePhase !== "creating") setShareModalOpen(false);
+            }}
+            onCopy={handleShareCopyLink}
+            onCreate={runShareCreate}
+            onCsvToggle={() => setShareCsv((value) => !value)}
+            onExpiryChange={setShareExpiryDays}
+            onManageLinks={() => setLinksOpen(true)}
+            onNewShare={handleShareNewSnapshot}
+            onNoteChange={setShareNote}
+            onOpenReady={() => {
+              if (shareLink) window.open(shareLink.url, "_blank", "noopener,noreferrer");
+            }}
+            onPreview={handleSharePreview}
+            onRetry={runShareCreate}
+            phase={sharePhase}
+            presets={SHARE_AUDIENCE_PRESETS}
+            readyCreatedLabel={
+              shareReadyMeta.find((row) => row.label === "Created")?.value ?? ""
+            }
+            readyMeta={shareReadyMeta}
+            readyUrl={shareLink?.url ?? null}
+            removed={shareRemoved}
+            selectedCount={selectedRows.length}
+            thumbnails={shareThumbnails}
+          />
+        ) : null}
+
+        {linksOpen ? (
+          <SharedLinksManager
+            errorMessage={
+              sharedLinksQuery.isError
+                ? sharedLinksQuery.error instanceof Error
+                  ? sharedLinksQuery.error.message
+                  : "Shared links could not be read."
+                : null
+            }
+            loading={sharedLinksQuery.isLoading}
+            onClose={() => setLinksOpen(false)}
+            onCopy={handleLinkCopy}
+            onGoSelectCreatives={() => {
+              setLinksOpen(false);
+              setShareModalOpen(false);
+            }}
+            onOpen={(token) => {
+              const row = sharedLinksRows.find((entry) => entry.entry.token === token);
+              if (row) handleLinkOpen(row.url);
+            }}
+            onRevoke={(token) => {
+              setRevokeFor(token);
+              setRevokePhase("confirm");
+            }}
+            onRotate={(token) => {
+              setRotateFor(token);
+              setRotatePhase("confirm");
+              setRotatedUrl(null);
+            }}
+            rows={sharedLinksRows}
+          />
+        ) : null}
+
+        {rotateFor ? (
+          <RotateLinkDialog
+            copyLabel={
+              rotateCopyState === "copied"
+                ? "Copied"
+                : rotateCopyState === "failed"
+                  ? "Copy failed"
+                  : "Copy"
+            }
+            newUrl={rotatedUrl ?? ""}
+            onCancel={() => {
+              setRotateFor(null);
+              setRotatePhase("confirm");
+            }}
+            onConfirm={handleRotateConfirm}
+            onCopy={() => {
+              if (rotatedUrl) handleLinkCopy(`rotate:${rotateFor}`, rotatedUrl);
+            }}
+            onDone={() => {
+              setRotateFor(null);
+              setRotatePhase("confirm");
+              setRotatedUrl(null);
+            }}
+            onSeeOldLink={() => {
+              setRotateFor(null);
+              setRotatePhase("confirm");
+            }}
+            phase={rotatePhase}
+            title={rotateEntry?.entry.title ?? ""}
+          />
+        ) : null}
+
+        {revokeFor ? (
+          <RevokeLinkDialog
+            onCancel={() => {
+              setRevokeFor(null);
+              setRevokePhase("confirm");
+            }}
+            onConfirm={handleRevokeConfirm}
+            onDone={() => {
+              setRevokeFor(null);
+              setRevokePhase("confirm");
+            }}
+            onSeePage={() => {
+              if (revokeEntry) handleLinkOpen(revokeEntry.url);
+              setRevokeFor(null);
+              setRevokePhase("confirm");
+            }}
+            phase={revokePhase}
+            title={revokeEntry?.entry.title ?? ""}
           />
         ) : null}
       </div>
@@ -925,209 +1363,47 @@ export default function MetaCreativeStudioPage({
   );
 }
 
-const SHARE_AUDIENCES: Array<{
-  value: ShareAudience;
-  label: string;
-  note: string;
-}> = [
+/**
+ * Who each audience preset is for, in the operator's own words.
+ *
+ * Static copy — what actually gets sent per audience lives in
+ * `resolveCreativeStudioSharePolicy` and is rendered separately in the
+ * Included/Removed grid, so this cannot drift into a claim the payload
+ * does not keep.
+ */
+const SHARE_AUDIENCE_PRESETS: readonly ShareAudiencePresetViewModel[] = [
   {
     value: "buyer",
-    label: "Buyer",
-    note: "Buyer preset: full metric set, decision language available only if the buyer-decision-language toggle is already on. Internal use.",
+    name: "Client stakeholder",
+    tag: "audience: buyer",
+    who: "For the client's marketing or finance lead.",
+    badge: null,
+    points: [
+      "The metric columns currently shown in the table",
+      "Buyer-safe action history",
+      "Optional CSV download",
+    ],
   },
   {
     value: "creative_team",
-    label: "Creative team",
-    note: "Tier 0 only: thumbstop, CTR, and video completion. Financials, delivery totals, targets, campaign names, and decision language are removed.",
+    name: "Creative team",
+    tag: "audience: creative_team",
+    who: "For editors and designers briefing the next round.",
+    badge: "Safest default",
+    points: [
+      "Attention metrics: thumbstop, CTR, video completion",
+      "No spend, revenue or CSV",
+    ],
   },
   {
     value: "external",
-    label: "External",
-    note: "Tier 0 only: thumbstop, CTR, and video completion. Campaign names, financials, delivery totals, targets, decision language, and CSV are removed.",
+    name: "External reviewer",
+    tag: "audience: external",
+    who: "For reviewers outside both teams.",
+    badge: "Strictest",
+    points: [
+      "Attention metrics only, no internal identifiers",
+      "No spend, revenue, CSV or decisions",
+    ],
   },
 ];
-
-function ShareSnapshotModal({
-  audience,
-  buyerAcknowledged,
-  anonymize,
-  allowCsv,
-  decisionLanguageAvailable,
-  shareLoading,
-  shareError,
-  shareUrl,
-  selectedCount,
-  onAudienceChange,
-  onBuyerAcknowledgedChange,
-  onAnonymizeChange,
-  onAllowCsvChange,
-  onCopyLink,
-  onPreview,
-  onClose,
-}: {
-  audience: ShareAudience;
-  buyerAcknowledged: boolean;
-  anonymize: boolean;
-  allowCsv: boolean;
-  decisionLanguageAvailable: boolean;
-  shareLoading: boolean;
-  shareError: string | null;
-  shareUrl: string | null;
-  selectedCount: number;
-  onAudienceChange: (value: ShareAudience) => void;
-  onBuyerAcknowledgedChange: (value: boolean) => void;
-  onAnonymizeChange: (value: boolean) => void;
-  onAllowCsvChange: (value: boolean) => void;
-  onCopyLink: () => void;
-  onPreview: () => void;
-  onClose: () => void;
-}) {
-  const activeNote =
-    SHARE_AUDIENCES.find((entry) => entry.value === audience)?.note ?? "";
-  const creatorTier0 = audience !== "buyer";
-  const decisionLanguageState =
-    audience === "buyer"
-      ? decisionLanguageAvailable
-        ? "carried from server evidence"
-        : "not included from Studio"
-      : "structurally removed";
-  const submissionBlocked =
-    shareLoading ||
-    selectedCount === 0 ||
-    (audience === "buyer" && !buyerAcknowledged);
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(16,18,22,0.4)]">
-      <button
-        type="button"
-        aria-label="Close share modal"
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        data-testid="studio-share-modal"
-        className="relative flex w-[480px] max-w-[92vw] flex-col gap-3 rounded-[10px] border border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s2,#fff)] p-5 shadow-[var(--shadow-lg)] [font-family:var(--font-ibm-plex-sans)]"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[15px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
-            Share a frozen snapshot
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-[6px] border border-[var(--adc-b1,#e4e4e0)] text-[var(--adc-ink2,#4a4f56)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
-          {selectedCount} creative{selectedCount === 1 ? "" : "s"} selected.
-        </div>
-
-        <div className="flex gap-1.5">
-          {SHARE_AUDIENCES.map((entry) => {
-            const active = entry.value === audience;
-            return (
-              <button
-                key={entry.value}
-                type="button"
-                onClick={() => onAudienceChange(entry.value)}
-                aria-pressed={active}
-                className={`flex-1 rounded-[6px] border px-1.5 py-[7px] text-[12px] font-medium text-[var(--adc-ink,#1a1c1f)] ${
-                  active
-                    ? "border-[var(--adc-b2,#cdcdc7)] bg-[var(--adc-s3,#ededea)]"
-                    : "border-[var(--adc-b1,#e4e4e0)] bg-transparent"
-                }`}
-              >
-                {entry.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[11.5px] leading-[1.55] text-[var(--adc-ink2,#4a4f56)]">
-          {activeNote}
-        </div>
-
-        {audience === "buyer" ? (
-          <label className="flex items-start gap-2 rounded-[8px] border border-[var(--adc-caution-bd,#ead7ae)] bg-[var(--adc-caution-bg,#fff8e7)] px-3 py-2.5 text-[11.5px] leading-[1.5] text-[var(--adc-caution-fg,#86590a)]">
-            <input
-              type="checkbox"
-              checked={buyerAcknowledged}
-              onChange={(event) =>
-                onBuyerAcknowledgedChange(event.target.checked)
-              }
-              className="mt-0.5 accent-[var(--adc-ink,#1a1c1f)]"
-            />
-            <span>{BUYER_FINANCIAL_WARNING}</span>
-          </label>
-        ) : null}
-
-        <label className="flex items-center gap-2 text-[12px] text-[var(--adc-ink,#1a1c1f)]">
-          <input
-            type="checkbox"
-            checked={creatorTier0 || anonymize}
-            disabled={creatorTier0}
-            onChange={(event) => onAnonymizeChange(event.target.checked)}
-            className="m-0 accent-[var(--adc-ink,#1a1c1f)]"
-          />
-          Anonymize campaign names
-        </label>
-        <label className="flex items-center gap-2 text-[12px] text-[var(--adc-ink,#1a1c1f)]">
-          <input
-            type="checkbox"
-            checked={!creatorTier0 && allowCsv}
-            disabled={creatorTier0}
-            onChange={(event) => onAllowCsvChange(event.target.checked)}
-            className="m-0 accent-[var(--adc-ink,#1a1c1f)]"
-          />
-          Allow CSV download
-        </label>
-
-        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
-          Decision language:{" "}
-          <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">
-            {decisionLanguageState}
-          </b>
-        </div>
-
-        {shareError ? (
-          <div className="rounded-[8px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-3 py-2 text-[11.5px] text-[var(--adc-danger-fg,#a6224a)]">
-            {shareError}
-          </div>
-        ) : null}
-        {shareUrl ? (
-          <div
-            className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[11.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]"
-            title={shareUrl}
-          >
-            {shareUrl}
-          </div>
-        ) : null}
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onPreview}
-            disabled={submissionBlocked}
-            className="rounded-[6px] border border-[var(--adc-b2,#cdcdc7)] bg-transparent px-3 py-1.5 text-[12px] text-[var(--adc-ink,#1a1c1f)] disabled:opacity-50"
-          >
-            Preview page
-          </button>
-          <button
-            type="button"
-            onClick={onCopyLink}
-            disabled={submissionBlocked}
-            className="rounded-[6px] border border-[var(--adc-ink,#1a1c1f)] bg-[var(--adc-ink,#1a1c1f)] px-3 py-1.5 text-[12px] font-medium text-[var(--adc-s2,#fff)] disabled:opacity-60"
-          >
-            {shareLoading ? "Creating…" : "Copy link"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -30,7 +30,9 @@ vi.mock("@/lib/creative-share-store", () => ({
   listCreativeShareSnapshots: vi.fn(),
   // The real audience resolver, so the gate is exercised on real values.
   resolveCreativeShareAudience: (value: unknown) =>
-    value === "buyer" || value === "creator" ? value : null,
+    value === "buyer" || value === "creative_team" || value === "external"
+      ? value
+      : null,
 }));
 vi.mock("@/lib/creatives/client-action-feed", () => ({ buildBuyerClientActions }));
 vi.mock("@/lib/meta/creatives-warehouse", () => ({
@@ -57,7 +59,15 @@ function payload(overrides: Record<string, unknown> = {}) {
     dateRange: "2026-07-01..2026-07-31",
     expiresAt: "2026-09-01",
     metrics: [],
-    creatives: [],
+    creatives: [
+      {
+        id: "creative_1",
+        name: "Hero",
+        format: "image",
+        launchDate: "2026-07-01",
+        preview: { render_mode: "unavailable" },
+      },
+    ],
     audience: "buyer",
     ...overrides,
   };
@@ -72,7 +82,10 @@ beforeEach(() => {
   rejectIfReviewerReadOnly.mockReturnValue(null);
   getCreativeShareLedgerCapability.mockResolvedValue({ canWrite: true, canRead: true });
   fetchAssignedAccountIds.mockResolvedValue(["act_1"]);
-  createCreativeShareSnapshot.mockResolvedValue({ token: "tok-new", expiresAt: "2026-09-01" });
+  createCreativeShareSnapshot.mockResolvedValue({
+    token: "c".repeat(32),
+    expiresAt: "2026-09-01",
+  });
   buildBuyerClientActions.mockResolvedValue([]);
 });
 
@@ -112,8 +125,10 @@ describe("a buyer share without acknowledgement is refused by the real route", (
     expect(body.error).not.toBe("financial_acknowledgement_required");
   });
 
-  it("leaves a creator share unaffected by the new gate", async () => {
-    const response = await POST(request(payload({ audience: "creator" })));
+  it("leaves a creative-team share unaffected by the new gate", async () => {
+    const response = await POST(
+      request(payload({ audience: "creative_team" })),
+    );
     const body = await response.json().catch(() => ({}));
     expect(body.error).not.toBe("financial_acknowledgement_required");
   });

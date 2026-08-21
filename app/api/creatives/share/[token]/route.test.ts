@@ -21,7 +21,8 @@ const shareStore = await import("@/lib/creative-share-store");
 const reviewerGuard = await import("@/lib/meta/reviewer-write-guard");
 const { DELETE, GET, POST } = await import("@/app/api/creatives/share/[token]/route");
 
-const context = { params: Promise.resolve({ token: "share_token" }) };
+const TOKEN = "a".repeat(32);
+const context = { params: Promise.resolve({ token: TOKEN }) };
 
 describe("/api/creatives/share/[token]", () => {
   beforeEach(() => {
@@ -46,24 +47,41 @@ describe("/api/creatives/share/[token]", () => {
 
   it("serves public reads with no-store headers", async () => {
     vi.mocked(shareStore.getCreativeShareSnapshot).mockResolvedValue({
-      token: "share_token",
+      token: TOKEN,
       title: "Creative share",
       dateRange: "Last 7d",
       createdAt: "2026-07-10T00:00:00.000Z",
       expiresAt: "2026-07-17T00:00:00.000Z",
+      businessId: "private_business",
+      providerAccountId: "private_account",
       metrics: ["ctrAll"],
       includeNotes: false,
-      audience: "external",
+      audience: "buyer",
+      clientActions: [
+        {
+          id: "private_action_log_id",
+          what: "Paused an ad",
+          why: "It was inefficient.",
+          date: "2026-07-10",
+        },
+      ],
       creatives: [],
     });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/creatives/share/share_token"),
+      new NextRequest(`http://localhost/api/creatives/share/${TOKEN}`),
       context,
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+    const body = await response.json();
+    expect(body.payload).not.toHaveProperty("businessId");
+    expect(body.payload).not.toHaveProperty("providerAccountId");
+    expect(body.payload.actions).toEqual([
+      expect.objectContaining({ what: "Paused an ad" }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain("private_action_log_id");
   });
 
   it("returns the same no-store 404 for missing, expired, or revoked tokens", async () => {
@@ -97,7 +115,7 @@ describe("/api/creatives/share/[token]", () => {
       }),
     );
     expect(shareStore.revokeCreativeShareSnapshot).toHaveBeenCalledWith({
-      token: "share_token",
+      token: TOKEN,
       businessId: "trusted_business",
       revokedBy: "trusted_user",
     });
@@ -161,7 +179,7 @@ describe("/api/creatives/share/[token]", () => {
     expect(response.status).toBe(200);
     expect(payload.token).toBe("share_rotated");
     expect(shareStore.rotateCreativeShareSnapshot).toHaveBeenCalledWith({
-      token: "share_token",
+      token: TOKEN,
       businessId: "trusted_business",
       revokedBy: "trusted_user",
     });

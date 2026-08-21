@@ -19,6 +19,7 @@ import {
 } from "@/components/creatives/creative-truth";
 import {
   SHARE_METRIC_KEYS,
+  type CreativeShareBenchmarks,
   type ShareMetricKey,
   type SharePayloadCreative,
   type SharedCreative,
@@ -366,6 +367,39 @@ export function toCreatorTier0SharedCreative(row: MetaCreativeRow): SharePayload
     video50: creative.video50,
     video75: creative.video75,
     video100: creative.video100,
+  };
+}
+
+function median(values: number[]): number | null {
+  if (values.length < 3) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1]! + sorted[mid]!) / 2
+    : sorted[mid]!;
+}
+
+function finiteValues(rows: MetaCreativeRow[], key: "thumbstop" | "video50" | "ctrAll" | "linkCtr"): number[] {
+  return rows
+    .map((row) => row[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+}
+
+/**
+ * The account's typical creative, at every metric the public story cards
+ * compare against — a real median across the account's own rows, never a
+ * fabricated constant. Fewer than 3 comparable rows for a metric means "too
+ * few to call anything typical", and that metric is left null rather than
+ * computed from a sample too small to mean anything.
+ */
+export function computeCreativeShareBenchmarks(
+  rows: MetaCreativeRow[],
+): CreativeShareBenchmarks {
+  return {
+    thumbstop: median(finiteValues(rows, "thumbstop")),
+    videoCompletion50: median(finiteValues(rows, "video50")),
+    ctrAll: median(finiteValues(rows, "ctrAll")),
+    linkCtr: median(finiteValues(rows, "linkCtr")),
   };
 }
 

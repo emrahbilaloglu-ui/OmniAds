@@ -25,6 +25,7 @@ const queryState = vi.hoisted(() => ({
   creatives: undefined as unknown,
   briefing: undefined as unknown,
   briefingError: null as Error | null,
+  sharedLinks: undefined as unknown,
 }));
 
 const freshness = vi.hoisted(() => vi.fn());
@@ -89,6 +90,7 @@ beforeEach(() => {
   queryState.creatives = undefined;
   queryState.briefing = undefined;
   queryState.briefingError = null;
+  queryState.sharedLinks = undefined;
   freshness.mockReset();
   useQueryMock.mockReset();
   useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
@@ -98,7 +100,9 @@ beforeEach(() => {
         ? queryState.accounts
         : key === "meta-creative-studio"
           ? queryState.creatives
-          : queryState.briefing;
+          : key === "creative-share-links"
+            ? queryState.sharedLinks
+            : queryState.briefing;
     const error = key === "meta-creative-studio-briefing" ? queryState.briefingError : null;
     return {
       data,

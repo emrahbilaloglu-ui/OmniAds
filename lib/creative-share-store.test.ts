@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 
 const sql = vi.fn();
+const TOKEN = "a".repeat(32);
+const OLD_TOKEN = "b".repeat(32);
+
+vi.mock("@/lib/media-cache/media-service", () => ({
+  MediaCacheService: {
+    resolveUrls: vi.fn(async () => new Map()),
+  },
+}));
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => sql),
@@ -18,6 +26,7 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 }));
 
 const {
+  appendCreativeShareMessage,
   createCreativeShareSnapshot,
   getCreativeShareSnapshot,
   listCreativeShareSnapshots,
@@ -26,6 +35,7 @@ const {
   sanitizeCreativeSharePayloadForRead,
   sanitizeCreativeSharePayloadForStorage,
 } = await import("@/lib/creative-share-store");
+const mediaCache = await import("@/lib/media-cache/media-service");
 
 const basePayload = {
   title: "Asset Library view",
@@ -55,7 +65,7 @@ const basePayload = {
     "hookScore",
   ],
   includeNotes: true,
-  note: "Internal note with financial context.",
+  note: "Check the drop-off around the third quarter.",
   audience: "external",
   presetId: "external_public",
   presetLabel: "External party",
@@ -181,6 +191,9 @@ const forbiddenCreatorFields = [
 describe("creative share store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(mediaCache.MediaCacheService.resolveUrls).mockResolvedValue(
+      new Map(),
+    );
   });
 
   it.each(["external", "creative_team"] as const)(
@@ -195,7 +208,11 @@ describe("creative share store", () => {
       expect(snapshot.metrics).toEqual(["ctrAll", "linkCtr", "thumbstop", "video100"]);
       expect(snapshot.includeCampaignNames).toBe(false);
       expect(snapshot.includeDecisionLanguage).toBe(false);
-      expect(snapshot.includeNotes).toBe(false);
+      // A sender's note is a communication channel, not a financial or
+      // internal-identity field — it travels for every audience, same as the
+      // live notes thread. Everything genuinely sensitive below still strips.
+      expect(snapshot.includeNotes).toBe(true);
+      expect(snapshot.note).toBe("Check the drop-off around the third quarter.");
       expect(snapshot.allowCsv).toBe(false);
       expect(snapshot.filters).toEqual([]);
       expect(snapshot.selectedRowIds).toBeUndefined();
@@ -204,7 +221,6 @@ describe("creative share store", () => {
       expect(snapshot.clientEmail).toBeUndefined();
       expect(snapshot.currency).toBeUndefined();
       expect(snapshot.clientActions).toBeUndefined();
-      expect(snapshot.note).toBeUndefined();
       expect(snapshot.creatives[0]?.tags).toEqual([]);
       for (const field of forbiddenCreatorFields) {
         expect(snapshot.creatives[0]).not.toHaveProperty(field);
@@ -303,6 +319,65 @@ describe("creative share store", () => {
     expect(result.payload.businessId).toBeUndefined();
   });
 
+  it("freezes an available internal media-cache URL into the snapshot", async () => {
+    vi.mocked(mediaCache.MediaCacheService.resolveUrls).mockResolvedValue(
+      new Map([
+        [
+          "creative_1",
+          {
+            source: "cache" as const,
+            url: "/api/media/cache/frozen-poster.jpg",
+          },
+        ],
+      ]),
+    );
+    sql.mockResolvedValueOnce([]);
+
+    const sourceVideo = "https://meta.example/expiring-video.mp4";
+    const result = await createCreativeShareSnapshot(
+      {
+        ...basePayload,
+        audience: "buyer",
+        creatives: [
+          {
+            ...basePayload.creatives[0]!,
+            thumbnailUrl: "https://meta.example/expiring-poster.jpg",
+            preview: {
+              ...basePayload.creatives[0]!.preview,
+              render_mode: "video",
+              video_url: sourceVideo,
+              poster_url: "https://meta.example/expiring-poster.jpg",
+            },
+          },
+        ],
+      },
+      {
+        businessId: "trusted_business",
+        providerAccountId: "act_1",
+        createdBy: "trusted_user",
+      },
+    );
+
+    expect(mediaCache.MediaCacheService.resolveUrls).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          creative_id: "creative_1",
+          thumbnail_url: "https://meta.example/expiring-poster.jpg",
+        }),
+      ],
+      "trusted_business",
+    );
+    expect(result.payload.creatives[0]?.cachedThumbnailUrl).toBe(
+      "/api/media/cache/frozen-poster.jpg",
+    );
+    expect(result.payload.creatives[0]?.preview.poster_url).toBe(
+      "/api/media/cache/frozen-poster.jpg",
+    );
+    // The existing cache stores still images/posters. It must not pretend it
+    // has frozen a video binary that it never downloaded.
+    expect(result.payload.creatives[0]?.preview.video_url).toBe(sourceVideo);
+  });
+
   it("checks revocation on reads and again while recording an open", async () => {
     sql
       .mockResolvedValueOnce([
@@ -310,7 +385,7 @@ describe("creative share store", () => {
           payload: {
             ...basePayload,
             audience: "buyer",
-            token: "share_token",
+            token: TOKEN,
             createdAt: "2026-05-18T09:30:00.000Z",
             frozenAt: "2026-05-18T09:30:00.000Z",
             openCount: 2,
@@ -318,9 +393,9 @@ describe("creative share store", () => {
           expires_at: "2099-01-01T00:00:00.000Z",
         },
       ])
-      .mockResolvedValueOnce([{ token: "share_token" }]);
+      .mockResolvedValueOnce([{ token: TOKEN, open_count: 3 }]);
 
-    const payload = await getCreativeShareSnapshot("share_token", { recordOpen: true });
+    const payload = await getCreativeShareSnapshot(TOKEN, { recordOpen: true });
 
     expect(payload?.openCount).toBe(3);
     const selectQuery = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
@@ -337,7 +412,7 @@ describe("creative share store", () => {
           payload: {
             ...basePayload,
             audience: "buyer",
-            token: "share_token",
+            token: TOKEN,
             createdAt: "2026-05-18T09:30:00.000Z",
           },
           expires_at: "2099-01-01T00:00:00.000Z",
@@ -346,15 +421,15 @@ describe("creative share store", () => {
       .mockResolvedValueOnce([]);
 
     await expect(
-      getCreativeShareSnapshot("share_token", { recordOpen: true }),
+      getCreativeShareSnapshot(TOKEN, { recordOpen: true }),
     ).resolves.toBeNull();
   });
 
   it("revokes only within the authenticated business scope and records the actor", async () => {
-    sql.mockResolvedValueOnce([{ token: "share_token" }]);
+    sql.mockResolvedValueOnce([{ token: TOKEN }]);
 
     await expect(revokeCreativeShareSnapshot({
-      token: "share_token",
+      token: TOKEN,
       businessId: "trusted_business",
       revokedBy: "trusted_user",
     })).resolves.toBe(true);
@@ -415,7 +490,7 @@ describe("creative share store", () => {
         {
           payload: {
             ...basePayload,
-            token: "share_old",
+            token: OLD_TOKEN,
             createdAt: "2026-07-10T09:00:00.000Z",
             frozenAt: "2026-07-10T09:00:00.000Z",
           },
@@ -428,7 +503,7 @@ describe("creative share store", () => {
       .mockResolvedValueOnce([]);
 
     const rotated = await rotateCreativeShareSnapshot({
-      token: "share_old",
+      token: OLD_TOKEN,
       businessId: "trusted_business",
       revokedBy: "trusted_user",
     });
@@ -442,6 +517,90 @@ describe("creative share store", () => {
     expect(insertQuery).toContain("INSERT INTO creative_share_snapshots");
     const rotatedJson = String(sql.mock.calls[1]?.[2] ?? "");
     expect(rotatedJson).toContain('"frozenAt":"2026-07-10T09:00:00.000Z"');
-    expect(rotatedJson).not.toContain('"token":"share_old"');
+    expect(rotatedJson).toContain('"openCount":0');
+    expect(rotatedJson).not.toContain(`"token":"${OLD_TOKEN}"`);
+  });
+
+  it("merges the live messages column onto a read, separately from the frozen payload", async () => {
+    sql.mockResolvedValueOnce([
+      {
+        payload: { ...basePayload, audience: "buyer", token: TOKEN, createdAt: "2026-05-18T09:30:00.000Z" },
+        expires_at: "2099-01-01T00:00:00.000Z",
+        messages: [
+          { id: "m1", who: "viewer", name: "Client", text: "Which hook wins?", postedAt: "2026-08-14T09:00:00.000Z" },
+        ],
+      },
+    ]);
+
+    const payload = await getCreativeShareSnapshot(TOKEN);
+
+    expect(payload?.messages).toEqual([
+      { id: "m1", who: "viewer", name: "Client", text: "Which hook wins?", postedAt: "2026-08-14T09:00:00.000Z" },
+    ]);
+    const selectQuery = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    expect(selectQuery).toContain("messages");
+  });
+
+  it("posts a message in one atomic append, serialized by the row lock", async () => {
+    sql.mockResolvedValueOnce([
+      {
+        messages: [
+          { id: "m1", who: "viewer", name: "Client", text: "Which hook wins?", postedAt: "2026-08-14T09:00:00.000Z" },
+        ],
+      },
+    ]);
+
+    const result = await appendCreativeShareMessage({ token: TOKEN, text: "Which hook wins?" });
+
+    expect(result).toEqual({
+      ok: true,
+      messages: [
+        { id: "m1", who: "viewer", name: "Client", text: "Which hook wins?", postedAt: "2026-08-14T09:00:00.000Z" },
+      ],
+    });
+    expect(sql.mock.calls).toHaveLength(1);
+    const query = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    expect(query).toContain("messages = messages ||");
+    expect(query).toContain("jsonb_array_length(messages) <");
+    expect(query).toContain("revoked_at IS NULL");
+    expect(query).toContain("expires_at > NOW()");
+  });
+
+  it("refuses text over the length bound before any query runs", async () => {
+    const result = await appendCreativeShareMessage({ token: TOKEN, text: "x".repeat(601) });
+    expect(result).toEqual({ ok: false, reason: "invalid_text" });
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("refuses whitespace-only text before any query runs", async () => {
+    const result = await appendCreativeShareMessage({ token: TOKEN, text: "   " });
+    expect(result).toEqual({ ok: false, reason: "invalid_text" });
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a dead token from a full thread, both refused the same append", async () => {
+    // First call: the UPDATE finds no matching row (0 returned). Second call:
+    // the diagnostic SELECT this function makes to say WHY, truthfully.
+    sql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { expires_at: "2099-01-01T00:00:00.000Z", revoked_at: null, message_count: 200 },
+      ]);
+
+    const result = await appendCreativeShareMessage({ token: TOKEN, text: "hello" });
+
+    expect(result).toEqual({ ok: false, reason: "limit_reached" });
+  });
+
+  it("says not_found rather than limit_reached for an expired token", async () => {
+    sql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { expires_at: "2020-01-01T00:00:00.000Z", revoked_at: null, message_count: 3 },
+      ]);
+
+    const result = await appendCreativeShareMessage({ token: TOKEN, text: "hello" });
+
+    expect(result).toEqual({ ok: false, reason: "not_found" });
   });
 });

@@ -20,6 +20,7 @@ import {
 import { resolveCreativeCurrency } from "@/components/creatives/money";
 import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
+import { resolveCreativeShareUrl } from "@/lib/creative-share-link";
 import {
   applyCreativeFilters,
   buildMonthGrid,
@@ -849,10 +850,15 @@ function TopExportDropdown({
     triggerRef,
   });
 
+  const absoluteShareUrl =
+    shareUrl && typeof window !== "undefined"
+      ? resolveCreativeShareUrl({ url: shareUrl }, window.location.origin)
+      : null;
+
   const copyShareUrl = async () => {
-    if (!shareUrl || typeof window === "undefined") return;
+    if (!absoluteShareUrl) return;
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${shareUrl}`);
+      await navigator.clipboard.writeText(absoluteShareUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -898,13 +904,13 @@ function TopExportDropdown({
             </span>
           </button>
 
-          {shareUrl && (
+          {absoluteShareUrl && (
             <div className="mt-2 space-y-1 rounded-md border bg-muted/30 p-2">
               <p className="text-[11px] text-muted-foreground">Share link ready</p>
               <div className="flex items-center gap-1.5">
                 <input
                   readOnly
-                  value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
+                  value={absoluteShareUrl}
                   className="h-7 flex-1 rounded border bg-background px-2 text-[11px] text-muted-foreground"
                 />
                 <button

@@ -1,0 +1,205 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: rgba(11, 16, 32, 0.5);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.dialog {
+  width: 450px;
+  max-width: 94vw;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(11, 16, 32, 0.4);
+  overflow: hidden;
+  font-family: var(--font-instrument-sans), "Instrument Sans", -apple-system, sans-serif;
+}
+
+.body {
+  padding: 16px 18px;
+}
+
+.body h3 {
+  margin: 0;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0e1526;
+}
+
+.body > p {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #45526b;
+}
+
+.doneHead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.doneHead h3 {
+  margin: 0;
+}
+
+.doneBadge {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: #0e9f6e;
+  display: grid;
+  place-items: center;
+}
+
+.warnBadge {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #fdecf0;
+  display: grid;
+  place-items: center;
+}
+
+.revokedBadge {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: #e11d48;
+  display: grid;
+  place-items: center;
+}
+
+.metaLabel {
+  margin: 11px 0 0;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7a869e;
+}
+
+.urlRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.urlRow input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid #e4e8f0;
+  background: #f7f9fc;
+  padding: 0 10px;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: #0e1526;
+  outline: none;
+}
+
+.body .trailNote {
+  margin: 9px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7a869e;
+}
+
+.linkButton {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #2f6bff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.footer,
+.footerEnd {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #edf0f6;
+  padding: 12px 18px;
+}
+
+.footer {
+  justify-content: flex-end;
+}
+
+.footerEnd {
+  justify-content: flex-end;
+}
+
+.secondaryButton,
+.primaryButton,
+.doneButton,
+.dangerButton {
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.secondaryButton {
+  border: 1px solid #e4e8f0;
+  background: #fff;
+  color: #45526b;
+}
+
+.secondaryButton:hover {
+  background: #f7f9fc;
+}
+
+.primaryButton {
+  border: none;
+  background: #2f6bff;
+  color: #fff;
+  padding: 0 12px;
+}
+
+.primaryButton:hover {
+  background: #1e4fd6;
+}
+
+.doneButton {
+  border: none;
+  background: #0b1020;
+  color: #fff;
+  font-weight: 700;
+  padding: 0 15px;
+}
+
+.doneButton:focus-visible {
+  outline: 2px solid #2f6bff;
+  outline-offset: 2px;
+}
+
+.dangerButton {
+  border: none;
+  background: #e11d48;
+  color: #fff;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+.dangerButton:hover {
+  background: #c11340;
+}
+
+.dangerButton:focus-visible {
+  outline: 2px solid #0b1020;
+  outline-offset: 2px;
+}

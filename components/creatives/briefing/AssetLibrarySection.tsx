@@ -11,6 +11,7 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import type { ShareLinkConfig } from "@/components/creatives/shareCreativeTypes";
+import { BUYER_FINANCIAL_WARNING } from "@/lib/zero-base/creative/share-acknowledgement";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import type { AiCreativeHistoricalWindows as CreativeHistoricalWindows } from "@/lib/meta/creative-scoring";
 import {
@@ -710,6 +711,7 @@ export function AssetLibrarySection({
   const [includeCampaignNames, setIncludeCampaignNames] = useState(true);
   const [includeDecisionLanguage, setIncludeDecisionLanguage] = useState(true);
   const [allowCsv, setAllowCsv] = useState(false);
+  const [buyerAcknowledged, setBuyerAcknowledged] = useState(false);
   const [generatedShareUrl, setGeneratedShareUrl] = useState<string | null>(null);
   const [shareCreatedAt, setShareCreatedAt] = useState<Date | null>(null);
   const [actionStatus, setActionStatus] = useState<AssetLibraryActionStatus>("idle");
@@ -858,6 +860,7 @@ export function AssetLibrarySection({
     setIncludeCampaignNames(defaults.includeCampaignNames);
     setIncludeDecisionLanguage(defaults.includeDecisionLanguage);
     setAllowCsv(defaults.allowCsv);
+    setBuyerAcknowledged(false);
     setActionStatus("idle");
     resetGeneratedShareLink();
     setShareOpen(true);
@@ -869,11 +872,15 @@ export function AssetLibrarySection({
     setIncludeCampaignNames(defaults.includeCampaignNames);
     setIncludeDecisionLanguage(defaults.includeDecisionLanguage);
     setAllowCsv(defaults.allowCsv);
+    setBuyerAcknowledged(false);
     resetGeneratedShareLink();
   };
 
   const copyShareUrl = async (url: string) => {
-    await navigator.clipboard?.writeText(url).catch(() => null);
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard access is unavailable.");
+    }
+    await navigator.clipboard.writeText(url);
   };
 
   const shareRows = async ({
@@ -884,15 +891,24 @@ export function AssetLibrarySection({
     closeAfter?: boolean;
   }) => {
     if (!onShareRows || actionRows.length === 0) return;
+    if (shareAudience === "buyer" && !buyerAcknowledged) {
+      setActionStatus("error");
+      return;
+    }
     if (generatedShareUrl) {
-      if (copy) {
-        await copyShareUrl(generatedShareUrl);
-        setActionStatus("copied");
-      } else {
-        setActionStatus("saved");
+      try {
+        if (copy) {
+          await copyShareUrl(generatedShareUrl);
+          setActionStatus("copied");
+        } else {
+          setActionStatus("saved");
+        }
+        if (closeAfter) setShareOpen(false);
+      } catch {
+        setActionStatus("error");
+      } finally {
+        window.setTimeout(() => setActionStatus("idle"), 1800);
       }
-      if (closeAfter) setShareOpen(false);
-      window.setTimeout(() => setActionStatus("idle"), 1800);
       return;
     }
     setActionStatus("share");
@@ -909,6 +925,7 @@ export function AssetLibrarySection({
         includeDecisionLanguage: shareAudience === "buyer" && includeDecisionLanguage,
         allowCsv,
         snapshotOnly: true,
+        buyerAcknowledged,
       });
       setGeneratedShareUrl(result.url);
       setShareCreatedAt(new Date());
@@ -1196,6 +1213,7 @@ export function AssetLibrarySection({
           includeCampaignNames={includeCampaignNames}
           includeDecisionLanguage={includeDecisionLanguage}
           allowCsv={allowCsv}
+          buyerAcknowledged={buyerAcknowledged}
           generatedShareUrl={generatedShareUrl}
           presetTitle={sharePreset.title}
           rowScopeLabel={actionRowsLabel}
@@ -1216,6 +1234,10 @@ export function AssetLibrarySection({
           }}
           onToggleCsv={() => {
             setAllowCsv((value) => !value);
+            resetGeneratedShareLink();
+          }}
+          onBuyerAcknowledgedChange={(value) => {
+            setBuyerAcknowledged(value);
             resetGeneratedShareLink();
           }}
           onSaveLink={() => void shareRows({ copy: false })}
@@ -1419,6 +1441,7 @@ export function ShareViewModal({
   includeCampaignNames,
   includeDecisionLanguage,
   allowCsv,
+  buyerAcknowledged,
   generatedShareUrl,
   presetTitle,
   rowScopeLabel,
@@ -1431,6 +1454,7 @@ export function ShareViewModal({
   onToggleCampaignNames,
   onToggleDecisionLanguage,
   onToggleCsv,
+  onBuyerAcknowledgedChange,
   onSaveLink,
   onCopyLink,
   onCopyAndClose,
@@ -1440,6 +1464,7 @@ export function ShareViewModal({
   includeCampaignNames: boolean;
   includeDecisionLanguage: boolean;
   allowCsv: boolean;
+  buyerAcknowledged: boolean;
   generatedShareUrl: string | null;
   presetTitle: string;
   rowScopeLabel: string;
@@ -1452,6 +1477,7 @@ export function ShareViewModal({
   onToggleCampaignNames: () => void;
   onToggleDecisionLanguage: () => void;
   onToggleCsv: () => void;
+  onBuyerAcknowledgedChange: (value: boolean) => void;
   onSaveLink: () => void;
   onCopyLink: () => void;
   onCopyAndClose: () => void;
@@ -1499,6 +1525,16 @@ export function ShareViewModal({
           ))}
         </div>
         <p className="share-modal__hint">Preset auto-switches to match audience. Buyer = Ecommerce. Creative = Creative teams. External = no labels, no campaign IDs.</p>
+        {audience === "buyer" ? (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={buyerAcknowledged}
+              onChange={(event) => onBuyerAcknowledgedChange(event.target.checked)}
+            />
+            <span>{BUYER_FINANCIAL_WARNING}</span>
+          </label>
+        ) : null}
         <div className="share-modal__section-label">What gets shared</div>
         <div className="check-row">
           <span className="cb on" /> {rowCount} {rowScopeLabel} creatives (thumbs · scores · gaps)
@@ -1524,7 +1560,7 @@ export function ShareViewModal({
         <div className="share-modal__section-label share-modal__section-label--link">Link</div>
         <div className="url-field">
           <input readOnly value={generatedShareUrl ?? "Link will be created after Save link"} aria-label="Generated share URL" />
-          <button type="button" className="copy" onClick={onCopyLink} disabled={actionStatus === "share"}>
+          <button type="button" className="copy" onClick={onCopyLink} disabled={actionStatus === "share" || (audience === "buyer" && !buyerAcknowledged)}>
             {actionStatus === "share" ? "Creating..." : actionStatus === "copied" ? "Copied!" : generatedShareUrl ? "Copy" : "Create & copy"}
           </button>
         </div>
@@ -1537,10 +1573,10 @@ export function ShareViewModal({
         <div className="share-modal__footer">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <div className="share-modal__footer-actions">
-            <button type="button" className="btn" onClick={onSaveLink} disabled={actionStatus === "share"}>
+            <button type="button" className="btn" onClick={onSaveLink} disabled={actionStatus === "share" || (audience === "buyer" && !buyerAcknowledged)}>
               {generatedShareUrl || actionStatus === "saved" ? "Saved" : "Save link"}
             </button>
-            <button type="button" className="btn btn--primary" onClick={onCopyAndClose} disabled={actionStatus === "share"}>
+            <button type="button" className="btn btn--primary" onClick={onCopyAndClose} disabled={actionStatus === "share" || (audience === "buyer" && !buyerAcknowledged)}>
               {actionStatus === "share" ? "Creating..." : "Copy & close"}
             </button>
           </div>

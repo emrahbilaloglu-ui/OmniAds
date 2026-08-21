@@ -117,6 +117,8 @@ import {
   type ShareLinkConfig,
   type ShareMetricKey,
 } from "@/components/creatives/shareCreativeTypes";
+import { resolveCreativeShareUrl } from "@/lib/creative-share-link";
+import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
 import {
   DateRangePicker,
   dateWindowLabel,
@@ -2174,6 +2176,16 @@ export function CreativesBriefingPage() {
   const handleShareLibraryRows = useCallback(
     async (rows: MetaCreativeRow[], metricIds: string[], config?: ShareLinkConfig) => {
       const metrics = supportedShareMetrics(config?.metrics?.length ? config.metrics : metricIds);
+      const audience = config?.audience ?? "buyer";
+      const accountIds = [...new Set(
+        rows.map((row) => row.accountId?.trim()).filter((id): id is string => Boolean(id)),
+      )];
+      if (accountIds.length !== 1) {
+        throw new Error("Selected creatives must belong to one assigned Meta account.");
+      }
+      if (audience === "buyer" && config?.buyerAcknowledged !== true) {
+        throw new Error("A buyer share requires the financial-limitation acknowledgement.");
+      }
       const days = Number(config?.expiration ?? "7");
       const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
       const response = await fetch("/api/creatives/share", {
@@ -2182,11 +2194,15 @@ export function CreativesBriefingPage() {
         body: JSON.stringify({
           title: config?.title ?? "Asset Library view",
           businessId,
+          providerAccountId: accountIds[0],
           dateRange: `${libraryStart} - ${libraryEnd}`,
           expiresAt,
           metrics,
           includeNotes: Boolean(config?.includeNotes),
-          audience: config?.audience ?? "buyer",
+          audience,
+          ...(audience === "buyer"
+            ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
+            : {}),
           presetId: config?.presetId,
           presetLabel: config?.presetLabel,
           includeCampaignNames: config?.includeCampaignNames ?? true,
@@ -2199,14 +2215,22 @@ export function CreativesBriefingPage() {
           creatives: rows.map((row) => toSharedCreative(row)),
         }),
       });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.url) {
+      const payload = (await response.json().catch(() => null)) as {
+        token?: string;
+        path?: string;
+        url?: string;
+        message?: string;
+      } | null;
+      if (!response.ok || !payload) {
         const message = payload && typeof payload === "object" && "message" in payload
-          ? String((payload as { message?: unknown }).message)
+          ? String(payload.message)
           : "Share link could not be created.";
         throw new Error(message);
       }
-      const url = `${window.location.origin}${payload.url}`;
+      const url = resolveCreativeShareUrl(payload, window.location.origin);
+      if (!url) {
+        throw new Error("The server created a share but returned an invalid link.");
+      }
       showToast({ type: "success", message: "Asset Library share link created." });
       return { url };
     },

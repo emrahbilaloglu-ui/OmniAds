@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { useQuery } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CreativeStudioPage from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
@@ -75,6 +81,10 @@ const queryState = vi.hoisted(() => ({
   ] as unknown,
   creatives: undefined as unknown,
   briefing: undefined as unknown,
+  // The Shared-links toolbar count and manager read this. Undefined here
+  // reads as "unread" (an em dash on the toolbar), matching the honest
+  // default until a real business/account is wired.
+  sharedLinks: undefined as unknown,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -431,6 +441,8 @@ beforeEach(() => {
   ];
   queryState.creatives = undefined;
   queryState.briefing = undefined;
+  queryState.sharedLinks = undefined;
+  window.localStorage.clear();
   useQueryMock.mockReset();
   useQueryMock.mockImplementation(
     (options: { queryKey?: readonly unknown[] }) => {
@@ -440,7 +452,9 @@ beforeEach(() => {
           ? queryState.accounts
           : key === "meta-creative-studio"
             ? queryState.creatives
-            : queryState.briefing;
+            : key === "creative-share-links"
+              ? queryState.sharedLinks
+              : queryState.briefing;
       return {
         data,
         error: null,
@@ -455,7 +469,167 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("Creative Studio frozen-share production flow", () => {
+  function renderOneSelectedCreative() {
+    renderStudio({
+      rows: buildApiRows([
+        creativeDay({
+          creativeId: "creative_share_1",
+          adId: "ad_share_1",
+          name: "Shareable hero",
+          spend: 125,
+          revenue: 375,
+          purchases: 5,
+        }),
+      ]),
+    });
+    fireEvent.click(
+      document.querySelector("[data-creative-studio-asset-row]")!,
+    );
+  }
+
+  it("mints once on Create, copies the ready link, and Open page reaches that same snapshot", async () => {
+    const token = "e".repeat(32);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          token,
+          path: `/share/creative/${token}`,
+          url: `/share/creative/${token}`,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    renderOneSelectedCreative();
+    const shareButton = screen.getByRole("button", {
+      name: "Share selected creatives with client",
+    });
+    await waitFor(() => expect(shareButton).not.toBeDisabled());
+    fireEvent.click(shareButton);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create link" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body)) as Record<string, unknown>;
+    expect(body.audience).toBe("creative_team");
+    expect(body.providerAccountId).toBe(PROVIDER_ACCOUNT_ID);
+    expect(body.metrics).not.toContain("spend");
+    expect(body.creatives).toHaveLength(1);
+    expect(body.selectedRowIds).toHaveLength(1);
+
+    const expected = `${window.location.origin}/share/creative/${token}`;
+    const link = document.querySelector<HTMLInputElement>(
+      "[data-studio-share-link]",
+    );
+    expect(link?.value).toBe(expected);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
+
+    fireEvent.click(screen.getByRole("button", { name: "Open page" }));
+    expect(open).toHaveBeenCalledWith(expected, "_blank", "noopener,noreferrer");
+    // Copying and opening the already-ready link mint nothing new.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the created absolute link visible when clipboard access fails", async () => {
+    const token = "f".repeat(32);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ token }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderOneSelectedCreative();
+    const shareButton = screen.getByRole("button", {
+      name: "Share selected creatives with client",
+    });
+    await waitFor(() => expect(shareButton).not.toBeDisabled());
+    fireEvent.click(shareButton);
+    fireEvent.click(screen.getByRole("button", { name: "Create link" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    const expected = `${window.location.origin}/share/creative/${token}`;
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy failed" })).toBeTruthy();
+    });
+    expect(
+      document.querySelector<HTMLInputElement>("[data-studio-share-link]")
+        ?.value,
+    ).toBe(expected);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("guards a pending mint against duplicate submits and modal dismissal", async () => {
+    const token = "1".repeat(32);
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderOneSelectedCreative();
+    const shareButton = screen.getByRole("button", {
+      name: "Share selected creatives with client",
+    });
+    await waitFor(() => expect(shareButton).not.toBeDisabled());
+    fireEvent.click(shareButton);
+    fireEvent.click(screen.getByRole("button", { name: "Create link" }));
+
+    // The creating phase has no Create/Copy control to double-click at all —
+    // the whole config footer is replaced by a locked spinner state.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText("Creating frozen snapshot — controls locked"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.click(document.querySelector('[data-testid="studio-share-modal-scrim"]')!);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    resolveFetch(
+      new Response(JSON.stringify({ token }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Close" })).not.toBeDisabled();
+  });
+});
 
 describe("Creative Studio Status column carries the engine's classification", () => {
   it("renders canonical exact-Ad Act, Blocked and Monitor states with the served buyer label", () => {

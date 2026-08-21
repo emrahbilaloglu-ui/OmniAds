@@ -36,6 +36,7 @@ const clientActionFeed = await import("@/lib/creatives/client-action-feed");
 const reviewerGuard = await import("@/lib/meta/reviewer-write-guard");
 const creativeFetchers = await import("@/lib/meta/creatives-fetchers");
 const { GET, POST } = await import("@/app/api/creatives/share/route");
+const TOKEN = "a".repeat(32);
 
 const baseBody = {
   title: "Creative share",
@@ -46,7 +47,22 @@ const baseBody = {
   metrics: ["ctrAll"],
   includeNotes: false,
   audience: "external",
-  creatives: [],
+  creatives: [
+    {
+      id: "creative_1",
+      name: "Hero",
+      format: "image",
+      launchDate: "2026-08-01",
+      preview: {
+        render_mode: "unavailable",
+        image_url: null,
+        video_url: null,
+        poster_url: null,
+        source: null,
+        is_catalog: false,
+      },
+    },
+  ],
 };
 
 function postRequest(body: unknown) {
@@ -64,7 +80,7 @@ describe("POST /api/creatives/share", () => {
       membership: { businessId: "trusted_business", role: "collaborator" } as never,
     });
     vi.mocked(shareStore.createCreativeShareSnapshot).mockResolvedValue({
-      token: "share_token",
+      token: TOKEN,
       payload: {} as never,
     });
     vi.mocked(shareStore.listCreativeShareSnapshots).mockResolvedValue([]);
@@ -81,6 +97,7 @@ describe("POST /api/creatives/share", () => {
 
   it("requires collaborator access and mints with server-trusted attribution", async () => {
     const response = await POST(postRequest(baseBody));
+    const responseBody = await response.json();
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
@@ -103,6 +120,11 @@ describe("POST /api/creatives/share", () => {
         createdBy: "trusted_user",
       },
     );
+    expect(responseBody).toEqual({
+      token: TOKEN,
+      path: `/share/creative/${TOKEN}`,
+      url: `/share/creative/${TOKEN}`,
+    });
   });
 
   it("lists grants using the trusted business and assigned account scope", async () => {
@@ -213,6 +235,16 @@ describe("POST /api/creatives/share", () => {
 
   it("rejects malformed audiences before access or persistence", async () => {
     const response = await POST(postRequest({ ...baseBody, audience: "client" }));
+
+    expect(response.status).toBe(400);
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(shareStore.createCreativeShareSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed creative rows before storage can throw", async () => {
+    const response = await POST(
+      postRequest({ ...baseBody, creatives: [{ id: "creative_1" }] }),
+    );
 
     expect(response.status).toBe(400);
     expect(access.requireBusinessAccess).not.toHaveBeenCalled();

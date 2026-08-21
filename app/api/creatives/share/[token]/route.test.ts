@@ -8,6 +8,7 @@ vi.mock("@/lib/access", () => ({
 vi.mock("@/lib/creative-share-store", () => ({
   getCreativeShareSnapshot: vi.fn(),
   getCreativeShareLedgerCapability: vi.fn(),
+  deleteCreativeShareSnapshot: vi.fn(),
   revokeCreativeShareSnapshot: vi.fn(),
   rotateCreativeShareSnapshot: vi.fn(),
 }));
@@ -32,6 +33,7 @@ describe("/api/creatives/share/[token]", () => {
       membership: { businessId: "trusted_business", role: "collaborator" } as never,
     });
     vi.mocked(shareStore.revokeCreativeShareSnapshot).mockResolvedValue(true);
+    vi.mocked(shareStore.deleteCreativeShareSnapshot).mockResolvedValue(true);
     vi.mocked(shareStore.rotateCreativeShareSnapshot).mockResolvedValue({
       token: "share_rotated",
       url: "/share/creative/share_rotated",
@@ -187,5 +189,59 @@ describe("/api/creatives/share/[token]", () => {
       expect.any(Object),
       "creative_share_rotate",
     );
+  });
+
+  it("hard-deletes a link through a collaborator-scoped store operation", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/creatives/share/share_token", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "request_business", action: "delete" }),
+      }),
+      context,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ deleted: true, token: TOKEN });
+    expect(shareStore.deleteCreativeShareSnapshot).toHaveBeenCalledWith({
+      token: TOKEN,
+      businessId: "trusted_business",
+      revokedBy: "trusted_user",
+    });
+    expect(shareStore.rotateCreativeShareSnapshot).not.toHaveBeenCalled();
+    expect(reviewerGuard.rejectIfReviewerReadOnly).toHaveBeenCalledWith(
+      expect.any(Object),
+      "creative_share_delete",
+    );
+  });
+
+  it("rejects a POST whose action is neither rotate nor delete", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/creatives/share/share_token", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "request_business", action: "archive" }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(shareStore.deleteCreativeShareSnapshot).not.toHaveBeenCalled();
+    expect(shareStore.rotateCreativeShareSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("returns a non-disclosing 404 when the scoped delete finds no row", async () => {
+    vi.mocked(shareStore.deleteCreativeShareSnapshot).mockResolvedValue(false);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/creatives/share/share_token", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "request_business", action: "delete" }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
   });
 });

@@ -81,6 +81,7 @@ import {
   type SharedLinksManagerRowViewModel,
 } from "@/components/creatives/share/SharedLinksManager";
 import {
+  DeleteLinkDialog,
   RevokeLinkDialog,
   RotateLinkDialog,
   type LinkDialogPhase,
@@ -444,13 +445,15 @@ export default function MetaCreativeStudioPage({
   const [shareCopyStatus, setShareCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const shareRequestRef = useRef<Promise<{ token: string; url: string } | null> | null>(null);
 
-  // ---- Shared links manager, and rotate / revoke ----
+  // ---- Shared links manager, and rotate / revoke / delete ----
   const [linksOpen, setLinksOpen] = useState(false);
   const [rotateFor, setRotateFor] = useState<string | null>(null);
   const [rotatePhase, setRotatePhase] = useState<LinkDialogPhase>("confirm");
   const [rotatedUrl, setRotatedUrl] = useState<string | null>(null);
   const [revokeFor, setRevokeFor] = useState<string | null>(null);
   const [revokePhase, setRevokePhase] = useState<LinkDialogPhase>("confirm");
+  const [deleteFor, setDeleteFor] = useState<string | null>(null);
+  const [deletePhase, setDeletePhase] = useState<LinkDialogPhase>("confirm");
   const [linkCopyStatus, setLinkCopyStatus] = useState<
     Record<string, "idle" | "copied" | "failed">
   >({});
@@ -959,6 +962,29 @@ export default function MetaCreativeStudioPage({
     }
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!deleteFor) return;
+    try {
+      const response = await fetch(`/api/creatives/share/${deleteFor}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ businessId, action: "delete" }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { deleted?: boolean; message?: string }
+        | null;
+      if (!response.ok || !payload?.deleted) {
+        throw new Error(payload?.message ?? "The link could not be deleted.");
+      }
+      setDeletePhase("done");
+      invalidateSharedLinks();
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : "The link could not be deleted.");
+      setDeleteFor(null);
+      setDeletePhase("confirm");
+    }
+  };
+
   const handleCsvExport = () => {
     if (typeof window === "undefined" || allRows.length === 0) return;
     const blob = new Blob(["\ufeff" + toCsv(allRows)], {
@@ -1165,6 +1191,7 @@ export default function MetaCreativeStudioPage({
   );
   const rotateEntry = rotateFor ? sharedLinksRows.find((row) => row.entry.token === rotateFor) : null;
   const revokeEntry = revokeFor ? sharedLinksRows.find((row) => row.entry.token === revokeFor) : null;
+  const deleteEntry = deleteFor ? sharedLinksRows.find((row) => row.entry.token === deleteFor) : null;
   const rotateCopyState = rotateFor ? (linkCopyStatus[`rotate:${rotateFor}`] ?? "idle") : "idle";
 
   if (!businessId) return <BusinessEmptyState />;
@@ -1293,6 +1320,10 @@ export default function MetaCreativeStudioPage({
               const row = sharedLinksRows.find((entry) => entry.entry.token === token);
               if (row) handleLinkOpen(row.url);
             }}
+            onDelete={(token) => {
+              setDeleteFor(token);
+              setDeletePhase("confirm");
+            }}
             onRevoke={(token) => {
               setRevokeFor(token);
               setRevokePhase("confirm");
@@ -1356,6 +1387,22 @@ export default function MetaCreativeStudioPage({
             }}
             phase={revokePhase}
             title={revokeEntry?.entry.title ?? ""}
+          />
+        ) : null}
+
+        {deleteFor ? (
+          <DeleteLinkDialog
+            onCancel={() => {
+              setDeleteFor(null);
+              setDeletePhase("confirm");
+            }}
+            onConfirm={handleDeleteConfirm}
+            onDone={() => {
+              setDeleteFor(null);
+              setDeletePhase("confirm");
+            }}
+            phase={deletePhase}
+            title={deleteEntry?.entry.title ?? ""}
           />
         ) : null}
       </div>

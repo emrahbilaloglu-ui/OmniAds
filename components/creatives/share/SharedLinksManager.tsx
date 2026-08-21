@@ -28,6 +28,7 @@ export interface SharedLinksManagerProps {
   onOpen: (token: string) => void;
   onRotate: (token: string) => void;
   onRevoke: (token: string) => void;
+  onDelete: (token: string) => void;
   onGoSelectCreatives: () => void;
   onClose: () => void;
 }
@@ -40,6 +41,7 @@ export function SharedLinksManager({
   onOpen,
   onRotate,
   onRevoke,
+  onDelete,
   onGoSelectCreatives,
   onClose,
 }: SharedLinksManagerProps) {
@@ -65,7 +67,9 @@ export function SharedLinksManager({
         <div className={styles.body}>
           <p className={styles.intro}>
             Every link is a frozen, read-only snapshot. Rotate replaces the
-            URL for the same content; revoke kills access immediately.
+            URL for the same content; revoke kills access immediately. A
+            revoked or expired link can be deleted to remove it from this
+            list.
           </p>
 
           {loading ? <p className={styles.loading}>Loading shared links…</p> : null}
@@ -127,7 +131,15 @@ export function SharedLinksManager({
                       Revoke
                     </button>
                   </>
-                ) : null}
+                ) : (
+                  <button
+                    className={styles.actionButtonDanger}
+                    onClick={() => onDelete(row.entry.token)}
+                    type="button"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </article>
           ))}

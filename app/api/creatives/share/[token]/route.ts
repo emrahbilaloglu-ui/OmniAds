@@ -3,6 +3,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import {
   getCreativeShareSnapshot,
   getCreativeShareLedgerCapability,
+  deleteCreativeShareSnapshot,
   revokeCreativeShareSnapshot,
   rotateCreativeShareSnapshot,
 } from "@/lib/creative-share-store";
@@ -93,9 +94,10 @@ export async function POST(
     | null;
   const businessId =
     typeof body?.businessId === "string" ? body.businessId.trim() : "";
-  if (!businessId || body?.action !== "rotate") {
+  const action = body?.action;
+  if (!businessId || (action !== "rotate" && action !== "delete")) {
     return NextResponse.json(
-      { error: "invalid_payload", message: "businessId and action=rotate are required." },
+      { error: "invalid_payload", message: "businessId and action=rotate|delete are required." },
       { status: 400, headers: NO_STORE_HEADERS },
     );
   }
@@ -105,7 +107,10 @@ export async function POST(
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
-  const reviewerBlocked = rejectIfReviewerReadOnly(access, "creative_share_rotate");
+  const reviewerBlocked = rejectIfReviewerReadOnly(
+    access,
+    action === "delete" ? "creative_share_delete" : "creative_share_rotate",
+  );
   if (reviewerBlocked) return reviewerBlocked;
   const capability = await getCreativeShareLedgerCapability();
   if (!capability.canWrite) {
@@ -116,6 +121,17 @@ export async function POST(
   }
 
   const { token } = await context.params;
+
+  if (action === "delete") {
+    const deleted = await deleteCreativeShareSnapshot({
+      token,
+      businessId: access.membership.businessId,
+      revokedBy: access.session.user.id,
+    });
+    if (!deleted) return shareNotFoundResponse();
+    return NextResponse.json({ deleted: true, token }, { headers: NO_STORE_HEADERS });
+  }
+
   const rotated = await rotateCreativeShareSnapshot({
     token,
     businessId: access.membership.businessId,

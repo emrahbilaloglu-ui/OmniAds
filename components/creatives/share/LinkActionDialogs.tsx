@@ -164,6 +164,70 @@ export function RevokeLinkDialog(props: RevokeLinkDialogProps) {
   );
 }
 
+export interface DeleteLinkDialogProps {
+  phase: LinkDialogPhase;
+  title: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onDone: () => void;
+}
+
+export function DeleteLinkDialog(props: DeleteLinkDialogProps) {
+  return (
+    <div className={styles.scrim} onClick={props.phase === "confirm" ? props.onCancel : undefined}>
+      <div
+        aria-modal="true"
+        className={styles.dialog}
+        data-screen-label="Delete link"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        {props.phase === "confirm" ? (
+          <>
+            <div className={styles.body}>
+              <div className={styles.doneHead}>
+                <span className={styles.warnBadge}>
+                  <WarningIcon />
+                </span>
+                <h3>Delete &ldquo;{props.title}&rdquo;?</h3>
+              </div>
+              <p>
+                This permanently removes it from your shared links list. This
+                can&rsquo;t be undone.
+              </p>
+            </div>
+            <div className={styles.footer}>
+              <button className={styles.secondaryButton} onClick={props.onCancel} type="button">
+                Cancel
+              </button>
+              <button className={styles.dangerButton} onClick={props.onConfirm} type="button">
+                Delete link
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.body}>
+              <div className={styles.doneHead}>
+                <span className={styles.revokedBadge}>
+                  <XIcon />
+                </span>
+                <h3>Link deleted</h3>
+              </div>
+              <p>It no longer appears in this list.</p>
+            </div>
+            <div className={styles.footerEnd}>
+              <button className={styles.doneButton} onClick={props.onDone} type="button">
+                Done
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg fill="none" height="11" stroke="#fff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3.5" viewBox="0 0 24 24" width="11">

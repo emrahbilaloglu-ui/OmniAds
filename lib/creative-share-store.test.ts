@@ -28,6 +28,7 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 const {
   appendCreativeShareMessage,
   createCreativeShareSnapshot,
+  deleteCreativeShareSnapshot,
   getCreativeShareSnapshot,
   listCreativeShareSnapshots,
   revokeCreativeShareSnapshot,
@@ -440,6 +441,35 @@ describe("creative share store", () => {
     expect(query).toContain("payload->>'businessId'");
     expect(sql.mock.calls[0]).toContain("trusted_business");
     expect(sql.mock.calls[0]).toContain("trusted_user");
+  });
+
+  it("hard-deletes only within the authenticated business scope, regardless of status", async () => {
+    sql.mockResolvedValueOnce([{ token: TOKEN }]);
+
+    await expect(deleteCreativeShareSnapshot({
+      token: TOKEN,
+      businessId: "trusted_business",
+      revokedBy: "trusted_user",
+    })).resolves.toBe(true);
+
+    const query = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    expect(query).toContain("DELETE FROM creative_share_snapshots");
+    // Unlike revoke, delete carries no `revoked_at IS NULL` gate — it removes
+    // the row whether the link is still active, already revoked, or expired.
+    expect(query).not.toContain("revoked_at IS NULL");
+    expect(query).toContain("business_id::text");
+    expect(query).toContain("payload->>'businessId'");
+    expect(sql.mock.calls[0]).toContain("trusted_business");
+  });
+
+  it("reports no deletion when the row is outside the caller's business scope", async () => {
+    sql.mockResolvedValueOnce([]);
+
+    await expect(deleteCreativeShareSnapshot({
+      token: TOKEN,
+      businessId: "someone_elses_business",
+      revokedBy: "trusted_user",
+    })).resolves.toBe(false);
   });
 
   it("lists only the requested business and provider account as truthful ledger summaries", async () => {

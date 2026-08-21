@@ -555,6 +555,36 @@ export async function revokeCreativeShareSnapshot(
   return Boolean(rows[0]);
 }
 
+/**
+ * Hard-delete a ledger row, regardless of its current status.
+ *
+ * Distinct from revoke: revoke only ever kills access on an active link
+ * (`revoked_at IS NULL`) and keeps the row as a record. Delete removes the
+ * row outright — it exists so a revoked or expired entry can be cleared out
+ * of the Shared links list, not to bypass revoke's "still active" gate.
+ */
+export async function deleteCreativeShareSnapshot(
+  input: RevokeCreativeShareInput,
+): Promise<boolean> {
+  await ensureShareTable();
+  const token = normalizeCreativeShareToken(input.token);
+  const businessId = input.businessId.trim();
+  if (!token || !businessId) return false;
+
+  const sql = getDb();
+  const rows = (await sql`
+    DELETE FROM creative_share_snapshots
+    WHERE token = ${token}
+      AND (
+        business_id::text = ${businessId}
+        OR (business_id IS NULL AND payload->>'businessId' = ${businessId})
+      )
+    RETURNING token
+  `) as Array<{ token: string }>;
+
+  return Boolean(rows[0]);
+}
+
 export async function rotateCreativeShareSnapshot(
   input: RotateCreativeShareInput,
 ): Promise<{ token: string; url: string } | null> {

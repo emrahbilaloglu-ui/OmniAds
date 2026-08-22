@@ -1103,9 +1103,28 @@ history_entries AS (
     NULL,
     workflow.to_state,
     'recorded',
-    NULL,
-    NULL,
-    'not_applicable',
+    /*
+     * The operator who moved it -- not "no human actor".
+     *
+     * These three columns were NULL, NULL, not_applicable, and not_applicable
+     * renders as "No human actor (engine)". A workflow event is the one thing
+     * in this journal that is ALWAYS a person: acknowledging, deferring,
+     * rejecting and reopening are ownership acts, and
+     * decision_workflow_events.actor_user_id records who performed them.
+     * Attributing them to the engine inverted the single fact the row exists to
+     * carry -- WP12 item 5.
+     *
+     * "unavailable" rather than "not_applicable" when the id no longer resolves
+     * to a user (the FK is ON DELETE SET NULL, so a departed colleague's rows
+     * survive them): a person acted and we cannot name them, which is a
+     * different fact from no person having acted.
+     *
+     * No backticks anywhere in this comment: it lives inside a TypeScript
+     * template literal, where a backtick ends the string.
+     */
+    workflow.actor_user_id::text,
+    workflow_actor.name,
+    CASE WHEN workflow_actor.id IS NOT NULL THEN 'available' ELSE 'unavailable' END,
     'decision_key',
     'operator_workflow',
     'unavailable',
@@ -1115,11 +1134,18 @@ history_entries AS (
     NULL,
     jsonb_build_object(
       'event', workflow.event,
+      -- Before/after, both of them. toState alone says where a decision ended
+      -- up and hides what it was moved from, which is half of what an audit
+      -- reader needs (WP12 item 7).
       'fromState', workflow.from_state,
       'toState', workflow.to_state,
-      'stateVersion', workflow.state_version
+      'stateVersion', workflow.state_version,
+      'reasonCode', NULLIF(workflow.reason_code, ''),
+      'actorUserId', workflow.actor_user_id::text
     )
   FROM decision_workflow_events workflow
+  LEFT JOIN users workflow_actor
+    ON workflow_actor.id = workflow.actor_user_id
   WHERE workflow.business_id = $1
 
   UNION ALL

@@ -10,8 +10,20 @@ import {
 } from "@/lib/dashboard-v2/screen-registry";
 
 describe("Dashboard v2 screen registry", () => {
-  it("locks the eighteen reference-defined primary screens", () => {
-    expect(DASHBOARD_SCREEN_IDS).toHaveLength(18);
+  it("locks the reference-defined primary screens plus the two D3 rail rows", () => {
+    /**
+     * Eighteen became twenty.
+     *
+     * The first eighteen are the design file's own screens. `meta-intelligence`
+     * and `meta-history` are the two rail rows D3 of the Meta market-ready plan
+     * adds — D1 permits a missing rail row — and both routes have existed and
+     * worked all along. Their absence *here* is what made
+     * `dashboardScreenForPath` answer null for them, so History fell through to
+     * the Decisions row's active hrefs and Intelligence lit nothing.
+     */
+    expect(DASHBOARD_SCREEN_IDS).toHaveLength(20);
+    expect(DASHBOARD_SCREEN_IDS).toContain("meta-intelligence");
+    expect(DASHBOARD_SCREEN_IDS).toContain("meta-history");
     expect(Object.keys(DASHBOARD_REFERENCE_SCREENS)).toEqual([
       ...DASHBOARD_SCREEN_IDS,
     ]);

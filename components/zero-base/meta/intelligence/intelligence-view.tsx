@@ -62,7 +62,11 @@ export function IntelligenceView({
   const [tab, setTab] = useState<TabId>("sources");
   if (unavailableReason) {
     return (
-      <div data-intelligence-surface="" className={legacyStyles.workspace}>
+      <div
+        data-intelligence-surface=""
+        data-screen-label="Meta · Account Intelligence"
+        className={legacyStyles.workspace}
+      >
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.accountIntelligence}
         </h1>
@@ -169,7 +173,11 @@ export function IntelligenceView({
   );
 
   return (
-    <div data-intelligence-surface="" className={legacyStyles.workspace}>
+    <div
+      data-intelligence-surface=""
+      data-screen-label="Meta · Account Intelligence"
+      className={legacyStyles.workspace}
+    >
       <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p>

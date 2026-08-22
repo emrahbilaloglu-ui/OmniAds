@@ -126,6 +126,8 @@ export const translations = {
       snapchat: "Snapchat",
       klaviyo: "Klaviyo",
       pulse: "Decisions",
+      accountIntelligence: "Account Intelligence",
+      history: "History",
       automation: "Automation",
       analytics: "Analytics",
       geoIntelligence: "AI Visibility",

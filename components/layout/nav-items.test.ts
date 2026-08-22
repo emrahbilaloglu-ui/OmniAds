@@ -5,6 +5,7 @@ import {
   getPlatformLayer2Items,
   platformsRegistry,
 } from "@/components/layout/nav-items";
+import { metaRailSurfaces } from "@/lib/meta/surface-registry";
 
 describe("shell navigation items", () => {
   it("places Commercial Truth in the Workspace layer", () => {
@@ -30,16 +31,29 @@ describe("shell navigation items", () => {
     });
   });
 
-  it("keeps the four primary Meta operating-system destinations", () => {
+  it("carries the six Meta rail destinations in their fixed order", () => {
     const metaItems = getPlatformLayer2Items("meta", "en");
 
+    /**
+     * Four became six under D3 of the Meta market-ready plan. The design file
+     * draws four (`metaFam` is `['meta','creative','launchpad','automation']`)
+     * while the vendored leaf ledger already carries `L-C-META-INTEL` and
+     * `L-C-META-HIST` — the two authorities disagree, and D3 sides with the
+     * behavioural one. §18 fixes Intelligence immediately after Decisions and
+     * History last. Both routes already worked; only the way in was missing.
+     *
+     * Intelligence is addressed by its `/app` spelling because it has no
+     * pre-v2 route, so a `/platforms` name for it would be a 404.
+     */
     expect(metaItems.map((item) => item.href)).toEqual([
       "/platforms/meta",
+      "/app/meta/intelligence",
       "/platforms/meta/creatives",
       "/platforms/meta/launchpad",
       "/platforms/meta/automation",
+      "/platforms/meta/history",
     ]);
-    expect(metaItems[1]).toMatchObject({
+    expect(metaItems[2]).toMatchObject({
       id: "creative-studio",
       label: "Creative Studio",
       activeHrefs: [
@@ -47,8 +61,21 @@ describe("shell navigation items", () => {
         "/platforms/meta/landing-pages",
         "/platforms/meta/creative-inbox",
         "/platforms/meta/audiences",
+        // Sub-surfaces with no rail row of their own; without these the whole
+        // Meta group went inactive the moment a brief was opened.
+        "/app/creative/briefs",
+        "/app/creative/shares",
       ],
     });
+  });
+
+  it("orders the Meta rail exactly as the surface registry does", () => {
+    // The registry is the single semantic authority (plan §3 rank 5). This is
+    // the assertion that keeps the rail from drifting away from it.
+    const metaItems = getPlatformLayer2Items("meta", "en");
+    expect(metaItems.map((item) => item.label)).toEqual(
+      metaRailSurfaces().map((surface) => surface.label),
+    );
   });
 
   it("uses Decisions as the visible queue label while preserving stable pulse route ids", () => {
@@ -59,7 +86,17 @@ describe("shell navigation items", () => {
       id: "pulse",
       label: "Decisions",
       href: "/platforms/meta",
-      activeHrefs: ["/platforms/meta/history"],
+    });
+    // History used to be listed as an active href for Decisions, so reading
+    // History lit up Decisions (plan §5.1 finding 4). It owns its own row now,
+    // and a row must not claim a surface it does not own.
+    expect(metaItems[0]!.activeHrefs ?? []).not.toContain(
+      "/platforms/meta/history",
+    );
+    expect(metaItems.at(-1)).toMatchObject({
+      id: "meta-history",
+      label: "History",
+      href: "/platforms/meta/history",
     });
     expect(googleItems[0]).toMatchObject({
       id: "google-overview",

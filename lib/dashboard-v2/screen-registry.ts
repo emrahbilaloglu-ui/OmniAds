@@ -9,6 +9,13 @@
 export const DASHBOARD_SCREEN_IDS = [
   "overview",
   "meta",
+  // Both routes have existed and worked since before this registry did; what
+  // was missing was any entry here, so `dashboardScreenForPath` answered null
+  // for them. History then fell through to the Decisions rail row's
+  // `activeHrefs` and lit up Decisions, and Intelligence lit up nothing at all
+  // (master plan §5.1 findings 3 and 4).
+  "meta-intelligence",
+  "meta-history",
   "creative",
   "launchpad",
   "automation",
@@ -54,6 +61,17 @@ export const DASHBOARD_REFERENCE_SCREENS: Readonly<
 > = {
   overview: { label: "Overview", referenceView: "overview" },
   meta: { label: "Meta Decision Center", referenceView: "meta" },
+  // `referenceView` names the design prototype's own view id. These two have
+  // none: the design file draws four Meta children and neither is among them.
+  // The vendored leaf ledger does carry both (L-C-META-INTEL, L-C-META-HIST),
+  // which is the authority D3 follows. The id is recorded as the surface id
+  // rather than left blank, so nothing reads as a reference view that does not
+  // exist.
+  "meta-intelligence": {
+    label: "Meta · Account Intelligence",
+    referenceView: "meta-intelligence",
+  },
+  "meta-history": { label: "Meta · History", referenceView: "meta-history" },
   creative: { label: "Creative Studio", referenceView: "creative" },
   launchpad: { label: "Launchpad", referenceView: "launchpad" },
   automation: { label: "Automation", referenceView: "automation" },
@@ -99,6 +117,13 @@ const ROUTES: Readonly<Record<string, DashboardScreenRoute>> = {
   "/platforms/meta": route("meta"),
   "/app/meta/decisions": route("meta"),
 
+  // No `/platforms` spelling for Intelligence: it is new in v2 and the vendored
+  // contract has no record of it as a changed legacy path, so there is nothing
+  // to shim.
+  "/app/meta/intelligence": route("meta-intelligence"),
+  "/platforms/meta/history": route("meta-history"),
+  "/app/meta/history": route("meta-history"),
+
   "/platforms/meta/creatives": route("creative", undefined, "assets"),
   "/app/creative/performance": route("creative", undefined, "assets"),
   "/platforms/meta/copies": route("creative", undefined, "copies"),
@@ -113,6 +138,12 @@ const ROUTES: Readonly<Record<string, DashboardScreenRoute>> = {
   "/app/creative/inbox": route("creative", undefined, "inbox"),
   "/platforms/meta/audiences": route("creative", undefined, "audiences"),
   "/app/creative/audiences": route("creative", undefined, "audiences"),
+  // Briefs, Shares and Creative Detail are Creative Studio sub-surfaces with no
+  // rail row of their own. Without these entries they resolved to no screen, so
+  // the whole Meta platform group went inactive the moment an operator opened a
+  // brief — the rail said they had left Meta.
+  "/app/creative/briefs": route("creative", undefined, "assets"),
+  "/app/creative/shares": route("creative", undefined, "assets"),
 
   "/platforms/meta/launchpad": route("launchpad"),
   "/app/meta/launchpad": route("launchpad"),
@@ -163,8 +194,8 @@ const ROUTES: Readonly<Record<string, DashboardScreenRoute>> = {
 const APP_PATH_BY_LEGACY_PATH: Readonly<Record<string, string>> = {
   "/overview": "/app/home",
   "/platforms/meta": "/app/meta/decisions",
-  "/platforms/meta/decisions": "/app/meta/decisions",
   "/platforms/meta/history": "/app/meta/history",
+  "/platforms/meta/intelligence": "/app/meta/intelligence",
   "/platforms/meta/creatives": "/app/creative/performance",
   "/platforms/meta/copies": "/app/creative/copies",
   "/platforms/meta/landing-pages": "/app/creative/landing-pages",
@@ -221,7 +252,21 @@ export function dashboardHrefForRouteFamily(
     APP_PATH_BY_LEGACY_PATH[pathname] ??
     (pathname.startsWith("/reports/")
       ? `/app/reports${pathname.slice("/reports".length)}`
-      : null);
+      : /**
+         * An href already written in the `/app` spelling is its own app path.
+         *
+         * Surfaces added in v2 — Account Intelligence, Creative Briefs, Creative
+         * Shares — have no pre-v2 route, so there is no legacy key to look up
+         * and nothing to invent one from. Passing such an href through
+         * unchanged sent a `/c/:businessId` visitor to `/app/**`, which
+         * re-scopes from `session.activeBusinessId` and can therefore land them
+         * in a *different business* than the one they were explicitly reading.
+         * Recognising the spelling keeps the rewrite below in charge, so the
+         * explicit scope survives the click.
+         */
+        pathname === "/app" || pathname.startsWith("/app/")
+        ? pathname
+        : null);
   if (!appPath) return href;
 
   const scopedMatch = currentPathname.match(/^\/c\/([^/?#]+)(?:\/|$)/);

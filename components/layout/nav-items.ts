@@ -2,6 +2,7 @@ import {
   Activity,
   ClipboardList,
   Database,
+  History,
   Home,
   Layers,
   Lightbulb,
@@ -155,6 +156,23 @@ export function getPlatformLayer2Items(
   const t = getTranslations(language).navigation;
   switch (platformId) {
     case "meta":
+      /**
+       * D3's six entries, in `lib/meta/surface-registry.ts`'s `railOrder`.
+       *
+       * The design file draws four — its `metaFam` is
+       * `['meta','creative','launchpad','automation']` — but the vendored
+       * behavioural package already carries `L-C-META-INTEL` and
+       * `L-C-META-HIST` as navigable Client leaves. The two authorities
+       * disagree, and D3 sides with the one that governs behaviour (ADR-005
+       * rule 2); D1 permits the added rail row either way. §18 fixes
+       * Intelligence immediately after Decisions and History last. Both use the
+       * same row shape, icon vocabulary and group as the four the design draws;
+       * no new hierarchy, no new styling.
+       *
+       * Both routes already existed and worked. What was missing was any way
+       * to reach them from the rail, plus — worse — a Decisions row that lit
+       * up while the operator was reading History.
+       */
       return [
         {
           id: "pulse",
@@ -162,7 +180,28 @@ export function getPlatformLayer2Items(
           href: "/platforms/meta",
           icon: Activity,
           exact: true,
-          activeHrefs: ["/platforms/meta/history"],
+          // `/platforms/meta/history` used to be listed here, so History lit
+          // up Decisions (master plan §5.1 finding 4). History owns its own
+          // row below; a row must not claim a surface it does not own.
+        },
+        {
+          /**
+           * Addressed by its `/app` spelling, not a `/platforms` one.
+           *
+           * Account Intelligence is new in v2 and has no pre-v2 route, so
+           * inventing `/platforms/meta/intelligence` would name a path that
+           * 404s — and it could not even be a compatibility shim, because
+           * `compatibilityTargetFor` only knows paths the vendored contract
+           * records as *changed*, which this never was.
+           * `dashboardHrefForRouteFamily` rewrites `/app/**` into whichever
+           * family the operator is already in, so a `/c/:id` visitor stays
+           * inside their explicit business scope rather than being handed to
+           * `session.activeBusinessId`.
+           */
+          id: "meta-intelligence",
+          label: t.accountIntelligence,
+          href: "/app/meta/intelligence",
+          icon: Lightbulb,
         },
         {
           id: "creative-studio",
@@ -174,6 +213,14 @@ export function getPlatformLayer2Items(
             "/platforms/meta/landing-pages",
             "/platforms/meta/creative-inbox",
             "/platforms/meta/audiences",
+            // Briefs and Shares have no rail row of their own (registry
+            // `role: "sub"`), so the hub stays lit while the operator is inside
+            // one. Without these, opening a brief silently dropped the whole
+            // Meta group's active state. Their `/app` spellings, because — like
+            // Intelligence — they have no legacy path and naming one would name
+            // a 404.
+            "/app/creative/briefs",
+            "/app/creative/shares",
           ],
         },
         {
@@ -187,6 +234,12 @@ export function getPlatformLayer2Items(
           label: t.automation,
           href: "/platforms/meta/automation",
           icon: ShieldCheck,
+        },
+        {
+          id: "meta-history",
+          label: t.history,
+          href: "/platforms/meta/history",
+          icon: History,
         },
       ];
     case "klaviyo":

@@ -21,6 +21,13 @@ import { DASHBOARD_REFERENCE_SCREENS } from "@/lib/dashboard-v2/screen-registry"
 const SCREEN_ROOT_FILES: Readonly<Record<string, string>> = {
   overview: "app/(dashboard)/overview/legacy-page.tsx",
   meta: "components/meta/decision-center/MetaDecisionCenterExact.tsx",
+  // The two rail rows D3 adds. Both bodies existed and both routes worked;
+  // neither carried the capture attribute, so the visual parity harness had no
+  // boundary to key on and a coverage sweep could not tell "renders its exact
+  // body" from "renders something" for either of them.
+  "meta-intelligence":
+    "components/zero-base/meta/intelligence/intelligence-view.tsx",
+  "meta-history": "components/zero-base/meta/history/history-view.tsx",
   creative: "components/creatives/CreativeStudioExact.tsx",
   launchpad: "app/(dashboard)/platforms/meta/launchpad/legacy-page.tsx",
   automation: "app/(dashboard)/platforms/meta/automation/automation-view.tsx",

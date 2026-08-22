@@ -140,7 +140,19 @@ export function isRailLinkActive(link: RailLink, pathname: string) {
 export function isPlatformFamilyActive(platform: RailPlatform, pathname: string) {
   const screen = dashboardScreenForPath(pathname)?.screen;
   if (platform.id === "meta" && screen) {
-    return ["meta", "creative", "launchpad", "automation"].includes(screen);
+    // The design's own `metaFam` is the first four; the vendored leaf ledger
+    // also carries L-C-META-INTEL and L-C-META-HIST, which is what D3 follows.
+    // Leaving them out here meant the whole Meta group collapsed to inactive
+    // the moment an operator opened either one — the rail claimed they had left
+    // Meta while they were reading a Meta surface.
+    return [
+      "meta",
+      "meta-intelligence",
+      "creative",
+      "launchpad",
+      "automation",
+      "meta-history",
+    ].includes(screen);
   }
   if (platform.id === "google" && screen) return screen.startsWith("google");
   if (platform.id === "klaviyo" && screen) return screen === "klaviyo";

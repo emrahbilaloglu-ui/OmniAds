@@ -95,7 +95,11 @@ export function HistoryView({
 
   if (unavailableReason) {
     return (
-      <div data-history-surface="" className={legacyStyles.workspace}>
+      <div
+        data-history-surface=""
+        data-screen-label="Meta · History"
+        className={legacyStyles.workspace}
+      >
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -109,6 +113,7 @@ export function HistoryView({
     <div
       data-history-surface=""
       data-history-layout=""
+      data-screen-label="Meta · History"
       className={legacyStyles.workspace}
       style={{ display: "grid", gridTemplateColumns: replayRow ? "minmax(0, 1fr) 360px" : "1fr", gap: 16, alignItems: "start" }}
     >

@@ -159,27 +159,37 @@ export async function fetchProviderAccountSnapshot(
   return requestPromise;
 }
 
+/**
+ * A refresh is a provider call and a snapshot write, so on BOTH providers it is
+ * a POST to the accounts endpoint. Never a GET with `refresh=1`.
+ *
+ * Google's route used to accept `refresh=1` on the GET and silently ignore it,
+ * handing back the cached list as if it were current. When that was corrected
+ * to a 405 pointing at POST, this client was not moved with it — so every
+ * Google "Refresh" press returned 405, the snapshot kept ageing past the
+ * 60-minute window that authorises a selection, and account assignment failed
+ * with "The account list is out of date" that no amount of refreshing could
+ * clear. Meta had already been on POST, which is why only Google broke.
+ *
+ * Both providers share one verb here so the pair cannot drift apart again.
+ */
 export async function warmProviderAccountSnapshot(
   provider: IntegrationProvider,
   businessId: string,
-) {
-  if (provider === "meta") {
-    const path = getProviderAccountsFetchPath(provider, businessId);
-    if (!path) return { accounts: [], assignedAccountIds: [], meta: null, notice: null };
+): Promise<ProviderAccountSnapshot> {
+  const path = getProviderAccountsFetchPath(provider, businessId);
+  if (!path) return { accounts: [], assignedAccountIds: [], meta: null, notice: null };
 
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
-    if (!response.ok) {
-      throw new Error(payload?.message ?? `Could not refresh ${provider} account assignments.`);
-    }
-    return normalizeProviderAccountSnapshot(payload);
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
+  if (!response.ok) {
+    throw new Error(payload?.message ?? `Could not refresh ${provider} account assignments.`);
   }
-
-  return fetchProviderAccountSnapshot(provider, businessId, { refresh: true });
+  return normalizeProviderAccountSnapshot(payload);
 }
 
 export function prewarmProviderAccountSnapshots(

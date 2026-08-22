@@ -1,5 +1,14 @@
 # Dashboard v2 Batch 1 — shell design/app inventory
 
+> **Superseded visual authority.** Every `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`
+> reference below is the digest of the reference HTML **as it existed when this
+> document was written**, and the findings are correct against those bytes. The
+> current visual source authority is
+> `2af6cbaf5f366a7dee8fc0ae96fdf713eff777c62f16e2d57638368d1678637a`
+> (see `docs/meta-market-ready/WP0_BASELINE.md` §3). Read this file as a dated
+> record, never as a statement of present authority; the live pin lives in
+> `scripts/dashboard-v2/reference-contract.ts`.
+
 Canonical artifact: `/Users/harmelek/Downloads/Dashboard tasarımı yenileme/Adsecute Dashboard v2.dc.html`
 
 SHA-256: `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`

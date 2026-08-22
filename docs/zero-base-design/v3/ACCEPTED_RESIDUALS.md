@@ -32,3 +32,20 @@ blocks application implementation.
 Re-vendor after the design owner ships an export regenerated at a single
 fingerprint with `23/23` mutations detected, at which point REQ-27, REQ-28 and
 REQ-41 should all report PASS and this file can record zero residuals.
+
+## Design-decision divergences accepted at application level (2026-08-22)
+
+These are **not** package defects and they do not change the audit verdict. They
+are places where a later product decision diverges from a dated fact inside the
+vendored package. They are recorded here rather than fixed by editing the
+package, per rule 2 above and the master plan's §17.1.
+
+| Package fact | Later decision | Authority | Resolution |
+|---|---|---|---|
+| `generated-contracts.ts:716` maps `/platforms/meta/audiences` with `mode: "merged"` onto `L-C-META-INTEL` | Dashboard v2 restores Audiences as the fifth Creative Studio tab, so the legacy path resolves to `/c/[businessId]/creative/audiences` | `docs/adr-004-meta-audiences-destination.md` (Accepted) | Overridden in `lib/zero-base/compatibility.ts` only. The package keeps its record. Closes at the next re-vendor. |
+| `disabled:LAUNCH-06 launch` / `disabled:LAUNCH-07 add` describe execution as closed | Execution is **gated**, not permanently closed: `META_LAUNCHPAD_EXECUTION` defaults off, and the shipped state is `disabled-with-reason` | `docs/adr-003-launchpad-execution-posture.md` (Accepted) | The package's disabled semantics are honoured as the shipped default. The production body is closed to match the package, not the reverse. |
+
+Precedence between the visual source file and this package is decided by
+`docs/adr-005-visual-vs-vendored-authority.md`: the visual file governs
+appearance, this package governs behaviour, and a control that is drawn but not
+permitted resolves to `disabled-with-reason`.

@@ -1,5 +1,14 @@
 # Dashboard v2 — design parity defect inventory
 
+> **Superseded visual authority.** Every `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193`
+> reference below is the digest of the reference HTML **as it existed when this
+> document was written**, and the findings are correct against those bytes. The
+> current visual source authority is
+> `2af6cbaf5f366a7dee8fc0ae96fdf713eff777c62f16e2d57638368d1678637a`
+> (see `docs/meta-market-ready/WP0_BASELINE.md` §3). Read this file as a dated
+> record, never as a statement of present authority; the live pin lives in
+> `scripts/dashboard-v2/reference-contract.ts`.
+
 Generated 2026-08-17 by a 28-agent audit: every `data-screen-label` section of
 `Adsecute Dashboard v2.dc.html` was inventoried in full and diffed against the
 code that renders it, then every claim was re-checked by an independent

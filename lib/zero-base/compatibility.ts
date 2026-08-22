@@ -85,6 +85,15 @@ export const COMPATIBILITY_TABLE: readonly CompatibilityTarget[] = UNIQUE_CHANGE
     // legacy URL as merged into Meta Intelligence. Keep the generated package
     // immutable, but route this one compatibility spelling to the live screen
     // registry contract used by every other Creative Studio tab.
+    //
+    // Ratified as `docs/adr-004-meta-audiences-destination.md` (Accepted
+    // 2026-08-22). The generated `mode: "merged"` record is a dated screen
+    // inventory, not an instruction, and it loses to the visual authority on
+    // the question of which screens exist — see
+    // `docs/adr-005-visual-vs-vendored-authority.md` rule 4. Do NOT resolve the
+    // divergence by editing `generated-contracts.ts`; it is vendored, and the
+    // master plan's §17.1 forbids hand-editing it. Removing this override is
+    // the documented rollback for ADR-004.
     const canonicalUrls =
       route === "/platforms/meta/audiences"
         ? ["/c/[businessId]/creative/audiences"]

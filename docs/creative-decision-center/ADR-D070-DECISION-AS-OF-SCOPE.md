@@ -1,14 +1,14 @@
 # ADR D070 — The decision as-of date must be scoped by creative account keys, not by a column that does not exist
 
-**Status:** Proposed — requires owner ratification and a `DECISION_LOG.md` entry before it is authority.
-**Date:** 2026-08-08
+**Status:** **Accepted** — ratified into `DECISION_LOG.md` as **D070** on 2026-08-22.
+**Date:** 2026-08-08 (drafted) · 2026-08-22 (ratified)
 **Supersedes:** nothing. **Relates to:** D013 (date-range replay), findings G0-F2 and G0-F3.
 
-> This file is an ADR *draft*. It is deliberately not written into
-> `docs/creative-decision-center/DECISION_LOG.md`, because that file is the authority record
-> and its numbering is owned by the decision owner. The branch's log ends at D060 while the
-> owner's working tree carries D061–D069, so the next free number there is D070. Ratify by
-> copying this into the log under the correct number.
+> **Ratified.** This file is no longer a draft. `DECISION_LOG.md` ended at **D069**, so
+> **D070** was the next free number exactly as predicted, and the decision is now recorded
+> there under that number. The log entry is the authority; this file remains the long-form
+> rationale behind it. Do not renumber, and do not treat a future edit to this file as
+> changing the ratified decision — that requires a new log entry.
 
 ## Context
 
@@ -92,3 +92,22 @@ state changes.
 5. Owner ratification into `DECISION_LOG.md` under the next free number.
 
 Items 1–4 are producible locally and are attached to this branch. Item 5 is the owner's.
+
+## Ratification record (2026-08-22)
+
+Item 5 is closed: the decision is recorded in `DECISION_LOG.md` as **D070**.
+
+The predicate this ADR asks for was **already implemented** in the tree at HEAD
+`843b6e9c8` before ratification — `resolveWorkspaceEndDate` in
+`app/api/meta/decisions-workspace/route.ts` builds the `creative_account_keys` →
+`creative_account_scope` CTE from `meta_creative_dimensions` ∪ `meta_creative_daily`,
+carries the `HAVING COUNT(DISTINCT provider_account_id) = 1` exclusion guard, leaves the
+`engine_v3_ad_decision_snapshots_daily` and `engine_v3_job_runs` branches filtering on
+their own real columns, and keeps the `previousUtcDate()` fallback with C3's cause
+classification. It cites this ADR by number in the query comment.
+
+So ratification changes no code. What it changes is standing: before 2026-08-22 a
+`Proposed` ADR was being cited by the UX remediation ledger as settled authority, which is
+the master plan's §5.1 finding 8 and its §17 prohibition 20 ("treating an unratified ADR as
+resolved"). That gap is now closed in the correct direction — by ratifying the decision the
+code already implements, not by loosening the rule.

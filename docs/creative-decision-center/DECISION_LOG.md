@@ -3015,3 +3015,45 @@ durable claim, exact HTTP classification, and bounded GET-only recovery close
 that gap generically without claiming provider success, auto-retrying the
 provider, changing native decision math, or adding a business-specific
 exception.
+
+## D070 - The Decision As-Of Date Is Scoped By Creative Account Keys
+
+Decision: `resolveWorkspaceEndDate` in `app/api/meta/decisions-workspace/route.ts`
+scopes its `engine_v3_decision_snapshots_daily` lookup by the
+`creative_account_keys` → `creative_account_scope` join that
+`lib/meta/history-read-model.ts` already treats as canonical, instead of by a
+`provider_account_id` column that table does not declare. A creative observed
+under more than one provider account is excluded by
+`HAVING COUNT(DISTINCT provider_account_id) = 1` rather than attributed to one
+of them arbitrarily. The `engine_v3_ad_decision_snapshots_daily` and
+`engine_v3_job_runs` branches are unchanged; they already filter on columns
+their tables have. The `previousUtcDate()` fallback stays for the
+genuinely-absent-data case, together with the cause classification that makes a
+fallback visible instead of silent.
+
+Reason: the previous predicate raised `42703 undefined_column` on every call.
+Because the broken branch sat in a `UNION ALL` with two branches that would have
+worked, the error took those down with it, and a bare `catch {}` reported the
+failure as a schema/capability gate. The resolver therefore always fell through
+to yesterday, so whenever the newest snapshot was not exactly yesterday the
+workspace asked for a day with no rows and the operator saw empty lanes with no
+error — a failed read collapsing into "no data", which INVARIANTS forbids. It is
+also the direct cause of the full-UI visual gate failing at baseline (G0-F2).
+
+Scope limit: this is a date lookup, not decision content. D013 date-range replay
+semantics are unchanged and `metricsRangeAffectsDecisionSnapshot` stays `false`.
+No decision label, authority, risk tier or provider eligibility is affected, and
+no new decision core is introduced. Where the newest snapshot already is
+yesterday — the healthy case — nothing changes; elsewhere, lanes that were
+silently empty populate.
+
+Rollback: a one-line revert of the predicate. No migration, and no persisted
+state changes.
+
+Provenance: drafted 2026-08-08 as
+`docs/creative-decision-center/ADR-D070-DECISION-AS-OF-SCOPE.md` (long-form
+rationale, relates to D013 and findings G0-F2/G0-F3); ratified into this log
+2026-08-22 under WP0 of `docs/meta-market-ready-master-plan-2026-08-22.md`. The
+predicate was already implemented in the tree at HEAD `843b6e9c8`, so
+ratification changes standing, not behaviour: it stops an ADR marked `Proposed`
+from being cited as settled authority.

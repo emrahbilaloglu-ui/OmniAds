@@ -109,13 +109,31 @@ describe("D070 scope: what this decision does not touch", () => {
     expect(contract).toContain("metricsRangeAffectsDecisionSnapshot: false");
   });
 
-  it("has an ADR draft on disk stating the change and its rollback", () => {
+  it("has a ratified ADR on disk stating the change and its rollback", () => {
     const adr = readFileSync(
       "docs/creative-decision-center/ADR-D070-DECISION-AS-OF-SCOPE.md",
       "utf8",
     );
-    expect(adr).toContain("Status:** Proposed");
+    // Was `Status:** Proposed` while ratification was outstanding. WP0 of the
+    // Meta market-ready plan closed the ADR's own "Required evidence" item 5 by
+    // writing the decision into the authority record, so the assertion now
+    // pins the ratified state — flipping this file back to Proposed while the
+    // log still carries D070 would leave the two disagreeing again.
+    expect(adr).toContain("Status:** **Accepted**");
     expect(adr).toContain("Rollback");
     expect(adr).toContain("creative_account_scope");
+  });
+
+  it("is ratified in the authority record, not only in the ADR file", () => {
+    // The ADR file is the rationale; `DECISION_LOG.md` is the authority. An ADR
+    // that calls itself Accepted with no log entry is the exact failure this
+    // pair of assertions exists to catch — the master plan's §17 prohibition on
+    // treating an unratified decision as resolved.
+    const log = readFileSync(
+      "docs/creative-decision-center/DECISION_LOG.md",
+      "utf8",
+    );
+    expect(log).toContain("## D070 -");
+    expect(log).toContain("creative_account_scope");
   });
 });

@@ -3,8 +3,22 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export const DASHBOARD_V2_REFERENCE_FILE = "Adsecute Dashboard v2.dc.html";
+/**
+ * The current visual source authority.
+ *
+ * Ratified in `docs/meta-market-ready/WP0_BASELINE.md` §3 against the plan at
+ * `docs/meta-market-ready-master-plan-2026-08-22.md` §3. The previous digest
+ * `d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193` is
+ * superseded: it remains correct inside dated findings such as
+ * `docs/dashboard-v2-parity-defects.md`, which measured the bytes of that
+ * revision, but it is no longer authority and must not be restored here.
+ *
+ * Only this digest moved. Re-hashing the whole pinned set below at ratification
+ * time showed `support.js`, the mark and all nine platform logos unchanged, so
+ * this is the complete correction rather than the first of several.
+ */
 export const DASHBOARD_V2_REFERENCE_SHA256 =
-  "d65c0117871aa392fb2f93e79d02540f6538be6a00b1d2ecea03bdd9f8432193";
+  "2af6cbaf5f366a7dee8fc0ae96fdf713eff777c62f16e2d57638368d1678637a";
 
 export const DASHBOARD_V2_REFERENCE_DIR =
   process.env.DASHBOARD_V2_REFERENCE_DIR ??

@@ -101,6 +101,18 @@ export const PRODUCT_INSTRUMENTATION_EVENT_NAMES = [
   "mobile_tier0_completed",
   // Freshness disclosure
   "freshness_stale_disclosed",
+  /**
+   * A mounted surface was rendered for an operator.
+   *
+   * The vendored leaf ledger declares `event: "screen_view"` for every leaf,
+   * and this vocabulary had no such name — so the one event every screen owes
+   * could not be emitted at all, and WP17's "her mounted Meta yüzeyi
+   * screen_view" was unmeetable rather than unmet.
+   *
+   * Deliberately carries no identifier beyond the closed `surface` allowlist
+   * and the business scope every other event already carries.
+   */
+  "screen_view",
 ] as const;
 
 export type ProductInstrumentationEventName =
@@ -119,6 +131,11 @@ export const PRODUCT_INSTRUMENTATION_SURFACES = [
   "settings",
   "launchpad",
   "automation",
+  // The two rail rows D3 adds. Both routes have existed and worked all along;
+  // neither had a surface name here, so nothing they emitted could be attributed
+  // to them.
+  "meta_intelligence",
+  "meta_history",
   "mobile",
   "system",
 ] as const;

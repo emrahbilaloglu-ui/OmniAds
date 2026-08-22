@@ -10,6 +10,7 @@ import {
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
+import { MetaScreenView } from "@/components/layout/v2/meta-screen-view";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
   AppTopbar,
@@ -263,6 +264,10 @@ export function DashboardFrame({
 
   return (
     <div className="ad-console-shell adv-shell">
+      {/* WP17: one screen_view per mounted Meta surface, resolved from the WP2
+          registry so it cannot drift from the surfaces that exist. Renders
+          nothing. */}
+      <MetaScreenView />
       {navOpen ? (
         <div
           className="fixed inset-0 z-50 bg-[rgba(11,16,32,0.45)] lg:hidden"

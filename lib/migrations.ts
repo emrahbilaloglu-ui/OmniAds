@@ -14391,13 +14391,15 @@ export async function runMigrations(options?: {
                               'notification_acknowledged', 'guarded_action_preflight', 'guarded_action_dry_run',
                               'guarded_action_confirmed', 'guarded_action_provider_attempted', 'guarded_action_verified',
                               'guarded_action_failed', 'guarded_action_ambiguous', 'guarded_action_reconciled',
-                              'mobile_tier0_started', 'mobile_tier0_completed', 'freshness_stale_disclosed'
+                              'mobile_tier0_started', 'mobile_tier0_completed', 'freshness_stale_disclosed',
+                              'screen_view'
                             )),
           surface           TEXT NOT NULL CHECK (surface IN (
                               'overview', 'global_search', 'meta_decisions',
                               'meta_decision_inspector', 'creative_studio', 'reports',
                               'google_ads', 'integrations', 'settings', 'launchpad',
-                              'automation', 'mobile', 'system'
+                              'automation', 'meta_intelligence', 'meta_history',
+                              'mobile', 'system'
                             )),
           outcome           TEXT NOT NULL CHECK (outcome IN ('ok', 'failed', 'withheld')),
           provider          TEXT CHECK (provider IS NULL OR provider IN ('meta', 'google')),

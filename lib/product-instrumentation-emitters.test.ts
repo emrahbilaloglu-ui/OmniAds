@@ -15,6 +15,20 @@ import {
  * measuring nothing. This test is what stops that.
  */
 const EMITTERS: Partial<Record<ProductInstrumentationEventName, string>> = {
+  /**
+   * One shared hook rather than a call site per surface.
+   *
+   * Every mounted Meta surface owes a `screen_view` (WP17), and the rule that
+   * makes the number mean anything — once per surface-and-business, not once
+   * per render — has to live in one place. A per-surface
+   * `emitProductInstrumentation` call would put that rule in each of them, and
+   * the first one to get it wrong would inflate its own count with its own
+   * loading states.
+   *
+   * The hook is where the call is; `components/layout/v2/meta-screen-view.tsx`
+   * is where it is mounted, once, by the shell.
+   */
+  screen_view: "components/meta/use-screen-view.ts",
   // Agency Today
   agency_today_viewed: "app/api/agency-today/route.ts",
   agency_today_client_opened: "components/overview/AgencyToday.tsx",

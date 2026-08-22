@@ -100,8 +100,33 @@ describe("CreativeBriefsClient", () => {
 });
 
 describe("CreativeSharesClient", () => {
-  it("offers a way out of the create dialog it opens with", async () => {
-    serve({ "/api/creatives/share": { shares: [] } });
+  it("lists the grants the endpoint actually sends", async () => {
+    /**
+     * The ledger read `data.shares`, a key `/api/creatives/share` has never
+     * sent — it answers `{ grants, capability }`. So the list rendered empty on
+     * every account: a proven-empty claim over a payload that had the rows in
+     * it all along. Plan §5.1 finding 15.
+     */
+    serve({
+      "/api/creatives/share": {
+        grants: [
+          {
+            token: "tok_live",
+            title: "August cutdowns",
+            audience: "creator",
+            status: "active",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            revokedAt: null,
+            openCount: 3,
+            creativeCount: 2,
+            firstCreativeName: "Hook A",
+            providerAccountId: "act_1",
+          },
+        ],
+        capability: { status: "ready", canReadLedger: true, canWrite: true, missingColumns: [] },
+      },
+    });
 
     render(
       <ZeroBasePortalHost>
@@ -109,13 +134,74 @@ describe("CreativeSharesClient", () => {
       </ZeroBasePortalHost>,
     );
 
-    await waitFor(() =>
-      expect(document.querySelector("[data-share-dialog-backdrop]")).not.toBeNull(),
-    );
-    const cancel = document.querySelector("[data-share-cancel]") as HTMLElement;
-    expect(cancel, "the create dialog has a dismiss control").not.toBeNull();
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("August cutdowns");
+    });
+  });
 
-    await userEvent.setup().click(cancel);
+  it("does not offer a create it cannot complete", async () => {
+    /**
+     * The mint form here carries a title, an audience and an expiry, and no
+     * creative selection — while the server requires `creatives.length > 0`. A
+     * create issued from this screen was a guaranteed 400 after the operator
+     * had filled the whole form in (§5.1 finding 16). It now refuses up front
+     * and says where selection happens.
+     */
+    serve({
+      "/api/creatives/share": {
+        grants: [],
+        capability: { status: "ready", canReadLedger: true, canWrite: true, missingColumns: [] },
+      },
+    });
+
+    render(
+      <ZeroBasePortalHost>
+        <CreativeSharesClient {...SCOPE} />
+      </ZeroBasePortalHost>,
+    );
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]'),
+      ).not.toBeNull();
+    });
+    // Closed by default, and it stays closed: the control is refused.
     expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+    const create = document.querySelector(
+      '[data-ctl="live:CREATIVE-10 open-create"]',
+    ) as HTMLElement;
+    await userEvent.setup().click(create);
+    expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+  });
+
+  it("shows an unreadable ledger as unavailable, not as no shares", async () => {
+    /**
+     * The endpoint answers 200 with `grants: []` and `canReadLedger: false`
+     * while the share table's migration is pending. Rendering that as an empty
+     * ledger tells the operator they have never shared anything — a claim about
+     * their own history, made from a failed read. D8.
+     */
+    serve({
+      "/api/creatives/share": {
+        grants: [],
+        capability: {
+          status: "migration_required",
+          canReadLedger: false,
+          canWrite: false,
+          missingColumns: ["token"],
+        },
+        message: "Creator share ledger requires the pending database migration.",
+      },
+    });
+
+    render(
+      <ZeroBasePortalHost>
+        <CreativeSharesClient {...SCOPE} />
+      </ZeroBasePortalHost>,
+    );
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("pending database migration");
+    });
   });
 });

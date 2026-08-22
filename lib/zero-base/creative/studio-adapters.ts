@@ -56,14 +56,42 @@ export function landingPageCap(served: {
 
 /* ---------------------------------------------------------------- briefs */
 
+/**
+ * A brief as `/api/meta/creative-briefs` actually serves it.
+ *
+ * This used to declare `title`, `sourceCreativeId` and `sourceAccountId` —
+ * **none of which the endpoint sends.** `MetaCreativeBrief` carries
+ * `providerAccountId`, a `sourceDecision` object holding `creativeId`, and a
+ * `content` object holding keep/change/next. So every row rendered an undefined
+ * title, and the lineage check compared two fields that are never present,
+ * which made *every* brief report "this brief does not record the creative it
+ * was derived from" — about briefs whose creative id was sitting in
+ * `sourceDecision`. Plan §5.1 finding 17.
+ *
+ * Declared to match the served contract, with the legacy flat spellings kept as
+ * optional so an older payload still parses rather than throwing.
+ */
 export interface ServedBrief {
   id: string;
-  title: string;
   createdAt: string;
-  /** What this brief was derived from. Missing lineage is disclosed, not hidden. */
+  status?: string | null;
+  providerAccountId?: string | null;
+  sourceDecision?: {
+    creativeId?: string | null;
+    snapshotId?: string | null;
+    publishedLabel?: string | null;
+    rawLabel?: string | null;
+    snapshotAsOf?: string | null;
+  } | null;
+  content?: {
+    keep?: string | null;
+    change?: string | null;
+    next?: string | null;
+  } | null;
+  /** Legacy flat spellings. Read if present; never required. */
+  title?: string | null;
   sourceCreativeId?: string | null;
   sourceAccountId?: string | null;
-  status?: string | null;
 }
 
 export interface BriefRow {
@@ -74,12 +102,35 @@ export interface BriefRow {
   lineage: { known: true; creativeId: string; accountId: string } | { known: false; reason: string };
 }
 
+/**
+ * A title from a field the server actually sends.
+ *
+ * `MetaCreativeBrief` has no title. The decision's own published label is what
+ * names this brief to an operator — it is the verdict the brief was written
+ * about — and the raw label is the fallback. When neither is served the id is
+ * NOT used as a name: an id is an identifier, and printing one where a name
+ * goes is how a UUID ends up looking like a title. WP11 Briefs item 3.
+ */
+function briefTitle(brief: ServedBrief): string {
+  return (
+    brief.title?.trim() ||
+    brief.sourceDecision?.publishedLabel?.trim() ||
+    brief.sourceDecision?.rawLabel?.trim() ||
+    "Untitled brief"
+  );
+}
+
 export function toBriefRow(brief: ServedBrief): BriefRow {
-  const creativeId = brief.sourceCreativeId?.trim();
-  const accountId = brief.sourceAccountId?.trim();
+  // `sourceDecision.creativeId` is where the served contract keeps it; the flat
+  // spelling is read only for an older payload. Preferring the nested one is
+  // what turns "lineage unknown" back into the lineage the server sent.
+  const creativeId =
+    brief.sourceDecision?.creativeId?.trim() || brief.sourceCreativeId?.trim();
+  const accountId =
+    brief.providerAccountId?.trim() || brief.sourceAccountId?.trim();
   return {
     id: brief.id,
-    title: brief.title,
+    title: briefTitle(brief),
     createdAt: brief.createdAt,
     status: brief.status?.trim() || "Not reported",
     lineage:

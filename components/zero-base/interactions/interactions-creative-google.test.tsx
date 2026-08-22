@@ -235,6 +235,12 @@ describe("G7 — share ledger", () => {
           onRevoke={vi.fn()}
           onRotate={vi.fn()}
           onCreate={vi.fn()}
+          // The create dialog now defaults CLOSED (WP11 item 5): arriving at
+          // the ledger no longer puts a half-filled mint form in front of an
+          // operator whose reason for opening the screen is usually to check,
+          // rotate or revoke a link that already exists. These cases are about
+          // the form's own controls, so they open it.
+          initialOpen
           {...props}
         />
       </Host>,

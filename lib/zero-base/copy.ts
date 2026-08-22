@@ -260,6 +260,16 @@ export const ZERO_BASE_COPY = {
     /* ------------------------------------------- creative, meta, ops */
     createBriefFromCreative: "Create brief from this creative",
     createAShare: "Create a share",
+    /**
+     * Minting needs a creative selection, and this screen has none.
+     *
+     * The server requires `creatives.length > 0`, so a share created from the
+     * ledger's own form was always a 400. Selection happens in the Creative
+     * Studio share flow, and the operator is told where rather than left to
+     * discover it.
+     */
+    shareCreateElsewhere:
+      "Choose the creatives first: open a creative in Creative Studio and share from there. This screen manages links that already exist.",
     audience: "Audience",
     createShare: "Create share",
     rotateLink: "Rotate link",
@@ -694,6 +704,8 @@ export const ZERO_BASE_COPY = {
 
     createBriefFromCreative: "Bu kreatiften brief oluştur",
     createAShare: "Paylaşım oluştur",
+    shareCreateElsewhere:
+      "Önce kreatifleri seçin: Creative Studio'da bir kreatif açıp oradan paylaşın. Bu ekran hâlihazırda var olan bağlantıları yönetir.",
     audience: "Kitle",
     createShare: "Paylaşımı oluştur",
     rotateLink: "Bağlantıyı yenile",

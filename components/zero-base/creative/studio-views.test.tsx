@@ -111,10 +111,23 @@ describe("share ledger", () => {
     expiresAt: "2026-08-20",
   };
 
+  /**
+   * `initialOpen` is now false by default (WP11 item 5): arriving at the ledger
+   * put a half-filled mint form in front of an operator whose reason for
+   * opening the screen is usually to check, rotate or revoke an existing link.
+   * Tests that are ABOUT the dialog open it explicitly.
+   */
   function shares(rows = [base], handlers: Partial<React.ComponentProps<typeof SharesView>> = {}) {
     render(
       <ZeroBasePortalHost>
-        <SharesView rows={rows.map((share) => toShareRow(share, NOW))} {...handlers} />
+        <SharesView
+          rows={rows.map((share) => toShareRow(share, NOW))}
+          initialOpen
+          // The open-create control is refused when no `onCreate` is supplied,
+          // so a test about the dialog has to supply one.
+          onCreate={() => undefined}
+          {...handlers}
+        />
       </ZeroBasePortalHost>,
     );
   }
@@ -229,7 +242,7 @@ describe("share creation carries the acknowledgement the server requires", () =>
   function shareForm(onCreate = vi.fn()) {
     render(
       <ZeroBasePortalHost>
-        <SharesView rows={[]} onCreate={onCreate} />
+        <SharesView rows={[]} onCreate={onCreate} initialOpen />
       </ZeroBasePortalHost>,
     );
     return onCreate;

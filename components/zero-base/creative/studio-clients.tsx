@@ -306,10 +306,24 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
 /* --------------------------------------------------------------- shares */
 
 export function CreativeSharesClient(props: ScopeProps) {
-  const { data, surface, refresh } = useJson<{ shares?: ServedShare[] }>(
-    scoped("/api/creatives/share", props, {}, false),
-    "Shares",
-  );
+  /**
+   * `grants`, not `shares`.
+   *
+   * `/api/creatives/share` has always answered `{ grants, capability }`. This
+   * read `data?.shares`, a key the endpoint never sends, so the ledger rendered
+   * as an empty list **on every account** — a proven-empty claim over a payload
+   * that had the rows in it all along. Plan §5.1 finding 15.
+   *
+   * `capability` is read for the same reason: `canReadLedger: false` means the
+   * ledger could not be read, and rendering that as "no shares" is D8's
+   * degraded-as-empty defect. It now produces a degraded state with the
+   * server's own message.
+   */
+  const { data, surface, refresh } = useJson<{
+    grants?: ServedShare[];
+    capability?: { canReadLedger?: boolean; canWrite?: boolean; status?: string };
+    message?: string;
+  }>(scoped("/api/creatives/share", props, {}, false), "Shares");
   const [busyToken, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -387,13 +401,43 @@ export function CreativeSharesClient(props: ScopeProps) {
   );
 
   const now = new Date();
+  /**
+   * A ledger that could not be read is degraded, not empty.
+   *
+   * The endpoint answers 200 with `grants: []` and `canReadLedger: false` when
+   * the share table's migration is pending. Rendering that as an empty ledger
+   * tells the operator they have never shared anything, which is a claim about
+   * their own history made from a failed read.
+   */
+  const ledgerUnreadable =
+    surface.kind === "ready" && data?.capability?.canReadLedger === false;
+  const effectiveSurface: SurfaceState = ledgerUnreadable
+    ? {
+        kind: "unavailable",
+        reason:
+          data?.message ??
+          "The share ledger could not be read, so existing shares are not listed. This is not an empty ledger.",
+        code: "schema_not_ready",
+      }
+    : surface;
+
   return (
-    <SurfaceStateBoundary state={surface}>
+    <SurfaceStateBoundary state={effectiveSurface}>
       <SharesView
-        rows={(data?.shares ?? []).map((share) => toShareRow(share, now))}
+        rows={(data?.grants ?? []).map((share) => toShareRow(share, now))}
         busyToken={busyToken}
         error={error}
-        onCreate={create}
+        /*
+         * Minting is refused here, not offered and then rejected.
+         *
+         * `create` below builds a payload with `creatives: []`, and the server
+         * requires at least one — so every create issued from this ledger was a
+         * guaranteed 400 after the operator filled in a title, an audience and
+         * an expiry. Selection happens in the Creative Studio share flow. The
+         * function is kept so the path is one prop away once this screen has a
+         * selection to send.
+         */
+        onCreate={undefined}
         onRevoke={(token) => void mutate(token, "revoke")}
         onRotate={(token) => void mutate(token, "rotate")}
       />

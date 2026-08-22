@@ -305,8 +305,9 @@ export function SharesView({
   initialAudience = "creator",
   initialExpiresAt = "",
   initialAcknowledged = false,
-  initialOpen = true,
+  initialOpen = false,
   showAlternateGateProof = false,
+  createRefusalReason = null,
   onCancel,
 }: {
   rows: readonly ShareRow[];
@@ -321,9 +322,23 @@ export function SharesView({
   initialAudience?: "buyer" | "creator";
   initialExpiresAt?: string;
   initialAcknowledged?: boolean;
+  /**
+   * Defaults CLOSED.
+   *
+   * It defaulted open, so arriving at the Shares ledger put a half-filled
+   * mint form in front of the operator before they had read what already
+   * exists — and the primary reason to open this screen is to check, rotate or
+   * revoke an existing link. A caller that wants the form open (a reference
+   * artboard, a resumed draft) says so explicitly. WP11 item 5.
+   */
   initialOpen?: boolean;
   /** Reference artboard only: shows the alternate unacknowledged gate beside the live state. */
   showAlternateGateProof?: boolean;
+  /**
+   * Why minting is refused here, when it is. Shown on the control rather than
+   * discovered as a 400 after the form is filled in.
+   */
+  createRefusalReason?: string | null;
   /**
    * Optional notification that the draft was discarded. The Cancel control
    * itself is always rendered — a form with no way out is a trap, and that is
@@ -403,7 +418,31 @@ export function SharesView({
       />
 
       <div style={{ marginTop: 12 }}>
-        <Button variant="secondary" data-ctl="live:CREATIVE-10 open-create" onClick={() => setCreateOpen(true)}>{copy.createAShare}</Button>
+        {/*
+          Refused rather than removed when the caller supplies no `onCreate`.
+
+          The mint form on this screen carries a title, an audience and an
+          expiry, and no creative selection — while the server requires
+          `creatives.length > 0`. So a create issued from here was a guaranteed
+          400 (plan §5.1 finding 16): a control that looked live and could never
+          succeed. Selection happens in the Creative Studio share flow, and this
+          says so instead of silently failing or vanishing.
+        */}
+        <Button
+          variant="secondary"
+          data-ctl="live:CREATIVE-10 open-create"
+          state={
+            onCreate
+              ? { kind: "enabled" }
+              : {
+                  kind: "disabled",
+                  reason: createRefusalReason ?? copy.shareCreateElsewhere,
+                }
+          }
+          onClick={onCreate ? () => setCreateOpen(true) : undefined}
+        >
+          {copy.createAShare}
+        </Button>
       </div>
       {createOpen ? (
       <div data-share-dialog-backdrop="" style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--ledger-scrim)" }}>

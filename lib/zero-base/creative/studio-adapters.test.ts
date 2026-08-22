@@ -89,8 +89,58 @@ describe("briefs are lineage-safe and undeletable", () => {
     expect(body.content.keep).toBe("k");
   });
 
+  it("reads lineage from the served sourceDecision, not from fields nobody sends", () => {
+    /**
+     * `MetaCreativeBrief` carries `providerAccountId` and a `sourceDecision`
+     * holding `creativeId`. The adapter used to look for flat
+     * `sourceCreativeId` / `sourceAccountId` fields the endpoint has never
+     * sent, so EVERY brief reported "does not record the creative it was
+     * derived from" — about briefs whose creative id was in the payload. Plan
+     * §5.1 finding 17.
+     */
+    const row = toBriefRow({
+      id: "b1",
+      createdAt: "t",
+      providerAccountId: "act_1",
+      sourceDecision: {
+        creativeId: "cr_9",
+        snapshotId: "snap_1",
+        publishedLabel: "Cut — below break-even",
+      },
+      content: { keep: "k", change: "c", next: "n" },
+      status: "draft",
+    });
+    expect(row.lineage.known).toBe(true);
+    expect(row.lineage.known && row.lineage.creativeId).toBe("cr_9");
+    expect(row.lineage.known && row.lineage.accountId).toBe("act_1");
+    // The title comes from the decision's own published label — the verdict the
+    // brief was written about — because the served contract has no title field.
+    expect(row.title).toBe("Cut — below break-even");
+    expect(row.status).toBe("draft");
+  });
+
+  it("does not use the id as a name when no label was served", () => {
+    // An id is an identifier. Printing one where a name goes is how a UUID ends
+    // up looking like a title.
+    const row = toBriefRow({ id: "b1", createdAt: "t" });
+    expect(row.title).toBe("Untitled brief");
+    expect(row.title).not.toContain("b1");
+  });
+
+  it("still reads an older flat payload rather than throwing", () => {
+    const row = toBriefRow({
+      id: "b1",
+      title: "Legacy brief",
+      createdAt: "t",
+      sourceCreativeId: "cr_legacy",
+      sourceAccountId: "act_legacy",
+    });
+    expect(row.title).toBe("Legacy brief");
+    expect(row.lineage.known).toBe(true);
+  });
+
   it("discloses a brief whose origin was never recorded", () => {
-    const row = toBriefRow({ id: "b1", title: "Brief", createdAt: "t" });
+    const row = toBriefRow({ id: "b1", createdAt: "t" });
     expect(row.lineage.known).toBe(false);
     expect(!row.lineage.known && row.lineage.reason).toMatch(/does not record the creative/);
   });

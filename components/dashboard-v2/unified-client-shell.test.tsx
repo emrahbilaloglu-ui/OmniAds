@@ -130,6 +130,7 @@ describe("Dashboard v2 unified client shell scope", () => {
     expect(effective.provider).toEqual({
       id: "meta",
       selectedAccountIds: ["act_2"],
+      assignedAccountIds: ["act_1", "act_2"],
       selectedAccountLabel: "Meta Two",
       mode: "single",
     });
@@ -153,15 +154,29 @@ describe("Dashboard v2 unified client shell scope", () => {
       providerCatalogs: catalogs,
     });
 
+    /**
+     * Nothing is selected, and that is now said rather than approximated.
+     *
+     * `selectedAccountIds` used to be filled with every assigned account
+     * whenever no single one resolved, so "the operator has not chosen" and
+     * "the operator chose all of these" were the same value — D6, and the
+     * plan's §17 prohibition 11. The option list moved to
+     * `assignedAccountIds`, where it describes what MAY be chosen instead of
+     * what was.
+     */
     expect(effective.provider).toEqual({
       id: "meta",
-      selectedAccountIds: ["act_1", "act_2"],
+      selectedAccountIds: [],
+      assignedAccountIds: ["act_1", "act_2"],
       selectedAccountLabel: null,
       mode: "portfolio",
     });
     expect(effective.provider?.selectedAccountIds).not.toContain(
       "foreign_account",
     );
+    // An unknown id does not select, and does not silently fall back to the
+    // first assigned account either.
+    expect(effective.provider?.selectedAccountIds).toEqual([]);
   });
 
   it("preserves the single-account default and non-creative evidence semantics", () => {
@@ -175,6 +190,7 @@ describe("Dashboard v2 unified client shell scope", () => {
     expect(effective.provider).toEqual({
       id: "google",
       selectedAccountIds: ["gads_1"],
+      assignedAccountIds: ["gads_1"],
       selectedAccountLabel: "Google One",
       mode: "single",
     });

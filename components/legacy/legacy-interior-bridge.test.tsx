@@ -61,7 +61,11 @@ describe("LegacyInteriorBridge", () => {
         selectedBusinessId: "business_1",
         hasHydrated: true,
         authBootstrapStatus: "ready",
-        workspaceResolved: true,
+        // Deliberately NOT `workspaceResolved: true`. This bridge knows about
+        // exactly one business; one membership is not proof that the list has
+        // been read, and claiming it would suppress the bootstrap that would
+        // actually read it.
+        workspaceResolved: false,
         businesses: [
           {
             id: "business_1",
@@ -139,6 +143,43 @@ describe("LegacyInteriorBridge", () => {
     });
     // The id is never reused as a display name.
     expect(useAppStore.getState().businesses[0]!.name).not.toBe("business_1");
+  });
+
+  it("does not erase memberships it has never heard of", async () => {
+    /**
+     * The defect: this bridge called `setWorkspaceSnapshot` with a one-element
+     * array, and that action means "this is the complete list" — so mounting
+     * any legacy interior page (Integrations, for one) emptied the workspace
+     * switcher down to a single entry, and the operator watched their other
+     * workspaces disappear until the next bootstrap put them back.
+     */
+    act(() =>
+      useAppStore
+        .getState()
+        .setWorkspaceSnapshot(
+          "user_1",
+          [
+            { id: "business_1", name: "IwaStore", currency: "USD", timezone: null },
+            { id: "business_2", name: "Other Co", currency: "EUR", timezone: null },
+          ],
+          "business_2",
+        ),
+    );
+
+    render(
+      <WorkspaceContextProvider value={workspace}>
+        <LegacyInteriorBridge>
+          <QueryConsumer />
+        </LegacyInteriorBridge>
+      </WorkspaceContextProvider>,
+    );
+
+    await waitFor(() => {
+      expect(useAppStore.getState().selectedBusinessId).toBe("business_1");
+    });
+    expect(
+      useAppStore.getState().businesses.map((item) => item.id).sort(),
+    ).toEqual(["business_1", "business_2"]);
   });
 });
 // @vitest-environment jsdom

@@ -47,7 +47,26 @@ export type WorkspaceContextEnvelope = {
   };
   provider: null | {
     id: ProviderId;
+    /**
+     * What was actually SELECTED. Empty means nothing is selected.
+     *
+     * It used to be filled with every assigned account whenever no single one
+     * had been chosen, so "the operator has not picked an account yet" and
+     * "the operator is looking at all of these accounts" became the same value.
+     * That is the master plan's D6 ("null: seçilmedi; asla tüm hesaplar
+     * değil") and its §17 prohibition 11, and it is the difference between a
+     * surface refusing honestly and a surface serving a figure that is the sum
+     * of accounts nobody asked about.
+     *
+     * Use `assignedAccountIds` for "what could be selected".
+     */
     selectedAccountIds: string[];
+    /**
+     * Every account this business has assigned for the provider, whether or not
+     * one is selected. This is the picker's option list and the basis for the
+     * 0 / 1 / N decision; it is never a scope.
+     */
+    assignedAccountIds: string[];
     selectedAccountLabel: string | null;
     mode: ProviderScopeMode;
   };

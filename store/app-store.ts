@@ -45,6 +45,24 @@ interface AppState {
     businesses: Business[],
     selectedBusinessId: string | null
   ) => void;
+  /**
+   * Add or update ONE membership without discarding the rest.
+   *
+   * Distinct from `setWorkspaceSnapshot`, which means "this is the complete
+   * authoritative list" and is correct to replace with. A caller that knows
+   * only about the business currently being rendered must not use that: doing
+   * so wipes every other workspace out of the switcher, and the operator sees
+   * their memberships disappear until the next bootstrap re-reads them.
+   *
+   * A different `workspaceOwnerId` still replaces, because a list belonging to
+   * another user is not something to merge into — that would leak one account's
+   * workspace names into another's switcher.
+   */
+  upsertWorkspaceBusiness: (
+    workspaceOwnerId: string,
+    business: Business,
+    selectAsActive?: boolean,
+  ) => void;
   selectBusiness: (id: string | null) => void;
   clearWorkspaceState: () => void;
   setHasHydrated: (value: boolean) => void;
@@ -103,6 +121,30 @@ export const useAppStore = create<AppState>()(
               ? selectedBusinessId
               : businesses[0]?.id ?? null,
           workspaceResolved: true,
+        }),
+      upsertWorkspaceBusiness: (workspaceOwnerId, business, selectAsActive = false) =>
+        set((state) => {
+          // A list captured under a different user is discarded rather than
+          // merged: tenant isolation, not tidiness.
+          const sameOwner =
+            state.workspaceOwnerId === null ||
+            state.workspaceOwnerId === workspaceOwnerId;
+          const existing = sameOwner ? state.businesses : [];
+          const index = existing.findIndex((item) => item.id === business.id);
+          const businesses =
+            index === -1
+              ? [...existing, business]
+              : existing.map((item, at) => (at === index ? business : item));
+          return {
+            workspaceOwnerId,
+            businesses,
+            selectedBusinessId: selectAsActive
+              ? business.id
+              : (state.selectedBusinessId ?? null),
+            // Deliberately NOT `workspaceResolved: true`. One business is not
+            // proof that the membership list has been read, and claiming it
+            // would stop the bootstrap that would actually read it.
+          };
         }),
       selectBusiness: (id) =>
         set((state) => ({

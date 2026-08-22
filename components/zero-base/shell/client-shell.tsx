@@ -97,9 +97,12 @@ export function ClientShell({
       provider: providerId
         ? {
             id: providerId,
-            selectedAccountIds: selectedAccount
-              ? [selectedAccount.id]
-              : (catalog?.accounts.map((account) => account.id) ?? []),
+            // Selected, not assigned — see the field's own comment in
+            // `lib/workspace/workspace-context.ts`. Falling back to every
+            // account made "nothing chosen" indistinguishable from "all of
+            // them chosen", which D6 forbids.
+            selectedAccountIds: selectedAccount ? [selectedAccount.id] : [],
+            assignedAccountIds: catalog?.accounts.map((account) => account.id) ?? [],
             selectedAccountLabel: selectedAccount?.label ?? null,
             mode: selectedAccount
               ? "single"

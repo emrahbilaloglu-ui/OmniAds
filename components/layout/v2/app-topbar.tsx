@@ -14,6 +14,8 @@ import {
   hrefWithParams,
 } from "@/lib/dashboard/date-window-url";
 import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
+import { AccountScopeControl } from "@/components/layout/v2/account-scope-control";
+import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -331,11 +333,14 @@ function BusinessControl() {
 export function AppTopbar({
   userName,
   onOpenNav,
+  providerCatalogs = [],
   search,
   notifications,
 }: {
   userName: string;
   onOpenNav: () => void;
+  /** Server-resolved assigned accounts, for the shared account control. */
+  providerCatalogs?: readonly ProviderScopeCatalog[];
   /** The working search and notification controls, mounted by the frame. */
   search?: React.ReactNode;
   notifications?: React.ReactNode;
@@ -411,6 +416,17 @@ export function AppTopbar({
         </button>
 
         <BusinessControl />
+
+        {/*
+          The shared provider-account control, in the context slot the design
+          already draws (D1: "mevcut context alanında picker"). It renders
+          nothing on surfaces with no provider family, so Overview, Reports and
+          Settings are unchanged. On Meta surfaces it is the single answer to
+          "which account am I reading", replacing the per-surface pickers that
+          Intelligence and Creative Studio never had — the account_required
+          dead-end WP4 removes.
+        */}
+        <AccountScopeControl providerCatalogs={providerCatalogs} />
 
         <span className="adv-topbar-divider hidden sm:block" />
 

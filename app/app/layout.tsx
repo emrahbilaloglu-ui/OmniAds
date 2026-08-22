@@ -13,7 +13,10 @@ import { getSessionFromCookies } from "@/lib/auth";
 import { UnifiedDashboardClientShell } from "@/components/dashboard-v2/unified-client-shell";
 import { readProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
-import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
+import {
+  isZeroBaseUiEnabledForBusiness,
+  readZeroBaseRolloutConfig,
+} from "@/lib/zero-base/rollout";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +99,20 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       timezone: business?.timezone ? "unknown" : "missing",
     },
     rollout: {
-      zeroBaseEnabled: true,
+      /**
+       * Read, not asserted.
+       *
+       * This was the literal `true`, so the envelope reported the canonical UI
+       * as enabled on `/app/**` whatever `ZERO_BASE_UI_MODE` actually said —
+       * including `off`, which is the rollback lever. A flag whose value the
+       * shell overrides is not a rollback; anything reading this field for a
+       * rollback decision was reading a constant.
+       *
+       * `/c/**` gates access on the same predicate and 404s when it is false,
+       * so there `true` was at least provable. Here nothing gated it, which is
+       * exactly why it had to be computed rather than assumed.
+       */
+      zeroBaseEnabled: isZeroBaseUiEnabledForBusiness(rollout, businessId),
       mutationUiEnabled: rollout.mutationUiEnabled,
     },
   };

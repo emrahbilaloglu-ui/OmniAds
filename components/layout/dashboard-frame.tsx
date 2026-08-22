@@ -10,6 +10,7 @@ import {
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
+import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
   AppTopbar,
   useScopedEnvelopeBusiness,
@@ -19,6 +20,14 @@ import { useAppStore } from "@/store/app-store";
 
 interface DashboardFrameProps {
   userName: string;
+  /**
+   * The provider accounts this business has assigned, resolved on the server.
+   *
+   * Forwarded to the topbar's account control. Presentation only: the catalog
+   * lists what MAY be selected, and the server re-authorizes whatever is
+   * selected on the next render.
+   */
+  providerCatalogs?: readonly ProviderScopeCatalog[];
   children: React.ReactNode;
 }
 
@@ -184,7 +193,11 @@ function MobileMetaReadOnlySurface({
  * Dashboard v2 shell (design decision D1): one chrome for every route. The old
  * legacy/console split is gone — Overview no longer gets its own frame.
  */
-export function DashboardFrame({ userName, children }: DashboardFrameProps) {
+export function DashboardFrame({
+  userName,
+  providerCatalogs = [],
+  children,
+}: DashboardFrameProps) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -265,6 +278,7 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar
           userName={userName}
+          providerCatalogs={providerCatalogs}
           onOpenNav={() => setNavOpen(true)}
           search={
             <GlobalSearch

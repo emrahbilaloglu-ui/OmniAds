@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
+import {
+  PROVIDER_ACCOUNT_PARAM,
+  readProviderAccountParam,
+} from "@/lib/meta/provider-account-param";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +122,27 @@ export async function GET(request: NextRequest) {
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
-  const requestedAccountId = searchParams.get("accountId");
+  /**
+   * `providerAccountId` is the canonical name; `accountId` is read here only
+   * because links carrying it already exist (WP4 items 1–2). Every deprecated
+   * read is logged so the tail is observable and the alias can eventually go.
+   *
+   * Two spellings for one fact is how a scope goes missing: a link written with
+   * one and read with the other resolves to nothing, and "nothing" is
+   * indistinguishable from "the operator has not chosen" — so the surface
+   * refuses for a selection that was in the URL all along.
+   */
+  const { requestedAccountId, source: accountParamSource } =
+    readProviderAccountParam(searchParams, {
+      onDeprecatedAlias: () => {
+        console.warn("[meta-campaigns] deprecated accountId parameter", {
+          // No id and no business id: this is a deprecation counter, not an
+          // audit record, and it must not put a tenant identifier in the logs.
+          canonical: PROVIDER_ACCOUNT_PARAM,
+        });
+      },
+    });
+  void accountParamSource;
   const campaignId = searchParams.get("campaignId");
   const includePrev = searchParams.get("includePrev") === "1";
 

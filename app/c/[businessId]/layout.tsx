@@ -89,7 +89,11 @@ export default async function ClientLayout({
       timezone: business?.timezone ? "unknown" : "missing",
     },
     rollout: {
-      zeroBaseEnabled: true,
+      // Provable here rather than asserted: the guard above 404s when this is
+      // false, so reaching this line means it is true. Computed anyway, so the
+      // two layouts state the field the same way and a future change to the
+      // guard cannot leave this one silently stale.
+      zeroBaseEnabled: isZeroBaseUiEnabledForBusiness(rollout, businessId),
       mutationUiEnabled: rollout.mutationUiEnabled,
     },
   };

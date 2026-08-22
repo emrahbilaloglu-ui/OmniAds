@@ -129,9 +129,19 @@ export function buildEffectiveDashboardEnvelope(input: {
     provider: providerId
       ? {
           id: providerId,
-          selectedAccountIds: selectedAccount
-            ? [selectedAccount.id]
-            : (catalog?.accounts.map((account) => account.id) ?? []),
+          /**
+           * Selected, not assigned.
+           *
+           * This used to fall back to every account in the catalog when no
+           * single one was chosen, so a surface reading it could not tell
+           * "nothing is selected" from "everything is selected" — D6, and the
+           * plan's §17 prohibition 11. With several accounts assigned and none
+           * chosen, the honest value is empty and `mode` says `portfolio`, so
+           * a reader can require a selection instead of quietly summing
+           * accounts nobody asked about.
+           */
+          selectedAccountIds: selectedAccount ? [selectedAccount.id] : [],
+          assignedAccountIds: catalog?.accounts.map((account) => account.id) ?? [],
           selectedAccountLabel: selectedAccount?.label ?? null,
           mode: selectedAccount
             ? "single"
@@ -150,10 +160,12 @@ export function buildEffectiveDashboardEnvelope(input: {
 function EnvelopeScopedDashboardFrame({
   envelope,
   pathname,
+  providerCatalogs,
   children,
 }: {
   envelope: WorkspaceContextEnvelope;
   pathname: string;
+  providerCatalogs: readonly ProviderScopeCatalog[];
   children: React.ReactNode;
 }) {
   const scopedBusinessId = scopedEnvelopeBusinessId(pathname, envelope);
@@ -203,7 +215,12 @@ function EnvelopeScopedDashboardFrame({
   }
 
   return (
-    <DashboardFrame userName={envelope.actor.name}>{children}</DashboardFrame>
+    <DashboardFrame
+      userName={envelope.actor.name}
+      providerCatalogs={providerCatalogs}
+    >
+      {children}
+    </DashboardFrame>
   );
 }
 
@@ -241,6 +258,7 @@ export function UnifiedDashboardClientShell({
         <EnvelopeScopedDashboardFrame
           envelope={effectiveEnvelope}
           pathname={pathname}
+          providerCatalogs={providerCatalogs}
         >
           {children}
         </EnvelopeScopedDashboardFrame>

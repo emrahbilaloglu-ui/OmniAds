@@ -13,6 +13,7 @@ import { launchpadWizardTargetForHandoffMode } from "@/lib/meta/launchpad-handof
 import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
 import { buildLaunchpadViewerEnvelope } from "@/app/(dashboard)/platforms/meta/launchpad/viewer-envelope";
 import LegacyMetaLaunchpadPage from "@/app/(dashboard)/platforms/meta/launchpad/legacy-page";
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +160,13 @@ export default async function MetaLaunchpadPage({
       providerAccountId={providerAccountId}
       viewer={viewer}
       handoffPrefill={handoffPrefill}
+      /*
+       * Read here, on the server, and forwarded — the same gate
+       * `rejectIfLaunchpadExecutionGated` enforces in the write routes. The
+       * surface restates it so the refusal is visible before the click; it
+       * never decides it. See `docs/adr-003-launchpad-execution-posture.md`.
+       */
+      executionEnabled={readMetaReleaseGates().launchpadExecution}
     />
   );
 }

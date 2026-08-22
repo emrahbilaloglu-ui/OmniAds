@@ -148,6 +148,11 @@ function mockValid() {
 describe("POST /api/launchpad/meta/add-to-existing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Same reason as the launch suite: this file is about what the create path
+    // does, so it opens the gate. The closed-gate refusal is covered by the
+    // case at the bottom of this file and by
+    // `app/api/launchpad/meta/execution-gate.test.ts`.
+    process.env.META_LAUNCHPAD_EXECUTION = "true";
     vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
       status: "ready",
       canRead: true,

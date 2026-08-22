@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import {
-  META_GATE_REFUSAL_REASONS,
   readMetaAutomationPosture,
   readMetaReleaseGates,
   type MetaReleaseGates,
@@ -27,20 +27,20 @@ const ENV_BY_GATE: Record<keyof MetaReleaseGates, string> = {
 
 describe("Meta release gates", () => {
   it("every gate is off when the environment says nothing", () => {
-    const gates = readMetaReleaseGates({} as NodeJS.ProcessEnv);
+    const gates = readMetaReleaseGates({});
     for (const key of GATE_KEYS) expect(gates[key]).toBe(false);
   });
 
   it.each(GATE_KEYS)("%s opens only on an exact true", (key) => {
     const name = ENV_BY_GATE[key];
     for (const raw of ["true", "TRUE", " True "]) {
-      expect(readMetaReleaseGates({ [name]: raw } as NodeJS.ProcessEnv)[key]).toBe(true);
+      expect(readMetaReleaseGates({ [name]: raw })[key]).toBe(true);
     }
     // A misspelling, a near-miss and a plausible-looking truthy value all stay
     // closed. "1" and "yes" are deliberately NOT accepted: a gate that opens on
     // a guess opens by accident.
     for (const raw of ["", " ", "1", "yes", "on", "enabled", "false", "tru", "TRUE!"]) {
-      expect(readMetaReleaseGates({ [name]: raw } as NodeJS.ProcessEnv)[key]).toBe(false);
+      expect(readMetaReleaseGates({ [name]: raw })[key]).toBe(false);
     }
   });
 
@@ -48,7 +48,7 @@ describe("Meta release gates", () => {
     for (const key of GATE_KEYS) {
       const gates = readMetaReleaseGates({
         [ENV_BY_GATE[key]]: "true",
-      } as NodeJS.ProcessEnv);
+      });
       for (const other of GATE_KEYS) {
         expect(gates[other]).toBe(other === key);
       }
@@ -56,18 +56,18 @@ describe("Meta release gates", () => {
   });
 
   it("automation posture is dry-run by default and inverts only on the live gate", () => {
-    expect(readMetaAutomationPosture({} as NodeJS.ProcessEnv).dryRunOnly).toBe(true);
+    expect(readMetaAutomationPosture({}).dryRunOnly).toBe(true);
     expect(
       readMetaAutomationPosture({
         META_AUTOMATION_LIVE_WRITES: "true",
-      } as NodeJS.ProcessEnv).dryRunOnly,
+      }).dryRunOnly,
     ).toBe(false);
     // Any other value leaves the safe posture in place.
     for (const raw of ["", "1", "yes", "false", "TRUE!"]) {
       expect(
         readMetaAutomationPosture({
           META_AUTOMATION_LIVE_WRITES: raw,
-        } as NodeJS.ProcessEnv).dryRunOnly,
+        }).dryRunOnly,
       ).toBe(true);
     }
   });

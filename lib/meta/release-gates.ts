@@ -66,13 +66,22 @@ export interface MetaAutomationPosture {
   dryRunOnly: boolean;
 }
 
+/**
+ * The slice of the environment these readers may see.
+ *
+ * Deliberately narrower than `NodeJS.ProcessEnv`: a gate reader has no business
+ * touching a credential, and typing it this way also lets a test hand over the
+ * two variables under test without having to fabricate a whole environment.
+ */
+export type MetaGateEnv = Readonly<Record<string, string | undefined>>;
+
 /** Only an exact, case-insensitive `true` enables. Everything else is off. */
 function parseGate(raw: string | undefined): boolean {
   return raw?.trim().toLowerCase() === "true";
 }
 
 export function readMetaReleaseGates(
-  env: NodeJS.ProcessEnv = process.env,
+  env: MetaGateEnv = process.env,
 ): MetaReleaseGates {
   return {
     launchpadExecution: parseGate(env.META_LAUNCHPAD_EXECUTION),
@@ -85,31 +94,10 @@ export function readMetaReleaseGates(
 }
 
 export function readMetaAutomationPosture(
-  env: NodeJS.ProcessEnv = process.env,
+  env: MetaGateEnv = process.env,
 ): MetaAutomationPosture {
   // Not `!gates.automationLiveWrites` by accident of refactoring: this is the
   // safety default and it is written so that removing the live-writes gate
   // leaves dry-run ON rather than turning it off.
   return { dryRunOnly: !parseGate(env.META_AUTOMATION_LIVE_WRITES) };
 }
-
-/**
- * The operator-facing reason a gated control refuses.
- *
- * One sentence, no environment variable name, no "contact an administrator".
- * The operator is told what is not available and what state the product is in,
- * because a reason that names a flag teaches them to go looking for a flag.
- */
-export const META_GATE_REFUSAL_REASONS = Object.freeze({
-  launchpadExecution:
-    "Creating campaigns on Meta from Launchpad is not enabled yet. Drafts, templates and validation are fully available, and a validated draft will run unchanged once execution is turned on.",
-  decisionWorkflowUi:
-    "Decision workflow actions are not enabled yet on this workspace.",
-  automationStopUi:
-    "The Meta Stop control is not enabled yet: releasing it again has not been proven reversible in this environment, and a stop that cannot be released is worse than no stop.",
-  automationLiveWrites:
-    "Automation runs in dry-run only. Approving a proposal records what would have been sent and contacts Meta for nothing.",
-  publicShareMint:
-    "Minting new public share links is not enabled yet. Existing links keep working and can still be rotated or revoked.",
-  accountPicker: "Changing the Meta ad account is not enabled yet.",
-} as const satisfies Record<keyof MetaReleaseGates, string>);

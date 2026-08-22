@@ -60,6 +60,7 @@ import {
   type LaunchpadAddToExistingState,
 } from "@/components/launchpad/LaunchpadAddToExistingTarget";
 import { LaunchpadReview } from "@/components/launchpad/LaunchpadReview";
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import {
   LaunchpadProgress,
   type LaunchpadProgressResult,
@@ -761,6 +762,16 @@ export interface MetaLaunchpadPageProps {
    * `undefined` is the preserved legacy mount, which establishes nothing.
    */
   handoffPrefill?: LaunchpadHandoffPrefillEnvelope;
+  /**
+   * Whether provider execution is enabled, read from the server's own gate.
+   *
+   * `undefined` is the preserved legacy mount, which establishes nothing and is
+   * therefore treated as closed — the same fail-closed reading the viewer
+   * envelope uses. This is presentation only: `rejectIfLaunchpadExecutionGated`
+   * in the write routes is what actually refuses, and it refuses whatever this
+   * prop says. See `docs/adr-003-launchpad-execution-posture.md`.
+   */
+  executionEnabled?: boolean;
 }
 
 export default function MetaLaunchpadPage({
@@ -769,6 +780,7 @@ export default function MetaLaunchpadPage({
   providerAccountId: authorizedProviderAccountId,
   viewer: authorizedViewer,
   handoffPrefill: authorizedHandoffPrefill,
+  executionEnabled: authorizedExecutionEnabled,
 }: MetaLaunchpadPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -794,6 +806,12 @@ export default function MetaLaunchpadPage({
    * authority.
    */
   const viewer = authorizedViewer ?? LAUNCHPAD_VIEWER_NOT_ESTABLISHED;
+  /**
+   * A mount that forwarded no gate reading proved nothing about it, and an
+   * unproven gate is closed. `=== true` rather than `?? false` so that any
+   * value other than a server's explicit `true` reads as closed.
+   */
+  const executionEnabled = authorizedExecutionEnabled === true;
   const writeRefusalReason = viewer.reason;
   const serverProviderAccountId = authorizedProviderAccountId?.trim() || "";
   const requestedProviderAccountId = hasAuthorizedProviderScope
@@ -2520,7 +2538,15 @@ export default function MetaLaunchpadPage({
                       viewerWriteRefusalReason={writeRefusalReason}
                       onLaunch={launchPaused}
                       executionBlockedReason={
+                        // Viewer first, gate second. Being a reviewer is a fact
+                        // about this operator and is the more actionable thing
+                        // to hear; a closed gate is a fact about the product
+                        // and applies to everyone. Both refuse, and the server
+                        // enforces both regardless of which sentence is shown.
                         writeRefusalReason ??
+                        (!executionEnabled
+                          ? META_GATE_REFUSAL_REASONS.launchpadExecution
+                          : null) ??
                         (mode === "add_to_existing" &&
                         addToExistingPayload.copyMode === "rebuild_creative"
                           ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."

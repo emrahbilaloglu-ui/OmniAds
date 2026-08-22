@@ -218,6 +218,15 @@ const READ_FAILURE_MESSAGES: Record<string, string> = {
     "The requested Meta ad account is not assigned to this business, so Automation was never read.",
   provider_account_scope_unavailable:
     "Meta account assignments could not be read, so Automation was never read — every figure below is unknown rather than zero.",
+  // Codes the route returns that previously arrived here flattened into the
+  // general sentence. Each says what actually happened and what to do, because
+  // "could not be read" is true of all of them and useful for none.
+  automation_contract_failed:
+    "Automation was read and the control plane failed while answering, so every figure below is unknown rather than zero. Retrying is safe — nothing on this screen has been changed.",
+  unauthorized:
+    "Your session is no longer signed in, so Automation was never read. Sign in again to see the current control state.",
+  forbidden:
+    "You do not have access to this business's Automation controls, so nothing below was read.",
 };
 
 function readFailureMessage(code: string) {
@@ -299,6 +308,25 @@ function guardrailsFor(payload: AutomationPayload | null) {
     : null;
   const quietHours = guardrails?.quietHours ?? null;
   return [
+    {
+      /**
+       * The guardrail that decides whether anything on this screen can reach
+       * Meta at all, and it was the one guardrail not shown.
+       *
+       * `dryRunOnly` defaults true in the code and in the column, so in the
+       * only configuration production can reach, every approval here
+       * short-circuits before the provider POST. The operator was reading four
+       * limits on writes while the fifth fact — that there are no writes — went
+       * unstated, which made an approval look like an action.
+       */
+      key: "dry-run",
+      label: "Approvals reach Meta",
+      value: guardrails
+        ? guardrails.dryRunOnly
+          ? "No — dry run only"
+          : "Yes"
+        : UNKNOWN,
+    },
     {
       key: "budget-change",
       label: "Max budget change / day",
@@ -775,6 +803,7 @@ export function MetaAutomationView({
   onProposalControl,
   pendingProposalId = null,
   proposalError = null,
+  proposalNotice = null,
   businessId = null,
   onRulesChanged,
   readError = null,
@@ -796,6 +825,8 @@ export function MetaAutomationView({
   ) => void;
   pendingProposalId?: string | null;
   proposalError?: string | null;
+  /** What the last successful approval actually did. See the state's comment. */
+  proposalNotice?: string | null;
   /**
    * Server-authorized scope. Absent means this render has no authority to
    * mutate anything, so the toggle and "+ New rule" stay inert rather than
@@ -1030,7 +1061,16 @@ export function MetaAutomationView({
           <article className={styles.killCard}>
             <p className={styles.cardKickerDark}>Kill switch</p>
             <div className={styles.killRow}>
-              <span>Global writes</span>
+              {/*
+                Was "Global writes". The switch behind it is
+                `META_ADS_WRITE_KILL_SWITCH`, which only `lib/meta/ads-write.ts`
+                and the Meta routes read — `lib/google-ads/advisor-mutate.ts`
+                neither reads it nor imports anything from the Meta control
+                plane. "Global" therefore claimed a reach the control does not
+                have, and an operator reaching for it in an incident would have
+                believed Google Ads had stopped too.
+              */}
+              <span>Meta writes · all businesses</span>
               <span
                 className={styles.statusPill}
                 data-tone={globalStatus.tone}
@@ -1041,7 +1081,7 @@ export function MetaAutomationView({
               </span>
             </div>
             <div className={styles.killRow}>
-              <span>This business</span>
+              <span>Meta writes · this business</span>
               <span
                 className={styles.statusPill}
                 data-tone={businessStatus.tone}
@@ -1051,9 +1091,10 @@ export function MetaAutomationView({
                 {businessStatus.label}
               </span>
             </div>
-            <p className={styles.killNote}>
-              Flipping either switch blocks every provider write instantly —
-              server-enforced, not a UI state.
+            <p className={styles.killNote} data-field="kill-switch-scope">
+              Flipping either switch blocks every <b>Meta</b> write instantly —
+              server-enforced, not a UI state.{" "}
+              <b>No control on this screen stops Google Ads writes.</b>
             </p>
           </article>
 
@@ -1275,6 +1316,16 @@ export function MetaAutomationView({
               )}
             </div>
           )}
+          {proposalNotice ? (
+            <p
+              className={styles.proposalError}
+              data-field="proposal-notice"
+              data-tone="notice"
+              role="status"
+            >
+              {proposalNotice}
+            </p>
+          ) : null}
           {proposalError ? (
             <p className={styles.proposalError} role="status">
               {proposalError}
@@ -1582,15 +1633,16 @@ export function MetaAutomationView({
         <h1 id="automation-mobile-title">Meta authority</h1>
         <p className={styles.mobileIntro}>
           Current server-read status. Automation controls are available only in
-          the desktop workspace.
+          the desktop workspace. Everything here governs Meta writes only; no
+          control on this screen stops Google Ads writes.
         </p>
         <dl className={styles.mobileFacts}>
           <div>
-            <dt>Global writes</dt>
+            <dt>Meta writes · all businesses</dt>
             <dd>{globalStatus.label}</dd>
           </div>
           <div>
-            <dt>This business</dt>
+            <dt>Meta writes · this business</dt>
             <dd>{businessStatus.label}</dd>
           </div>
           <div>
@@ -1716,11 +1768,36 @@ async function readAutomation(input: {
   const body = (await response.json().catch(() => null)) as {
     ok?: boolean;
     automation?: AutomationPayload;
+    error?: { code?: string };
   } | null;
   if (!response.ok || body?.ok === false || !body?.automation) {
-    throw new Error("Automation control plane is unavailable.");
+    /**
+     * Carry the server's own code instead of one sentence for every failure.
+     *
+     * The route distinguishes an unassigned account, a requested account that
+     * belongs to someone else, an unreadable assignment source, a 401 and a
+     * crashed contract — and all five arrived here as the same string, so the
+     * screen told an operator whose token had expired that "Automation could
+     * not be read", which is true and useless. `READ_FAILURE_MESSAGES` has had
+     * a sentence per code all along; nothing was reaching it.
+     *
+     * An unreadable body still degrades to the general code rather than
+     * inventing a specific one — the failure is real either way, and guessing
+     * WHICH failure would be a new lie in place of the old one.
+     */
+    throw new AutomationReadError(
+      body?.error?.code?.trim() || "automation_control_plane_unavailable",
+    );
   }
   return body.automation;
+}
+
+/** Carries the server's failure code to the render, nothing else. */
+class AutomationReadError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "AutomationReadError";
+  }
 }
 
 export default function MetaAutomationPage({
@@ -1780,6 +1857,17 @@ export default function MetaAutomationPage({
     null,
   );
   const [proposalError, setProposalError] = useState<string | null>(null);
+  /**
+   * What actually happened on the last approval, when it succeeded.
+   *
+   * Success used to render nothing at all, so an approval that short-circuited
+   * before the provider POST — which is every approval in the only
+   * configuration production can reach, because `dryRunOnly` defaults true —
+   * looked exactly like an approval that changed something on Meta. The row
+   * left the queue and the operator drew the obvious conclusion. This states
+   * the receipt's own `dryRun` flag instead of inferring anything.
+   */
+  const [proposalNotice, setProposalNotice] = useState<string | null>(null);
   /**
    * Whether the last decision THIS SESSION recorded reached the activity
    * ledger, or `null` when this session has recorded none.
@@ -1999,10 +2087,17 @@ export default function MetaAutomationPage({
       .then((nextPayload) => {
         if (!controller.signal.aborted) setPayload(nextPayload);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           setPayload(null);
-          setReadError("automation_control_plane_unavailable");
+          setReadError(
+            error instanceof AutomationReadError
+              ? error.code
+              : // A transport failure (offline, DNS, aborted socket) never
+                // reached the route, so there is no server code to restate and
+                // the general one is the honest answer.
+                "automation_control_plane_unavailable",
+          );
         }
       })
       .finally(() => {
@@ -2045,6 +2140,7 @@ export default function MetaAutomationPage({
       if (!viewer.canMutate) return;
       setPendingProposalId(proposalId);
       setProposalError(null);
+      setProposalNotice(null);
       const query = new URLSearchParams({ businessId, providerAccountId });
       fetch(`/api/meta/automation/proposals?${query.toString()}`, {
         method: "POST",
@@ -2067,6 +2163,7 @@ export default function MetaAutomationPage({
             ok?: boolean;
             error?: { message?: string };
             ledgerCompleteness?: "complete" | "unavailable";
+            receipt?: { dryRun?: boolean } | null;
           } | null;
           // Recorded from BOTH arms: a decision that reached the provider and
           // failed to reach the ledger still has to stop the footnote from
@@ -2097,6 +2194,26 @@ export default function MetaAutomationPage({
             setQueue(UNAVAILABLE_QUEUE);
             return;
           }
+          if (control === "approve") {
+            /**
+             * Three states, and the middle one is the one that matters.
+             *
+             * `dryRun === true` is a receipt that says the approval never left
+             * the building. `false` means it did reach Meta. Anything else —
+             * an absent receipt, an absent flag — is a successful response we
+             * cannot read the disposition out of, and that is said rather than
+             * defaulted to either answer: guessing "sent" invents a write, and
+             * guessing "not sent" hides one.
+             */
+            const dryRun = body?.receipt?.dryRun;
+            setProposalNotice(
+              dryRun === true
+                ? "Recorded as a dry run — nothing was sent to Meta. The dryRunOnly guardrail held this approval inside the building."
+                : dryRun === false
+                  ? "Approved and dispatched to Meta. Check the activity ledger for the receipt."
+                  : "Recorded. This response carried no receipt, so whether anything reached Meta is unknown — check the activity ledger before approving it again.",
+            );
+          }
           setQueue(parseProposalQueue(body));
         })
         .catch(() => {
@@ -2125,6 +2242,7 @@ export default function MetaAutomationPage({
         now: new Date(),
       })}
       onProposalControl={onProposalControl}
+      proposalNotice={proposalNotice}
       pendingProposalId={pendingProposalId}
       proposalError={proposalError}
       businessId={businessId}

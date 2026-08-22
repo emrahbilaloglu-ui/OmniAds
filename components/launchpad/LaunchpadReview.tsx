@@ -12,6 +12,10 @@ import type {
 import { hasBelowBreakeven } from "@/components/launchpad/LaunchpadCreativeSelection";
 import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 import {
+  META_LAUNCHPAD_EXECUTION_LIMITS,
+  evaluateMetaLaunchpadExecutionBounds,
+} from "@/lib/launchpad/meta-execution-bounds";
+import {
   META_LAUNCHPAD_MANUAL_AUTHORITY,
   type MetaLaunchpadManualAuthority,
 } from "@/lib/launchpad/meta-manual-authority";
@@ -283,12 +287,37 @@ export function LaunchpadReview({
   const newCampaignAdCount = newCampaignAdSetCount * selectedCreatives.length;
   const budgetReview = buildLaunchpadBudgetReview(payload, currencyCode);
   const currencyBlocker = mode === "new_campaign" && !currencyCode;
+  // The same bounds function both write routes run, evaluated here so the
+  // ceiling is visible before the click instead of arriving as a 413 after it.
+  const executionBounds = evaluateMetaLaunchpadExecutionBounds(
+    mode === "add_to_existing"
+      ? {
+          operation: "add_to_existing",
+          creativeCount: selectedCreatives.length,
+          adSetOrTargetCount: targetCount,
+          copyMode: addToExistingCopyMode ?? undefined,
+        }
+      : {
+          operation: "new_campaign",
+          creativeCount: selectedCreatives.length,
+          adSetOrTargetCount: newCampaignAdSetCount,
+        },
+  );
   const blockerCount =
     (validation?.blockers.length ?? 0) +
     (currencyBlocker ? 1 : 0) +
-    (executionBlockedReason ? 1 : 0);
+    (executionBlockedReason ? 1 : 0) +
+    executionBounds.blockers.length;
   const reviewBlocked =
-    launchBlocked || currencyBlocker || Boolean(executionBlockedReason);
+    launchBlocked ||
+    currencyBlocker ||
+    Boolean(executionBlockedReason) ||
+    !executionBounds.ok;
+  // Split from `reviewBlocked` because the acknowledgement is the operator's
+  // own step, while everything in `reviewBlocked` is the product refusing. Both
+  // stop the click; only the second gets a sentence.
+  const blockedFromLaunch = reviewBlocked || !ack;
+  const executionBlockedReasonId = "launchpad-execution-blocked-reason";
   const selectedSpend = selectedCreatives.every(
     (creative) =>
       creative.metricsAvailability !== "unavailable" &&
@@ -590,8 +619,52 @@ export function LaunchpadReview({
         </p>
       </div>
 
+      {/*
+        The fan-out one confirmed click would produce, and the ceiling it is
+        measured against, stated before the click rather than discovered as a
+        413 after it. `evaluateMetaLaunchpadExecutionBounds` is the same
+        function both write routes run, so this is the server's arithmetic
+        restated — not a second copy of the rule that could drift from it.
+      */}
+      <div
+        className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+        data-testid="launchpad-execution-bounds"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] font-semibold text-[var(--ink)]">
+            Execution size
+          </span>
+          <span
+            className="text-[11.5px] text-[var(--muted)]"
+            data-field="planned-provider-creates"
+          >
+            {executionBounds.counts.plannedProviderCreates} of{" "}
+            {META_LAUNCHPAD_EXECUTION_LIMITS.maxPlannedProviderCreates} planned
+            provider creates
+          </span>
+        </div>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
+          {executionBounds.counts.creatives} of{" "}
+          {META_LAUNCHPAD_EXECUTION_LIMITS.maxCreatives} creatives ·{" "}
+          {executionBounds.counts.adSetsOrTargets} of{" "}
+          {mode === "add_to_existing"
+            ? `${META_LAUNCHPAD_EXECUTION_LIMITS.maxTargets} targets`
+            : `${META_LAUNCHPAD_EXECUTION_LIMITS.maxAdSets} ad sets`}
+        </p>
+        {executionBounds.blockers.map((blocker) => (
+          <p
+            key={blocker.code}
+            className="mt-1 text-[11.5px] font-medium text-[var(--danger)]"
+            data-field={`bound-${blocker.code}`}
+          >
+            {blocker.message}
+          </p>
+        ))}
+      </div>
+
       {executionBlockedReason ? (
         <div
+          id={executionBlockedReasonId}
           className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--danger)]"
           role="alert"
         >
@@ -627,11 +700,31 @@ export function LaunchpadReview({
             Save draft
           </button>
         ) : null}
+        {/*
+          `aria-disabled`, not `disabled`.
+
+          A `disabled` button is removed from the tab order, so a keyboard or
+          screen-reader user reaches the end of the wizard and finds nothing
+          there — the control and its reason are both unreachable, which is
+          indistinguishable from the feature not existing. `aria-disabled` keeps
+          it focusable and announced as unavailable, `aria-describedby` ties it
+          to the sentence saying why, and the click handler refuses on the same
+          condition so the control is inert in fact and not only in appearance.
+        */}
         <button
           type="button"
           className="btn btn--primary"
-          disabled={reviewBlocked || !ack}
-          onClick={() => onLaunch({ ...META_LAUNCHPAD_MANUAL_AUTHORITY })}
+          aria-disabled={blockedFromLaunch}
+          aria-describedby={
+            executionBlockedReason ? executionBlockedReasonId : undefined
+          }
+          data-testid="launchpad-create-paused"
+          data-blocked={blockedFromLaunch ? "true" : "false"}
+          title={executionBlockedReason ?? undefined}
+          onClick={() => {
+            if (blockedFromLaunch) return;
+            onLaunch({ ...META_LAUNCHPAD_MANUAL_AUTHORITY });
+          }}
         >
           <Send className="h-4 w-4" />
           Create PAUSED

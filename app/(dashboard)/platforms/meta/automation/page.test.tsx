@@ -330,9 +330,30 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toContain("Rules");
     expect(html).toContain("Autonomy ladder");
     expect(html).toContain("Activity ledger");
+    /**
+     * The design file's own copy here reads "Global writes" and "blocks every
+     * provider write instantly", and both are false of the control.
+     * `META_ADS_WRITE_KILL_SWITCH` is read by `lib/meta/ads-write.ts` and the
+     * Meta routes; `lib/google-ads/advisor-mutate.ts` neither reads it nor
+     * imports anything from the Meta control plane. An operator reaching for
+     * this switch during an incident would have believed Google Ads stopped
+     * too. Corrected under the master plan's WP1 items 5–6 and its D1 allowance
+     * for wrong or risky micro-copy; the layout, hierarchy and styling the
+     * design specifies are untouched.
+     */
     expect(html).toContain(
-      "Flipping either switch blocks every provider write instantly — server-enforced, not a UI state.",
+      "Flipping either switch blocks every <b>Meta</b> write instantly — server-enforced, not a UI state.",
     );
+    expect(html).toContain(
+      "<b>No control on this screen stops Google Ads writes.</b>",
+    );
+    // The false claim must be gone, not merely joined by a true one.
+    expect(html).not.toContain("blocks every provider write");
+    expect(html).not.toContain("<span>Global writes</span>");
+    expect(html).not.toContain("<dt>Global writes</dt>");
+    // `dryRunOnly` is the guardrail that decides whether anything here reaches
+    // Meta at all, and it was the one guardrail the card did not show.
+    expect(html).toContain("Approvals reach Meta");
 
     expect(html).not.toContain("Effective authority");
     expect(html).not.toContain("Provider posture");

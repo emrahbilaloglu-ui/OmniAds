@@ -168,6 +168,11 @@ describe("Meta Launchpad canonical route authority", () => {
       // undefined prop means "no server established one", which this route
       // always does establish.
       handoffPrefill: { status: "none" },
+      // Stated for the same reason, and false because nothing set
+      // META_LAUNCHPAD_EXECUTION in this environment. The gate's shipped state
+      // is off (ADR-003), so a route that forwarded `undefined` here would be
+      // leaving the body to guess at a fact the server just read.
+      executionEnabled: false,
     });
   });
 

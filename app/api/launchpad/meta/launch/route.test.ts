@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeMetaLaunchPayload } from "@/lib/launchpad/meta";
 import { META_LAUNCHPAD_MANUAL_AUTHORITY } from "@/lib/launchpad/meta-manual-authority";
+import { SHOPIFY_REVIEWER_EMAIL } from "@/lib/reviewer-access";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -137,6 +138,18 @@ function mockValidPayload() {
 describe("POST /api/launchpad/meta/launch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    /**
+     * This suite exercises the execution path itself, so it opens the gate
+     * deliberately.
+     *
+     * `META_LAUNCHPAD_EXECUTION` ships off (ADR-003) and the route refuses with
+     * 503 `launchpad_execution_disabled` before touching an account or a
+     * credential. That refusal has its own coverage — the case at the bottom of
+     * this file, and `app/api/launchpad/meta/execution-gate.test.ts` — so
+     * leaving it engaged here would only mean 30 assertions about create
+     * behaviour all passing for the wrong reason.
+     */
+    process.env.META_LAUNCHPAD_EXECUTION = "true";
     // Default: a proven live workspace. Individual cases override it; without
     // this reset a per-test override would leak into every later case.
     vi.mocked(demoAuthority.rejectIfLaunchpadDemoWrite).mockResolvedValue(null);
@@ -863,6 +876,54 @@ describe("POST /api/launchpad/meta/launch", () => {
       error: { code: "launch_intent_migration_required" },
     });
     expect(intentService.prepareMetaLaunchIntentForExecution).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it("refuses before resolving an account when the execution gate is closed", async () => {
+    // The shipped state (ADR-003). Asserted at the route rather than only on
+    // the helper, because "the gate is checked" and "the gate is checked BEFORE
+    // the provider work" are different claims, and only the second one keeps a
+    // closed gate from still spending a credential read on every replayed POST.
+    delete process.env.META_LAUNCHPAD_EXECUTION;
+
+    const response = await POST(
+      request({ businessId: BUSINESS_ID, payload: payload(), idempotencyKey: "idem_gated" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "launchpad_execution_disabled",
+        operation: "launchpad_launch",
+      },
+    });
+    expect(validation.resolveAssignedMetaLaunchAccount).not.toHaveBeenCalled();
+    expect(intentService.prepareMetaLaunchIntentForExecution).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a reviewer first when the gate is also closed", async () => {
+    // Precedence, stated as a test: a reviewer learns they are read-only rather
+    // than that the product is not ready, because the first fact is the one
+    // they can act on. Both refusals hold; only the order of the sentence is
+    // decided here.
+    delete process.env.META_LAUNCHPAD_EXECUTION;
+    // The real reviewer guard, driven by the session it actually reads, rather
+    // than a mocked refusal — mocking it here would prove only that the mock
+    // was consulted first, not that the route's own ordering holds.
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      session: { user: { id: USER_ID, email: SHOPIFY_REVIEWER_EMAIL } },
+      membership: { businessId: BUSINESS_ID },
+    } as never);
+
+    const response = await POST(
+      request({ businessId: BUSINESS_ID, payload: payload(), idempotencyKey: "idem_reviewer_gated" }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: { code: "reviewer_read_only" },
+    });
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
   });
 });

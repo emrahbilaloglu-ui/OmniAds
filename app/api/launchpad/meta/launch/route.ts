@@ -55,6 +55,7 @@ import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execu
 import {
   jsonError,
   readJsonBody,
+  rejectIfLaunchpadExecutionGated,
   rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
@@ -269,6 +270,17 @@ export async function POST(request: NextRequest) {
     "launchpad_launch",
   );
   if (demoBlocked) return demoBlocked;
+  /**
+   * The execution gate, enforced on the server rather than trusted from the
+   * screen. `docs/adr-003-launchpad-execution-posture.md` puts the shipped
+   * state at disabled-with-reason; the review screen renders that refusal, but
+   * a stale tab, a replayed request or a script never sees the screen. It sits
+   * after the viewer checks so the most specific true reason is returned first,
+   * and before every provider-facing step below — no account resolution, no
+   * credential read, no Meta call happens while the gate is closed.
+   */
+  const executionGated = rejectIfLaunchpadExecutionGated("launchpad_launch");
+  if (executionGated) return executionGated;
   const manualAuthority = evaluateMetaLaunchpadManualAuthority(body);
   if (!manualAuthority.ok) {
     return jsonError(

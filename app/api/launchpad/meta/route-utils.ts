@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import type { MembershipRole } from "@/lib/auth";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
@@ -131,4 +133,36 @@ export function rejectIfLaunchpadReviewerReadOnly(
   action: string,
 ) {
   return rejectIfReviewerReadOnly(access, action);
+}
+
+/**
+ * The server half of the Launchpad execution gate.
+ *
+ * `docs/adr-003-launchpad-execution-posture.md` puts the shipped state at
+ * disabled-with-reason, and the master plan's §17.6 forbids letting a client
+ * guard be the only thing between an operator and a provider write. The review
+ * screen renders the same refusal, but this is the one that decides: a hand-made
+ * POST, a stale tab that loaded while the gate was open, and a script all reach
+ * here and are refused before any account, credential or Meta call is touched.
+ *
+ * Returns a response when the write must not proceed, and `null` when it may.
+ * Callers place it after access/reviewer/demo so the operator learns the most
+ * specific true reason first — being a reviewer is a fact about them, while a
+ * closed gate is a fact about the product, and the former is more useful to
+ * hear. It still runs before every provider-facing step.
+ *
+ * `503` rather than `403`: nothing is wrong with the caller's authority, and
+ * the same request will succeed unchanged once execution is enabled. A `403`
+ * would tell an operator to go asking for permissions they already have.
+ */
+export function rejectIfLaunchpadExecutionGated(
+  operation: "launchpad_launch" | "launchpad_add_to_existing",
+) {
+  if (readMetaReleaseGates().launchpadExecution) return null;
+  return jsonError(
+    503,
+    "launchpad_execution_disabled",
+    META_GATE_REFUSAL_REASONS.launchpadExecution,
+    { operation },
+  );
 }

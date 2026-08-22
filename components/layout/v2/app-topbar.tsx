@@ -15,6 +15,7 @@ import {
 } from "@/lib/dashboard/date-window-url";
 import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 import { AccountScopeControl } from "@/components/layout/v2/account-scope-control";
+import { reportingWindowApplicability } from "@/lib/meta/surface-registry";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
   DropdownMenu,
@@ -349,6 +350,7 @@ export function AppTopbar({
   const router = useRouter();
   const searchParams = useSearchParams();
   const scopedBusiness = useScopedEnvelopeBusiness(pathname);
+  const reportingWindow = reportingWindowApplicability(pathname);
   const sync = useWorkspaceSyncState({
     providerStatusEnabled: !isMetaDecisionsRoute(pathname),
   });
@@ -394,6 +396,9 @@ export function AppTopbar({
    * parameter carried through untouched.
    */
   function applyDateRange(next: DateRangeValue) {
+    // Belt and braces: the trigger cannot open while inactive, but a caller
+    // reaching this another way must not write a window the surface ignores.
+    if (!reportingWindow.applies) return;
     const params = applyDateWindowToParams(
       new URLSearchParams(currentQueryString(searchParams)),
       next,
@@ -430,6 +435,18 @@ export function AppTopbar({
 
         <span className="adv-topbar-divider hidden sm:block" />
 
+        {/*
+          §8.2. The picker stays where the design puts it and keeps working
+          everywhere a reporting period means something. On a control-state
+          surface — Automation, Integrations, the Shares ledger — it goes
+          inactive and says so, because a range picked above those screens
+          changed nothing below them and the operator had every reason to read
+          the state as "the state during those days".
+
+          `reportingWindowApplicability` answers from the one surface registry,
+          so this cannot drift from the capability the registry declares. A
+          pathname the registry does not know keeps the picker fully active.
+        */}
         <DateRangePicker
           variant="v2"
           value={dateRange}
@@ -438,6 +455,7 @@ export function AppTopbar({
           label="Date range"
           referenceDate={workspaceReferenceDate}
           timeZoneLabel={workspaceTimeZone}
+          inactiveReason={reportingWindow.note}
         />
 
         <span className="flex-1" />

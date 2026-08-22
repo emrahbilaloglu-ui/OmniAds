@@ -1144,6 +1144,17 @@ export interface DateRangePickerProps {
   maxDate?: string | null;
   includeCurrentDayInRollingRanges?: boolean;
   disabled?: boolean;
+  /**
+   * Why this picker does not apply on the current surface (§8.2).
+   *
+   * Distinct from `disabled`, and deliberately not implemented with it. A
+   * `disabled` button leaves the tab order, so a keyboard or screen-reader user
+   * finds nothing where the control is — and on a control-state screen the
+   * whole point is to *tell* them the range is not being applied. This keeps
+   * the trigger focusable, marks it `aria-disabled`, ties it to the reason with
+   * `aria-describedby`, and refuses to open.
+   */
+  inactiveReason?: string | null;
   align?: "start" | "center" | "end";
 }
 
@@ -1165,9 +1176,11 @@ export function DateRangePicker({
   maxDate,
   includeCurrentDayInRollingRanges = false,
   disabled = false,
+  inactiveReason = null,
   align = "start",
 }: DateRangePickerProps) {
   const isV2 = variant === "v2";
+  const inactiveNoteId = `${testId}-inactive-note`;
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
   const [hydrated, setHydrated] = useState(false);
@@ -1295,8 +1308,9 @@ export function DateRangePicker({
   const controls = (
     <>
       <Popover.Root
-        open={openMode === "range"}
+        open={inactiveReason ? false : openMode === "range"}
         onOpenChange={(open) => {
+          if (inactiveReason) return;
           if (open) openPanel("range");
           else if (openMode === "range") handleCancel();
         }}
@@ -1306,9 +1320,17 @@ export function DateRangePicker({
             <button
               type="button"
               disabled={disabled}
+              aria-disabled={inactiveReason ? true : undefined}
+              aria-describedby={inactiveReason ? inactiveNoteId : undefined}
+              data-inactive={inactiveReason ? "true" : undefined}
+              title={inactiveReason ?? undefined}
               aria-label={label}
               data-testid={`${testId}-trigger`}
               className="adv-date-range-trigger"
+              // `aria-disabled` announces the state; this is what makes it
+              // true. Guarding here rather than with `disabled` keeps the
+              // control focusable so the reason can be read.
+              onClick={inactiveReason ? (event) => event.preventDefault() : undefined}
             >
               <svg
                 viewBox="0 0 24 24"
@@ -1483,7 +1505,32 @@ export function DateRangePicker({
     </>
   );
 
-  if (isV2) return controls;
+  if (isV2) {
+    /**
+     * The reason is rendered as visible text, not only as a tooltip.
+     *
+     * A `title` reaches a mouse hover and nothing else. On a control-state
+     * screen the operator's whole misunderstanding is "I picked 28 days, so
+     * this is 28 days of state" — correcting it has to be readable without
+     * hovering anything, and `aria-describedby` on the trigger ties the two
+     * together for a screen reader.
+     */
+    return (
+      <>
+        {controls}
+        {inactiveReason ? (
+          <span
+            id={inactiveNoteId}
+            role="note"
+            data-testid={`${testId}-inactive-note`}
+            className="hidden text-[11.5px] leading-tight text-[var(--adv-ink-3)] md:inline"
+          >
+            {inactiveReason}
+          </span>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <div

@@ -16,6 +16,7 @@ import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurf
 import { CreativeDecisionLabelBadge } from "@/components/creatives/CreativeDecisionLabelBadge";
 import { buildPlacementTooltip } from "@/components/creatives/CreativesTopGrid";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { LAUNCHPAD_CANDIDATE_WINDOW_LABEL } from "@/lib/launchpad/candidate-window";
 import type {
   DecisionLabel,
   DecisionOutput,
@@ -690,7 +691,12 @@ export function LaunchpadCreativeSelection({
             <span />
             <span>Asset</span>
             <span>Creative</span>
-            <span className="text-right">28d metrics</span>
+            {/*
+              Named from the window the fetch actually asked for. This read
+              "28d metrics" over a thirty-day read, so every figure in the
+              column covered two more days than the header claimed.
+            */}
+            <span className="text-right">{LAUNCHPAD_CANDIDATE_WINDOW_LABEL}</span>
           </div>
           <div className="max-h-[520px] overflow-y-auto">
             {visibleRows.map((row) => {

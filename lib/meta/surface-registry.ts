@@ -425,3 +425,80 @@ export function allSurfaceSpellings(): ReadonlyArray<{
 export function surfaceUsesReportingWindow(surface: MetaSurface): boolean {
   return surface.windowCapability !== "current_state";
 }
+
+/**
+ * Which surface a pathname is, across all three route families.
+ *
+ * `[businessId]` and other dynamic segments match any single segment, so
+ * `/c/biz_1/creative/abc123` resolves to Creative Detail rather than to nothing.
+ * Longer patterns are tried first so a concrete route wins over a dynamic one
+ * that would also match it.
+ */
+const SPELLING_PATTERNS: ReadonlyArray<{
+  readonly segments: readonly string[];
+  readonly surfaceId: string;
+}> = META_SURFACES.flatMap((surface) =>
+  [surface.canonicalRoute, ...surface.aliases, ...surface.legacyRedirect].map(
+    (path) => ({
+      segments: path.split("/").filter(Boolean),
+      surfaceId: surface.surfaceId,
+    }),
+  ),
+).sort((a, b) => b.segments.length - a.segments.length);
+
+function segmentMatches(pattern: string, actual: string): boolean {
+  return pattern.startsWith("[") && pattern.endsWith("]")
+    ? actual.length > 0
+    : pattern === actual;
+}
+
+export function metaSurfaceForPathname(pathname: string): MetaSurface | null {
+  const actual = (pathname.split(/[?#]/, 1)[0] ?? "").split("/").filter(Boolean);
+  for (const candidate of SPELLING_PATTERNS) {
+    if (candidate.segments.length !== actual.length) continue;
+    if (
+      candidate.segments.every((segment, index) =>
+        segmentMatches(segment, actual[index]!),
+      )
+    ) {
+      return metaSurfaceById(candidate.surfaceId);
+    }
+  }
+  return null;
+}
+
+/**
+ * How the topbar's reporting-range picker should behave on a pathname (§8.2).
+ *
+ * `applies: false` is the case that matters. Automation, Integrations and the
+ * Shares ledger answer "what is true right now"; a range picked above them
+ * changed nothing below, so the operator read control state through a window
+ * that was doing no work — and had every reason to believe the state they were
+ * looking at was the state during those days.
+ *
+ * A pathname this registry does not know returns `applies: true` with no note.
+ * That is the conservative answer: the picker keeps working as it does today
+ * everywhere outside the Meta family, and an unregistered surface is not
+ * silently stripped of a control it may need.
+ */
+export interface ReportingWindowApplicability {
+  readonly applies: boolean;
+  readonly surfaceId: string | null;
+  /** Shown beside the disabled picker. Null when the picker applies. */
+  readonly note: string | null;
+}
+
+export function reportingWindowApplicability(
+  pathname: string,
+): ReportingWindowApplicability {
+  const surface = metaSurfaceForPathname(pathname);
+  if (!surface) return { applies: true, surfaceId: null, note: null };
+  if (surfaceUsesReportingWindow(surface)) {
+    return { applies: true, surfaceId: surface.surfaceId, note: null };
+  }
+  return {
+    applies: false,
+    surfaceId: surface.surfaceId,
+    note: "This screen shows the current state, not a reporting period. The date range is not applied here.",
+  };
+}

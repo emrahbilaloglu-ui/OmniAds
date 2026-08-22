@@ -60,6 +60,7 @@ import {
   type LaunchpadAddToExistingState,
 } from "@/components/launchpad/LaunchpadAddToExistingTarget";
 import { LaunchpadReview } from "@/components/launchpad/LaunchpadReview";
+import { LAUNCHPAD_CANDIDATE_WINDOW_DAYS } from "@/lib/launchpad/candidate-window";
 import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import {
   LaunchpadProgress,
@@ -230,6 +231,7 @@ function isoDateDaysAgo(days: number) {
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
+
 
 function defaultCampaignName() {
   return `Meta Sales Launch ${todayIso()}`;
@@ -1143,7 +1145,8 @@ export default function MetaLaunchpadPage({
     fetchMetaCreatives({
       businessId,
       providerAccountId,
-      start: isoDateDaysAgo(29),
+      // Inclusive of both ends, so N days back from today is N-1.
+      start: isoDateDaysAgo(LAUNCHPAD_CANDIDATE_WINDOW_DAYS - 1),
       end: todayIso(),
       groupBy: mode === "manage_existing" ? "ad" : "creative",
       format: "all",

@@ -128,9 +128,28 @@ export function LaunchpadAdSets({
 }) {
   const [pixels, setPixels] = useState<LaunchpadPixelOption[]>(pixelOptions ?? []);
   const [pixelsLoading, setPixelsLoading] = useState(false);
+  /**
+   * Did a pixel read actually SUCCEED and return nothing?
+   *
+   * An empty list has two causes and they call for opposite handling. If the
+   * read worked and the account owns no pixels, a stored `pixelId` names
+   * something that does not exist and clearing it is correct. If the read
+   * FAILED — a 401, a 500, an offline moment — we do not know what the account
+   * owns, and clearing wipes a choice the operator made from every ad set in a
+   * draft they may have spent minutes building.
+   *
+   * Both produced `[]` before this flag existed, so the second case silently
+   * destroyed work. D8, on a form rather than on a metric: an unread source is
+   * not a source with nothing in it. WP14 item 4.
+   */
+  const [pixelsProvenEmpty, setPixelsProvenEmpty] = useState(false);
 
   useEffect(() => {
-    if (pixelOptions) setPixels(pixelOptions);
+    if (pixelOptions) {
+      setPixels(pixelOptions);
+      // A caller-supplied list is a served answer, so an empty one is proven.
+      setPixelsProvenEmpty(pixelOptions.length === 0);
+    }
   }, [pixelOptions]);
 
   useEffect(() => {
@@ -140,12 +159,28 @@ export function LaunchpadAdSets({
     fetch(
       `/api/launchpad/meta/pixels?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
     )
-      .then((response) => response.json())
+      .then(async (response) => {
+        // A non-2xx is a failed read, not an empty account. `.json()` alone
+        // parsed the error body and found no `pixels` key, which produced the
+        // same `[]` a healthy empty account produces.
+        if (!response.ok) return null;
+        return (await response.json().catch(() => null)) as
+          | { pixels?: unknown }
+          | null;
+      })
       .then((payload) => {
-        if (!cancelled) setPixels(Array.isArray(payload?.pixels) ? payload.pixels : []);
+        if (cancelled) return;
+        if (payload && Array.isArray(payload.pixels)) {
+          setPixels(payload.pixels as LaunchpadPixelOption[]);
+          setPixelsProvenEmpty(payload.pixels.length === 0);
+          return;
+        }
+        // Read failed, or answered something we cannot read. Keep whatever is
+        // on screen and refuse to call it proven.
+        setPixelsProvenEmpty(false);
       })
       .catch(() => {
-        if (!cancelled) setPixels([]);
+        if (!cancelled) setPixelsProvenEmpty(false);
       })
       .finally(() => {
         if (!cancelled) setPixelsLoading(false);
@@ -181,7 +216,14 @@ export function LaunchpadAdSets({
       changed = true;
     }
     const next = modeNormalized.map((adSet) => {
-      if (!pixelsLoading && sortedPixels.length === 0 && adSet.pixelId) {
+      // Cleared only on a PROVEN empty account. An unread pixel list leaves the
+      // operator's choice exactly where they put it.
+      if (
+        !pixelsLoading &&
+        pixelsProvenEmpty &&
+        sortedPixels.length === 0 &&
+        adSet.pixelId
+      ) {
         changed = true;
         return { ...adSet, pixelId: "" };
       }
@@ -192,7 +234,7 @@ export function LaunchpadAdSets({
       return adSet;
     });
     if (changed) onChange(next);
-  }, [budget.mode, onChange, pixelsLoading, sortedPixels, value]);
+  }, [budget.mode, onChange, pixelsLoading, pixelsProvenEmpty, sortedPixels, value]);
 
   function updateAdSet(index: number, next: LaunchpadAdSetState) {
     onChange(value.map((item, itemIndex) => (itemIndex === index ? next : item)));

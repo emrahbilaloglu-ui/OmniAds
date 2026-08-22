@@ -451,7 +451,18 @@ describe("WP-23 account assignment", () => {
       if (call.url.includes("assign-accounts")) {
         if (options.saveOk === false) return { ok: false, body: { message: "That lane is busy." } };
         assigned = options.landsAs ?? (call.body as { account_ids: string[] }).account_ids;
-        return { body: { success: true, assigned_accounts: assigned } };
+        // `selectionSaved`/`syncScheduled` are what the real handler always
+        // sends, and the client now requires the first of them before treating
+        // a 200 as a commit. The stub carried neither, so it was standing in
+        // for a response the server does not produce.
+        return {
+          body: {
+            success: true,
+            assigned_accounts: assigned,
+            selectionSaved: true,
+            syncScheduled: true,
+          },
+        };
       }
       if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
         return {

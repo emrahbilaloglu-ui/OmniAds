@@ -231,9 +231,11 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
   /**
    * Save, then re-read the discovery route.
    *
-   * `saveProviderAssignments` echoes the draft back when the request fails, so
-   * its return value is never treated as evidence — the error field decides,
-   * and only the independent re-read confirms.
+   * `saveProviderAssignments` no longer echoes the draft back on failure — it
+   * returns an empty list and a reason — but its return value is still never
+   * treated as evidence here. The error field decides, and only the independent
+   * re-read confirms, because a server that says it committed is a claim and the
+   * re-read is an observation.
    */
   const saveAssignment = useCallback(
     async (accountIds: string[]) => {

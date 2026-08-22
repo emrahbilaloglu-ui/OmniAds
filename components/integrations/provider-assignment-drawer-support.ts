@@ -19,6 +19,48 @@ interface SaveSuccessBody {
   assigned_accounts?: string[];
 }
 
+/**
+ * What the server actually reported, rather than what the caller hoped.
+ *
+ * The old return type was `{ assignedIds, error }`, which could not express the
+ * two outcomes the server takes care to distinguish:
+ *
+ *  - **202** — the selection was committed but the first sync could not be
+ *    scheduled. `response.ok` is true for a 202, so this closed the drawer and
+ *    reported plain success; the operator was never told sync had not started
+ *    and would wait for data that nothing was fetching.
+ *  - **demo** — a 200 that persisted nothing. Reported as a save.
+ *
+ * `selectionSaved` and `syncScheduled` are the server's own two fields, carried
+ * rather than collapsed, which is what the master plan's WP3 item 8 asks for.
+ */
+export interface ProviderAssignmentSaveOutcome {
+  /** Ids the SERVER says are assigned. Never the caller's draft. */
+  assignedIds: string[];
+  /** Non-null when nothing was committed. */
+  error: string | null;
+  /** True only when the server says the selection is durable. */
+  selectionSaved: boolean;
+  /** True only when follow-up sync work was enqueued AND read back. */
+  syncScheduled: boolean;
+  /** True when the workspace is a demo and by design persists nothing. */
+  demo: boolean;
+  /** Shown to the operator when the outcome is not a clean success. */
+  notice: string | null;
+}
+
+interface SaveOutcomeBody extends SaveSuccessBody {
+  selectionSaved?: boolean;
+  syncScheduled?: boolean;
+  demo?: boolean;
+  persisted?: boolean;
+  message?: string;
+}
+
+function readOutcomeBody(payload: unknown): SaveOutcomeBody {
+  return payload && typeof payload === "object" ? (payload as SaveOutcomeBody) : {};
+}
+
 export function getProviderAssignmentTitle(provider: IntegrationProvider | null) {
   if (!provider) return "Assign accounts";
   if (provider === "meta") {
@@ -61,11 +103,31 @@ function hasAssignedAccounts(payload: unknown): payload is SaveSuccessBody {
   return Array.isArray(maybeIds) && maybeIds.every((id) => typeof id === "string");
 }
 
+const SAVE_FAILED = "Could not save account assignments.";
+
 export async function saveProviderAssignments(params: {
   provider: IntegrationProvider;
   businessId: string;
   draftIds: string[];
-}): Promise<{ assignedIds: string[]; error: string | null }> {
+}): Promise<ProviderAssignmentSaveOutcome> {
+  /**
+   * Nothing reached the server, so nothing is assigned.
+   *
+   * Every failure path below returns `assignedIds: []`. The old code returned
+   * the caller's own `draftIds` here, which reads as "these are assigned" —
+   * the request's input presented as its result. A caller that trusted the ids
+   * without also checking `error` would have shown a confirmed selection for a
+   * write that never happened.
+   */
+  const failed = (error: string): ProviderAssignmentSaveOutcome => ({
+    assignedIds: [],
+    error,
+    selectionSaved: false,
+    syncScheduled: false,
+    demo: false,
+    notice: null,
+  });
+
   try {
     const response = await fetch(getProviderSavePath(params.provider, params.businessId), {
       method: "POST",
@@ -78,24 +140,53 @@ export async function saveProviderAssignments(params: {
     const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
+      return failed(
+        (hasErrorMessage(payload) ? payload.message : null) ?? SAVE_FAILED,
+      );
+    }
+
+    const body = readOutcomeBody(payload);
+
+    // A demo workspace persists nothing and says so. Treated as a refusal
+    // rather than a save, because the drawer closing on it would confirm a
+    // selection that does not exist.
+    if (body.demo === true || body.persisted === false) {
       return {
-        assignedIds: params.draftIds,
-        error:
-          (hasErrorMessage(payload) ? payload.message : null) ??
-          "Could not save account assignments.",
+        assignedIds: [],
+        error: null,
+        selectionSaved: false,
+        syncScheduled: false,
+        demo: true,
+        notice: body.message ?? "This workspace does not save account assignments.",
       };
     }
 
+    // `selectionSaved` is the server's word for "committed". Absent means an
+    // older or unreadable body, and an unreadable body is not a commitment.
+    const selectionSaved = body.selectionSaved === true;
+    if (!selectionSaved) {
+      return failed(body.message ?? SAVE_FAILED);
+    }
+
+    const assignedIds = hasAssignedAccounts(payload)
+      ? (payload.assigned_accounts ?? [])
+      : [];
+    const syncScheduled = body.syncScheduled === true;
+
     return {
-      assignedIds: hasAssignedAccounts(payload)
-        ? (payload.assigned_accounts ?? params.draftIds)
-        : params.draftIds,
+      assignedIds,
       error: null,
+      selectionSaved: true,
+      syncScheduled,
+      demo: false,
+      // The 202 case. Saved, but nothing is fetching yet — the operator has to
+      // know that or they will wait for data no worker was asked for.
+      notice: syncScheduled
+        ? null
+        : (body.message ??
+          "Your account selection was saved, but the first sync could not be scheduled yet."),
     };
   } catch {
-    return {
-      assignedIds: params.draftIds,
-      error: "Could not save account assignments.",
-    };
+    return failed(SAVE_FAILED);
   }
 }

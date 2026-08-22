@@ -45,7 +45,27 @@ interface ProviderAssignmentDrawerProps {
   onDisconnect?: (provider: IntegrationProvider) => void;
 }
 
-type FetchState = "idle" | "loading" | "success" | "empty" | "error";
+/**
+ * `degraded` is separate from `empty` on purpose (D8, §9 state 5 vs 6).
+ *
+ * An empty list used to render one screen — "No ad accounts found … or the
+ * required permissions are missing" — for two facts that call for opposite
+ * responses. A read that succeeded and found nothing means the login owns no ad
+ * accounts, and the operator should go look at their Business Manager. A read
+ * that FAILED (expired token, permission denied, provider 5xx, refresh refused)
+ * means we do not know what they own, and the operator should reconnect or
+ * retry. Offering "or the required permissions are missing" as a hedge on both
+ * made the honest case unreadable and the broken case look like a data fact.
+ */
+type FetchState =
+  | "idle"
+  | "loading"
+  | "success"
+  /** Proven: the read succeeded and there genuinely are no accounts. */
+  | "empty"
+  /** The read did not succeed, so the empty list is not evidence of anything. */
+  | "degraded"
+  | "error";
 
 function formatRetryAfter(value: string | null | undefined) {
   if (!value) return null;
@@ -76,6 +96,16 @@ export function ProviderAssignmentDrawer({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  /**
+   * A partial success, which is not an error and must not be painted as one.
+   *
+   * The 202 case — selection committed, first sync not scheduled — is real
+   * progress the operator should keep, so it is held separately from
+   * `saveErrorMessage` and rendered in a warning tone. Reusing the destructive
+   * slot would tell them the save failed when it did not, and the obvious
+   * response to that is to try the save again.
+   */
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -151,7 +181,23 @@ export function ProviderAssignmentDrawer({
           : serverAssignedIds
       );
       initializedForOpenRef.current = `${businessId}:${provider}`;
-      setFetchState(list.length > 0 ? "success" : "empty");
+      /**
+       * An empty list is only "empty" when the read that produced it worked.
+       *
+       * `refreshFailed`, a non-null `failureClass` and a `degraded_blocking`
+       * source health each mean the provider did not answer, so the zero here
+       * is the absence of an answer rather than an answer of zero.
+       */
+      const readDegraded =
+        snapshot.meta?.refreshFailed === true ||
+        // `failureClass` is `null` on a healthy read; every non-null value —
+        // quota, auth, scope, permission, unknown — is a reason the answer is
+        // missing rather than zero.
+        snapshot.meta?.failureClass != null ||
+        snapshot.meta?.sourceHealth === "degraded_blocking";
+      setFetchState(
+        list.length > 0 ? "success" : readDegraded ? "degraded" : "empty",
+      );
       setProviderDiscovery(businessId, provider, {
         status: snapshot.meta?.stale ? "stale" : "ready",
         entities: snapshot.accounts,
@@ -337,6 +383,7 @@ export function ProviderAssignmentDrawer({
 
     setIsSaving(true);
     setSaveErrorMessage(null);
+    setSaveNotice(null);
     const result = await saveProviderAssignments({
       provider,
       businessId,
@@ -344,11 +391,48 @@ export function ProviderAssignmentDrawer({
     });
     if (result.error) {
       setSaveErrorMessage(result.error);
-    } else {
-      const savedIds = result.assignedIds;
-      onSave(provider, savedIds, accounts);
-      onClose();
+      setIsSaving(false);
+      return;
     }
+
+    /**
+     * A demo workspace persisted nothing, so the drawer stays open and says so.
+     *
+     * Closing here would confirm a selection that does not exist: every Meta
+     * surface would then resolve no account and refuse, immediately after the
+     * product told the operator the assignment succeeded.
+     */
+    if (result.demo || !result.selectionSaved) {
+      setSaveErrorMessage(
+        result.notice ?? "Account assignments were not saved.",
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    // Saved. `assignedIds` is the server's list, not the local draft, so a
+    // canonicalised or narrowed selection is reflected rather than overwritten
+    // with what was asked for.
+    onSave(provider, result.assignedIds, accounts);
+
+    if (!result.syncScheduled) {
+      /**
+       * The 202: committed, but no work enqueued.
+       *
+       * `response.ok` is true for a 202, so this used to close the drawer on a
+       * plain success and the operator waited for data nothing was fetching.
+       * The selection IS saved, so it is handed upward first and only then
+       * reported — the notice is about scheduling, not about the save.
+       */
+      setSaveNotice(
+        result.notice ??
+          "Your account selection was saved, but the first sync could not be scheduled yet.",
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    onClose();
     setIsSaving(false);
   }
 
@@ -491,8 +575,35 @@ export function ProviderAssignmentDrawer({
             {fetchState === "empty" ? (
               <DataEmptyState
                 title="No ad accounts found"
-                description={`No ${provider === "google" ? "Google Ads" : "Meta"} ad accounts are available for this login or the required permissions are missing.`}
+                description={`This ${provider === "google" ? "Google Ads" : "Meta"} login was read successfully and owns no ad accounts. Add one in ${provider === "google" ? "Google Ads" : "Meta Business Manager"}, or reconnect with a login that has access.`}
               />
+            ) : null}
+
+            {fetchState === "degraded" ? (
+              <DataEmptyState
+                title="Account list unavailable"
+                description={
+                  noticeMessage ??
+                  `We could not read the ${provider === "google" ? "Google Ads" : "Meta"} account list for this connection, so this is not a list of zero accounts — it is a missing answer. Retry, or reconnect if the connection has expired.`
+                }
+              />
+            ) : null}
+
+            {fetchState === "degraded" ? (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => void loadAccounts({ forceRefresh: true })}
+                  disabled={isRefreshing || quotaCooldownActive}
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Retry
+                </Button>
+              </div>
             ) : null}
 
               {fetchState === "success"
@@ -536,7 +647,22 @@ export function ProviderAssignmentDrawer({
 
         <div className="shrink-0 border-t px-6 py-6">
           {saveErrorMessage ? (
-            <p className="mb-3 text-sm text-destructive">{saveErrorMessage}</p>
+            <p
+              className="mb-3 text-sm text-destructive"
+              role="alert"
+              data-field="assignment-save-error"
+            >
+              {saveErrorMessage}
+            </p>
+          ) : null}
+          {saveNotice ? (
+            <p
+              className="mb-3 text-sm text-[var(--warn,#B45309)]"
+              role="status"
+              data-field="assignment-save-notice"
+            >
+              {saveNotice}
+            </p>
           ) : null}
           <div className="flex items-center gap-2">
             {onDisconnect && provider ? (

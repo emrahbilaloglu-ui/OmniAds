@@ -225,8 +225,41 @@ export async function handleProviderAssignmentRequest(
     new Set((accountIds as string[]).map((id) => id.trim()).filter(Boolean)),
   );
 
+  /**
+   * A demo workspace persists nothing, and must not claim otherwise.
+   *
+   * This branch used to answer `selectionSaved: true` with
+   * `assigned_accounts: requested` — echoing the caller's own ids back as
+   * though they had been written. Nothing was written. No connection was
+   * checked, no discovery snapshot was consulted, and the ids were never
+   * validated against one, so the echoed list could name accounts that do not
+   * exist. The operator saw a successful assignment, the drawer closed, and
+   * every Meta surface then resolved no account at all — the surface refusing
+   * for a selection the product had just confirmed.
+   *
+   * The response now says what happened: the request was accepted and had no
+   * effect. `persisted` and `demo` are explicit rather than implied by the
+   * absence of something, because a reader that does not know to look for a
+   * missing field will read this as a save.
+   *
+   * `assigned_accounts` is empty rather than echoed. Returning the request as
+   * the result is the specific lie this is fixing, and returning it "just for
+   * the UI" would preserve it exactly where it does its damage.
+   */
   if (await isDemoBusiness(businessId)) {
-    return json({ success: true, assigned_accounts: requested, selectionSaved: true, syncScheduled: false }, 200);
+    return json(
+      {
+        success: false,
+        demo: true,
+        persisted: false,
+        assigned_accounts: [],
+        selectionSaved: false,
+        syncScheduled: false,
+        message:
+          "This is a demo workspace, so account assignments are not saved. Nothing was changed.",
+      },
+      200,
+    );
   }
 
   // An EMPTY selection is a revocation, and revocation is a safety action.

@@ -56,6 +56,7 @@ import {
   jsonError,
   readJsonBody,
   rejectIfLaunchpadExecutionGated,
+  rejectIfLaunchpadMetaWritesBlocked,
   rejectIfLaunchpadReviewerReadOnly,
   requireLaunchpadBusinessAccess,
   sanitizeErrorMessage,
@@ -281,6 +282,23 @@ export async function POST(request: NextRequest) {
    */
   const executionGated = rejectIfLaunchpadExecutionGated("launchpad_launch");
   if (executionGated) return executionGated;
+  /**
+   * The Meta Stop, which this route did not consult.
+   *
+   * Decisions and Automation both gate on `getMetaWriteBlockState`; Launchpad
+   * did not, so an engaged business kill switch — or an incident responder
+   * setting META_ADS_WRITE_KILL_SWITCH — stopped every Meta write except a
+   * Launchpad create. A stop that is global in the operator's mind and partial
+   * in fact is the worst thing a safety control can be. §10 step 8.
+   *
+   * After the execution gate, which is the cheaper refusal and costs no
+   * database read.
+   */
+  const metaWritesBlocked = await rejectIfLaunchpadMetaWritesBlocked(
+    access.businessId,
+    "launchpad_launch",
+  );
+  if (metaWritesBlocked) return metaWritesBlocked;
   const manualAuthority = evaluateMetaLaunchpadManualAuthority(body);
   if (!manualAuthority.ok) {
     return jsonError(

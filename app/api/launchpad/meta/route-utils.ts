@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import type { MembershipRole } from "@/lib/auth";
@@ -163,6 +164,47 @@ export function rejectIfLaunchpadExecutionGated(
     503,
     "launchpad_execution_disabled",
     META_GATE_REFUSAL_REASONS.launchpadExecution,
+    { operation },
+  );
+}
+
+/**
+ * The Meta Stop, enforced on Launchpad too.
+ *
+ * `getMetaWriteBlockState` is the server's single answer to "may this workspace
+ * write to Meta right now". Decisions and Automation both consult it; Launchpad
+ * did not, so an operator who engaged the business kill switch — or an incident
+ * responder who set `META_ADS_WRITE_KILL_SWITCH` — could still create campaigns,
+ * ad sets and ads from Launchpad. The stop was global in the operator's mind and
+ * partial in fact, which is the worst combination a safety control can have.
+ *
+ * It also covers the demo workspace and the fail-closed
+ * `control_state_unavailable` case, so an unreadable control plane blocks the
+ * write rather than admitting it by default.
+ *
+ * Returns a response when the write must not proceed, `null` when it may.
+ * Placed after the execution gate: a closed gate is the cheaper refusal and
+ * costs no database read.
+ */
+export async function rejectIfLaunchpadMetaWritesBlocked(
+  businessId: string,
+  operation: "launchpad_launch" | "launchpad_add_to_existing",
+) {
+  const block = await getMetaWriteBlockState({ businessId }).catch(() => ({
+    // An unreadable control plane is a refusal, never an admission. This mirrors
+    // `getMetaWriteBlockState`'s own fail-closed behaviour for the case where
+    // the call itself throws rather than returning a blocked state.
+    blocked: true as const,
+    reason: "control_state_unavailable" as const,
+    message:
+      "Meta write authority could not be confirmed for this workspace, so nothing was sent.",
+  }));
+  if (!block.blocked) return null;
+  return jsonError(
+    block.reason === "demo_business_read_only" ? 403 : 503,
+    block.reason ?? "meta_writes_blocked",
+    block.message ??
+      "Meta writes are currently stopped for this workspace, so nothing was sent.",
     { operation },
   );
 }

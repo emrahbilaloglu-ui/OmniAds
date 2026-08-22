@@ -76,3 +76,41 @@ describe("Launchpad execution gate (server side)", () => {
     expect(message).toMatch(/validat/i);
   });
 });
+
+describe("the Meta Stop reaches Launchpad", () => {
+  it("names the kill-switch guard in both write routes", async () => {
+    /**
+     * Decisions and Automation both gate on `getMetaWriteBlockState`; Launchpad
+     * did not. An engaged business kill switch — or an incident responder
+     * setting `META_ADS_WRITE_KILL_SWITCH` — therefore stopped every Meta write
+     * except a Launchpad create. A stop that is global in the operator's mind
+     * and partial in fact is the worst thing a safety control can be.
+     *
+     * Asserted at source level because both routes are ~1 000 lines of
+     * orchestration whose behavioural coverage lives in their own suites; what
+     * needs pinning here is that the guard is present and ordered after the
+     * cheaper gate.
+     */
+    const { readFileSync } = await import("node:fs");
+    for (const file of [
+      "app/api/launchpad/meta/launch/route.ts",
+      "app/api/launchpad/meta/add-to-existing/route.ts",
+    ]) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).toContain("rejectIfLaunchpadMetaWritesBlocked");
+      expect(
+        source.indexOf("rejectIfLaunchpadExecutionGated("),
+        file,
+      ).toBeLessThan(source.indexOf("rejectIfLaunchpadMetaWritesBlocked("));
+    }
+  });
+
+  it("refuses when the control plane cannot be read", async () => {
+    // Fail-closed: an unreadable control plane must block the write rather than
+    // admit it by default.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("app/api/launchpad/meta/route-utils.ts", "utf8");
+    expect(source).toContain("blocked: true as const");
+    expect(source).toContain("control_state_unavailable");
+  });
+});

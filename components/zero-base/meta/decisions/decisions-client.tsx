@@ -39,6 +39,10 @@ import {
 } from "@/lib/zero-base/meta/decisions-url-state";
 import { indexWorkflows, type WorkflowLoadState } from "@/lib/zero-base/meta/workflow-view-model";
 import type { WorkflowRecord } from "@/lib/decision-workflow";
+import {
+  readDecisionWorkflow,
+  submitDecisionWorkflow,
+} from "@/lib/meta/decision-workflow-client";
 import type { WorkflowEvent } from "@/lib/decision-workflow-store";
 import type { MutationAction, TerminalOutcome } from "@/lib/zero-base/meta/mutation-ceremony";
 import type { DispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
@@ -140,50 +144,26 @@ export function DecisionsClient({
   const servedKey = model ? model.servedIds.join(",") : "";
   useEffect(() => {
     if (!servedKey) return;
-    let cancelled = false;
+    const controller = new AbortController();
     setWorkflowState({ kind: "loading" });
-    (async () => {
-      const params = new URLSearchParams({
-        contract: "zero-base.v1",
-        businessId,
-        decisionKeys: servedKey,
-      });
-      if (state.selected) params.set("decisionKey", state.selected);
-      try {
-        const response = await fetch(`/api/meta/decision-workflow?${params.toString()}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          if (!cancelled) {
-            // Never fall back to "open": an unread overlay is unknown, and
-            // showing the default would claim nobody owns these decisions.
-            setWorkflowState({
-              kind: "error",
-              reason: "Workflow state could not be read, so it is shown as unknown.",
-            });
-          }
-          return;
-        }
-        const json = (await response.json()) as {
-          workflows: WorkflowRecord[];
-          events: WorkflowEvent[];
-        };
-        if (cancelled) return;
-        setWorkflows(json.workflows ?? []);
-        setEvents(json.events ?? []);
-        setWorkflowState({ kind: "ready" });
-      } catch {
-        if (!cancelled) {
-          setWorkflowState({
-            kind: "error",
-            reason: "Workflow state could not be reached, so it is shown as unknown.",
-          });
-        }
+    void readDecisionWorkflow({
+      businessId,
+      decisionKeys: servedKey.split(","),
+      selectedDecisionKey: state.selected,
+      signal: controller.signal,
+    }).then((outcome) => {
+      if (controller.signal.aborted) return;
+      if (!outcome.ok) {
+        // Never falls back to "open": an unread overlay is unknown, and showing
+        // the default would claim nobody owns these decisions.
+        setWorkflowState({ kind: "error", reason: outcome.reason });
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setWorkflows(outcome.workflows);
+      setEvents(outcome.events);
+      setWorkflowState({ kind: "ready" });
+    });
+    return () => controller.abort();
   }, [businessId, servedKey, state.selected, workflowNonce]);
 
   const onStateChange = useCallback(
@@ -197,47 +177,11 @@ export function DecisionsClient({
   );
 
   const submitWorkflow = useCallback(
-    async (decisionKey: string, submit: WorkflowSubmit): Promise<WorkflowSubmitResult> => {
-      try {
-        const response = await fetch("/api/meta/decision-workflow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ businessId, decisionKey, ...submit }),
-        });
-        const json = (await response.json().catch(() => null)) as {
-          workflow?: WorkflowRecord;
-          replayed?: boolean;
-          current?: WorkflowRecord;
-          message?: string;
-          error?: string;
-        } | null;
-
-        if (response.status === 409 && json?.current) {
-          return {
-            ok: false,
-            kind: "conflict",
-            current: json.current,
-            message:
-              json.message ??
-              "This decision changed while you were looking at it.",
-          };
-        }
-        if (!response.ok || !json?.workflow) {
-          return {
-            ok: false,
-            kind: "error",
-            message: json?.message ?? `The workflow change was not recorded (HTTP ${response.status}).`,
-          };
-        }
-        return { ok: true, workflow: json.workflow, replayed: json.replayed === true };
-      } catch (error) {
-        return {
-          ok: false,
-          kind: "error",
-          message: error instanceof Error ? error.message : "The workflow overlay could not be reached.",
-        };
-      }
-    },
+    async (decisionKey: string, submit: WorkflowSubmit): Promise<WorkflowSubmitResult> =>
+      // One implementation, shared with the production Decisions body. Both
+      // surfaces therefore agree about what a 409 means and which field carries
+      // the version — they used to have separate copies of that reasoning.
+      submitDecisionWorkflow({ businessId, decisionKey, submit }),
     [businessId],
   );
 

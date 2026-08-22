@@ -90,6 +90,9 @@ import { formatCurrency } from "@/lib/briefing/utils";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useDecisionWorkflow } from "@/components/meta/redesign/use-decision-workflow";
+import { buildDecisionWorkflowViewModel } from "@/components/meta/redesign/decision-workflow-view-model";
+import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
@@ -129,6 +132,14 @@ interface MetaPlatformPageProps {
    * and a client must not mint scope it has not had verified.
    */
   serverProviderAccountId?: string | null;
+  /**
+   * Whether decision ownership actions may run, read from the server's gate.
+   *
+   * `undefined` is a mount that proved nothing, and an unproven gate is closed
+   * — the same fail-closed reading Launchpad's `executionEnabled` uses. The
+   * workflow STATE is shown regardless; only the transitions are gated.
+   */
+  decisionWorkflowUiEnabled?: boolean;
 }
 
 type AuthorizedMetaNativeAdPause = Extract<
@@ -3071,7 +3082,11 @@ export function MetaPlatformPage({
   businessId,
   businessName,
   serverProviderAccountId = null,
+  decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
 }: MetaPlatformPageProps) {
+  // `=== true` rather than `?? false`: any value other than a server's explicit
+  // true reads as closed.
+  const decisionWorkflowUiEnabled = authorizedWorkflowUiEnabled === true;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -4422,6 +4437,59 @@ export function MetaPlatformPage({
       }),
     [moneyCurrency, rowSearch, workspaceQuery.data],
   );
+  /**
+   * The operator workflow overlay, on the body an operator actually reaches.
+   *
+   * `/api/meta/decision-workflow` has carried all seven transitions with
+   * `expectedVersion` optimistic concurrency for some time; its only caller
+   * lived in a zero-base Decisions body that no route mounts (plan §5.1
+   * finding 14). D2 says port the behaviour into the production visual owner,
+   * so it is read here and rendered in the inspector's own Workflow section.
+   *
+   * The served keys are the decision ids this render is showing. They are
+   * capped, because the endpoint caps its own key list and sending more than it
+   * accepts would turn a partial answer into an unread overlay for every row.
+   */
+  const servedDecisionKeys = useMemo(
+    () =>
+      [
+        ...exactActionRows,
+        ...exactWatchingRows,
+        ...exactNonSalesRows,
+      ]
+        .map((recommendation) => recommendation.id)
+        .filter(Boolean)
+        .slice(0, DECISION_WORKFLOW_KEY_CAP),
+    [exactActionRows, exactNonSalesRows, exactWatchingRows],
+  );
+  const selectedDecisionKey =
+    drillItem && drillItem.mode !== "anomaly" ? drillItem.rec.id : null;
+  /**
+   * The actions ship refused.
+   *
+   * The design draws the workflow's OUTPUT — a "Deferred" watch segment and a
+   * "Let cook until …" row note — but draws no assign / acknowledge / snooze /
+   * resolve controls. §18 of the plan says a write control the design does not
+   * carry is not added on this pass: it ships absent-with-reason, or in a
+   * separately approved round. So the state is shown (which the design already
+   * implies) and the controls are present and refusing, behind
+   * `META_DECISION_WORKFLOW_UI`, which defaults off.
+   *
+   * A reviewer or a read-only viewer is refused first, because that is the more
+   * specific fact and the one they can act on.
+   */
+  const workflowActionsRefusedReason = isViewerReadOnly
+    ? viewerReadOnlyReason
+    : !decisionWorkflowUiEnabled
+      ? "Decision ownership actions are not enabled on this workspace yet. The current state is shown above."
+      : null;
+  const workflow = useDecisionWorkflow({
+    businessId,
+    servedDecisionKeys,
+    selectedDecisionKey,
+    enabled: decisionWorkflowUiEnabled,
+  });
+
   const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
     ? buildMetaDecisionCenterExactViewModel({
         workspace: workspaceQuery.data,
@@ -4495,6 +4563,35 @@ export function MetaPlatformPage({
           currency: moneyCurrency,
         },
       };
+
+  /**
+   * The Workflow section, composed onto the inspector the adapter already
+   * built.
+   *
+   * Composed here rather than threaded through
+   * `buildMetaDecisionCenterExactViewModel`, because the adapter's job is to
+   * turn the workspace payload into presentation and the workflow overlay is a
+   * separate read with its own lifecycle. Threading it through would give the
+   * adapter a dependency on a fetch it does not perform.
+   */
+  const inspectorWorkflow = selectedDecisionKey
+    ? buildDecisionWorkflowViewModel({
+        readState: workflow.readState,
+        unavailableReason: workflow.unavailableReason,
+        record: workflow.recordFor(selectedDecisionKey),
+        actionsRefusedReason: workflowActionsRefusedReason,
+        onAction: (action, record) => {
+          void workflow.submit(selectedDecisionKey, action, record);
+        },
+      })
+    : null;
+  const exactViewModelWithWorkflow: MetaDecisionCenterExactViewModel =
+    inspectorWorkflow && exactViewModel.inspector
+      ? {
+          ...exactViewModel,
+          inspector: { ...exactViewModel.inspector, workflow: inspectorWorkflow },
+        }
+      : exactViewModel;
 
   // Served authority the mobile surface states beside its rows. Read-only
   // projection of already-fetched fields: no extra query, no derivation.
@@ -4700,7 +4797,9 @@ export function MetaPlatformPage({
       ) : drillItem ? (
         <MetaMobileEvidenceScreen
           item={drillItem}
-          inspector={exactViewModel.inspector}
+          // The same composed inspector the desktop reads, so the phone shows
+          // the same ownership state rather than a version without it.
+          inspector={exactViewModelWithWorkflow.inspector}
           targetRoas={targetRoas}
           moneyCurrency={moneyCurrency}
           onBack={() => setDrillItem(null)}
@@ -4938,7 +5037,7 @@ export function MetaPlatformPage({
 
         {workspaceQuery.data ? (
           <MetaDecisionCenterExact
-            viewModel={exactViewModel}
+            viewModel={exactViewModelWithWorkflow}
             lane={exactLaneForMetaLane(activeLane)}
             scope={activeScope}
             onScopeChange={selectScope}

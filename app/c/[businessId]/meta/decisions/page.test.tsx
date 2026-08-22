@@ -139,6 +139,12 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: "act_assigned",
+      // Stated rather than left absent, and false because nothing set
+      // META_DECISION_WORKFLOW_UI here. The workflow overlay's shipped state is
+      // off (§18: the design draws no ownership controls, so they wait for the
+      // owner's separately approved round), and a route forwarding `undefined`
+      // would leave the body guessing at a fact the server just read.
+      decisionWorkflowUiEnabled: false,
     });
     expect(legacyInteriorBridge).not.toHaveBeenCalled();
   });
@@ -187,6 +193,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessName: "Route Business",
       currency: "TRY",
       serverProviderAccountId: null,
+      decisionWorkflowUiEnabled: false,
     });
     expect(legacyMetaPage.mock.calls[0]?.[0]).not.toHaveProperty(
       "providerAccountId",

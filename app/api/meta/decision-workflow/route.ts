@@ -1,5 +1,6 @@
 import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
+import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { findMembership, requireBusinessAccess } from "@/lib/access";
 import {
   applyWorkflowTransition,
@@ -27,7 +28,10 @@ const ACTIONS: WorkflowAction[] = [
 ];
 
 /** Most decision keys one canonical page may ask about in a single read. */
-const ZERO_BASE_MAX_KEYS = 200;
+// A route module may export only what Next.js accepts
+// (`app/api/route-export-surface.test.ts`), so the shared constant lives in
+// `lib/meta/decision-workflow-limits.ts` and is imported here.
+const ZERO_BASE_MAX_KEYS = DECISION_WORKFLOW_KEY_CAP;
 
 /** Read who owns a decision and what has been done about it. */
 export async function GET(request: NextRequest) {

@@ -6,6 +6,7 @@ import { requireBusinessPageContext } from "@/lib/access/require-business-page-c
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,14 @@ export default async function MetaDecisionsPage({
       businessName={business?.name ?? null}
       currency={business?.currency ?? null}
       serverProviderAccountId={providerAccountId}
+      /*
+       * Read on the server and forwarded. The workflow STATE is rendered
+       * regardless — the design already draws its output as a "Deferred" watch
+       * segment and a "Let cook until …" row note — but the seven transitions
+       * are controls the design does not draw, so §18 keeps them refused until
+       * the owner's separately approved round. Defaults off.
+       */
+      decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
     />
   );
 }

@@ -19,6 +19,11 @@ interface MetaPageProps {
   // never widen: the resolver refuses an unassigned id and refuses to choose on
   // behalf of a multi-account business.
   serverProviderAccountId?: string | null;
+  /**
+   * Forwarded verbatim from the route's own gate read. This shim never decides
+   * it; an absent value stays absent so the body's fail-closed reading applies.
+   */
+  decisionWorkflowUiEnabled?: boolean;
 }
 
 /**
@@ -139,6 +144,7 @@ export default function MetaPage({
   businessName: authorizedBusinessName = null,
   currency: authorizedCurrency = null,
   serverProviderAccountId = null,
+  decisionWorkflowUiEnabled,
 }: MetaPageProps = {}) {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -190,6 +196,7 @@ export default function MetaPage({
       businessName={authorizedBusinessName ?? business?.name ?? null}
       currency={authorizedCurrency ?? business?.currency ?? null}
       serverProviderAccountId={serverProviderAccountId}
+      decisionWorkflowUiEnabled={decisionWorkflowUiEnabled}
     />
   );
 }

@@ -1687,3 +1687,55 @@
     gap: 2px;
   }
 }
+
+/*
+ * Workflow overlay controls, inside the existing evidence inspector.
+ *
+ * Reuses the inspector's own type scale, border colour and radius rather than
+ * introducing a control style: the design draws a "Deferred" segment and a
+ * row-level Dismiss button in exactly this vocabulary, and this is the same
+ * vocabulary applied to the same information in the panel that already
+ * describes the selected row.
+ */
+.workflowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.workflowAction {
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #7a869e;
+  font-family: inherit;
+  /*
+   * 12px, not the design's 11.5px.
+   *
+   * The reference's own Dismiss button is 11.5px, but that size is pinned
+   * inside the canonical-reference type marker for elements the design draws.
+   * This control is an addition, so it meets the readable floor
+   * (`lib/typography-floor.test.ts`) rather than inheriting an exemption that
+   * was granted to a different element.
+   */
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workflowAction:hover:not([aria-disabled="true"]) {
+  background: #f7f9fc;
+}
+
+/*
+ * Refused, but still reachable. `aria-disabled` keeps the control in the tab
+ * order so its `title` reason can be read; the cursor and opacity say the same
+ * thing to a sighted operator.
+ */
+.workflowAction[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

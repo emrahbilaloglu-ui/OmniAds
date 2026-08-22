@@ -289,6 +289,48 @@ export interface MetaDecisionCenterExactSourceProvenanceViewModel {
   capabilityGaps?: readonly MetaDecisionCenterExactCapabilityGapViewModel[];
 }
 
+/** One of the seven transitions, plus what the surface may do with it. */
+export interface MetaDecisionCenterExactWorkflowAction {
+  readonly id:
+    | "assign"
+    | "acknowledge"
+    | "defer"
+    | "snooze"
+    | "reject"
+    | "resolve"
+    | "reopen";
+  readonly label: string;
+  /**
+   * Non-null exactly when the action may not run. Rendered on the control
+   * itself, which stays focusable and `aria-disabled` rather than `disabled` —
+   * a control that leaves the tab order takes its own explanation with it.
+   */
+  readonly refusalReason: string | null;
+  readonly onSelect?: () => void;
+}
+
+export interface MetaDecisionCenterExactWorkflow {
+  /** `unknown` is a read that failed, never a default. */
+  readonly state:
+    | "open"
+    | "acknowledged"
+    | "deferred"
+    | "snoozed"
+    | "rejected"
+    | "resolved"
+    | "unknown";
+  readonly stateLabel: MetaDecisionCenterExactDisplayValue;
+  /** Who holds it, or the unavailable mark. Never "unassigned" by inference. */
+  readonly assignee: MetaDecisionCenterExactDisplayValue;
+  /** The design's own "Let cook until …" line, from the record's snoozeUntil. */
+  readonly holdUntil: MetaDecisionCenterExactDisplayValue;
+  /** Present when the overlay could not be read. */
+  readonly unavailableReason?: string | null;
+  readonly actions: readonly MetaDecisionCenterExactWorkflowAction[];
+  /** The one sentence explaining why every action is refused, when they all are. */
+  readonly actionsRefusedReason?: string | null;
+}
+
 export interface MetaDecisionCenterExactInspectorViewModel {
   entityName?: MetaDecisionCenterExactDisplayValue;
   entityMeta?: MetaDecisionCenterExactDisplayValue;
@@ -312,6 +354,20 @@ export interface MetaDecisionCenterExactInspectorViewModel {
    * producer is not persisted" without reading it as a refusal.
    */
   advisories?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * The operator workflow overlay for THIS decision (WP8).
+   *
+   * Ownership state, not engine truth. Nothing here can change a decision's
+   * label, its authority, or whether a provider action is permitted —
+   * `lib/decision-workflow.ts` owns that separation and this only renders its
+   * result. A decision that is deferred is still exactly as true as it was.
+   *
+   * `null` means the surface was not given one, which is different from a read
+   * that failed: the read failure arrives as `state: "unknown"` with a reason,
+   * because rendering "open" for an unread overlay would claim nobody owns
+   * these decisions on no evidence at all.
+   */
+  workflow?: MetaDecisionCenterExactWorkflow | null;
   evidence?: readonly {
     id: string;
     label?: MetaDecisionCenterExactDisplayValue;
@@ -1503,6 +1559,64 @@ function EvidenceInspector({
             <p className={`${styles.blockersCopy} ${toneClass("neutral")}`}>
               {display(model?.advisories)}
             </p>
+          </div>
+        ) : null}
+        {model?.workflow ? (
+          <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
+            <p className={styles.inspectorSectionLabel}>Workflow</p>
+            {model.workflow.unavailableReason ? (
+              /*
+                A failed read is said, not defaulted. Rendering "open" here
+                would claim nobody owns these decisions — a statement about
+                other people's work made on no evidence.
+              */
+              <p className={styles.contractCopy} role="status">
+                {model.workflow.unavailableReason}
+              </p>
+            ) : (
+              <>
+                <p className={styles.contractCopy}>
+                  {display(model.workflow.stateLabel)}
+                  {" · "}
+                  {display(model.workflow.assignee)}
+                </p>
+                {meaningfulDisplay(model.workflow.holdUntil) ? (
+                  <p className={styles.inspectorMeta}>
+                    {display(model.workflow.holdUntil)}
+                  </p>
+                ) : null}
+              </>
+            )}
+            {model.workflow.actions.length > 0 ? (
+              <div className={styles.workflowActions}>
+                {model.workflow.actions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={styles.workflowAction}
+                    data-workflow-action={action.id}
+                    /*
+                      `aria-disabled`, not `disabled`. A disabled button leaves
+                      the tab order and takes its own explanation with it, so a
+                      keyboard or screen-reader operator would find nothing here
+                      and no reason why.
+                    */
+                    aria-disabled={action.refusalReason ? true : undefined}
+                    title={action.refusalReason ?? undefined}
+                    onClick={
+                      action.refusalReason ? undefined : action.onSelect
+                    }
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {model.workflow.actionsRefusedReason ? (
+              <p className={styles.inspectorMeta} data-workflow-refusal>
+                {model.workflow.actionsRefusedReason}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {evidence.map((item, index) => (

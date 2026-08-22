@@ -13,6 +13,7 @@
  * metric: sections carry counts and states the read models themselves produced.
  */
 import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
+import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   getMetaCanonicalOverviewSummary,
@@ -36,6 +37,17 @@ export interface IntelligenceSection {
   label: string;
   state: ProviderSourceState;
   reason: string | null;
+  /**
+   * The §9.1 code behind a `degraded` section, when the failure was classified.
+   *
+   * Carried so a reader can branch on the cause — a schema migration and an
+   * expired token need different remedies — without parsing the sentence. The
+   * sentence is for the operator; this is for the code.
+   *
+   * Absent on a healthy section and on one that reported its own unavailability
+   * in its own words, because neither is a classified read failure.
+   */
+  failureCode?: string;
   observedAt: string | null;
   facts: IntelligenceFact[];
 }
@@ -119,14 +131,32 @@ function section(
   outcome: PromiseSettledResult<SectionOutcome | null>,
 ): IntelligenceSection {
   if (outcome.status === "rejected") {
+    /**
+     * Classified, not printed verbatim.
+     *
+     * This used to render `outcome.reason.message` straight onto the screen.
+     * A driver error carries the failing SQL, table and column names and
+     * sometimes bound parameters; a fetch error carries the URL, which for a
+     * provider call can carry an access token. And beyond the leak, `relation
+     * "meta_page_status" does not exist` tells a media buyer nothing they can
+     * act on, while "a pending database migration has not been applied" tells
+     * them it is not their data and not their fault.
+     *
+     * The raw text is kept — logged here, where only an operator of the system
+     * can read it — and stops being the sentence on the screen.
+     */
+    const failure = classifySourceFailure(outcome.reason);
+    console.warn("[meta-intelligence] source read failed", {
+      section: key,
+      code: failure.code,
+      detail: failure.detail,
+    });
     return {
       key,
       label,
       state: "degraded",
-      reason:
-        outcome.reason instanceof Error
-          ? outcome.reason.message
-          : "This source could not be read.",
+      reason: failure.message,
+      failureCode: failure.code,
       observedAt: null,
       facts: [],
     };

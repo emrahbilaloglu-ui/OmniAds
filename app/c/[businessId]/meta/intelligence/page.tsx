@@ -8,6 +8,7 @@ import { readMetaIntelligence } from "@/lib/zero-base/meta/intelligence-server";
 import { resolveIntelligenceWindow } from "@/lib/zero-base/meta/intelligence-window";
 import { getTodayIsoForTimeZone } from "@/lib/dashboard/date-window-presets";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
+import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 
 export const dynamic = "force-dynamic";
@@ -81,14 +82,28 @@ export default async function MetaIntelligencePage({
     providerAccountId,
     startDate,
     endDate,
-  }).catch((error: unknown) => ({
-    providerAccountId: null,
-    sections: [],
-    unavailableReason:
-      error instanceof Error
-        ? error.message
-        : "Account intelligence could not be composed for this business.",
-  }));
+  }).catch((error: unknown) => {
+    /**
+     * Classified, not printed.
+     *
+     * This rendered the thrown error's own text as the page's unavailable
+     * reason — the same leak `section()` used to have one level down. A driver
+     * error carries the failing SQL and table names; a fetch error carries the
+     * URL, which for a provider call can carry an access token. The raw text is
+     * logged here and the operator reads a sentence they can act on.
+     */
+    const failure = classifySourceFailure(error);
+    console.error("[meta-intelligence] surface could not be composed", {
+      businessId,
+      code: failure.code,
+      detail: failure.detail,
+    });
+    return {
+      providerAccountId: null,
+      sections: [],
+      unavailableReason: failure.message,
+    };
+  });
 
   return (
     <IntelligenceView
@@ -102,6 +117,25 @@ export default async function MetaIntelligencePage({
       }))}
       unavailableReason={intelligence.unavailableReason}
       window={{ startDate, endDate }}
+      /*
+       * Absent-with-reason rather than absent.
+       *
+       * The design draws no run-snapshot control on this screen, so §18 keeps
+       * it out of this pass. Passing `canRun: false` with a reason renders the
+       * control disabled and explained instead of omitting it — a control that
+       * simply is not there reads as "this product cannot do that", which is
+       * false: `/api/meta/snapshot` exists and the capability is real.
+       *
+       * A read-only viewer is told the more specific fact, because that is the
+       * one they can act on.
+       */
+      snapshot={{
+        canRun: false,
+        reason: access.context.reviewerReadOnly
+          ? "Reviewer access is read-only, so a snapshot cannot be queued from here."
+          : "Queuing a snapshot from this screen is not enabled yet. The sections above show the last snapshot that was taken.",
+        queued: false,
+      }}
     />
   );
 }

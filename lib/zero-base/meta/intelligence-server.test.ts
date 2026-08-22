@@ -248,13 +248,75 @@ describe("one failing authority degrades one row, not the page", () => {
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
-  it("marks the failed source degraded with its own verbatim reason", async () => {
+  it("marks the failed source degraded with a classified reason, not the raw error", async () => {
+    /**
+     * Was: `expect(summary.reason).toBe("summary source is down")` — the thrown
+     * error's own text, rendered onto the operator's screen.
+     *
+     * That leaks and it does not help. A driver error carries the failing SQL,
+     * table and column names and sometimes bound parameters; a fetch error
+     * carries the URL, which for a provider call can carry an access token. And
+     * `relation "meta_page_status" does not exist` tells a media buyer nothing
+     * they can act on. The raw text is still kept — logged server-side, where
+     * only an operator of the system reads it — and stops being the sentence on
+     * the screen. WP9: "Ham Error.message basılmaz."
+     */
     const result = await read();
     const summary = result.sections.find((s) => s.key === "summary")!;
     expect(summary.state).toBe("degraded");
-    expect(summary.reason).toBe("summary source is down");
     // Degraded, not unavailable: a failed read is not the same as nothing to give.
     expect(summary.state).not.toBe("unavailable");
+    expect(summary.reason).not.toBe("summary source is down");
+    expect(summary.reason).not.toContain("summary source is down");
+    expect(summary.failureCode).toBe("source_read_failed");
+    // Still says the read failed and the gap is unknown rather than zero.
+    expect(summary.reason).toContain("incomplete");
+  });
+
+  it("classifies a missing relation as a migration, not as a mystery", async () => {
+    // The remedy differs, so the code has to: a schema gap is not something the
+    // operator can fix by retrying, and telling them it is wastes their time.
+    const missingRelation = Object.assign(
+      new Error('relation "meta_page_status" does not exist'),
+      { code: "42P01" },
+    );
+    getMetaCanonicalOverviewSummary.mockRejectedValue(missingRelation);
+    const result = await read();
+    const summary = result.sections.find((s) => s.key === "summary")!;
+    expect(summary.failureCode).toBe("schema_not_ready");
+    expect(summary.reason).not.toContain("meta_page_status");
+  });
+
+  it("classifies an expired provider token as a reconnect", async () => {
+    getMetaCanonicalOverviewSummary.mockRejectedValue(
+      new Error("Meta access token has expired. Please reconnect Meta integration."),
+    );
+    const result = await read();
+    const summary = result.sections.find((s) => s.key === "summary")!;
+    expect(summary.failureCode).toBe("provider_auth_expired");
+    expect(summary.reason).toContain("Reconnect");
+  });
+
+  it("never puts the raw error text into the served payload", async () => {
+    /**
+     * The leak, closed at the boundary rather than at each render site.
+     *
+     * `classifySourceFailure` keeps the raw text in `detail` for the server log
+     * and returns only the contracted sentence. This walks the whole served
+     * payload — every section, every fact, every reason — and asserts the
+     * thrown text appears nowhere in it, so a future field that forwards it
+     * fails here rather than on an operator's screen.
+     */
+    getMetaCanonicalOverviewSummary.mockRejectedValue(
+      new Error(
+        "request to https://graph.facebook.com/v20.0/act_1?access_token=EAAsecret123 failed",
+      ),
+    );
+    const result = await read();
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("EAAsecret123");
+    expect(serialized).not.toContain("access_token");
+    expect(serialized).not.toContain("graph.facebook.com");
   });
 
   it("leaves every other section serving", async () => {

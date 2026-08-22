@@ -15,6 +15,7 @@ import type {
   MetaAutomationProposal,
   MetaAutomationProposalHoldCounts,
 } from "@/lib/meta/automation-proposals";
+import { metaFailureMessage } from "@/lib/meta/read-state-contract";
 import {
   createAutomationRuleRequest,
   setAutomationRuleActiveRequest,
@@ -229,9 +230,27 @@ const READ_FAILURE_MESSAGES: Record<string, string> = {
     "You do not have access to this business's Automation controls, so nothing below was read.",
 };
 
+/**
+ * This screen's own sentence first, then the shared contract, then the general
+ * one.
+ *
+ * The local dictionary stays first because its wording is specific to what this
+ * screen shows — "the kill switch, guardrails and readiness above are unknown"
+ * names the four values the operator is looking at, which a shared sentence
+ * cannot. But a code this screen has never heard of should not fall straight to
+ * the general "Automation could not be read" when
+ * `lib/meta/read-state-contract.ts` already has an operator sentence for it:
+ * that is how an expired connection was reported as an unexplained read
+ * failure.
+ *
+ * The general fallback stays last for a code neither dictionary knows. It is
+ * honest — something failed and the figures are unknown rather than zero — and
+ * it is the only case where the screen genuinely has nothing more specific.
+ */
 function readFailureMessage(code: string) {
   return (
     READ_FAILURE_MESSAGES[code] ??
+    metaFailureMessage(code) ??
     READ_FAILURE_MESSAGES.automation_control_plane_unavailable!
   );
 }

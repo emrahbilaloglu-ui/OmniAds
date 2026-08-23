@@ -7,6 +7,14 @@ Date: 2026-08-22
 Fifteen commits, one per work package or package pair, each independently
 revertible. 132 files, +11 689 / −243.
 
+> **Superseded.** The status table below was written before any surface had
+> been exercised at runtime, and it is wrong in both directions — it marks
+> packages DONE that had no runtime proof, and it does not record the sixteen
+> defects the first runtime run found. The corrected status is
+> `docs/meta-market-ready/RUNTIME_EVIDENCE_AND_STATUS.md`, at HEAD
+> `7a3d00a19`. This file is kept as the record of what was believed on
+> 2026-08-22.
+
 ## Status by work package
 
 | WP | Commit | State |

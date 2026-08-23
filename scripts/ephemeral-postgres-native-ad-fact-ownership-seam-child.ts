@@ -1695,24 +1695,26 @@ async function ageManualMutationJournal(
   );
   try {
     await client.query(
-      `WITH authority_time AS (
+      /*
+       * One clock reading, four offsets.
+       *
+       * `clock_timestamp()` advances on every call, and the four calls this used
+       * to make were each truncated to the millisecond independently. The
+       * constraint is `lease_deadline <= started_at + interval '2 minutes'` and
+       * the offsets are exactly ten and eight minutes, so the row sits on the
+       * boundary: whenever the two readings straddled a millisecond the deadline
+       * landed 1ms past the limit and `migrations-from-zero` failed with
+       * "violates check constraint meta_ads_action_mutation_attempt_time_check".
+       * Intermittent, and nothing to do with the schema it was testing.
+       */
+      `WITH clock AS (SELECT date_trunc('milliseconds', clock_timestamp()) AS at),
+       authority_time AS (
          SELECT
-           date_trunc(
-             'milliseconds',
-             clock_timestamp() - interval '10 minutes'
-           ) AS started_at,
-           date_trunc(
-             'milliseconds',
-             clock_timestamp() - interval '8 minutes'
-           ) AS lease_deadline,
-           date_trunc(
-             'milliseconds',
-             clock_timestamp() - interval '9 minutes 30 seconds'
-           ) AS attempted_at,
-           date_trunc(
-             'milliseconds',
-             clock_timestamp() - interval '9 minutes'
-           ) AS completed_at
+           clock.at - interval '10 minutes' AS started_at,
+           clock.at - interval '8 minutes' AS lease_deadline,
+           clock.at - interval '9 minutes 30 seconds' AS attempted_at,
+           clock.at - interval '9 minutes' AS completed_at
+         FROM clock
        )
        UPDATE meta_ads_action_mutation_attempt_events event
        SET

@@ -5281,7 +5281,20 @@ export function MetaPlatformPage({
               </button>
             </div>
             <div className="meta-label-modal-body">
-              <MetaCampaignLabelsSection businessId={businessId} />
+              {/*
+                Scoped to the account this surface resolved. The section's two
+                reads were business-wide, so a multi-account business saw every
+                account's campaigns here and the cache could not tell them
+                apart. `canWriteLabels` is deliberately not passed: §18 removes
+                the label WRITER from Decisions, because a label chooses the
+                calibration baseline the decisions on this screen were graded
+                against. The coverage read stays — campaign_label_missing is a
+                real blocker the operator has to be able to see.
+              */}
+              <MetaCampaignLabelsSection
+                businessId={businessId}
+                providerAccountId={providerAccountId}
+              />
             </div>
           </div>
         </div>

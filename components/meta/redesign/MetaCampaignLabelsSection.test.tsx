@@ -121,9 +121,20 @@ describe("MetaCampaignLabelsSection", () => {
     expect(html).toMatch(/240,00(?:\u00a0|&nbsp;)€/);
     expect(html).toContain('data-campaign-kind="main"');
     expect(html).toContain('data-campaign-kind="automatic"');
+    /**
+     * The account is part of the key now.
+     *
+     * Both reads were business-scoped only, so on a business with several
+     * assigned Meta accounts this section listed every account's campaigns
+     * under a Decisions surface that names one — and the cache key could not
+     * tell the accounts apart, so switching served the previous account's rows.
+     * That is the plan's rollback trigger 3. `null` here is "no single account
+     * resolved", which is a distinct cache entry from any real account.
+     */
     expect(state.queryKeys).toContainEqual([
       "meta-campaigns-for-labels",
       "biz_1",
+      null,
     ]);
   });
 
@@ -151,7 +162,51 @@ describe("MetaCampaignLabelsSection", () => {
     expect(state.queryKeys).toContainEqual([
       "meta-campaign-labels",
       "biz_1",
+      null,
       "cmp_paused",
     ]);
+  });
+});
+
+function renderSection() {
+  return renderToStaticMarkup(<MetaCampaignLabelsSection businessId="biz_1" />);
+}
+
+describe("the label writer is not offered from Decisions", () => {
+  /**
+   * §18: "Decisions label writer — Decisions'tan kaldır."
+   *
+   * A campaign's kind selects the calibration cell the resolver grades against,
+   * so editing a label from the Decisions surface changes the baseline the
+   * decisions on that same screen were produced under — and the write then
+   * invalidates and re-fetches them, so the operator watches the verdicts move
+   * because of an input they just changed.
+   */
+  it("renders every label control disabled, with the reason on it", () => {
+    const html = renderSection();
+
+    // Every kind and dimension select on the section, refused — not just the
+    // first one. A per-row control that stayed live would be the whole defect.
+    const selects = html.match(/<select\b[^>]*>/g) ?? [];
+    expect(selects.length).toBeGreaterThan(0);
+    for (const select of selects) {
+      expect(select, select).toContain("disabled");
+      // The reason travels on the control itself, so a pointer user reaches it
+      // where the refusal is.
+      expect(select, select).toContain("read-only here");
+    }
+
+    // Stated, not hidden: a control that vanishes reads as "this product
+    // cannot label campaigns", and leaves a campaign_label_missing blocker
+    // with no visible way to clear it.
+    expect(html).toContain("data-campaign-label-write-notice");
+    expect(html).toContain('role="note"');
+  });
+
+  it("still shows which campaigns are unlabelled", () => {
+    // The coverage READ is decision-relevant (GC-036, GC-042) and stays.
+    const html = renderSection();
+    expect(html).toContain('data-campaign-kind="automatic"');
+    expect(html).toContain("data-meta-campaign-labels-section");
   });
 });

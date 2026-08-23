@@ -18,7 +18,32 @@ import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 import { cn } from "@/lib/utils";
 
 interface MetaCampaignLabelsSectionProps {
+  /**
+   * The assignment-verified account this Decisions surface is scoped to.
+   *
+   * `null` is "no single account resolved", not "every account": the reads
+   * below then return whatever the server serves for an unscoped request, and
+   * the server is the only thing that may widen scope.
+   */
+  providerAccountId?: string | null;
   businessId: string;
+  /**
+   * Whether the label controls may write. **Defaults to false.**
+   *
+   * §18 of the Meta market-ready plan: "Decisions label writer — Decisions'tan
+   * kaldır." The reason is in INVARIANTS: a campaign's kind selects the
+   * calibration cell the resolver grades against, so editing a label from the
+   * Decisions surface changes the baseline the decisions on that same screen
+   * were produced under — and the write then invalidates and re-fetches them,
+   * so the operator watches the verdicts move because of an input they just
+   * changed. A decision-reading surface must not host a decision-input write.
+   *
+   * The coverage READ stays, because "campaign_label_missing" is a real
+   * decision blocker (GC-036, GC-042) and the operator has to be able to see
+   * which campaigns are unlabelled. Only the editing is withdrawn, and the
+   * section says where it moved rather than silently losing the controls.
+   */
+  canWriteLabels?: boolean;
 }
 
 interface CampaignsPayload {
@@ -50,13 +75,32 @@ async function readJson<T>(url: string): Promise<T> {
   return payload as T;
 }
 
-function fetchCampaigns(businessId: string) {
+/**
+ * Both reads are scoped to the selected provider account.
+ *
+ * They were business-scoped only, so on a business with several assigned Meta
+ * accounts this section listed every account's campaigns and labels underneath
+ * a Decisions surface that names one account — and the cache key could not tell
+ * the accounts apart, so switching served the previous account's rows from
+ * cache. That is the plan's rollback trigger 3.
+ *
+ * The account travels as `providerAccountId`, the one canonical parameter name
+ * (WP4); the server re-verifies it against this business's assignments and
+ * refuses an id it is not assigned, so a URL cannot widen scope here.
+ */
+function fetchCampaigns(businessId: string, providerAccountId: string | null) {
   const params = new URLSearchParams({ businessId, includePrev: "1" });
+  if (providerAccountId) params.set("providerAccountId", providerAccountId);
   return readJson<CampaignsPayload>(`/api/meta/campaigns?${params.toString()}`);
 }
 
-function fetchLabels(businessId: string, campaignIds: string[]) {
+function fetchLabels(
+  businessId: string,
+  providerAccountId: string | null,
+  campaignIds: string[],
+) {
   const params = new URLSearchParams({ businessId });
+  if (providerAccountId) params.set("providerAccountId", providerAccountId);
   if (campaignIds.length > 0) params.set("campaignIds", campaignIds.join(","));
   return readJson<LabelsPayload>(
     `/api/meta/campaign-labels?${params.toString()}`,
@@ -101,21 +145,33 @@ function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
   );
 }
 
+/**
+ * Why the label controls are read-only on Decisions.
+ *
+ * Rendered beside them rather than hidden: a control that simply disappears
+ * reads as "this product cannot label campaigns", which is false, and leaves
+ * the operator with a decision blocker they cannot see how to clear.
+ */
+export const LABEL_WRITE_MOVED =
+  "Campaign labels are read-only here. A label chooses the baseline these decisions are graded against, so it is not edited from the screen showing them.";
+
 function compactCampaignName(row: MetaCampaignRow) {
   return row.name || row.id;
 }
 
 export function MetaCampaignLabelsSection({
   businessId,
+  providerAccountId = null,
+  canWriteLabels = false,
 }: MetaCampaignLabelsSectionProps) {
   const queryClient = useQueryClient();
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
 
   const campaignsQuery = useQuery({
-    queryKey: ["meta-campaigns-for-labels", businessId],
+    queryKey: ["meta-campaigns-for-labels", businessId, providerAccountId],
     enabled: Boolean(businessId),
-    queryFn: () => fetchCampaigns(businessId),
+    queryFn: () => fetchCampaigns(businessId, providerAccountId),
   });
 
   const campaignRows = campaignsQuery.data?.rows ?? [];
@@ -153,9 +209,16 @@ export function MetaCampaignLabelsSection({
   const visibleSortedCampaigns = sortedCampaigns.slice(0, 12);
 
   const labelsQuery = useQuery({
-    queryKey: ["meta-campaign-labels", businessId, campaignIds.join(",")],
+    // Business, ACCOUNT and the campaign set. Without the account, switching
+    // accounts served the previous one's labels from cache.
+    queryKey: [
+      "meta-campaign-labels",
+      businessId,
+      providerAccountId,
+      campaignIds.join(","),
+    ],
     enabled: Boolean(businessId) && campaignIds.length > 0,
-    queryFn: () => fetchLabels(businessId, campaignIds),
+    queryFn: () => fetchLabels(businessId, providerAccountId, campaignIds),
   });
 
   const labelMap = useMemo(() => {
@@ -229,6 +292,10 @@ export function MetaCampaignLabelsSection({
   };
 
   const updateKind = (campaign: MetaCampaignRow, kind: MetaCampaignKind) => {
+    // Refused here as well as on the control. A disabled select is a
+    // presentation fact; this is the one that holds if anything reaches the
+    // handler another way.
+    if (!canWriteLabels) return;
     const existing = labelMap.get(campaign.id);
     void writeLabels([
       {
@@ -246,6 +313,7 @@ export function MetaCampaignLabelsSection({
     campaign: MetaCampaignRow,
     testDimension: MetaCampaignTestDimension | null,
   ) => {
+    if (!canWriteLabels) return;
     const existing = labelMap.get(campaign.id);
     if (!existing || existing.kind !== "test") return;
     void writeLabels([
@@ -307,6 +375,21 @@ export function MetaCampaignLabelsSection({
             roles remain review-only until the authority gate is validated; an
             override is needed only when the inferred role is wrong. {campaignScopeText}
           </p>
+          {canWriteLabels ? null : (
+            /*
+             * Stated, not hidden. A control that vanishes reads as "this
+             * product cannot label campaigns", which is false — and it leaves
+             * the operator holding a `campaign_label_missing` blocker with no
+             * visible way to clear it.
+             */
+            <p
+              className="mt-1 text-[12px] leading-snug text-slate-500"
+              data-campaign-label-write-notice
+              role="note"
+            >
+              {LABEL_WRITE_MOVED}
+            </p>
+          )}
         </div>
       </div>
 
@@ -359,7 +442,8 @@ export function MetaCampaignLabelsSection({
                   <select
                     className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[12px] text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                     value={label?.kind ?? ""}
-                    disabled={saving}
+                    disabled={saving || !canWriteLabels}
+                    title={canWriteLabels ? undefined : LABEL_WRITE_MOVED}
                     aria-label={`Campaign kind for ${campaign.name}`}
                     onChange={(event) => {
                       const next = event.currentTarget.value;
@@ -384,7 +468,8 @@ export function MetaCampaignLabelsSection({
                     value={
                       label?.kind === "test" ? (label.testDimension ?? "") : ""
                     }
-                    disabled={saving || label?.kind !== "test"}
+                    disabled={saving || !canWriteLabels || label?.kind !== "test"}
+                    title={canWriteLabels ? undefined : LABEL_WRITE_MOVED}
                     aria-label={`Test dimension for ${campaign.name}`}
                     onChange={(event) => {
                       const next = event.currentTarget.value;

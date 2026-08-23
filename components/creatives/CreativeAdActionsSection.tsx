@@ -124,22 +124,28 @@ export function CreativeAdActionsSection({
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  /**
+   * The account the duplicate will be written into, from the creative itself.
+   * The picker must offer targets from exactly that account and no other.
+   */
+  const pickerAccountId = row.accountId?.trim() || null;
+
   const campaignsQuery = useQuery({
-    queryKey: ["meta-action-campaigns", businessId],
+    queryKey: ["meta-action-campaigns", businessId, pickerAccountId],
     enabled: open && Boolean(businessId),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
     retry: 1,
-    queryFn: () => fetchCampaigns(businessId),
+    queryFn: () => fetchCampaigns(businessId, pickerAccountId),
   });
 
   const adsetsQuery = useQuery({
-    queryKey: ["meta-action-adsets", businessId],
+    queryKey: ["meta-action-adsets", businessId, pickerAccountId],
     enabled: open && Boolean(businessId),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
     retry: 1,
-    queryFn: () => fetchAdsets(businessId),
+    queryFn: () => fetchAdsets(businessId, pickerAccountId),
   });
 
   const historyQuery = useQuery({
@@ -632,18 +638,37 @@ function formatActionError(result: ActionResponse, fallback: string) {
   return fallback;
 }
 
-async function fetchCampaigns(businessId: string): Promise<CampaignPickerRow[]> {
+/**
+ * Scoped to the creative's own account, like the write it feeds.
+ *
+ * This picker chooses the campaign and ad set a duplicate is written into, and
+ * the write already sends `providerAccountId: row.accountId`. The picker did
+ * not: on a business with several assigned Meta accounts it listed every
+ * account's campaigns, so an operator could select a target from account B for
+ * a creative in account A. The server refuses that on exact identity — but only
+ * after the operator has chosen it, and the cache key could not tell the two
+ * account's lists apart either.
+ */
+async function fetchCampaigns(
+  businessId: string,
+  providerAccountId: string | null,
+): Promise<CampaignPickerRow[]> {
   const url = new URL("/api/meta/campaigns", window.location.origin);
   url.searchParams.set("businessId", businessId);
+  if (providerAccountId) url.searchParams.set("providerAccountId", providerAccountId);
   const response = await fetch(url.toString(), { cache: "no-store" });
   if (!response.ok) throw new Error(`campaign fetch failed: ${response.status}`);
   const payload = (await response.json()) as { rows?: CampaignPickerRow[] };
   return Array.isArray(payload.rows) ? payload.rows : [];
 }
 
-async function fetchAdsets(businessId: string): Promise<AdsetPickerRow[]> {
+async function fetchAdsets(
+  businessId: string,
+  providerAccountId: string | null,
+): Promise<AdsetPickerRow[]> {
   const url = new URL("/api/meta/adsets", window.location.origin);
   url.searchParams.set("businessId", businessId);
+  if (providerAccountId) url.searchParams.set("providerAccountId", providerAccountId);
   const response = await fetch(url.toString(), { cache: "no-store" });
   if (!response.ok) throw new Error(`ad set fetch failed: ${response.status}`);
   const payload = (await response.json()) as { rows?: AdsetPickerRow[] };

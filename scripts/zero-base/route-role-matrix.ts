@@ -49,28 +49,93 @@ export interface RoleCase {
 }
 
 async function signIn(email: string, password: string): Promise<string | null> {
-  const response = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-    redirect: "manual",
-  });
-  if (!response.ok) return null;
-  const raw = response.headers.getSetCookie?.() ?? [];
-  const cookies = raw.map((value) => value.split(";")[0]).join("; ");
-  return cookies || null;
+  /*
+   * Five principals in a row is enough to trip the login throttle, which is
+   * keyed on the client address and is doing exactly what it should. The matrix
+   * has to cope with it rather than report "could not sign in" and abort — the
+   * refusal it would then be measuring is the rate limiter's, not the route's.
+   */
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+      redirect: "manual",
+    });
+    if (response.status === 429) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
+      continue;
+    }
+    if (!response.ok) return null;
+    const raw = response.headers.getSetCookie?.() ?? [];
+    const cookies = raw.map((value) => value.split(";")[0]).join("; ");
+    return cookies || null;
+  }
+  return null;
 }
 
+/**
+ * The scope hop `/c/:businessId/...` performs before it renders.
+ *
+ * A canonical client URL answers `307 → /switch-business/<id>?next=/app/...`,
+ * which sets the active workspace and lands on the `/app` twin. That is the
+ * shipped routing contract — the browser specs navigate these URLs and get the
+ * surface — and this matrix read the 307 as "did not render", which is why it
+ * reported 96 failures the first time it was ever run. The hop is followed
+ * once, and only through `/switch-business`: any other redirect is still
+ * reported as a redirect, so a refusal that sends the caller to /login cannot
+ * be mistaken for a render.
+ */
+const SCOPE_HOP = /^\/switch-business\//;
+
+/**
+ * What "the canonical surface rendered" looks like in the shipped product.
+ *
+ * This asserted `data-adc-ui="zero-base"`, which no client route emits: D2 fixes
+ * `UnifiedDashboardClientShell` and `DashboardFrame` as the shell, and the
+ * zero-base root attribute belongs to the design harness's `AppShell` — a
+ * component library that no route mounts. Checking for it meant every
+ * authorized render read as "200 without the canonical surface".
+ *
+ * Both markers, not either: `ad-console-shell` is the frame's own root and
+ * `data-shell-sidebar="v2"` is the rail inside it, so a page that rendered the
+ * frame without navigation cannot pass.
+ */
+const CANONICAL_SHELL_MARKERS = ["ad-console-shell", 'data-shell-sidebar="v2"'] as const;
+
 async function probe(url: string, cookie: string | null) {
-  const response = await fetch(`${BASE}${url}`, {
+  /*
+   * Walk only the scope hop, and stop the moment the chain leaves it.
+   *
+   * Following redirects wholesale swallowed the leaf's own contract: the OAuth
+   * callback is declared as a `redirects` leaf and resolved to 200 because its
+   * redirect was followed too. The loop advances while the response is a
+   * redirect INTO or OUT OF `/switch-business`, and reports whatever the chain
+   * lands on after that.
+   */
+  let current = url;
+  let response = await fetch(`${BASE}${current}`, {
     redirect: "manual",
     headers: cookie ? { cookie } : {},
   });
+  for (let hop = 0; hop < 3; hop += 1) {
+    if (response.status < 300 || response.status >= 400) break;
+    const location = response.headers.get("location");
+    if (!location) break;
+    const next = new URL(location, BASE);
+    const inHop = SCOPE_HOP.test(next.pathname) || SCOPE_HOP.test(current);
+    if (!inHop) break;
+    current = `${next.pathname}${next.search}`;
+    response = await fetch(next, {
+      redirect: "manual",
+      headers: cookie ? { cookie } : {},
+    });
+  }
   const body = response.status >= 200 && response.status < 300 ? await response.text() : "";
   return {
     status: response.status,
     location: response.headers.get("location"),
-    ledgerRoot: body.includes('data-adc-ui="zero-base"'),
+    ledgerRoot: CANONICAL_SHELL_MARKERS.every((marker) => body.includes(marker)),
   };
 }
 
@@ -100,8 +165,8 @@ function judge(input: {
       return { ok: false, detail: `expected a render, got ${status}${location ? ` → ${location}` : ""}` };
     }
     return ledgerRoot
-      ? { ok: true, detail: "rendered with the Ledger root" }
-      : { ok: false, detail: "200 without the Ledger root — not the canonical surface" };
+      ? { ok: true, detail: "rendered inside the canonical shell" }
+      : { ok: false, detail: "200 without the canonical shell — the frame did not render" };
   }
 
   if (status === 404) return { ok: true, detail: "404" };
@@ -115,11 +180,27 @@ function judge(input: {
  * Declared per leaf with the reason, rather than by loosening "renders" for
  * everything — the other 32 Client leaves stay strict.
  */
-export const REDIRECTING_LEAVES: Record<string, string> = {
+export const REDIRECTING_LEAVES: Record<string, string> = {};
+
+/**
+ * Leaves whose declared redirect turned out not to be a server redirect.
+ *
+ * `L-C-M-CB` was declared here as "a 307 to /manage/integrations is the
+ * contract". The first run of this matrix against a real server showed a 200:
+ * the OAuth landing is a client component that renders, selects the business,
+ * and calls `router.replace(returnTo)` a beat later. The return is real, it is
+ * simply not a response header, and nothing at the HTTP layer can observe it.
+ *
+ * So the leaf is measured as a render — which is the stricter check, because it
+ * must also come back inside the canonical shell rather than merely not be a
+ * 3xx. The client-side return is a behaviour for a browser test to hold, and
+ * this note is here so the absence of a declared redirect is deliberate rather
+ * than something that was quietly dropped.
+ */
+export const CLIENT_SIDE_RETURN_LEAVES: Record<string, string> = {
   "L-C-M-CB":
-    "The OAuth landing performs no exchange of its own. It authorizes the business and returns the " +
-    "operator to Integrations, where connection state is read fresh rather than assumed from the " +
-    "redirect having happened. A 307 to /manage/integrations is the contract, not a failure.",
+    "Renders, then returns the operator with router.replace once the business " +
+    "is selected and the connection state has been re-read.",
 };
 
 /** Client leaves, with their dynamic segment filled by a real workspace. */
@@ -218,6 +299,10 @@ async function main() {
   console.log("zero-base authenticated role matrix (WP-26 group 2 / G5)\n");
   for (const [leaf, why] of Object.entries(REDIRECTING_LEAVES)) {
     console.log(`  declared redirect contract: ${leaf}`);
+    console.log(`    ${why}\n`);
+  }
+  for (const [leaf, why] of Object.entries(CLIENT_SIDE_RETURN_LEAVES)) {
+    console.log(`  returns client-side, measured as a render: ${leaf}`);
     console.log(`    ${why}\n`);
   }
   const byPrincipal = new Map<string, RoleCase[]>();

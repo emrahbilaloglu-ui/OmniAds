@@ -160,6 +160,51 @@ async function main(): Promise<void> {
       return;
     }
 
+    /*
+     * The authenticated role matrix, which has never been run.
+     *
+     * `route-role-matrix.ts` and its seeder were written for exactly this and
+     * need only two things the repo could not previously supply together: a
+     * database it may write to, and a server it can sign into. Both are up.
+     *
+     * It runs before the browser specs because it seeds two more tenants and
+     * five more principals; the specs read nothing it writes, and a failure
+     * here is about authorization rather than about a surface.
+     */
+    log("role matrix: seeding principals and driving every leaf");
+    const roleSeed = spawnSync(process.execPath, [path.join(ROOT, "scripts", "zero-base", "seed-role-matrix.mjs")], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: cluster.databaseUrl,
+        DATABASE_URL_UNPOOLED: cluster.databaseUrl,
+        POSTGRES_URL: cluster.databaseUrl,
+        POSTGRES_URL_NON_POOLING: cluster.databaseUrl,
+      },
+    });
+    if (roleSeed.status !== 0) {
+      throw new Error(`role-matrix seed failed (${roleSeed.status}):\n${roleSeed.stderr}`);
+    }
+    const roleMatrix = spawnSync(
+      process.execPath,
+      ["--import", "tsx", path.join(ROOT, "scripts", "zero-base", "route-role-matrix.ts")],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ZERO_BASE_SMOKE_URL: baseUrl,
+          ZERO_BASE_ROLE_SEED: roleSeed.stdout.trim(),
+          DATABASE_URL: cluster.databaseUrl,
+          DATABASE_URL_UNPOOLED: cluster.databaseUrl,
+        },
+      },
+    );
+    if (roleMatrix.status !== 0) {
+      throw new Error(`role matrix FAILED (exit ${roleMatrix.status})`);
+    }
+
     log("playwright: driving the canonical routes");
     const test = spawnSync(
       "npx",

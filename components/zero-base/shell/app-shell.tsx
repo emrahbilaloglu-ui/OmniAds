@@ -172,8 +172,17 @@ export function AppShell({
   // space and produces the three stacked headers visible in the old rollout.
   // Keep the rail and the module navigation, then give the interior the full
   // remaining canvas.
+  //
+  // Wide only. Narrow has no rail and no module tab strip — both are suppressed
+  // below the drawer breakpoint — and the drawer trigger and the scope sheet
+  // trigger live inside the top bar and the context bar respectively. Collapsing
+  // the chrome there did not save a redundant header; it left a phone-width Meta
+  // or Creative interior with no way to navigate off the surface and nothing
+  // stating which business, account or window was being read. The design package
+  // draws `live:nav-drawer` and `live:MOBILE-02 scope-sheet` on every narrow
+  // module artboard (B06, H52, H57, P07) for that reason.
   const moduleOnlyFrame =
-    workspaceMode === "client" && /\/(?:app\/)?(?:meta|creative)\//.test(pathname);
+    !narrow && workspaceMode === "client" && /\/(?:app\/)?(?:meta|creative)\//.test(pathname);
 
   if (nested) return <>{children}</>;
 

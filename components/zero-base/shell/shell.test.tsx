@@ -280,6 +280,49 @@ describe("AppShell", () => {
     expect(screen.getByText("Legacy Creative Studio interior")).toBeVisible();
   });
 
+  /**
+   * The narrow counterpart of the two tests above.
+   *
+   * `moduleOnlyFrame` removes the top bar and the context bar because the rail
+   * and the module tab strip already carry navigation and scope. Below the
+   * drawer breakpoint neither of those is rendered, so the collapse used to
+   * leave a phone-width Meta or Creative interior with no navigation at all and
+   * no statement of which business, account or window it was reading — the
+   * operator could not leave the surface and could not tell what it showed.
+   */
+  for (const [label, pathname] of [
+    ["Meta", "/app/meta/decisions"],
+    ["Creative", "/app/creative/performance"],
+  ] as const) {
+    it(`keeps the drawer and the scope row on ${label} interiors at phone width`, () => {
+      setViewport(390);
+      render(
+        <AppShell
+          groups={navGroupsFor("Client")}
+          businessId="biz_1"
+          pathname={pathname}
+          workspaceMode="client"
+          title="Decisions"
+          scope={scope}
+          railFooter={null}
+          scopePickers={{ onSwitchBusiness: () => {} }}
+          topBarActions={<button type="button">Grandmix · Switch business</button>}
+        >
+          <p>{label} interior</p>
+        </AppShell>,
+      );
+
+      // The rail and the tab strip are genuinely absent at this width, which is
+      // exactly why the drawer has to be present.
+      expect(document.querySelector("[data-rail]")).toBeNull();
+      expect(document.querySelector("[data-module-navigation]")).toBeNull();
+
+      expect(document.querySelector('[data-ctl="live:nav-drawer"]')).not.toBeNull();
+      expect(document.querySelector('[data-ctl="live:MOBILE-02 scope-sheet"]')).not.toBeNull();
+      expect(screen.getByRole("main")).not.toHaveAttribute("data-module-only-frame");
+    });
+  }
+
   it("collapses a nested route shell to its page body", () => {
     setViewport(1280);
     render(

@@ -1243,6 +1243,19 @@ export const FRAMES: readonly FrameSpec[] = [
         initialTitle="September review"
         initialExpiresAt="2026-10-01"
         initialAcknowledged
+        /*
+         * The artboard draws the create sheet open, and the design package
+         * declares its anatomy: the tier explainer, expiry, the acknowledgement,
+         * and the mint control in both its live and refused forms.
+         *
+         * `initialOpen` defaults to false now, because arriving at the ledger
+         * should not put a half-filled mint form in front of an operator whose
+         * reason for opening the screen is usually to check or revoke a link
+         * that already exists (WP11 item 5). That is a statement about the
+         * resting runtime state. This frame is the artboard's state, so it says
+         * so explicitly rather than inheriting a default that no longer matches.
+         */
+        initialOpen
         showAlternateGateProof
       />
     </div>

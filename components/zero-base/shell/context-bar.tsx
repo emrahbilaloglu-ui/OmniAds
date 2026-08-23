@@ -12,6 +12,7 @@
  * Timezone disagreement and staleness are the two states that change colour,
  * and both carry their word as well, so meaning survives without colour.
  */
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import {
   scopeFactRows,
   type ScopeFacts,
@@ -29,6 +30,7 @@ export function ContextBar({
   onOpenScopeSheet: () => void;
   pickers?: ScopePickers;
 }) {
+  const copy = useCopy();
   const rows = scopeFactRows(facts);
   const summary = rows.map((row) => `${row.label}: ${row.value}`).join(" · ");
 
@@ -39,36 +41,60 @@ export function ContextBar({
 
   if (compact) {
     return (
-      <button
-        type="button"
-        data-context-bar="compact"
-        data-ctl="live:MOBILE-02 scope-sheet"
-        aria-label={`Scope — ${summary}`}
-        onClick={onOpenScopeSheet}
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-          width: "100%",
-          textAlign: "left",
-          // Two lines, ellipsized. Full values live in the sheet.
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          minHeight: 44,
-          padding: "8px 16px",
-          fontSize: 12,
-          lineHeight: "16px",
-          color: tone,
-          background: "var(--ledger-bg-inset)",
-          border: 0,
-          borderBottom: "1px solid var(--ledger-border-subtle)",
-          cursor: "pointer",
-        }}
+      /* The scope region wraps the trigger and the narrow-width note, which is
+         the nesting the reference records: mobile-scope → MOBILE-02 → win-320. */
+      <div
+        data-el="mobile-scope"
+        style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--ledger-bg-inset)", borderBottom: "1px solid var(--ledger-border-subtle)" }}
       >
-        {summary}
-      </button>
+        <button
+          type="button"
+          data-context-bar="compact"
+          data-ctl="live:MOBILE-02 scope-sheet"
+          aria-label={`Scope — ${summary}`}
+          onClick={onOpenScopeSheet}
+          style={{
+            width: "100%",
+            textAlign: "left",
+            // Two lines, ellipsized. Full values live in the sheet.
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            minHeight: 44,
+            padding: "8px 16px",
+            fontSize: 12,
+            lineHeight: "16px",
+            color: tone,
+            background: "transparent",
+            border: 0,
+            cursor: "pointer",
+          }}
+        >
+          {summary}
+        </button>
+        {/*
+          At 320 the two-line clamp hides most of the summary, so the bar shows
+          a truncated scope and nothing says it was truncated — the same defect
+          the collection disclosures exist to prevent, one level up. The design
+          draws this line only on the 320 artboard, so it is hidden above the
+          narrowest tier rather than repeated where the summary already fits.
+        */}
+        <p
+          data-el="win-320"
+          style={{
+            display: "none",
+            margin: 0,
+            padding: "0 16px 6px",
+            fontSize: 12,
+            lineHeight: "14px",
+            color: "var(--ledger-ink-tertiary)",
+          }}
+        >
+          {copy.scopeShortenedAtThisWidth}
+        </p>
+        <style>{`@media (max-width: 360px){[data-el="win-320"]{display:block!important}}`}</style>
+      </div>
     );
   }
 

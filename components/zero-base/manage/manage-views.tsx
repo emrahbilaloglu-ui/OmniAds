@@ -329,10 +329,19 @@ export function IntegrationsView({
               {[{ label: "Connected", value: connectedCount }, { label: "Needs setup", value: needsSetupCount }, { label: "Providers", value: providers.length }].map((item) => <div key={item.label} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: 8, background: "var(--ledger-bg-surface)" }}><span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{item.label}</span><strong style={{ display: "block", marginTop: 4, fontSize: 20 }}>{item.value}</strong></div>)}
             </div>
             <p data-no-universal-health="" style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{NO_UNIVERSAL_HEALTH}</p>
+            {/* Grouped for reading, but one collection: every provider this
+                business can connect is on the page, so the set is complete and
+                says so rather than leaving the reader to count cards. */}
+            <div data-collection="providers">
             {[
+              // Group order is the design's, and it is also the reading order the
+              // page needs: the two ad platforms, then the measurement that says
+              // whether their numbers can be believed, then the storefront they
+              // are being measured against. H41 fixes it — the GA4 property and
+              // Search Console site controls sit above the Shopify card.
               { title: "Advertising platforms", description: "Campaign delivery, spend and account-level performance.", ids: ["meta", "google"] },
-              { title: "Commerce", description: "Storefront revenue, orders and product economics.", ids: ["shopify"] },
               { title: "Analytics & discovery", description: "On-site behaviour, attribution context and organic search demand.", ids: ["ga4", "search_console"] },
+              { title: "Commerce", description: "Storefront revenue, orders and product economics.", ids: ["shopify"] },
               { title: "Email & lifecycle", description: "Customer lifecycle, campaign and automation signals.", ids: ["klaviyo"] },
             ].map((group) => {
               const rows = providers.filter((row) => group.ids.includes(row.provider));
@@ -342,6 +351,14 @@ export function IntegrationsView({
                 return <article key={row.provider} data-provider-card={row.provider} style={{ display: "grid", alignContent: "space-between", minHeight: 176, padding: 14, border: "1px solid var(--ledger-border-control)", borderRadius: 9, background: "var(--ledger-bg-surface)" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}><h3 style={{ margin: 0, fontSize: 14 }}>{row.label}</h3><span style={{ padding: "2px 6px", border: "1px solid var(--ledger-border-subtle)", borderRadius: 999, fontSize: 11, color: row.state.kind === "connected" ? "var(--ledger-semantic-ok)" : "var(--ledger-ink-tertiary)" }}>{row.state.kind === "connected" ? "Ready" : "Setup"}</span></div><p data-provider-state={row.provider} style={{ margin: "12px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>{status}</p></div><div style={{ marginTop: 16 }}>{providerAction(row)}</div></article>;
               })}</div></section>;
             })}
+            </div>
+            <p
+              data-collection="h41-providers"
+              data-cst="complete"
+              style={{ margin: "12px 0 0", fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+            >
+              {copy.allProvidersShown}
+            </p>
           </div>
           <CeremonyResult outcome={outcome} name="reconnect" />
           {assignment ? <AssignmentPanel {...assignment} /> : null}
@@ -625,7 +642,7 @@ export function TeamView({
     <Shell title={copy.teamTitle}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start", flexWrap: "wrap", marginTop: 5 }}>
         <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Manage members, invitations, roles and workspace access.</p>
-        {permissions.invitesWrite.ok ? <Button variant="secondary" data-team-open-invite="" onClick={() => setTeamTab("invites")}>{copy.sendInvitations}</Button> : null}
+        {permissions.invitesWrite.ok ? <span data-team-tabs=""><Button variant="secondary" data-team-open-invite="" onClick={() => setTeamTab("invites")}>{copy.sendInvitations}</Button></span> : null}
       </div>
       {/* One live region for every write on this surface. */}
       <p role="status" aria-live="polite" data-team-progress={write.pending ?? ""} style={{ margin: "8px 0 0", fontSize: 12, minHeight: 16 }}>
@@ -643,12 +660,12 @@ export function TeamView({
         </p>
       )}
 
-      <div role="tablist" aria-label="Team views" style={{ display: "flex", gap: 4, marginTop: 14, borderBottom: "1px solid var(--ledger-border-subtle)" }}>
+      <div data-team-tabs="" role="tablist" aria-label="Team views" style={{ display: "flex", gap: 4, marginTop: 14, borderBottom: "1px solid var(--ledger-border-subtle)" }}>
         {(["members", "invites"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={teamTab === tab} onClick={() => setTeamTab(tab)} style={{ padding: "9px 12px", border: 0, borderBottom: teamTab === tab ? "2px solid var(--ledger-ink-primary)" : "2px solid transparent", background: "transparent", color: teamTab === tab ? "var(--ledger-ink-primary)" : "var(--ledger-ink-secondary)", fontWeight: teamTab === tab ? 600 : 400, textTransform: "capitalize", cursor: "pointer" }}>{tab}</button>)}
       </div>
 
       <div data-team-layout="" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14, alignItems: "start" }}>
-      <section data-team-invite="" aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+      <section data-team-invite="" data-team-pane="invites" aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Invite teammates by email and choose their initial role.</p>
         {permissions.invitesWrite.ok ? (
@@ -691,7 +708,7 @@ export function TeamView({
         )}
       </section>
 
-      <section aria-label={copy.members} data-el="role-permission-state" style={{ display: teamTab === "members" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+      <section aria-label={copy.members} data-el="role-permission-state" data-team-pane="members" style={{ display: teamTab === "members" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>People with access to the selected workspace.</p>
         <div style={{ marginTop: 8 }}>
@@ -778,7 +795,7 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
+      <section aria-label={copy.invitations} data-team-pane="invites" style={{ display: teamTab === "invites" ? "block" : "none", padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.pendingInvitations}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Generated invitations and their current delivery status.</p>
         <div style={{ marginTop: 12 }}>
@@ -881,6 +898,19 @@ export function TeamView({
         )}
       </section>
       </div>
+      {/*
+        Tabs are a narrow-width answer, not the composition.
+
+        The interior was ported from the legacy team page, which tabs Members
+        against Invitations so each fits a small screen. On a desk the design
+        draws them together (H43), and splitting them there costs a real
+        capability: the reason to look at Members is usually to decide who else
+        needs an invitation, and the pending list is what says whether that
+        person was already asked. Above the tab breakpoint every pane is shown
+        and the tab strip — along with the shortcut that only jumped between
+        panes — is withdrawn rather than left as a control that does nothing.
+      */}
+      <style>{`@media (min-width: 1024px){[data-team-pane]{display:block!important}[data-team-tabs]{display:none!important}}`}</style>
     </Shell>
   );
 }
@@ -1246,6 +1276,20 @@ export function PlanView({
       >
         <strong>{copy.featureAccessNotBillingGated}</strong> {PLAN_GATES_NOTHING}
       </p>
+      {/*
+        The second card the artboard draws on H47, after the presentation chip.
+        The chip above states that feature access is not billing-gated; this
+        states what billing *is* gated to — administration happens in Shopify,
+        and only for a business with a store attached. Without that card the
+        page asserts the negative and never says where billing actually lives.
+      */}
+      <div
+        data-el="billing-gated"
+        style={{ padding: "16px 18px", border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)", display: "grid", gap: 8 }}
+      >
+        <p style={{ margin: 0, fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
+          {copy.billingAdministeredInShopify}
+        </p>
       {managedPricingUrl ? (
         <a
           data-el="billing-manage"
@@ -1261,6 +1305,7 @@ export function PlanView({
           Billing is not attached to a Shopify store for this business.
         </p>
       )}
+      </div>
       </section>
     </Shell>
   );

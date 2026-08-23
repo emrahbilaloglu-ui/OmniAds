@@ -454,6 +454,12 @@ export const ZERO_BASE_COPY = {
     homeDecisionOrientation: "A decision-oriented view of the business, its efficiency and data readiness.",
     noDailyTrendServed: "No daily trend is served for this window.",
     featureAccessNotBillingGated: "Feature access is not billing-gated.",
+    billingAdministeredInShopify:
+      "Billing is administered in Shopify, not here. Adsecute reads the plan it reports and never changes it.",
+    /** Narrow-width note under the compact scope row (H55, 320px). */
+    scopeShortenedAtThisWidth: "Shortened at this width — open for the full scope.",
+    /** Completeness line under the provider cards (H41). */
+    allProvidersShown: "Every provider this business can connect is shown · complete",
     planAndBilling: "Plan & Billing",
     automationReadOnlyNote: "Automation settings are shown read-only. The Meta stop is business-scoped and never affects Google.",
     inactiveAssets: "Inactive assets",
@@ -890,6 +896,10 @@ export const ZERO_BASE_COPY = {
     homeDecisionOrientation: "İşletmeyi, verimliliğini ve veri hazırlığını karar odaklı gösterir.",
     noDailyTrendServed: "Bu aralık için günlük eğilim sunulmadı.",
     featureAccessNotBillingGated: "Özellik erişimi faturalandırma katmanıyla kısıtlanmaz.",
+    billingAdministeredInShopify:
+      "Faturalandırma burada değil, Shopify üzerinde yönetilir. Adsecute yalnızca bildirilen planı okur, hiçbir zaman değiştirmez.",
+    scopeShortenedAtThisWidth: "Bu genişlikte kısaltıldı — tam kapsam için açın.",
+    allProvidersShown: "Bu işletmenin bağlayabileceği tüm sağlayıcılar gösteriliyor · eksiksiz",
     planAndBilling: "Plan ve Faturalandırma",
     automationReadOnlyNote: "Otomasyon ayarları salt okunur gösterilir. Meta durdurma işletme kapsamındadır ve Google'ı hiçbir zaman etkilemez.",
     inactiveAssets: "Etkin olmayan varlıklar",

@@ -158,7 +158,11 @@ export function DataTable<Row>({
     <style>{`
       @media (max-width: 640px) {
         [data-responsive-table] { overflow-x: visible !important; }
-        [data-responsive-table] table { display: block; width: 100% !important; }
+        /* min-width is the horizontal-scroll affordance for the table layout.
+           Stacked rows have no columns to hold open, and an inline min-width
+           beats width:100% — which is why the surface, not the table, was the
+           thing scrolling sideways at 390 and 320. */
+        [data-responsive-table] table { display: block; width: 100% !important; min-width: 0 !important; }
         [data-responsive-table] caption { display: block; width: 100%; }
         [data-responsive-table] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
         [data-responsive-table] tbody { display: grid; gap: 10px; }

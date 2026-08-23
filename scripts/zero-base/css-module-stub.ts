@@ -26,6 +26,22 @@
  * `default` is handled explicitly so `import styles from "./x.module.css"`
  * receives the proxy itself rather than a string called "default".
  */
+import { createRequire } from "node:module";
+
+/**
+ * Inert under Vitest, deliberately.
+ *
+ * These stubs exist for `node --import tsx` scripts, where Node's CommonJS
+ * loader is what resolves a `.module.css`. Vitest resolves it through Vite,
+ * which handles CSS and `next/image` itself — and patching `Module._load`
+ * inside a test worker would change resolution for every other module in it.
+ * The gate scripts import this file; so does the test that imports those
+ * scripts for their pure comparison functions, and only the first needs it.
+ */
+const UNDER_VITEST = Boolean(process.env.VITEST);
+
+const require = createRequire(import.meta.url);
+
 const handler: ProxyHandler<Record<string, string>> = {
   get(_target, property) {
     if (typeof property !== "string") return undefined;
@@ -35,6 +51,7 @@ const handler: ProxyHandler<Record<string, string>> = {
 };
 
 function registerCssModuleStub() {
+  if (UNDER_VITEST) return;
   const Module = require("node:module") as {
     _extensions: Record<string, (module: NodeJS.Module, filename: string) => void>;
   };
@@ -70,6 +87,7 @@ registerCssModuleStub();
  * bundler's behaviour rather than the design's.
  */
 function registerNextImageStub() {
+  if (UNDER_VITEST) return;
   const Module = require("node:module") as {
     _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   };

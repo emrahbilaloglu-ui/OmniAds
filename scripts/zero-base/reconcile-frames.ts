@@ -17,7 +17,7 @@
 // Must run before any component import: these read the real exact bodies, which
 // import CSS modules (and next/image). Without the stub Node's CommonJS loader
 // hands the stylesheet to the JavaScript parser and the gate dies at step one.
-import "./css-module-stub.cts";
+import "./css-module-stub";
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 

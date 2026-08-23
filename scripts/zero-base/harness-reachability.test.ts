@@ -113,9 +113,9 @@ describe("harness DOM versus user-visible DOM", () => {
      * lets a plain tsx script import a component that imports CSS.
      */
     const source = readFileSync(HARNESS_BUILDER, "utf8");
-    expect(source).toContain('import "./css-module-stub.cts"');
+    expect(source).toContain('import "./css-module-stub"');
     // Before any component import, or the loader has already thrown.
-    expect(source.indexOf('import "./css-module-stub.cts"')).toBeLessThan(
+    expect(source.indexOf('import "./css-module-stub"')).toBeLessThan(
       source.indexOf('from "@/components/'),
     );
   });

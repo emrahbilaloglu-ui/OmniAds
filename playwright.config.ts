@@ -41,6 +41,25 @@ export default defineConfig({
       testMatch: /(^|\/)auth\.setup\.ts$/,
     },
     {
+      // Real mounted routes, real database, authenticated operator. Run only
+      // through `npm run meta:runtime-evidence`, which owns the throwaway
+      // Postgres cluster and the standalone server this project talks to.
+      name: "meta-runtime-setup",
+      testMatch: /meta-runtime-auth\.setup\.ts/,
+    },
+    {
+      name: "meta-runtime-chromium",
+      testMatch: /meta-runtime-[a-z0-9-]+\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        // One session for the run. Logging in per test trips the login
+        // throttle, and a 429 in the middle of an accessibility sweep reads
+        // as an accessibility failure.
+        storageState: "playwright/.runtime/meta-runtime-operator.json",
+      },
+      dependencies: ["meta-runtime-setup"],
+    },
+    {
       name: "commercial-setup",
       testMatch: /(^|\/)commercial-auth\.setup\.ts$/,
     },

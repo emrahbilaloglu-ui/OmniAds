@@ -14,7 +14,7 @@
 // Must run before any component import: the components below import CSS
 // modules, which Node's CommonJS loader hands to the JavaScript parser. See the
 // stub for why this gate has been failing at step one.
-import "./css-module-stub.cts";
+import "./css-module-stub";
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";

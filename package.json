@@ -202,6 +202,7 @@
     "test:breakdown-dimension-seam": "node --import tsx scripts/ephemeral-postgres-breakdown-dimension-seam.ts",
     "test:meta-history-assignment-seam": "node --import tsx scripts/ephemeral-postgres-meta-history-assignment-seam.ts",
     "test:launchpad-handoff-seam": "node --import tsx scripts/ephemeral-postgres-launchpad-handoff-seam.ts",
+    "meta:runtime-evidence": "node --import tsx scripts/meta/runtime-evidence-harness.ts",
     "meta:verify-mounted-bodies": "node --import tsx scripts/meta/verify-mounted-bodies.ts"
   },
   "dependencies": {

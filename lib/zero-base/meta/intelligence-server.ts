@@ -25,6 +25,12 @@ import { readMetaAnomaliesForBusiness } from "@/lib/meta/anomalies";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { labelKindDisplay } from "@/lib/meta/campaign-label-types";
 import { readMetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-read-model";
+import {
+  getMetaCreativesWarehousePayload,
+  readMetaCreativesWarehouseObservedAt,
+} from "@/lib/meta/creatives-warehouse";
+import { dayCountInclusive } from "@/lib/meta/history";
+import { getMetaAccountDailyCoverage } from "@/lib/meta/warehouse";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
 
 export interface IntelligenceFact {
@@ -344,8 +350,36 @@ export async function readMetaIntelligence(input: {
     assignedAccountIds.length === 1 &&
     assignedAccountIds[0] === providerAccountId;
 
-  const [status, pulse, summary, trends, breakdowns, anomalies, labels, workspace] =
-    await Promise.allSettled([
+  /**
+   * One decision read, shared by the two sections that need it.
+   *
+   * Structure and Lane classify both describe the same snapshot, and reading it
+   * twice per page load doubled the most expensive query on this surface for no
+   * new information — against WP17's first-load request budget, and against the
+   * plan's own "no duplicate/N+1 calls on first load".
+   *
+   * A shared promise rather than a hoisted await: a failure still reaches both
+   * sections through their own `Promise.allSettled` slot and degrades exactly
+   * those two, while the other nine are unaffected. That is the same isolation
+   * two separate reads gave, without the second read.
+   */
+  const workspaceRead = providerAccountId
+    ? readMetaDecisionsWorkspaceReadModel({ businessId, providerAccountId })
+    : null;
+
+  const [
+    status,
+    pulse,
+    summary,
+    trends,
+    breakdowns,
+    anomalies,
+    labels,
+    workspace,
+    topCreatives,
+    pageStatus,
+    laneClassify,
+  ] = await Promise.allSettled([
       // 1 · status — the connection and account assignment behind everything else.
       (async () => ({
         facts: [
@@ -604,10 +638,7 @@ export async function readMetaIntelligence(input: {
             observedAt: null,
           };
         }
-        const model = await readMetaDecisionsWorkspaceReadModel({
-          businessId,
-          providerAccountId,
-        });
+        const model = await workspaceRead!;
         // The read model reports its own health. It carries no `isPartial`, so
         // the partial path below can never fire for it — without this branch an
         // authority that said `unavailable` was rendered green as "Serving".
@@ -642,6 +673,172 @@ export async function readMetaIntelligence(input: {
           observedAt: model.source?.computedAt ?? null,
         };
       })(),
+
+      // 9 · top creatives — the creative authority, read from the warehouse.
+      //
+      // Deliberately NOT `/api/meta/top-creatives`, which performs live Meta
+      // Graph fetches inside its own route handler. Composing that here would
+      // put provider calls on every render of this page, against WP17's
+      // first-load request budget and into Meta's rate limits — and
+      // reimplementing it would create a second creative authority, which is
+      // the drift this plan exists to end. `getMetaCreativesWarehousePayload`
+      // is the same warehouse reader Creative Studio serves from.
+      (async () => {
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the creative authority"),
+            observedAt: null,
+          };
+        }
+        const payload = await getMetaCreativesWarehousePayload({
+          businessId,
+          providerAccountId,
+          start: startDate,
+          end: endDate,
+          groupBy: "creative",
+          format: "all",
+          sort: "spend",
+          mediaMode: "metadata",
+        });
+        // The reader reports its own scope refusal rather than throwing, so an
+        // unassigned or ambiguous account is named instead of counted as zero.
+        if (payload.status !== "ok") {
+          return {
+            facts: [],
+            unavailableReason:
+              "The creative authority could not be scoped to the selected account.",
+            observedAt: null,
+          };
+        }
+        const rows = payload.rows ?? [];
+        const observedAt = await readMetaCreativesWarehouseObservedAt({
+          businessId,
+          providerAccountId,
+          start: startDate,
+          end: endDate,
+          groupBy: "creative",
+        });
+        return {
+          facts: [
+            { label: "Creatives in window", value: count(rows) },
+            {
+              // The reader's own partial marker, not a recomputation.
+              label: "Rows with metrics",
+              value: count(
+                rows.filter(
+                  (row) =>
+                    (row as { metricsAvailability?: string })
+                      .metricsAvailability !== "unavailable",
+                ),
+              ),
+            },
+          ],
+          partial: payload as PartialAware,
+          observedAt,
+        };
+      })(),
+
+      // 10 · page status — pipeline readiness for this account's window.
+      //
+      // Composed from the same coverage readers `/api/meta/page-status` uses,
+      // not from the 649-line route: `rollupMetaSurfaceCollection` and the
+      // coverage functions are already the canonical authority, and the route
+      // is presentation over them.
+      (async () => {
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the page-status authority"),
+            observedAt: null,
+          };
+        }
+        const coverage = await getMetaAccountDailyCoverage({
+          businessId,
+          providerAccountId,
+          startDate,
+          endDate,
+        });
+        const expectedDays = dayCountInclusive(startDate, endDate);
+        // The coverage reader's own field. `completed_days` counts days that
+        // finished, which is the number a "days covered" claim rests on.
+        const coveredDays = coverage?.completed_days ?? null;
+        return {
+          facts: [
+            {
+              label: "Days covered",
+              value:
+                coveredDays == null
+                  ? "Not reported"
+                  : `${coveredDays} of ${expectedDays}`,
+            },
+            {
+              label: "Ready through",
+              value: asServedText(coverage?.ready_through_date) ?? "Not reported",
+            },
+          ],
+          // A window that is not fully covered is partial, and says so rather
+          // than presenting a short read as the whole period.
+          partial:
+            coveredDays != null && coveredDays < expectedDays
+              ? ({
+                  isPartial: true,
+                  partialReason: `Only ${coveredDays} of ${expectedDays} days in this window have been synced.`,
+                } as PartialAware)
+              : undefined,
+          // The coverage read's own latest write time. Not this module's clock:
+          // an account that has never synced must not read as observed just now.
+          observedAt: asServedText(coverage?.latest_updated_at) ?? null,
+        };
+      })(),
+
+      // 11 · lane classify — from the canonical decision read model.
+      //
+      // The same `readMetaDecisionsWorkspaceReadModel` the structure section
+      // already reads, so the two cannot disagree about the snapshot. Its
+      // `queue.sections` IS the lane classification; `/api/meta/lane-classify`
+      // is a 1 969-line surface over the same authority and reimplementing any
+      // of it here would create a second classifier.
+      (async () => {
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("the lane classifier"),
+            observedAt: null,
+          };
+        }
+        const model = await workspaceRead!;
+        if (model.status !== "available") {
+          return {
+            facts: [],
+            unavailableReason:
+              model.unavailable?.message ??
+              "The lane classifier reported that it cannot serve, without a reason.",
+            observedAt: model.source?.computedAt ?? null,
+          };
+        }
+        const candidates = model.queue?.adCandidates ?? null;
+        return {
+          facts: [
+            {
+              label: "Deduplication grain",
+              value: asServedText(model.queue?.deduplicationGrain) ?? "Not reported",
+            },
+            {
+              // Exact provider-ad identities the classifier selected, before
+              // any display cap. Absent on a v1 payload, which reads as
+              // "not reported" rather than zero.
+              label: "Ad candidates eligible",
+              value: tally(candidates?.eligiblePreCapCount),
+            },
+            {
+              label: "Ad candidates served",
+              value: tally(candidates?.preCapCount),
+            },
+          ],
+          observedAt: model.source?.computedAt ?? null,
+        };
+      })(),
     ]);
 
   // Each row carries its own authority's observation time. There is deliberately
@@ -656,6 +853,9 @@ export async function readMetaIntelligence(input: {
     section("anomalies", "Anomalies", anomalies),
     section("labels", "Campaign labels", labels),
     section("structure", "Structure & recommendations", workspace),
+    section("top-creatives", "Top creatives", topCreatives),
+    section("page-status", "Page status", pageStatus),
+    section("lane-classify", "Lane classify", laneClassify),
   ];
 
   return { providerAccountId, sections, unavailableReason: null };

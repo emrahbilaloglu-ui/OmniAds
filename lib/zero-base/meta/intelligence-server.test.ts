@@ -9,6 +9,9 @@ const getMetaCampaignsForRange = vi.hoisted(() => vi.fn());
 const readMetaAnomaliesForBusiness = vi.hoisted(() => vi.fn());
 const readMetaCampaignLabels = vi.hoisted(() => vi.fn());
 const readMetaDecisionsWorkspaceReadModel = vi.hoisted(() => vi.fn());
+const getMetaCreativesWarehousePayload = vi.hoisted(() => vi.fn());
+const readMetaCreativesWarehouseObservedAt = vi.hoisted(() => vi.fn());
+const getMetaAccountDailyCoverage = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/integration-status", () => ({ getIntegrationStatusByBusiness }));
 vi.mock("@/lib/provider-account-assignments", () => ({ getProviderAccountAssignments }));
@@ -23,6 +26,11 @@ vi.mock("@/lib/meta/campaign-labels", () => ({ readMetaCampaignLabels }));
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   readMetaDecisionsWorkspaceReadModel,
 }));
+vi.mock("@/lib/meta/creatives-warehouse", () => ({
+  getMetaCreativesWarehousePayload,
+  readMetaCreativesWarehouseObservedAt,
+}));
+vi.mock("@/lib/meta/warehouse", () => ({ getMetaAccountDailyCoverage }));
 
 import { readMetaIntelligence } from "@/lib/zero-base/meta/intelligence-server";
 
@@ -65,8 +73,8 @@ function availableWorkspace() {
   };
 }
 
-function read() {
-  return readMetaIntelligence({ businessId: "biz-1", ...WINDOW });
+function read(overrides: { providerAccountId?: string | null } = {}) {
+  return readMetaIntelligence({ businessId: "biz-1", ...WINDOW, ...overrides });
 }
 
 // `now` is deliberately gone from the input. It existed only to make the
@@ -88,11 +96,38 @@ describe("account intelligence composition", () => {
     getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
     readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [{}] });
     readMetaCampaignLabels.mockResolvedValue(LABELS);
+    // The three sections WP9 adds, each backed by a read model that already
+    // existed rather than by its route handler.
+    getMetaCreativesWarehousePayload.mockResolvedValue({
+      status: "ok",
+      rows: [{ metricsAvailability: "available" }, { metricsAvailability: "unavailable" }],
+    });
+    readMetaCreativesWarehouseObservedAt.mockResolvedValue(
+      "2026-08-11T03:00:00.000Z",
+    );
+    getMetaAccountDailyCoverage.mockResolvedValue({
+      completed_days: 28,
+      ready_through_date: "2026-08-11",
+      latest_updated_at: "2026-08-11T04:00:00.000Z",
+      total_rows: 28,
+    });
     readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
   });
 
   it("composes every named authority as its own section", async () => {
     const result = await read();
+    /**
+     * Eight became eleven. WP9 of the Meta market-ready plan names nine
+     * sections; three were never composed — Top creatives, Page status and Lane
+     * classify.
+     *
+     * Each is built from a read model that already exists rather than from its
+     * route handler: the creatives warehouse reader Creative Studio serves
+     * from, the coverage reader page-status is presentation over, and the same
+     * `readMetaDecisionsWorkspaceReadModel` the structure section reads. None
+     * of the three route handlers is duplicated, so there is no second
+     * readiness authority to drift.
+     */
     expect(result.sections.map((item) => item.key)).toEqual([
       "status",
       "pulse",
@@ -102,6 +137,9 @@ describe("account intelligence composition", () => {
       "anomalies",
       "labels",
       "structure",
+      "top-creatives",
+      "page-status",
+      "lane-classify",
     ]);
     expect(result.providerAccountId).toBe("act_1");
   });
@@ -119,6 +157,9 @@ describe("account intelligence composition", () => {
     }
     expect(readMetaAnomaliesForBusiness).toHaveBeenCalledTimes(1);
     expect(readMetaCampaignLabels).toHaveBeenCalledTimes(1);
+    // ONE decision read, shared by Structure and Lane classify. Reading it
+    // twice per page load doubled the most expensive query on this surface for
+    // no new information.
     expect(readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(1);
   });
 
@@ -621,9 +662,34 @@ describe("each source reports its own observation time", () => {
   });
 
   it("never stamps one clock across the sections", async () => {
+    /**
+     * The rule is "no single clock across every source", not "every stamp is
+     * unique". Two sections served by the SAME authority legitimately share its
+     * observation instant — Structure and Lane classify both describe one
+     * decision snapshot, and giving them different times would be the lie, not
+     * the truth.
+     *
+     * What must never happen is the whole page carrying one value, which is how
+     * a never-synced source reads as observed just now. So: several distinct
+     * instants, and no stamp equal to this test's own clock.
+     */
     const { sections } = await read();
-    const stamps = sections.map((item) => item.observedAt).filter(Boolean);
-    expect(new Set(stamps).size).toBe(stamps.length);
+    const stamps = sections
+      .map((item) => item.observedAt)
+      .filter((value): value is string => Boolean(value));
+    expect(stamps.length).toBeGreaterThan(3);
+    expect(new Set(stamps).size).toBeGreaterThan(1);
+
+    const sharedAuthority = sections
+      .filter((item) => item.key === "structure" || item.key === "lane-classify")
+      .map((item) => item.observedAt);
+    // One authority, one instant — stated rather than incidental.
+    expect(new Set(sharedAuthority).size).toBe(1);
+
+    const now = Date.now();
+    for (const stamp of stamps) {
+      expect(Math.abs(now - Date.parse(stamp)), stamp).toBeGreaterThan(1000);
+    }
   });
 
   /**
@@ -734,5 +800,124 @@ describe("the surface refuses rather than guessing", () => {
     const result = await read();
     expect(result.unavailableReason).toMatch(/not connected/);
     expect(getMetaCanonicalOverviewSummary).not.toHaveBeenCalled();
+  });
+});
+
+describe("WP9 — the three sections that were never composed", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getIntegrationStatusByBusiness.mockResolvedValue({ meta: true, google: true });
+    getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1"] });
+    getMetaCampaignsForRange.mockResolvedValue({ rows: [] });
+    getMetaCanonicalOverviewSummary.mockResolvedValue({ readSource: "warehouse_published", isPartial: false });
+    getMetaCanonicalOverviewTrends.mockResolvedValue({ points: [], isPartial: false });
+    getMetaBreakdownsForRange.mockResolvedValue({ status: "ready", isPartial: false });
+    readMetaAnomaliesForBusiness.mockResolvedValue({ anomalies: [] });
+    readMetaCampaignLabels.mockResolvedValue([]);
+    getMetaCreativesWarehousePayload.mockResolvedValue({ status: "ok", rows: [] });
+    readMetaCreativesWarehouseObservedAt.mockResolvedValue("2026-08-11T03:00:00.000Z");
+    getMetaAccountDailyCoverage.mockResolvedValue({
+      completed_days: 28,
+      ready_through_date: "2026-08-11",
+      latest_updated_at: "2026-08-11T04:00:00.000Z",
+      total_rows: 28,
+    });
+    readMetaDecisionsWorkspaceReadModel.mockResolvedValue(availableWorkspace());
+  });
+
+  function sectionOf(sections: Array<{ key: string }>, key: string) {
+    const found = sections.find((item) => item.key === key);
+    expect(found, `${key} section missing`).toBeDefined();
+    return found as never as {
+      key: string;
+      state: string;
+      reason: string | null;
+      failureCode?: string;
+      observedAt: string | null;
+      facts: Array<{ label: string; value: string }>;
+    };
+  }
+
+  it("serves all three when their authorities answer", async () => {
+    const { sections } = await read();
+    for (const key of ["top-creatives", "page-status", "lane-classify"]) {
+      expect(sectionOf(sections, key).state, key).toBe("serving");
+    }
+  });
+
+  it("reports a proven-empty creative window as zero, not as unavailable", async () => {
+    // The read succeeded and the account genuinely has no creatives in this
+    // window. That is a fact, and it is different from a failed read.
+    const section = sectionOf((await read()).sections, "top-creatives");
+    expect(section.state).toBe("serving");
+    expect(section.facts.find((fact) => fact.label === "Creatives in window")?.value).toBe("0");
+  });
+
+  it("withholds all three when no single account is selected", async () => {
+    // D6: account-scoped data is never served without an account, and the
+    // reason names the authority rather than showing zeros.
+    getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1", "act_2"] });
+    const { sections } = await read({ providerAccountId: null });
+    for (const key of ["top-creatives", "page-status", "lane-classify"]) {
+      const section = sectionOf(sections, key);
+      expect(section.state, key).toBe("unavailable");
+      expect(section.reason, key).toMatch(/No single Meta account is selected/);
+      expect(section.facts, key).toEqual([]);
+    }
+  });
+
+  it("degrades a failed creative read with a classified reason, never the raw error", async () => {
+    getMetaCreativesWarehousePayload.mockRejectedValue(
+      new Error("request to https://graph.facebook.com/v20.0?access_token=EAAsecret failed"),
+    );
+    const section = sectionOf((await read()).sections, "top-creatives");
+    expect(section.state).toBe("degraded");
+    expect(section.failureCode).toBe("source_read_failed");
+    expect(section.reason).not.toContain("EAAsecret");
+    expect(section.reason).not.toContain("access_token");
+  });
+
+  it("marks a short-covered window partial rather than serving it whole", async () => {
+    // 12 of 28 days synced is not the period the operator asked for, and
+    // presenting it as one is how a total silently becomes wrong.
+    getMetaAccountDailyCoverage.mockResolvedValue({
+      completed_days: 12,
+      ready_through_date: "2026-07-26",
+      latest_updated_at: "2026-07-26T04:00:00.000Z",
+      total_rows: 12,
+    });
+    const section = sectionOf((await read()).sections, "page-status");
+    expect(section.state).toBe("partial");
+    expect(section.facts.find((fact) => fact.label === "Days covered")?.value).toBe("12 of 28");
+  });
+
+  it("says 'not reported' rather than zero when coverage is unreadable", async () => {
+    getMetaAccountDailyCoverage.mockResolvedValue(null);
+    const section = sectionOf((await read()).sections, "page-status");
+    expect(section.facts.find((fact) => fact.label === "Days covered")?.value).toBe("Not reported");
+    expect(section.observedAt).toBeNull();
+  });
+
+  it("reports the lane classifier's own refusal in its own words", async () => {
+    readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
+      status: "unavailable",
+      unavailable: { code: "snapshot_unavailable", message: "No complete native generation." },
+      source: { computedAt: "2026-08-10T03:00:00.000Z" },
+    });
+    const section = sectionOf((await read()).sections, "lane-classify");
+    expect(section.state).toBe("unavailable");
+    expect(section.reason).toBe("No complete native generation.");
+    // A model that cannot serve still names when its snapshot was computed.
+    expect(section.observedAt).toBe("2026-08-10T03:00:00.000Z");
+  });
+
+  it("reads ad candidates as 'not reported' on a payload that omits them", async () => {
+    // `adCandidates` is optional for v1 payload compatibility. Absent is not 0.
+    const model = availableWorkspace();
+    delete (model as { queue?: { adCandidates?: unknown } }).queue?.adCandidates;
+    readMetaDecisionsWorkspaceReadModel.mockResolvedValue(model);
+    const section = sectionOf((await read()).sections, "lane-classify");
+    const eligible = section.facts.find((fact) => fact.label === "Ad candidates eligible");
+    expect(eligible?.value).toBe("Not reported");
   });
 });

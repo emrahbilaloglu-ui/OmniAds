@@ -14,6 +14,11 @@
  * unmapped frame is printed with its id, and the coverage figure is the honest
  * ratio. Nothing here marks G10 green.
  */
+// Must run before any component import: these read the real exact bodies, which
+// import CSS modules (and next/image). Without the stub Node's CommonJS loader
+// hands the stylesheet to the JavaScript parser and the gate dies at step one.
+import "./css-module-stub.cts";
+
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 
 import { FRAMES, SUBSTITUTED_FRAMES } from "@/scripts/zero-base/frame-registry";

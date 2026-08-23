@@ -277,10 +277,10 @@ export function TrendPanel({
                     borderTop: "1px solid var(--ledger-border-subtle)",
                   }}
                 >
-                  <span style={{ position: "absolute", right: "calc(100% + 8px)", top: -8, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                  <span style={{ position: "absolute", right: "calc(100% + 8px)", top: -8, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {max === 0 ? "0" : formatSpend(max * ratio, currency)}
                   </span>
-                  <span style={{ position: "absolute", left: "calc(100% + 8px)", top: -8, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                  <span style={{ position: "absolute", left: "calc(100% + 8px)", top: -8, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {(maxRoas * ratio).toFixed(1)}x
                   </span>
                 </div>
@@ -374,8 +374,8 @@ export function TrendPanel({
                 </div>
               ) : null}
 
-              <span aria-hidden="true" style={{ position: "absolute", left: 54, bottom: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>{first ? shortDate(first) : "—"}</span>
-              <span aria-hidden="true" style={{ position: "absolute", right: 42, bottom: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>{last ? shortDate(last) : "—"}</span>
+              <span aria-hidden="true" style={{ position: "absolute", left: 54, bottom: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{first ? shortDate(first) : "—"}</span>
+              <span aria-hidden="true" style={{ position: "absolute", right: 42, bottom: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{last ? shortDate(last) : "—"}</span>
             </div>
           </div>
         )}

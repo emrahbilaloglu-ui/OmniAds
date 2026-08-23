@@ -258,9 +258,31 @@ for (const width of [1440, 390, 320]) {
         page.locator('[data-metric-card="spend"] [data-comparison="available"]'),
       ).toHaveAttribute("data-sentiment", "neutral");
 
-      // Both banner severities are visible together.
-      await expect(page.locator('[data-banner="hard"]')).toBeVisible();
-      await expect(page.locator('[data-banner="partial"]')).toBeVisible();
+      /**
+       * Source problems live in Source readiness, not in a page banner.
+       *
+       * This asserted that both banner severities were visible together, and it
+       * contradicted `components/zero-base/home/home.test.tsx` — "keeps source
+       * problems in Source readiness instead of duplicating a page banner" —
+       * which asserts `[data-banner]` is null and has been enforced all along.
+       *
+       * Both could not be true. The unit test states the decision and its
+       * reason and runs on every commit; this spec has not run since the
+       * harness build broke on a CSS-module import, so it encodes an intent
+       * that was superseded and never re-checked. `BannerStack` in
+       * `source-health.tsx` is the leftover of the abandoned approach and is
+       * called by nothing.
+       *
+       * What matters to the operator is unchanged and is what is checked now:
+       * an unavailable and a partial source are both named, on the surface,
+       * with their reasons.
+       */
+      const sourceHealth = page.locator("[data-source-health]");
+      await expect(sourceHealth).toBeVisible();
+      await expect(sourceHealth).toContainText("Meta");
+      await expect(sourceHealth).toContainText("GA4");
+      // And the page does not carry the duplicate banner the unit test forbids.
+      await expect(page.locator("[data-banner]")).toHaveCount(0);
 
       // A failed refresh keeps the previous figures and says they are unchanged.
       await expect(page.locator('[data-refresh-notice="failed"]')).toContainText("unchanged");

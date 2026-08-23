@@ -23,6 +23,12 @@
  * `matchMedia` is implemented against the frame's own width, so the shell's
  * viewport branch is decided by a real query rather than by the SSR hint.
  */
+// Must run before any component import: the frame harness renders the real
+// exact bodies, which import CSS modules that Node's CommonJS loader hands to
+// the JavaScript parser. Without this the frames, reference and fidelity gates
+// all fail at step one — which is where they had been failing.
+import "./css-module-stub.cts";
+
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 

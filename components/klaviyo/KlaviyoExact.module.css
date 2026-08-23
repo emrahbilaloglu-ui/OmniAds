@@ -36,7 +36,7 @@
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .title {
@@ -104,7 +104,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
 }
 
@@ -137,12 +137,12 @@
   padding: 2px 8px;
   font-weight: 600;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .statusChipLive {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .cellRevenue {
@@ -167,7 +167,7 @@
 .footNote {
   margin: 0;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /*

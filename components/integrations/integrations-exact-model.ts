@@ -25,7 +25,7 @@ export interface IntegrationsFirstSyncModel {
   percentLabel: string;
   /** Bar width as a CSS length, e.g. "42%". */
   barWidth: string;
-  /** design 4344: the bar turns #0E9F6E at 100, #2F6BFF below it. */
+  /** design 4344: the bar turns #0b7954 at 100, #2a5fe2 below it. */
   complete: boolean;
   steps: IntegrationsFirstSyncStepModel[];
 }

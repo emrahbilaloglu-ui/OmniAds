@@ -5,9 +5,9 @@ import type { AiDailyInsightSnapshot } from "@/src/types/models";
 type BriefKind = "Opportunity" | "Risk" | "Action";
 
 const KIND_TONE: Record<BriefKind, { background: string; color: string }> = {
-  Opportunity: { background: "#E7F6F0", color: "#0E9F6E" },
+  Opportunity: { background: "#E7F6F0", color: "#0b7954" },
   Risk: { background: "#FDECF0", color: "#E11D48" },
-  Action: { background: "#EAF0FF", color: "#2F6BFF" },
+  Action: { background: "#EAF0FF", color: "#2a5fe2" },
 };
 
 function firstPresent(values: string[]) {

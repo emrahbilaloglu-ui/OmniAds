@@ -54,7 +54,7 @@ describe("heat ramp", () => {
 
 describe("retention pill", () => {
   it("uses the design's four steps, with a readable 25-40% tier", () => {
-    expect(retentionPill(0.45)).toEqual(["#0E9F6E", "#ffffff"]);
+    expect(retentionPill(0.45)).toEqual(["#0b7954", "#ffffff"]);
     expect(retentionPill(0.3)).toEqual(["#BFE5D6", "#065F46"]);
     expect(retentionPill(0.2)).toEqual(["#F5E1B0", "#92400E"]);
     expect(retentionPill(0.05)).toEqual(["#F6C6D2", "#9F1239"]);

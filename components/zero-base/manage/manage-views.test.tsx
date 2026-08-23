@@ -150,9 +150,12 @@ describe("plan truth", () => {
         features={["Reports"]}
       />,
     );
-    expect(document.querySelector("[data-plan-gates-nothing]")!.textContent).toMatch(
-      /No route or control in this product is gated by it/,
-    );
+    // Names the gates rather than denying them: five live PlanGates make the
+    // old sentence false, and the disclosure is generated from the same list a
+    // test holds against the tree.
+    const gating = document.querySelector("[data-plan-gating]")!.textContent ?? "";
+    expect(gating).toMatch(/Creative Studio — Copies/);
+    expect(gating).not.toMatch(/No route or control/);
     expect(document.querySelector("[data-plan-name]")!.textContent).toMatch(/Growth.*active/);
     expect(document.querySelector("[data-el='billing-manage']")).toHaveAttribute(
       "href",

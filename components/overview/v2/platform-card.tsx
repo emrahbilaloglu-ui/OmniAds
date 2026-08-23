@@ -101,7 +101,7 @@ export function PlatformMiniDashboard({
         </span>
         <span
           className="inline-flex items-center rounded-full text-[11px] font-semibold"
-          style={{ gap: 5, padding: "2px 9px", background: "#E7F6F0", color: "#0E9F6E" }}
+          style={{ gap: 5, padding: "2px 9px", background: "#E7F6F0", color: "#0b7954" }}
         >
           <span className="h-[5px] w-[5px] rounded-full bg-current" />
           {syncLabel}
@@ -120,7 +120,7 @@ export function PlatformMiniDashboard({
         {stats.map(({ key, label: statLabel, metric }) => (
           <div key={key} className="min-w-0 rounded-[10px] bg-[#F7F9FC] px-[10px] pb-2 pt-[10px]">
             <p
-              className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#7A869E]"
+              className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#555d6d]"
               style={{ fontFamily: "var(--adv-font-mono)" }}
             >
               {statLabel}
@@ -139,7 +139,7 @@ export function PlatformMiniDashboard({
             <AdvSparkline
               points={metric?.status === "unavailable" ? [] : (metric?.sparklineData ?? [])}
               previousPoints={metric?.status === "unavailable" ? undefined : metric?.previousSparklineData}
-              line="#2F6BFF"
+              line="#2a5fe2"
               fill="rgba(47,107,255,0.08)"
               height={24}
               format={(value) =>

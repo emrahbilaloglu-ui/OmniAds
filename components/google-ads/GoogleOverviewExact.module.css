@@ -37,7 +37,7 @@
 
 .pageEyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -60,7 +60,7 @@
 }
 
 .guardCopy {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -82,7 +82,7 @@
 
 .freshnessFresh {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .freshnessStale {
@@ -92,12 +92,12 @@
 
 .freshnessSyncing {
   background: #edf4ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .freshnessUnavailable {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .heroGrid {
@@ -134,7 +134,7 @@
 }
 
 .metricLabel {
-  color: #7a869e;
+  color: #555d6d;
   letter-spacing: 0.1em;
 }
 
@@ -160,7 +160,7 @@
 }
 
 .metricDeltaPositive {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .metricDeltaNegative {
@@ -172,7 +172,7 @@
 }
 
 .metricDetail {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   text-align: right;
 }
@@ -197,7 +197,7 @@
 
 .chartPrevious {
   fill: none;
-  stroke: #98a4ba;
+  stroke: #68707f;
   stroke-dasharray: 3 3;
   stroke-width: 1.2;
   opacity: 0.9;
@@ -205,7 +205,7 @@
 
 .chartCurrent {
   fill: none;
-  stroke: #2f6bff;
+  stroke: #2a5fe2;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.6;
@@ -224,7 +224,7 @@
   padding: 0 3px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.85);
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -242,7 +242,7 @@
 }
 
 .chartMarkerMaximum {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .chartMarkerMinimum {
@@ -259,7 +259,7 @@
 .chartHoverDot {
   width: 7px;
   height: 7px;
-  background: #2f6bff;
+  background: #2a5fe2;
   box-shadow: 0 0 0 2px rgba(47, 107, 255, 0.25);
 }
 
@@ -301,7 +301,7 @@
 }
 
 .secondaryLabel {
-  color: #98a4ba;
+  color: #68707f;
   letter-spacing: 0.09em;
 }
 
@@ -350,12 +350,12 @@
 
 .severityOpportunity {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .severityPositive {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .severityNeutral {
@@ -388,7 +388,7 @@
 }
 
 .lookEvidence {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -403,12 +403,12 @@
 }
 
 .lookAction {
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
 }
 
 .lookActionUnavailable {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .tableCard,
@@ -441,7 +441,7 @@
 }
 
 .sectionNote {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -456,7 +456,7 @@
 .campaignTable th {
   padding: 9px 12px;
   background: #f7f9fc;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -507,7 +507,7 @@
 
 .campaignTypeInfo {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .campaignTypeAuto {
@@ -552,11 +552,11 @@
 .shareFill {
   height: 100%;
   border-radius: 9999px;
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 .shareValue {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -579,7 +579,7 @@
 
 .tonePositive {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .toneWarning {
@@ -598,7 +598,7 @@
 }
 
 .isValue {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -608,13 +608,13 @@
 }
 
 .lostNeutral {
-  color: #98a4ba;
+  color: #68707f;
   font-weight: 600;
 }
 
 .emptyRow td {
   padding: 18px 16px;
-  color: #98a4ba;
+  color: #68707f;
   text-align: center;
 }
 
@@ -630,7 +630,7 @@
 }
 
 .budgetKpiLabel {
-  color: #98a4ba;
+  color: #68707f;
   letter-spacing: 0.09em;
 }
 
@@ -645,7 +645,7 @@
 
 .budgetKpiDetail {
   margin-top: 2px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .budgetRecommendations {
@@ -683,7 +683,7 @@
 
 .budgetAmountIncrease {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .budgetAmountDecrease {
@@ -698,7 +698,7 @@
 
 .budgetReason {
   margin-top: 5px;
-  color: #7a869e;
+  color: #555d6d;
   line-height: 1.5;
 }
 
@@ -750,7 +750,7 @@
 .mobileKpiLabel {
   margin: 0;
   overflow: hidden;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -824,7 +824,7 @@
 .mobileEmpty {
   margin: 0;
   padding: 16px 12px;
-  color: #98a4ba;
+  color: #68707f;
   font-size: 12px;
   text-align: center;
 }

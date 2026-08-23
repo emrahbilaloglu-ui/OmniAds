@@ -60,7 +60,7 @@ function BlockBody({ block }: { block: BuilderBlockModel }) {
           <path
             d={body.path}
             fill="none"
-            stroke="#2F6BFF"
+            stroke="#2a5fe2"
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
           />

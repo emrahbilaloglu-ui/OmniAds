@@ -151,7 +151,7 @@ export function CommercialTruthExact({
       sub: "spend × ROAS",
       rowBackground: "#ffffff",
       labelColor: "#0e1526",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
       cells: columns.map((column) =>
         cell(column.revenue === null ? TRUTH_DASH : money(column.revenue)),
@@ -163,9 +163,9 @@ export function CommercialTruthExact({
       sub: scenario.variableCostSubLabel,
       rowBackground: "#fbfcfe",
       labelColor: "#45526b",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
-      cells: columns.map((column) => cell(negative(column.variable), "#7a869e", 500)),
+      cells: columns.map((column) => cell(negative(column.variable), "#555d6d", 500)),
     },
     {
       key: "contribution",
@@ -173,7 +173,7 @@ export function CommercialTruthExact({
       sub: scenario.contributionSubLabel,
       rowBackground: "#ffffff",
       labelColor: "#0e1526",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
       cells: columns.map((column) =>
         cell(column.contribution === null ? TRUTH_DASH : money(column.contribution)),
@@ -185,9 +185,9 @@ export function CommercialTruthExact({
       sub: null,
       rowBackground: "#fbfcfe",
       labelColor: "#45526b",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
-      cells: columns.map((column) => cell(negative(column.spend), "#7a869e", 500)),
+      cells: columns.map((column) => cell(negative(column.spend), "#555d6d", 500)),
     },
     {
       key: "fixed",
@@ -195,9 +195,9 @@ export function CommercialTruthExact({
       sub: "from the pack · applies once per month",
       rowBackground: "#ffffff",
       labelColor: "#45526b",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
-      cells: columns.map(() => cell(negative(scenario.fixedCost), "#7a869e", 500)),
+      cells: columns.map(() => cell(negative(scenario.fixedCost), "#555d6d", 500)),
     },
     {
       key: "net",
@@ -223,12 +223,12 @@ export function CommercialTruthExact({
       sub: "net profit ÷ revenue",
       rowBackground: "#ffffff",
       labelColor: "#0e1526",
-      subColor: "#98a4ba",
+      subColor: "#68707f",
       lineColor: "#edf0f6",
       cells: columns.map((column) =>
         column.margin === null
-          ? cell(TRUTH_DASH, "#98a4ba")
-          : cell(`${column.margin.toFixed(1)}%`, column.margin >= 0 ? "#0e9f6e" : "#e11d48"),
+          ? cell(TRUTH_DASH, "#68707f")
+          : cell(`${column.margin.toFixed(1)}%`, column.margin >= 0 ? "#0b7954" : "#e11d48"),
       ),
     },
   ];

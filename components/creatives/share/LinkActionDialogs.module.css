@@ -52,7 +52,7 @@
   width: 22px;
   height: 22px;
   border-radius: 9999px;
-  background: #0e9f6e;
+  background: #0b7954;
   display: grid;
   place-items: center;
 }
@@ -83,7 +83,7 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .urlRow {
@@ -110,14 +110,14 @@
   margin: 9px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .linkButton {
   border: none;
   background: none;
   padding: 0;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-weight: 600;
   cursor: pointer;
   font-size: inherit;
@@ -165,7 +165,7 @@
 
 .primaryButton {
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #fff;
   padding: 0 12px;
 }
@@ -183,7 +183,7 @@
 }
 
 .doneButton:focus-visible {
-  outline: 2px solid #2f6bff;
+  outline: 2px solid #2a5fe2;
   outline-offset: 2px;
 }
 

@@ -26,16 +26,16 @@ import { TRUTH_DASH } from "@/components/commercial-truth/commercial-truth-exact
 
 /** The design's semantic palette (data-model.js:3237). */
 const TONE = {
-  pos: ["#E7F6F0", "#0E9F6E"],
+  pos: ["#E7F6F0", "#0b7954"],
   neg: ["#FDECF0", "#E11D48"],
   warn: ["#FBF3E1", "#B45309"],
-  info: ["#EAF0FF", "#2F6BFF"],
-  neutral: ["#F1F4F9", "#7A869E"],
+  info: ["#EAF0FF", "#2a5fe2"],
+  neutral: ["#F1F4F9", "#555d6d"],
 } as const;
 
 const BAND_META = [
-  { name: "Above target", tone: "#0E9F6E", bg: TONE.pos[0], fg: TONE.pos[1], verdict: "Scale" },
-  { name: "Near target", tone: "#2F6BFF", bg: TONE.info[0], fg: TONE.info[1], verdict: "Hold" },
+  { name: "Above target", tone: "#0b7954", bg: TONE.pos[0], fg: TONE.pos[1], verdict: "Scale" },
+  { name: "Near target", tone: "#2a5fe2", bg: TONE.info[0], fg: TONE.info[1], verdict: "Hold" },
   {
     name: "Above breakeven",
     tone: "#B45309",
@@ -46,7 +46,7 @@ const BAND_META = [
   { name: "Below breakeven", tone: "#E11D48", bg: TONE.neg[0], fg: TONE.neg[1], verdict: "Cut" },
   {
     name: "Unlabeled",
-    tone: "#98A4BA",
+    tone: "#68707f",
     bg: TONE.neutral[0],
     fg: TONE.neutral[1],
     verdict: "Fix setup",
@@ -58,8 +58,8 @@ const SEGMENT_TONES = {
   cogs: "#41506B",
   shipping: "#B45309",
   fees: "#6C41BE",
-  ads: "#2F6BFF",
-  contribution: "#0E9F6E",
+  ads: "#2a5fe2",
+  contribution: "#0b7954",
 } as const;
 
 /**
@@ -71,7 +71,7 @@ const SEGMENT_TONES = {
  */
 export const TRUTH_CONSUMERS: CommercialTruthConsumerModel[] = [
   {
-    dot: "#2F6BFF",
+    dot: "#2a5fe2",
     name: "Meta Decision Center",
     note: "Labels Scale / Cut against the ROAS anchors.",
     reads: "Target ROAS · Breakeven",
@@ -85,7 +85,7 @@ export const TRUTH_CONSUMERS: CommercialTruthConsumerModel[] = [
     last: TRUTH_DASH,
   },
   {
-    dot: "#0E9F6E",
+    dot: "#0b7954",
     name: "Creative Studio",
     note: "Winner threshold on the heat table and board.",
     reads: "Target ROAS · AOV floor",
@@ -445,7 +445,7 @@ export function buildCommercialTruthExactModel(
       roasBackground: meta.bg,
       roasForeground: meta.fg,
       delta: delta === null ? TRUTH_DASH : `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(2)}`,
-      deltaForeground: delta === null ? "#98A4BA" : delta >= 0 ? "#0E9F6E" : "#E11D48",
+      deltaForeground: delta === null ? "#68707f" : delta >= 0 ? "#0b7954" : "#E11D48",
       verdict: canBand ? meta.verdict : TRUTH_DASH,
       verdictBackground: canBand ? meta.bg : TONE.neutral[0],
       verdictForeground: canBand ? meta.fg : TONE.neutral[1],
@@ -473,7 +473,7 @@ export function buildCommercialTruthExactModel(
         ? TRUTH_DASH
         : `${blendedDelta >= 0 ? "+" : "−"}${Math.abs(blendedDelta).toFixed(2)}`,
     deltaForeground:
-      blendedDelta === null ? "#98A4BA" : blendedDelta >= 0 ? "#0E9F6E" : "#E11D48",
+      blendedDelta === null ? "#68707f" : blendedDelta >= 0 ? "#0b7954" : "#E11D48",
     targetRoas: targetRoas === null ? TRUTH_DASH : targetRoas.toFixed(2),
   };
 

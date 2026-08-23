@@ -324,8 +324,8 @@ export function MiniTrendAreaChart({
             states the shape and lets the numbers beside it carry the meaning.
           */}
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#2F6BFF" />
-            <stop offset="100%" stopColor="#2F6BFF" />
+            <stop offset="0%" stopColor="#2a5fe2" />
+            <stop offset="100%" stopColor="#2a5fe2" />
           </linearGradient>
         </defs>
 
@@ -379,7 +379,7 @@ export function MiniTrendAreaChart({
               cy={activePoint.y}
               r="3"
               fill="#ffffff"
-              stroke="#2F6BFF"
+              stroke="#2a5fe2"
               strokeWidth="2"
             />
             {activeCmpPoint ? (

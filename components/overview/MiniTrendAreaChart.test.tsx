@@ -33,7 +33,7 @@ const source = readFileSync(
 describe("the line does not imply a verdict it cannot know", () => {
   it("uses no positive-coded gradient", () => {
     // blue -> emerald reads as "good" whatever the metric is doing.
-    expect(source).not.toContain('stopColor="#0E9F6E"');
+    expect(source).not.toContain('stopColor="#0b7954"');
   });
 
   it("does not accept a tone it silently ignores", () => {

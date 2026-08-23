@@ -57,7 +57,7 @@ describe("canonical Overview metric band", () => {
   it("uses the design's info delta and exact geometry on the spend tile", () => {
     const html = renderToStaticMarkup(<HeroTile metric={metric()} currencySymbol="$" index={0} />);
 
-    expect(html).toContain("background:#EAF0FF;color:#2F6BFF");
+    expect(html).toContain("background:#EAF0FF;color:#2a5fe2");
     expect(html).toContain("gap-[3px]");
     expect(html).toContain("text-[11.5px]");
     expect(html).toContain('style="margin-top:12px"');

@@ -101,7 +101,7 @@
 
 .eyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -143,7 +143,7 @@
 }
 
 .cardKicker {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .killRow {
@@ -173,7 +173,7 @@
 }
 
 .statusPill[data-tone="enabled"] {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .statusPill[data-tone="stopped"] {
@@ -254,7 +254,7 @@
   border: 1px dashed #c9d2e0;
   border-radius: 6px;
   padding: 3px 9px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .confirmationCard,
@@ -307,7 +307,7 @@
 
 .confirmationHint {
   margin-left: auto;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .confirmationEmpty {
@@ -320,7 +320,7 @@
      a single centred glyph, exactly as before. */
   gap: 12px;
   border-top: 1px solid #f3f5f9;
-  color: #98a4ba;
+  color: #68707f;
   font-size: 13px;
 }
 
@@ -377,7 +377,7 @@
 
 .proposalAction[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .proposalBody {
@@ -394,7 +394,7 @@
 
 .proposalWhy {
   margin: 3px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
 }
 
@@ -443,7 +443,7 @@
 }
 
 .proposalPrimary[data-tone="positive"] {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .proposalSecondary,
@@ -459,7 +459,7 @@
 }
 
 .proposalTertiary {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .proposalSecondary:hover:not(:disabled),
@@ -555,7 +555,7 @@
   margin: 0;
   border-top: 1px solid #f3f5f9;
   padding: 10px 16px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .rulesAutonomyGrid {
@@ -579,7 +579,7 @@
 }
 
 .sectionHint {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .newRule {
@@ -587,7 +587,7 @@
   border: 0;
   background: transparent;
   padding: 0;
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
@@ -617,7 +617,7 @@
 .rulesTable th,
 .ledgerTable th {
   background: #f7f9fc;
-  color: #7a869e;
+  color: #555d6d;
   font-weight: 500;
   letter-spacing: 0.1em;
   text-align: left;
@@ -645,7 +645,7 @@
 
 .rulesEmpty td,
 .ledgerEmpty td {
-  color: #98a4ba;
+  color: #68707f;
   text-align: center;
 }
 
@@ -671,12 +671,12 @@
 .ruleTrigger {
   display: block;
   margin-top: 2px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .ruleComposerNote {
   margin: 0;
-  color: #98a4ba;
+  color: #68707f;
   line-height: 1.5;
 }
 
@@ -703,7 +703,7 @@
 
 .modeChip[data-mode="confirm"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .modeChip[data-mode="suggest"] {
@@ -713,7 +713,7 @@
 
 .ruleFired {
   padding: 10px 12px;
-  color: #7a869e;
+  color: #555d6d;
   text-align: right;
 }
 
@@ -736,7 +736,7 @@
 
 .ruleToggle[data-on="true"] {
   justify-content: flex-end;
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .ruleToggle[data-locked="true"] {
@@ -812,7 +812,7 @@
 
 .rulePrimary {
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   padding: 0 13px;
   color: #ffffff;
   font-weight: 700;
@@ -875,12 +875,12 @@
 
 .autonomyTier[data-tone="info"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .autonomyTier[data-tone="enabled"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .autonomyTier[data-tone="manual"] {
@@ -919,12 +919,12 @@
 
 .progressValue {
   flex-shrink: 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .autonomyNext {
   margin: 6px 0 0;
-  color: #98a4ba;
+  color: #68707f;
   line-height: 1.5;
 }
 
@@ -965,7 +965,7 @@
 }
 
 .ledgerTime {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .ledgerAction {
@@ -984,7 +984,7 @@
 
 .ledgerResult[data-tone="applied"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .ledgerResult[data-tone="blocked"],
@@ -1006,7 +1006,7 @@
 
 .mobileEyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1059,7 +1059,7 @@
 }
 
 .mobileFacts dt {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .mobileFacts dd {

@@ -25,7 +25,7 @@
  * deliberately narrow (the sink re-validates against the same allowlists), and
  * a screen view is a fact about a screen, not about what was on it.
  */
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import type { ProductInstrumentationSurface } from "@/lib/product-instrumentation";
@@ -57,6 +57,25 @@ export const INSTRUMENTATION_SURFACE_BY_SURFACE_ID: Readonly<
   "manage-integrations": "integrations",
 };
 
+/**
+ * The last (surface, business) pair a `screen_view` was emitted for.
+ *
+ * Module scope, not a ref. A ref only remembers within one component instance,
+ * and the shell's emitter is remounted during the first load — measured on the
+ * mounted routes, where every Meta surface emitted the identical `screen_view`
+ * twice. Every adoption number built on that event was doubled.
+ *
+ * Not a set: navigating away and back IS a second view and must count again.
+ * Only an immediate repeat of the pair that is already current is suppressed,
+ * which is exactly "once per surface and business, not once per render".
+ */
+let lastEmittedScreenViewKey: string | null = null;
+
+/** Test seam: a fresh page load starts with nothing emitted. */
+export function resetScreenViewForTest(): void {
+  lastEmittedScreenViewKey = null;
+}
+
 export function useScreenView(input: {
   surface: ProductInstrumentationSurface;
   businessId: string | null | undefined;
@@ -67,15 +86,14 @@ export function useScreenView(input: {
    */
   ready?: boolean;
 }) {
-  const emittedFor = useRef<string | null>(null);
   const businessId = input.businessId ?? null;
   const ready = input.ready ?? true;
 
   useEffect(() => {
     if (!ready || !businessId) return;
     const key = `${input.surface}:${businessId}`;
-    if (emittedFor.current === key) return;
-    emittedFor.current = key;
+    if (lastEmittedScreenViewKey === key) return;
+    lastEmittedScreenViewKey = key;
     emitProductInstrumentation({
       eventName: "screen_view",
       surface: input.surface,

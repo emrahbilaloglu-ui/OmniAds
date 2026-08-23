@@ -513,7 +513,7 @@ export default function OverviewPage() {
           title="Store &amp; customer value"
           metrics={storeAndCustomerMetrics}
           currencySymbol={symbol}
-          line="#0E9F6E"
+          line="#0b7954"
           fill="rgba(14,159,110,0.08)"
         />
         <TileCard

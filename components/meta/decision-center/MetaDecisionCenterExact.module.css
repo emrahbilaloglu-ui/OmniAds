@@ -37,7 +37,7 @@
 
 .pageEyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -54,7 +54,7 @@
 
 .asOfLine {
   margin: 4px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -92,7 +92,7 @@
   padding-right: 14px;
   padding-left: 14px;
   border: 0;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #fff;
 }
 
@@ -115,7 +115,7 @@
 
 .kpiLabel {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -138,11 +138,11 @@
 }
 
 .spendDelta {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .roasTarget {
-  color: #7a869e;
+  color: #555d6d;
   /*
    * The reference phrase names its own source — "target 2.50 · stale", or
    * "account median 2.10" on a business unit with no commercial-truth target —
@@ -163,11 +163,11 @@
 }
 
 .kpiDetail {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .manageLabels {
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
   font-weight: 600;
 }
@@ -185,14 +185,14 @@
   padding: 3px 10px;
   border-radius: 9999px;
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
   font-size: 12px;
   font-weight: 600;
 }
 
 .snapshotDetail {
   margin: 8px 0 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .modeValue {
@@ -250,7 +250,7 @@
   padding: 1px 7px;
   border-radius: 9999px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -266,7 +266,7 @@
 
 .scopeRow > p {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -296,13 +296,13 @@
   padding: 1px 7px;
   border-radius: 9999px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
 .laneOptionActive {
-  border-color: #2f6bff;
-  background: #2f6bff;
+  border-color: #2a5fe2;
+  background: #2a5fe2;
   color: #fff;
 }
 
@@ -318,7 +318,7 @@
   padding: 0 12px;
   border: 1px dashed #c9d2e0;
   border-radius: 9999px;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12.5px;
 }
 
@@ -367,9 +367,9 @@
 
 .tonePositive {
   --tone-bg: #e7f6f0;
-  --tone-fg: #0e9f6e;
+  --tone-fg: #0b7954;
   --tone-border: #bfe5d6;
-  --tone-solid: #0e9f6e;
+  --tone-solid: #0b7954;
 }
 
 .toneNegative {
@@ -388,9 +388,9 @@
 
 .toneInfo {
   --tone-bg: #eaf0ff;
-  --tone-fg: #2f6bff;
+  --tone-fg: #2a5fe2;
   --tone-border: #cbd9ff;
-  --tone-solid: #2f6bff;
+  --tone-solid: #2a5fe2;
 }
 
 .toneAutomation {
@@ -402,9 +402,9 @@
 
 .toneNeutral {
   --tone-bg: #f1f4f9;
-  --tone-fg: #7a869e;
+  --tone-fg: #555d6d;
   --tone-border: #e4e8f0;
-  --tone-solid: #98a4ba;
+  --tone-solid: #68707f;
 }
 
 .actionCard {
@@ -451,7 +451,7 @@
   padding: 2px 6px;
   border: 1px solid #e4e8f0;
   border-radius: 5px;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   text-transform: uppercase;
 }
@@ -502,7 +502,7 @@
 
 .moneySub {
   margin: 3px 0 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .confidencePill {
@@ -554,7 +554,7 @@
   z-index: 1;
   flex-shrink: 0;
   padding: 0 2px;
-  color: #98a4ba;
+  color: #68707f;
   cursor: pointer;
   font-size: 16px;
 }
@@ -615,7 +615,7 @@
 
 .watchingNote {
   margin: 4px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
 }
 
@@ -668,7 +668,7 @@
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .healthyName {
@@ -709,7 +709,7 @@
 
 .healthyStats {
   margin-left: auto;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -736,7 +736,7 @@
   padding: 2px 8px;
   border-radius: 6px;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-weight: 600;
 }
 
@@ -755,7 +755,7 @@
 
 .nonSalesMetricLabel {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -772,7 +772,7 @@
 
 .nonSalesNote {
   margin: 12px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
 }
 
@@ -793,7 +793,7 @@
 .archiveTable th {
   padding: 9px 12px;
   background: #f7f9fc;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -834,7 +834,7 @@
 }
 
 .archiveTable td:nth-child(4) {
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12.5px;
 }
 
@@ -879,7 +879,7 @@
 
 .postureLabel {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -896,7 +896,7 @@
 
 .postureDetail {
   margin: 3px 0 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .creativeCard {
@@ -1024,7 +1024,7 @@
 
 .creativeSparkLabel {
   margin: 0 0 3px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1043,7 +1043,7 @@
 
 .evidenceLink {
   flex-shrink: 0;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -1085,7 +1085,7 @@
   border: 1px dashed #c9d2e0;
   border-radius: 12px;
   background: #fbfcfe;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -1104,7 +1104,7 @@
 .creativeFootnote p {
   min-width: 220px;
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12.5px;
   line-height: 1.5;
   flex: 1;
@@ -1112,7 +1112,7 @@
 
 .creativeFootnote span {
   flex-shrink: 0;
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
   font-size: 12.5px;
   font-weight: 600;
@@ -1168,7 +1168,7 @@
 
 .inspectorMeta {
   margin: 3px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -1181,7 +1181,7 @@
 .inspectorSectionLabel,
 .reasonHeading,
 .blockersHeading {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1218,7 +1218,7 @@
   margin-top: 6px;
   flex-shrink: 0;
   border-radius: 9999px;
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 .moneyImpact {
@@ -1237,7 +1237,7 @@
 }
 
 .inspectorMoneyValue > span {
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
   font-weight: 600;
 }
@@ -1251,7 +1251,7 @@
 
 .inspectorMoneyDetail {
   margin: 6px 0 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .inspectorMiniTiles {
@@ -1268,7 +1268,7 @@
 
 .confidenceTile {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .readinessTile {
@@ -1328,7 +1328,7 @@
 
 .provenance {
   margin: 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   text-align: center;
 }
@@ -1434,7 +1434,7 @@
 }
 
 .cardOpen:focus-visible {
-  outline: 2px solid #2f6bff;
+  outline: 2px solid #2a5fe2;
   outline-offset: 2px;
 }
 
@@ -1449,7 +1449,7 @@
 }
 
 .lineageGlyph {
-  color: #2f6bff;
+  color: #2a5fe2;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 12px;
 }
@@ -1460,7 +1460,7 @@
  */
 .queueCardSelected {
   background: #f6f9ff;
-  box-shadow: 0 0 0 2px #2f6bff;
+  box-shadow: 0 0 0 2px #2a5fe2;
 }
 
 .selectedMarker {
@@ -1468,7 +1468,7 @@
   align-items: center;
   flex-shrink: 0;
   padding: 2px 8px;
-  border: 1px solid #2f6bff;
+  border: 1px solid #2a5fe2;
   border-radius: 9999px;
   background: #eaf0ff;
   color: #1a3fa0;
@@ -1493,7 +1493,7 @@
  *   #4b5568 on #fbfcfe  7.31   #0e1526 on #fbfcfe 17.73
  *   #0a7a54 on #e7f6f0  4.80   #8a3d05 on #fbf3e1  6.91
  *   #b3123a on #fdecf0  6.02   #4b5568 on #f1f4f9  6.81
- * The shared `--tone-fg` ramp is NOT reused for this text: #0e9f6e on its own
+ * The shared `--tone-fg` ramp is NOT reused for this text: #0b7954 on its own
  * #e7f6f0 fill is 3.04, which is exactly the failure the floor exists to catch.
  */
 .provenancePanel {
@@ -1710,7 +1710,7 @@
   border: 1px solid #e4e8f0;
   border-radius: 8px;
   background: #ffffff;
-  color: #7a869e;
+  color: #555d6d;
   font-family: inherit;
   /*
    * 12px, not the design's 11.5px.

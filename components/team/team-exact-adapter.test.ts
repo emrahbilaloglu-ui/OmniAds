@@ -168,7 +168,7 @@ describe("buildTeamExactModel", () => {
     // A genuinely granted capability keeps the green tick and carries no note.
     const granted = model.capabilities.find((row) => row.label === "Invite & manage members")!;
     expect(granted.cells[0].value).toBe("✓");
-    expect(granted.cells[0].foreground).toBe("#0E9F6E");
+    expect(granted.cells[0].foreground).toBe("#0b7954");
     expect(granted.cells[0].note).toBeNull();
   });
 

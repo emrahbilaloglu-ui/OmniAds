@@ -121,8 +121,8 @@ describe("every saved block kind renders through the export path", () => {
     const ring = donut!.firstElementChild as HTMLElement;
     // The ring is drawn from the same shares the legend prints, so a client
     // cannot be shown one split in the chart and another in the key.
-    expect(ring.getAttribute("style")).toContain("#2F6BFF 0.00% 60.00%");
-    expect(ring.getAttribute("style")).toContain("#0E9F6E 60.00% 100.00%");
+    expect(ring.getAttribute("style")).toContain("#2a5fe2 0.00% 60.00%");
+    expect(ring.getAttribute("style")).toContain("#0b7954 60.00% 100.00%");
   });
 
   it("draws an unmeasured donut as the neutral ring with a dashed legend", () => {

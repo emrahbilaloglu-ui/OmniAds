@@ -139,7 +139,7 @@
 
 .statLabel {
   margin: 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -155,7 +155,7 @@
 }
 
 .statValue.tonePositive {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .statValue.toneNegative {
@@ -168,7 +168,7 @@
 
 .statSub {
   margin: 2px 0 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -184,7 +184,7 @@
 
 .cardEyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -222,7 +222,7 @@
 }
 
 .alternatesHead span {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -269,7 +269,7 @@
   border: 1px solid #e4e8f0;
   border-radius: 6px;
   background: #ffffff;
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
   font-weight: 600;
   text-decoration: none;
@@ -295,13 +295,13 @@
 
 .alternateWhy {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   line-height: 1.5;
 }
 
 .footnote {
   margin: 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   line-height: 1.6;
 }
@@ -331,7 +331,7 @@
 .primaryButton {
   flex: 1;
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
@@ -360,9 +360,9 @@
 
 .tonePositive {
   --tone-bg: #e7f6f0;
-  --tone-fg: #0e9f6e;
+  --tone-fg: #0b7954;
   --tone-border: #bfe5d6;
-  --tone-solid: #0e9f6e;
+  --tone-solid: #0b7954;
 }
 
 .toneNegative {
@@ -381,9 +381,9 @@
 
 .toneInfo {
   --tone-bg: #eaf0ff;
-  --tone-fg: #2f6bff;
+  --tone-fg: #2a5fe2;
   --tone-border: #cbd9ff;
-  --tone-solid: #2f6bff;
+  --tone-solid: #2a5fe2;
 }
 
 .toneAutomation {
@@ -397,7 +397,7 @@
   --tone-bg: #f1f4f9;
   --tone-fg: #45526b;
   --tone-border: #e4e8f0;
-  --tone-solid: #98a4ba;
+  --tone-solid: #68707f;
 }
 
 /*

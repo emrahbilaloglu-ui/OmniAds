@@ -476,7 +476,7 @@ function RailAccount({ userName, plan }: { userName: string; plan: PlanId }) {
       <svg
         viewBox="0 0 24 24"
         fill="none"
-        stroke="#5B6577"
+        stroke="#747c8b"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"

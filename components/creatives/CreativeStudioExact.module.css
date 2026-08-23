@@ -37,7 +37,7 @@
 /* dashboard-v2-exact-font-exception: canonical Creative Studio labels use 8.5px-10.5px type. */
 .pageEyebrow {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
   letter-spacing: 0.12em;
@@ -90,7 +90,7 @@
   border-radius: 9999px;
   padding: 1px 7px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -106,8 +106,8 @@
 }
 
 .headerActions .shareButtonActive {
-  border-color: #2f6bff;
-  background: #2f6bff;
+  border-color: #2a5fe2;
+  background: #2a5fe2;
   color: #fff;
 }
 
@@ -170,7 +170,7 @@
   /* Named for the same reason as .shareNudgeBody above. */
   background: #0b1020;
   /* --adv-rail-ink-2 (app/globals.css): this app's own established
-     secondary-ink value for text on this exact navy fill. #5b6577, the
+     secondary-ink value for text on this exact navy fill. #747c8b, the
      reference's own dismiss colour, measures 3.16:1 here — below the floor. */
   color: #a8b3c7;
   font-size: 11px;
@@ -226,7 +226,7 @@
 
 .tabCount {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .tabCountActive {
@@ -236,8 +236,8 @@
 
 .tonePositive {
   --tone-bg: #e7f6f0;
-  --tone-fg: #0e9f6e;
-  --tone-solid: #0e9f6e;
+  --tone-fg: #0b7954;
+  --tone-solid: #0b7954;
   color: var(--tone-fg);
 }
 
@@ -257,8 +257,8 @@
 
 .toneInfo {
   --tone-bg: #eaf0ff;
-  --tone-fg: #2f6bff;
-  --tone-solid: #2f6bff;
+  --tone-fg: #2a5fe2;
+  --tone-solid: #2a5fe2;
   color: var(--tone-fg);
 }
 
@@ -272,7 +272,7 @@
 .toneNeutral {
   --tone-bg: #f1f4f9;
   --tone-fg: #45526b;
-  --tone-solid: #98a4ba;
+  --tone-solid: #68707f;
   color: var(--tone-fg);
 }
 
@@ -285,7 +285,7 @@
 
 .mutedMono,
 .closingNote {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -325,7 +325,7 @@
 .assetRow:focus-visible,
 .assetRowPinned:focus-visible,
 .clickableTableRow:focus-visible {
-  outline: 2px solid #2f6bff;
+  outline: 2px solid #2a5fe2;
   outline-offset: 2px;
 }
 
@@ -396,7 +396,7 @@
 
 .boardEmptyCopy {
   margin: 6px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12.5px;
   line-height: 1.55;
 }
@@ -428,7 +428,7 @@
   border: 1px solid #e4e8f0;
   border-radius: 7px;
   background: rgb(255 255 255 / 92%);
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
@@ -516,7 +516,7 @@
 .boardMetric > span:first-child,
 .summaryMetric > span:first-child {
   display: block;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 8.5px;
   text-transform: uppercase;
@@ -589,7 +589,7 @@
 }
 
 .columnsLabel {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 9.5px;
   letter-spacing: 0.08em;
@@ -625,7 +625,7 @@
 .metricPickerButton,
 .metricPickerButtonOpen {
   border: 1px dashed #9db4e8;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .metricPickerButton {
@@ -665,7 +665,7 @@
 }
 
 .metricPickerHeader > span {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -675,7 +675,7 @@
   padding: 2px 4px;
   border: 0;
   background: transparent;
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
   font-size: 12px;
 }
@@ -688,7 +688,7 @@
 
 .metricCategory {
   margin: 0 0 6px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 9px;
   letter-spacing: 0.1em;
@@ -730,14 +730,14 @@
 
 .metricCheckboxSelected,
 .rowCheckboxSelected {
-  border-color: #2f6bff;
-  background: #2f6bff;
+  border-color: #2a5fe2;
+  background: #2a5fe2;
   color: #fff;
 }
 
 .metricDirection {
   margin-left: auto;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -747,7 +747,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 0 10px;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
   flex-wrap: wrap;
@@ -805,7 +805,7 @@
 .assetTable th {
   padding: 9px 12px;
   border-bottom: 1px solid #e1e6ef;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
   font-weight: 500;
@@ -852,7 +852,7 @@
 
 .sortHeader:hover,
 .sortHeaderActive:hover {
-  /* The table ink, not the accent blue: #2f6bff measures 4.50:1 on white,
+  /* The table ink, not the accent blue: #2a5fe2 measures 4.50:1 on white,
      which is exactly at the AA line for normal text and BELOW the floor this
      stylesheet holds for essential text. A header that tells you what the
      column is sorted by is essential. */
@@ -890,7 +890,7 @@
 }
 
 .sortState {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   /* New text meets the floor; see .sortGlyph. */
   font-size: 12px;
@@ -907,7 +907,7 @@
   padding: 1px 5px;
   border: 1px solid #e9edf5;
   border-radius: 5px;
-  color: #7a869e;
+  color: #555d6d;
   /* New text meets the floor; see .sortGlyph. */
   font-size: 12px;
   letter-spacing: 0.02em;
@@ -984,7 +984,7 @@
 .creativeIdentityText > span:last-child {
   display: block;
   margin-top: 1px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -1110,7 +1110,7 @@
 
 .emptyTableCell {
   padding: 22px 16px !important;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
   text-align: center !important;
@@ -1158,7 +1158,7 @@
 
 .angleCardHeader > span {
   margin-left: auto;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -1181,7 +1181,7 @@
 
 .angleBestLine {
   margin: 10px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -1193,7 +1193,7 @@
 
 .angleUsage {
   margin: 7px 0 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -1211,7 +1211,7 @@
 
 .angleCoverage > span:first-child {
   flex-shrink: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 9.5px;
   letter-spacing: 0.1em;
@@ -1251,7 +1251,7 @@
 }
 
 .articleHeader > span:not(.insightPill, .heatRamp) {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
 }
@@ -1262,7 +1262,7 @@
   padding: 3px 9px;
   border-radius: 6px;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-size: 11px;
   font-weight: 600;
 }
@@ -1284,7 +1284,7 @@
 .matrixTable th {
   padding: 9px 12px;
   background: #f7f9fc;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
   font-weight: 500;
@@ -1350,7 +1350,7 @@
 .copyCell > span:last-child {
   display: block;
   margin-top: 2px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -1384,7 +1384,7 @@
   padding: 18px;
   border: 1px dashed #c9d2e0;
   border-radius: 14px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
 }
@@ -1428,7 +1428,7 @@
 
 .readSubtitle {
   margin: 0 0 12px;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 12px;
 }
 
@@ -1473,7 +1473,7 @@
   padding: 2px 7px;
   border-radius: 5px;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 9px;
 }
@@ -1486,7 +1486,7 @@
 .historyEmpty,
 .breakdownEmpty,
 .inboxEmpty {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
 }
@@ -1504,7 +1504,7 @@
 
 .historyHeader span,
 .audienceSectionHeading span {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
 }
@@ -1526,7 +1526,7 @@
 
 .historyRow > span:first-child {
   width: 52px;
-  color: #98a4ba;
+  color: #68707f;
   flex-shrink: 0;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
@@ -1599,7 +1599,7 @@
   align-items: center;
   gap: 7px;
   padding: 2px 2px 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -1607,7 +1607,7 @@
 }
 
 .inboxColumnHeader > span:last-child {
-  color: #98a4ba;
+  color: #68707f;
   letter-spacing: 0;
 }
 
@@ -1650,7 +1650,7 @@
 
 .inboxCardNote {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -1675,7 +1675,7 @@
 }
 
 .inboxDue {
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
 }
@@ -1686,7 +1686,7 @@
   padding: 0 10px;
   border: 0;
   border-radius: 7px;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #fff;
   cursor: pointer;
   font-size: 11px;
@@ -1714,7 +1714,7 @@
 .dropZone svg {
   width: 18px;
   height: 18px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .dropZone > div {
@@ -1731,7 +1731,7 @@
 
 .dropZone p:last-child {
   margin: 3px 0 0;
-  color: #98a4ba;
+  color: #68707f;
   font-size: 12px;
 }
 
@@ -1761,7 +1761,7 @@
 
 .audienceNote {
   margin: 10px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -1794,7 +1794,7 @@
 
 .breakdownHeader span {
   margin-left: auto;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 8.5px;
   text-align: right;
@@ -1824,7 +1824,7 @@
 }
 
 .breakdownRow > span:nth-child(3) {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
   text-align: right;
@@ -1856,7 +1856,7 @@
 
 .breakdownNote {
   margin: 11px 0 0;
-  color: #7a869e;
+  color: #555d6d;
   font-size: 11px;
   line-height: 1.5;
 }

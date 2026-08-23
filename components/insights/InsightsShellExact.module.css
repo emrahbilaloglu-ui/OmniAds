@@ -43,7 +43,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* L1738 */
@@ -100,7 +100,7 @@
 .dateChip :global(.adv-date-range-trigger) > svg:last-child {
   width: 11px;
   height: 11px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* L1742-1743 */
@@ -131,7 +131,7 @@
 
 .sourceState[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .sourceState[data-tone="warning"] {
@@ -141,7 +141,7 @@
 
 .sourceState[data-tone="neutral"] {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* L1746 */

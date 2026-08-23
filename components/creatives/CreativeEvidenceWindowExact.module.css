@@ -125,7 +125,7 @@
 .cardEyebrowReasons,
 .cardEyebrowTight {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -181,7 +181,7 @@
 }
 
 .previewKind {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -217,7 +217,7 @@
 }
 
 .moneySub {
-  color: #7a869e;
+  color: #555d6d;
   font-weight: 500;
 }
 
@@ -259,7 +259,7 @@
 
 .seriesNote {
   margin: 6px 0 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* funnel */
@@ -298,7 +298,7 @@
 }
 
 .funnelFillA {
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 .funnelFillB {
@@ -310,7 +310,7 @@
 }
 
 .funnelFillD {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .funnelValue {
@@ -327,7 +327,7 @@
 .funnelSub {
   flex-shrink: 0;
   width: 66px;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   text-align: right;
 }
@@ -351,7 +351,7 @@
 }
 
 .placementStats {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -365,7 +365,7 @@
 .placementFill {
   height: 100%;
   border-radius: 4px;
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 /* where it runs */
@@ -390,7 +390,7 @@
 }
 
 .adSetSpend {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -404,7 +404,7 @@
 
 .adSetNote {
   margin: 8px 0 0;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* evidence key/value grid */
@@ -429,7 +429,7 @@
 }
 
 .factLabel {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .factValue {
@@ -439,7 +439,7 @@
 }
 
 .factValue.tonePositive {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .factValue.toneNegative {
@@ -451,12 +451,12 @@
 }
 
 .factValueUnavailable {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .provenance {
   margin: 0;
-  color: #98a4ba;
+  color: #68707f;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   text-align: center;
 }
@@ -526,9 +526,9 @@
 
 .tonePositive {
   --tone-bg: #e7f6f0;
-  --tone-fg: #0e9f6e;
+  --tone-fg: #0b7954;
   --tone-border: #bfe5d6;
-  --tone-solid: #0e9f6e;
+  --tone-solid: #0b7954;
 }
 
 .toneNegative {
@@ -547,9 +547,9 @@
 
 .toneInfo {
   --tone-bg: #eaf0ff;
-  --tone-fg: #2f6bff;
+  --tone-fg: #2a5fe2;
   --tone-border: #cbd9ff;
-  --tone-solid: #2f6bff;
+  --tone-solid: #2a5fe2;
 }
 
 .toneAutomation {
@@ -563,7 +563,7 @@
   --tone-bg: #f1f4f9;
   --tone-fg: #45526b;
   --tone-border: #e4e8f0;
-  --tone-solid: #98a4ba;
+  --tone-solid: #68707f;
 }
 
 /*
@@ -605,7 +605,7 @@
   margin: 0 0 12px;
   padding: 10px 12px;
   border: 1px solid var(--tone-border, #e4e8f0);
-  border-left: 3px solid var(--tone-solid, #98a4ba);
+  border-left: 3px solid var(--tone-solid, #68707f);
   border-radius: 9px;
   background: var(--tone-bg, #f7f9fc);
 }
@@ -660,7 +660,7 @@
 }
 
 .auditRow[data-tone="positive"] {
-  border-left-color: #0e9f6e;
+  border-left-color: #0b7954;
 }
 
 .auditRow[data-tone="negative"] {

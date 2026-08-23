@@ -1270,7 +1270,7 @@ export function PlanView({
       </div>
       {/* Static presentation. No billing control, and no gating. */}
       <p
-        data-plan-gates-nothing=""
+        data-plan-gating=""
         data-el="plan-presentation-chip"
         style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
       >

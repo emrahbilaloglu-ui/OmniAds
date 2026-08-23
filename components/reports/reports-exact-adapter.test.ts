@@ -179,8 +179,8 @@ describe("palette", () => {
   it("gives each group its own icon colour", () => {
     const groups = buildPaletteGroups();
     expect(groups.map((group) => group.items[0].iconBg)).toEqual([
-      "#2F6BFF",
-      "#0E9F6E",
+      "#2a5fe2",
+      "#0b7954",
       "#B45309",
       "#6C41BE",
     ]);
@@ -229,7 +229,7 @@ describe("block bodies", () => {
       kind: "kpi",
       value: "$118,220",
       delta: "+8.1%",
-      deltaTone: "#0E9F6E",
+      deltaTone: "#0b7954",
     });
   });
 
@@ -305,8 +305,8 @@ describe("block bodies", () => {
     expect(body).toMatchObject({
       kind: "donut",
       legend: [
-        { color: "#2F6BFF", text: "Meta 60%" },
-        { color: "#0E9F6E", text: "Google 40%" },
+        { color: "#2a5fe2", text: "Meta 60%" },
+        { color: "#0b7954", text: "Google 40%" },
       ],
     });
   });
@@ -389,7 +389,7 @@ describe("canvas blocks", () => {
       rangeLabel: "last 28 days",
     });
     expect(block.selected).toBe(true);
-    expect(block.borderColor).toBe("#2F6BFF");
+    expect(block.borderColor).toBe("#2a5fe2");
   });
 
   it("recovers a pre-v2 block's width from its stored column span", () => {

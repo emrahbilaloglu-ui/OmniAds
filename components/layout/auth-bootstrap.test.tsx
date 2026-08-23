@@ -68,10 +68,22 @@ describe("auth bootstrap runs once per session", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the ready guard readable in source rather than relying on deps order", async () => {
+  it("does not re-trigger itself through its own status transition", async () => {
+    /**
+     * `load()` sets the status to "loading" as its first act. While that status
+     * was an effect dependency, the effect re-ran immediately, its cleanup
+     * aborted the request already in flight, and the re-run issued a second
+     * `/api/auth/me`. The abort is client-side: the server had answered both.
+     * Measured on the mounted routes — every page load made two session reads.
+     */
     const { readFileSync } = await import("node:fs");
     const source = readFileSync("components/layout/auth-bootstrap.tsx", "utf8");
-    expect(source).toContain('if (authBootstrapStatus === "ready") return;');
-    expect(source).toContain("authBootstrapStatus,");
+    // Read, not depended on.
+    expect(source).toContain('useAppStore.getState().authBootstrapStatus === "ready"');
+    const bootstrapDeps = source.slice(
+      source.indexOf("}, [hasHydrated, pathname"),
+      source.indexOf("}, [hasHydrated, pathname") + 120,
+    );
+    expect(bootstrapDeps).not.toContain("authBootstrapStatus");
   });
 });

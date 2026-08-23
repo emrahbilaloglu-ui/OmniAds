@@ -27,7 +27,7 @@ export type GoogleSearchExactChipTone =
   | "negative"
   /** A served value inside the neutral band: `neu[1]` ink on `neu[0]`. */
   | "neutral"
-  /** No value was served at all: the design's lighter `#7A869E` ink. */
+  /** No value was served at all: the design's lighter `#555d6d` ink. */
   | "unserved";
 
 export type GoogleSearchExactStatTone = "waste" | "opportunity" | "high";
@@ -215,7 +215,7 @@ function roasText(value: number | null): string {
  *
  * The design separates the two grey cases on the same `neu[0]` fill: a served
  * ROAS sitting in the neutral band carries `neu[1]` (`#45526B`, model line
- * 3820), while the lighter `#7A869E` is reserved for the rows that served no
+ * 3820), while the lighter `#555d6d` is reserved for the rows that served no
  * ROAS at all and print the em dash (model lines 3821-3823). A real 3.17 is a
  * measurement, not an absence, so it never takes the unserved ink.
  */

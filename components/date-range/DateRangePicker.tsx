@@ -1346,7 +1346,7 @@ export function DateRangePicker({
               </svg>
               <span>{rangeMetaLabel}</span>
               <span data-topbar-secondary>{rangeLabel}</span>
-              <ChevronDownIcon className="h-[13px] w-[13px] shrink-0 text-[#7a869e]" aria-hidden="true" />
+              <ChevronDownIcon className="h-[13px] w-[13px] shrink-0 text-[#555d6d]" aria-hidden="true" />
             </button>
           ) : (
             <button

@@ -19,7 +19,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .title {
@@ -41,7 +41,7 @@
 .guardCopy {
   font-family: "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .syncPill {
@@ -63,7 +63,7 @@
 
 .sync-positive {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .sync-warning {
@@ -100,7 +100,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .tileValue {
@@ -115,7 +115,7 @@
 .tileSub {
   margin: 2px 0 0;
   font-size: 11px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .card {
@@ -164,7 +164,7 @@
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .mode {
@@ -179,11 +179,11 @@
 }
 
 .modePositive {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .modePrimary {
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .modeAutomatic {
@@ -195,7 +195,7 @@
 }
 
 .modeNeutral {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .money {
@@ -225,7 +225,7 @@
   margin: 4px 0 0;
   font-family: "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .changes {
@@ -251,7 +251,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #7a869e;
+  color: #555d6d;
   padding-top: 5px;
 }
 
@@ -290,7 +290,7 @@
 
 .changeMuted {
   border-color: #e4e8f0;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
 }
 
@@ -306,7 +306,7 @@
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .infoText {
@@ -328,7 +328,7 @@
 .confidence {
   font-family: "IBM Plex Mono", monospace;
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .cardActions {
@@ -353,7 +353,7 @@
 
 .ctaApply {
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
 }
 
@@ -371,7 +371,7 @@
   padding: 0 11px;
   border: 1px solid #e4e8f0;
   background: #ffffff;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .dismiss:hover:not(:disabled) {
@@ -386,7 +386,7 @@
   margin: 0;
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #98a4ba;
+  color: #68707f;
 }
 /* dashboard-v2-google-advisor-exact-reference-type:end */
 

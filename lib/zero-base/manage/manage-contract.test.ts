@@ -98,8 +98,20 @@ describe("economics divergence names sources and consumers", () => {
   });
 });
 
-describe("plan gates nothing", () => {
-  it("says so explicitly", () => {
-    expect(PLAN_GATES_NOTHING).toMatch(/No route or control in this product is gated by it/);
+describe("plan gating is stated, not denied", () => {
+  /**
+   * The previous expectation asserted the false claim.
+   *
+   * It said the copy must contain "No route or control in this product is
+   * gated by it", which is how a sentence contradicted by five live PlanGates
+   * survived: the test was pinning the wording, and the wording was wrong.
+   */
+  it("names the gated modules", () => {
+    expect(PLAN_GATES_NOTHING).toContain("Creative Studio — Copies");
+    expect(PLAN_GATES_NOTHING).toContain("Reports");
+  });
+
+  it("no longer claims the plan gates nothing", () => {
+    expect(PLAN_GATES_NOTHING).not.toMatch(/No route or control/);
   });
 });

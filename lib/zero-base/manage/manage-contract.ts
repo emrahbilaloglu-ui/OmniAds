@@ -14,6 +14,8 @@
  *    no billing call anywhere in this surface — asserted by a call-site scan.
  */
 
+import { planGatingDisclosure } from "@/lib/pricing/plan-gated-modules";
+
 export type ProviderId = "meta" | "google" | "shopify" | "ga4" | "search_console";
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
@@ -213,9 +215,21 @@ export const BILLING_ENDPOINT = "/api/billing";
 export const PLAN_BILLING_ELSEWHERE =
   "Invoices and payment methods are handled by our billing provider, not in this product. Contact support to change a plan.";
 
-/** Plan gates nothing. Stated so the absence of gating is deliberate. */
-export const PLAN_GATES_NOTHING =
-  "Your plan is shown for reference. No route or control in this product is gated by it.";
+/**
+ * What the plan gates, named.
+ *
+ * This used to read "No route or control in this product is gated by it." It
+ * was false: on a Starter business three of the five Creative Studio tabs
+ * refuse with "Growth plan required", and Reports and Insights do the same at
+ * Pro. Proven at runtime against the mounted routes, not inferred.
+ *
+ * Denying the gate is worse than having one. An operator who cannot open Copies
+ * goes looking for a bug, a permission, or a connection they never made —
+ * anywhere except the plan, because the product told them the plan is
+ * decoration. The sentence is generated from `PLAN_GATED_MODULES`, which a test
+ * holds against every gate in the tree, so it cannot drift back into a claim.
+ */
+export const PLAN_GATES_NOTHING = planGatingDisclosure();
 
 /* ============================================================================
  * Real endpoint contracts.

@@ -233,7 +233,7 @@ describe("google search exact ROAS tint", () => {
 
   it("separates a served in-band ROAS from a row that served none", () => {
     // The reference draws two greys: neu[1] #45526B for the measured 3.17, and
-    // the lighter #7A869E only where the ROAS cell prints the em dash.
+    // the lighter #555d6d only where the ROAS cell prints the em dash.
     expect(googleSearchRoasTone(3.17, 3.8, 3)).toBe("neutral");
     expect(googleSearchRoasTone(null, 3.8)).toBe("unserved");
     expect(googleSearchRoasTone(0, 3.8)).toBe("unserved");

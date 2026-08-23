@@ -986,7 +986,7 @@ function CreativeEvidenceDrawerContent({
                       value: hasNumeric(card.roas) ? formatRoas(card.roas) : "—",
                       color:
                         hasNumeric(card.roas) && numberOrZero(card.roas) >= 2
-                          ? "var(--ok, #0e9f6e)"
+                          ? "var(--ok, #0b7954)"
                           : hasNumeric(card.roas) && numberOrZero(card.roas) < 1
                             ? "var(--danger, #e11d48)"
                             : "var(--ink, #10151c)",

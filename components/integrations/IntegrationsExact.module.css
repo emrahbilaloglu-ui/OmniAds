@@ -33,7 +33,7 @@
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .title {
@@ -49,7 +49,7 @@
   margin: 6px 0 0;
   font-size: 12.5px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
   max-width: 640px;
 }
 
@@ -147,12 +147,12 @@
 
 .statusConnected {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .statusConnecting {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .statusAttention {
@@ -162,7 +162,7 @@
 
 .statusNeutral {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .cardDesc {
@@ -198,7 +198,7 @@
 .firstSyncPercent {
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-weight: 500;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .firstSyncTrack {
@@ -212,12 +212,12 @@
 .firstSyncFill {
   height: 100%;
   border-radius: 9999px;
-  background: #2f6bff;
+  background: #2a5fe2;
   transition: width 0.18s linear;
 }
 
 .firstSyncFillComplete {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .firstSyncSteps {
@@ -245,12 +245,12 @@
 }
 
 .stepMarkCurrent {
-  border-color: #2f6bff;
+  border-color: #2a5fe2;
 }
 
 .stepMarkDone {
-  background: #0e9f6e;
-  border-color: #0e9f6e;
+  background: #0b7954;
+  border-color: #0b7954;
 }
 
 .stepTick {
@@ -265,7 +265,7 @@
 
 .stepLabel {
   font-weight: 500;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .stepLabelDone {
@@ -280,7 +280,7 @@
 .stepNote {
   margin-left: auto;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ---- card footer ----------------------------------------------------- */
@@ -294,7 +294,7 @@
 
 .cardMeta {
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  color: #98a4ba;
+  color: #68707f;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -317,7 +317,7 @@
 }
 
 .cardButtonConnect {
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
   border: none;
 }
@@ -347,7 +347,7 @@
 
 .soonNote {
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .soonGrid {
@@ -411,12 +411,12 @@
   border-radius: 4px;
   padding: 1.5px 6px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .soonEta {
   display: block;
-  color: #98a4ba;
+  color: #68707f;
   margin-top: 2px;
 }
 

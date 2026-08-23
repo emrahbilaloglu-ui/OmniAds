@@ -18,8 +18,8 @@ const TILE_TONES = [
     delta: "info",
   },
   {
-    bg: "#0E9F6E",
-    line: "#0E9F6E",
+    bg: "#0b7954",
+    line: "#0b7954",
     fill: "rgba(14,159,110,0.09)",
     delta: "pos",
   },
@@ -42,10 +42,10 @@ const TILE_ICON_PATHS = [
 type DeltaTone = "pos" | "neg" | "info" | "neutral";
 
 const DELTA_COLORS: Record<DeltaTone, { background: string; color: string }> = {
-  pos: { background: "#E7F6F0", color: "#0E9F6E" },
+  pos: { background: "#E7F6F0", color: "#0b7954" },
   neg: { background: "#FDECF0", color: "#E11D48" },
-  info: { background: "#EAF0FF", color: "#2F6BFF" },
-  neutral: { background: "#F1F4F9", color: "#7A869E" },
+  info: { background: "#EAF0FF", color: "#2a5fe2" },
+  neutral: { background: "#F1F4F9", color: "#555d6d" },
 };
 
 export function DeltaChip({
@@ -215,7 +215,7 @@ export function HeroTile({
 export function StatTile({
   metric,
   currencySymbol,
-  line = "#2F6BFF",
+  line = "#2a5fe2",
   fill = "rgba(47,107,255,0.08)",
 }: {
   metric: OverviewMetricCardData;
@@ -225,11 +225,11 @@ export function StatTile({
 }) {
   const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
   const deltaColor =
-    metric.trendSentiment === "positive" ? "#0E9F6E" : metric.trendSentiment === "negative" ? "#E11D48" : "#7A869E";
+    metric.trendSentiment === "positive" ? "#0b7954" : metric.trendSentiment === "negative" ? "#E11D48" : "#555d6d";
   return (
     <div className="adv-tile" data-overview-metric-id={metric.id}>
       <p
-        className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#7A869E]"
+        className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#555d6d]"
         style={{ fontFamily: "var(--adv-font-mono)" }}
       >
         {metricLabel(metric)}

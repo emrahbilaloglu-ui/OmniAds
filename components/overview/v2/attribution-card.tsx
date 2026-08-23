@@ -136,7 +136,7 @@ export function AttributionCard({ rows, currencySymbol }: { rows: OverviewAttrib
                           : row.roas >= 1
                             ? {
                                 background: "#E7F6F0",
-                                color: "#0E9F6E",
+                                color: "#0b7954",
                               }
                             : {
                                 background: "#FDECF0",

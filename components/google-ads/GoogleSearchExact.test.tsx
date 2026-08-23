@@ -220,11 +220,11 @@ describe("GoogleSearchExact geometry", () => {
 
   it("separates the served neutral ink from the unserved ink", () => {
     // The reference puts both on the same neu[0] fill and changes only the ink:
-    // neu[1] #45526B for a served in-band ROAS, #7A869E for the rows that
+    // neu[1] #45526B for a served in-band ROAS, #555d6d for the rows that
     // print the em dash.
     expect(stylesheet).toMatch(/\.toneNeutral \{[^}]*color: #45526b;/);
     expect(stylesheet).toMatch(/\.toneUnserved \{[^}]*background: #f1f4f9;/);
-    expect(stylesheet).toMatch(/\.toneUnserved \{[^}]*color: #7a869e;/);
+    expect(stylesheet).toMatch(/\.toneUnserved \{[^}]*color: #555d6d;/);
     // The blanket override that painted every neutral ROAS chip grey is gone.
     expect(stylesheet).not.toContain(".roasChip.toneNeutral");
   });

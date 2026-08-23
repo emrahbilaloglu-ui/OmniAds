@@ -42,7 +42,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .kpiValueRow {
@@ -69,12 +69,12 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .kpiDelta[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .kpiDelta[data-tone="negative"] {
@@ -91,7 +91,7 @@
   margin: 4px 0 0;
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── sub-tab strip (L1964-1968) ─────────────────────────────────── */
@@ -113,7 +113,7 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
 }
 
@@ -162,12 +162,12 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .monthlyStatus[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .monthlyStatus[data-tone="negative"] {
@@ -179,7 +179,7 @@
   margin: 5px 0 0;
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .monthlyCadence {
@@ -189,7 +189,7 @@
   padding: 7px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: #98a4ba;
+  color: #68707f;
   cursor: not-allowed;
 }
 
@@ -206,7 +206,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .readChip {
@@ -240,7 +240,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .columnStack {
@@ -273,7 +273,7 @@
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 10px;
   font-weight: 600;
-  color: #2f6bff;
+  color: #2a5fe2;
   margin-top: 2px;
 }
 
@@ -318,7 +318,7 @@
 .cardHint {
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .moverRow {
@@ -354,12 +354,12 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .moverDelta[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .moverDelta[data-tone="negative"] {
@@ -370,7 +370,7 @@
 .trailingNote {
   margin: 0;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── leader tables (L2027-2065) ─────────────────────────────────── */
@@ -405,7 +405,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
 }
 
@@ -473,12 +473,12 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .deltaChip[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .deltaChip[data-tone="negative"] {
@@ -521,12 +521,12 @@
 
 .actionTone[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .actionTone[data-tone="info"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .actionGrid {
@@ -552,7 +552,7 @@
   margin: 5px 0 0;
   font-size: 12px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .actionMeta {
@@ -562,11 +562,11 @@
 
 .actionImpact {
   font-weight: 700;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .actionEffort {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── Technical findings (L2085-2118) ────────────────────────────── */
@@ -578,7 +578,7 @@
   padding: 11px 14px;
   font-size: 12px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .techCardGrid {
@@ -612,7 +612,7 @@
 }
 
 .techValue[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .techSplit {
@@ -648,7 +648,7 @@
   font-size: 10.5px;
   font-weight: 600;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .excludedReason[data-tone="negative"] {
@@ -680,7 +680,7 @@
   padding: 3px 7px;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .findingSeverity[data-tone="negative"] {
@@ -701,12 +701,12 @@
  */
 .findingSeverity[data-tone="info"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .findingSeverity[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .findingBody {
@@ -724,7 +724,7 @@
   margin: 3px 0 0;
   font-size: 11.5px;
   line-height: 1.5;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* dashboard-v2-insights-seo-exact-reference-type:end */
@@ -747,6 +747,6 @@
 }
 
 .monthlyGenerate:disabled {
-  color: #98a4ba;
+  color: #68707f;
   cursor: progress;
 }

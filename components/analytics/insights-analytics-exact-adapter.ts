@@ -104,9 +104,9 @@ export const HEAT_CEILING = {
 /** `retPill` from script line 3957 — four steps, background then foreground. */
 export function retentionPill(rate: number | null | undefined): [string, string] {
   if (rate === null || rate === undefined || !Number.isFinite(rate)) {
-    return ["#f1f4f9", "#7a869e"];
+    return ["#f1f4f9", "#555d6d"];
   }
-  if (rate >= 0.4) return ["#0E9F6E", "#ffffff"];
+  if (rate >= 0.4) return ["#0b7954", "#ffffff"];
   if (rate >= 0.25) return ["#BFE5D6", "#065F46"];
   if (rate >= 0.15) return ["#F5E1B0", "#92400E"];
   return ["#F6C6D2", "#9F1239"];

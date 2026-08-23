@@ -72,12 +72,12 @@ describe("a tone name reaches an actual colour on the card", () => {
   });
 
   it.each([
-    ["tonePositive", "#0e9f6e"],
+    ["tonePositive", "#0b7954"],
     ["toneNegative", "#e11d48"],
     ["toneWarning", "#b45309"],
-    ["toneInfo", "#2f6bff"],
+    ["toneInfo", "#2a5fe2"],
     ["toneAutomation", "#6c41be"],
-    ["toneNeutral", "#98a4ba"],
+    ["toneNeutral", "#68707f"],
   ])("%s resolves --tone-solid to %s", (tone, colour) => {
     const block = css.slice(css.indexOf(`.${tone} {`));
     expect(block.slice(0, block.indexOf("}"))).toContain(`--tone-solid: ${colour}`);

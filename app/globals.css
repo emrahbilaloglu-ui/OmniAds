@@ -111,18 +111,18 @@
   --adv-fill-2: #f1f4f9;
   --adv-ink: #0e1526;
   --adv-ink-2: #45526b;
-  --adv-ink-3: #7a869e;
-  --adv-ink-4: #98a4ba;
+  --adv-ink-3: #555d6d;
+  --adv-ink-4: #68707f;
   --adv-border: #e4e8f0;
   --adv-hairline: #edf0f6;
-  --adv-accent: #2f6bff;
+  --adv-accent: #2a5fe2;
   --adv-accent-hover: #1e4fd6;
   --adv-accent-bg: #eaf0ff;
   --adv-accent-bd: #cbd9ff;
   --adv-rail: #0b1020;
   --adv-rail-ink: #e7ecf5;
   --adv-rail-ink-2: #a8b3c7;
-  --adv-rail-ink-3: #5b6577;
+  --adv-rail-ink-3: #747c8b;
   --adv-rail-raised: #1e2a45;
   --adv-rail-avatar-fg: #9db4e8;
   --adv-rail-line: rgba(255, 255, 255, 0.07);
@@ -144,18 +144,18 @@
   --adv-fill-2: #f1f4f9;
   --adv-ink: #0e1526;
   --adv-ink-2: #45526b;
-  --adv-ink-3: #7a869e;
-  --adv-ink-4: #98a4ba;
+  --adv-ink-3: #555d6d;
+  --adv-ink-4: #68707f;
   --adv-border: #e4e8f0;
   --adv-hairline: #edf0f6;
-  --adv-accent: #2f6bff;
+  --adv-accent: #2a5fe2;
   --adv-accent-hover: #1e4fd6;
   --adv-accent-bg: #eaf0ff;
   --adv-accent-bd: #cbd9ff;
   --adv-rail: #0b1020;
   --adv-rail-ink: #e7ecf5;
   --adv-rail-ink-2: #a8b3c7;
-  --adv-rail-ink-3: #5b6577;
+  --adv-rail-ink-3: #747c8b;
   --adv-rail-raised: #1e2a45;
   --adv-rail-avatar-fg: #9db4e8;
   --adv-rail-line: rgba(255, 255, 255, 0.07);
@@ -8102,7 +8102,7 @@
     border-radius: 5px;
     padding: 2px 6px;
     background: rgba(255, 255, 255, 0.06);
-    color: #7a869e;
+    color: #555d6d;
   }
 
   .adv-rail-badge[data-tone="beta"] {
@@ -8293,6 +8293,24 @@
     border: 0;
     font-family: inherit;
     cursor: default;
+  }
+
+  /*
+   * The topbar's sync chip reserves the width of its widest state.
+   *
+   * Its label is a live status — "Synced —", then "Sync needs attention", then
+   * "Syncing now" — and the widest of those is 40px wider than the narrowest.
+   * At 1280 that difference is enough to wrap the avatar onto a third row and
+   * back within about 130 ms, which moves `main` 40px down and up again. It
+   * measures CLS 0.536 on the mounted routes, five times the 0.1 budget, and it
+   * is the only layout shift either surface produces.
+   *
+   * Reserving the space is the fix rather than truncating the label: the status
+   * is the point of the chip.
+   */
+  .adv-topbar .adv-pill {
+    min-width: 156px;
+    justify-content: flex-start;
   }
 
   .adv-pill[data-tone="pos"] {
@@ -9014,7 +9032,7 @@
     border-radius: 5px;
     padding: 2px 6px;
     background: rgba(255, 255, 255, 0.06);
-    color: #7a869e;
+    color: #555d6d;
   }
 
   .adv-rail-badge[data-tone="beta"] {
@@ -9759,7 +9777,7 @@
 .adv-date-range-trigger [data-topbar-secondary] {
   min-width: 0;
   overflow: hidden;
-  color: #98a4ba;
+  color: #68707f;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9774,7 +9792,7 @@
   border: 0;
   border-radius: 9999px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -9786,17 +9804,17 @@
 
 .adv-date-comparison-trigger[data-active="true"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .adv-topbar .adv-pill[data-tone="pos"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .adv-topbar .adv-pill[data-tone="info"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .adv-topbar .adv-pill[data-tone="warn"] {
@@ -9806,7 +9824,7 @@
 
 .adv-topbar .adv-pill[data-tone="neutral"] {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 button.adv-notification-bell {

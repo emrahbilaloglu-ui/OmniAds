@@ -62,7 +62,7 @@ export function AuthBootstrap() {
     // "loading", unmounting the page behind a skeleton the operator had already
     // waited through. A signed-out session resets this status to "idle"
     // (clearAuthScopedClientState), so re-authentication still bootstraps.
-    if (authBootstrapStatus === "ready") return;
+    if (useAppStore.getState().authBootstrapStatus === "ready") return;
 
     let mounted = true;
     const controller = new AbortController();
@@ -221,14 +221,19 @@ export function AuthBootstrap() {
         }
       }
     };
-  }, [
-    authBootstrapStatus,
-    hasHydrated,
-    pathname,
-    setAuthBootstrapStatus,
-    setLanguage,
-    setWorkspaceResolved,
-  ]);
+    // `authBootstrapStatus` is read above rather than depended on.
+    //
+    // It was a dependency, and `load()` sets it to "loading" as its first act —
+    // so the effect re-ran immediately, the cleanup aborted the request in
+    // flight, and the re-run issued a second `/api/auth/me`. The abort is
+    // client-side only: the server had already answered both. Measured on the
+    // mounted routes, every page load in the product made two session reads.
+    //
+    // Reading it keeps the "already ready, do nothing" guard exactly as it was
+    // while removing the self-trigger. Re-authentication still bootstraps: a
+    // sign-out navigates to /login, which changes `pathname` and unmounts this
+    // subtree, and both of those re-run the effect on the way back.
+  }, [hasHydrated, pathname, setAuthBootstrapStatus, setLanguage, setWorkspaceResolved]);
 
   useEffect(() => {
     if (!hasHydrated || authBootstrapStatus !== "ready") return;

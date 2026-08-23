@@ -106,7 +106,11 @@ describe("PlatformMiniDashboard", () => {
     expect(pill.style.gap).toBe("5px");
     expect(pill.style.padding).toBe("2px 9px");
     expect(pill.style.background).toBe("rgb(231, 246, 240)");
-    expect(pill.style.color).toBe("rgb(14, 159, 110)");
+    // The success ink moved from #0e9f6e to #0b7954: white on the old value
+    // measured 3.39:1 and the old value on this same #e7f6f0 fill measured
+    // 3.04:1, both below AA, and both were among the 253 serious contrast
+    // findings axe reported against the mounted routes.
+    expect(pill.style.color).toBe("rgb(11, 121, 84)");
   });
 
   it("does not call a failed or unknown completion a sync", () => {

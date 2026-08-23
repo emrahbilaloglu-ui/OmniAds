@@ -50,7 +50,7 @@
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .title {
@@ -67,7 +67,7 @@
   padding: 0 14px;
   border-radius: 9px;
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   font-size: 13px;
   font-weight: 600;
   color: #ffffff;
@@ -113,7 +113,7 @@
   border-radius: 9999px;
   padding: 1px 7px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .tabActive .tabCount {
@@ -127,13 +127,13 @@
 
 .exportNote {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .footnote {
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── my reports ─────────────────────────────────────────────────────────── */
@@ -222,7 +222,7 @@
 .savedMeta {
   margin: 5px 0 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .savedActions {
@@ -240,7 +240,7 @@
   background: #ffffff;
   font-size: 12px;
   font-weight: 600;
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
 }
 
@@ -334,7 +334,7 @@
 .templateCadence {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .templateName {
@@ -366,7 +366,7 @@
 .templateContentIndex {
   flex-shrink: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
   width: 14px;
 }
 
@@ -386,7 +386,7 @@
 
 .templateFooterMeta {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .templateUse {
@@ -394,7 +394,7 @@
   padding: 0 13px;
   border-radius: 8px;
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
   font-size: 12px;
   font-weight: 600;
@@ -451,14 +451,14 @@
   padding: 0 10px;
   border-radius: 9999px;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   font-size: 12px;
   font-weight: 600;
 }
 
 .builderCounter {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .builderSecondary {
@@ -526,13 +526,13 @@
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .paletteGroupName {
   margin: 0 0 6px;
   font-weight: 600;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .paletteItems {
@@ -582,7 +582,7 @@
 .paletteSource {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── canvas ─────────────────────────────────────────────────────────────── */
@@ -613,7 +613,7 @@
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: #2f6bff;
+  background: #2a5fe2;
   align-self: center;
 }
 
@@ -627,7 +627,7 @@
 .canvasMeta {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .canvasFlow {
@@ -669,7 +669,7 @@
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -682,7 +682,7 @@
   border: 1px solid #e4e8f0;
   border-radius: 5px;
   padding: 1px 6px;
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
   background: #ffffff;
 }
@@ -698,7 +698,7 @@
   display: grid;
   place-items: center;
   border-radius: 5px;
-  color: #98a4ba;
+  color: #68707f;
   cursor: pointer;
   line-height: 1;
   border: none;
@@ -726,7 +726,7 @@
 }
 
 .kpiDeltaNote {
-  color: #98a4ba;
+  color: #68707f;
   font-weight: 400;
 }
 
@@ -744,7 +744,7 @@
   display: block;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   text-transform: uppercase;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .kpiMiniValue {
@@ -776,7 +776,7 @@
 }
 
 .barAccent {
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 .donutWrap {
@@ -874,7 +874,7 @@
 .aiBody {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── funnel (reference l.2470-2477) ─────────────────────────────────────── */
@@ -894,7 +894,7 @@
 .funnelBar {
   height: 10px;
   border-radius: 3px;
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 /* An unmeasured step keeps the track's geometry in the neutral fill so no
@@ -905,7 +905,7 @@
 
 .funnelLabel {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
   white-space: nowrap;
 }
 
@@ -961,7 +961,7 @@
 .briefGate {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
   white-space: nowrap;
 }
 
@@ -972,7 +972,7 @@
   padding: 2px 8px;
   font-weight: 600;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .briefBody {
@@ -1020,7 +1020,7 @@
   display: block;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.08em;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .briefFromName {
@@ -1033,7 +1033,7 @@
 .briefFromMeta {
   display: block;
   margin-top: 1px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .briefNeedCard {
@@ -1062,7 +1062,7 @@
 .briefMakeSub {
   display: block;
   margin-top: 1px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .briefWhy {
@@ -1074,14 +1074,14 @@
 .briefWhyLabel {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.08em;
-  color: #0e9f6e;
+  color: #0b7954;
   margin-right: 6px;
 }
 
 .briefRowLabel {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.08em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .briefChipRow {
@@ -1117,7 +1117,7 @@
 
 .briefRuleSign {
   font-weight: 700;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .briefSpecRow {
@@ -1143,14 +1143,14 @@
 .briefFoot {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
   white-space: nowrap;
 }
 
 .blockUnavailable {
   margin: 0;
   font-size: 16px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .blockSourceNote {
@@ -1172,7 +1172,7 @@
 .dropZoneText {
   margin: 0;
   font-size: 12px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── inspector ──────────────────────────────────────────────────────────── */
@@ -1200,7 +1200,7 @@
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .inspectorKind {
@@ -1295,8 +1295,8 @@
 }
 
 .checkBoxOn {
-  border-color: #2f6bff;
-  background: #2f6bff;
+  border-color: #2a5fe2;
+  background: #2a5fe2;
 }
 
 .checkBox svg {
@@ -1349,7 +1349,7 @@
 }
 
 .recipientRemove {
-  color: #98a4ba;
+  color: #68707f;
   cursor: pointer;
 }
 
@@ -1357,15 +1357,15 @@
   display: inline-flex;
   border-radius: 6px;
   border: 1px dashed #c9d2e0;
-  color: #7a869e;
+  color: #555d6d;
   padding: 3px 8px;
   cursor: pointer;
   background: none;
 }
 
 .recipientAdd:not(:disabled):hover {
-  border-color: #2f6bff;
-  color: #2f6bff;
+  border-color: #2a5fe2;
+  color: #2a5fe2;
 }
 
 .recipientAdd:disabled {
@@ -1391,7 +1391,7 @@
 }
 
 .toggleOn {
-  background: #0e9f6e;
+  background: #0b7954;
   justify-content: flex-end;
 }
 
@@ -1406,7 +1406,7 @@
 .toggleNote {
   margin-left: auto;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .inspectorHint {
@@ -1419,7 +1419,7 @@
 .inspectorHintText {
   margin: 0;
   line-height: 1.6;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /*

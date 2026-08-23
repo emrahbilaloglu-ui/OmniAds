@@ -35,11 +35,11 @@ import type {
 export const DASH = "—";
 
 const TONE = {
-  pos: ["#E7F6F0", "#0E9F6E"] as const,
+  pos: ["#E7F6F0", "#0b7954"] as const,
   warn: ["#FBF3E1", "#B45309"] as const,
-  info: ["#EAF0FF", "#2F6BFF"] as const,
+  info: ["#EAF0FF", "#2a5fe2"] as const,
   auto: ["#F1EBFB", "#6C41BE"] as const,
-  neutral: ["#F1F4F9", "#7A869E"] as const,
+  neutral: ["#F1F4F9", "#555d6d"] as const,
 };
 
 /** Design vocabulary for a stored widget type. `section` predates v2. */
@@ -99,8 +99,8 @@ export interface PaletteEntry {
 }
 
 const GROUP_ICON_BG: Record<string, string> = {
-  KPIs: "#2F6BFF",
-  Charts: "#0E9F6E",
+  KPIs: "#2a5fe2",
+  Charts: "#0b7954",
   Tables: "#B45309",
   Content: "#6C41BE",
 };
@@ -141,7 +141,7 @@ export function buildPaletteGroups(): BuilderPaletteGroupModel[] {
         label: entry.label,
         source: entry.source,
         icon: entry.icon,
-        iconBg: GROUP_ICON_BG[name] ?? "#2F6BFF",
+        iconBg: GROUP_ICON_BG[name] ?? "#2a5fe2",
       }),
     ),
   }));
@@ -170,17 +170,17 @@ const CATEGORY_TONE: Record<string, readonly [string, string]> = {
 };
 
 const THUMB_TONE: Record<string, string> = {
-  Executive: "#2F6BFF",
-  Meta: "#2F6BFF",
+  Executive: "#2a5fe2",
+  Meta: "#2a5fe2",
   Creative: "#6C41BE",
-  Economics: "#0E9F6E",
+  Economics: "#0b7954",
   Channels: "#B45309",
-  Growth: "#0E9F6E",
+  Growth: "#0b7954",
 };
 
 /** Mini-preview band geometry, per block kind, exactly as the design draws it. */
 const TEMPLATE_BLOCK_TONE: Record<BuilderBlockKind, readonly [string, number, string]> = {
-  kpirow: ["12px", 4, "#2F6BFF"],
+  kpirow: ["12px", 4, "#2a5fe2"],
   kpi: ["12px", 1, "#DCE4F2"],
   line: ["22px", 2, "#DCE4F2"],
   bar: ["22px", 2, "#C9D6EE"],
@@ -245,7 +245,7 @@ export function buildSavedReports(input: {
       status: DASH,
       statusBg: TONE.neutral[0],
       statusFg: TONE.neutral[1],
-      thumbTone: THUMB_TONE[template?.category ?? ""] ?? "#2F6BFF",
+      thumbTone: THUMB_TONE[template?.category ?? ""] ?? "#2a5fe2",
       description: report.description?.trim() ? report.description.trim() : DASH,
       meta,
       busy: input.busyReportId === report.id,
@@ -378,7 +378,7 @@ export function buildSparkPath(points: Array<{ value: number }>): { path: string
   return { path, area: `${path} L100 26 L0 26 Z` };
 }
 
-const DONUT_COLORS = ["#2F6BFF", "#0E9F6E", "#B45309", "#C9D2E0"];
+const DONUT_COLORS = ["#2a5fe2", "#0b7954", "#B45309", "#C9D2E0"];
 
 /**
  * A measured channel split expressed as the reference's conic ring plus its
@@ -451,7 +451,7 @@ export function buildBlockBody(
         kind: "kpi",
         value,
         delta: delta && delta !== "-" ? delta : DASH,
-        deltaTone: negative ? "#E11D48" : "#0E9F6E",
+        deltaTone: negative ? "#E11D48" : "#0b7954",
       };
     }
     case "kpirow": {
@@ -513,7 +513,7 @@ export function buildBlocks(input: {
       size,
       sizeLabel: size,
       widthCss: widthCssForSize(size),
-      borderColor: selected ? "#2F6BFF" : "#E4E8F0",
+      borderColor: selected ? "#2a5fe2" : "#E4E8F0",
       selected,
       kind,
       body: buildBlockBody(kind, renderedById.get(widget.id) ?? null),

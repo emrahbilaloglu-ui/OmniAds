@@ -1260,7 +1260,17 @@ function AssetsView({
           </span>
         </div>
 
-        <div className={styles.tableScroller}>
+        <div
+            className={styles.tableScroller}
+            /* A region that scrolls but cannot be focused is unreachable by
+               keyboard whenever its content has no focusable element of its own —
+               and every one of these tables is read-only. Zero is the documented
+               remedy for axe's scrollable-region-focusable; the name is what
+               tells a screen-reader user what they just landed in. */
+            tabIndex={0}
+            role="region"
+            aria-label="Assets table, scrolls sideways"
+          >
           <table
             className={styles.assetTable}
             data-assets-sort={sort.key}
@@ -1547,7 +1557,17 @@ function CopiesView({
             {displayText(model?.insight)}
           </span>
         </div>
-        <div className={styles.tableScroller}>
+        <div
+            className={styles.tableScroller}
+            /* A region that scrolls but cannot be focused is unreachable by
+               keyboard whenever its content has no focusable element of its own —
+               and every one of these tables is read-only. Zero is the documented
+               remedy for axe's scrollable-region-focusable; the name is what
+               tells a screen-reader user what they just landed in. */
+            tabIndex={0}
+            role="region"
+            aria-label="Copy table, scrolls sideways"
+          >
           <table className={styles.copyTable}>
             <thead>
               <tr>
@@ -1709,7 +1729,17 @@ function LandingPagesView({
               {`Meta-reported only — link clicks + pixel LP views · no analytics join · ${model?.windowLabel ?? EM_DASH}`}
             </span>
           </div>
-          <div className={styles.tableScroller}>
+          <div
+            className={styles.tableScroller}
+            /* A region that scrolls but cannot be focused is unreachable by
+               keyboard whenever its content has no focusable element of its own —
+               and every one of these tables is read-only. Zero is the documented
+               remedy for axe's scrollable-region-focusable; the name is what
+               tells a screen-reader user what they just landed in. */
+            tabIndex={0}
+            role="region"
+            aria-label="Landing page table, scrolls sideways"
+          >
             <table className={styles.landingTable}>
               <thead>
                 <tr>
@@ -1900,7 +1930,12 @@ function InboxView({ model }: { model: CreativeStudioExactProps["inbox"] }) {
         </p>
       </div>
 
-      <div className={styles.inboxBoard}>
+      <div
+        className={styles.inboxBoard}
+        tabIndex={0}
+        role="region"
+        aria-label="Creative inbox columns, scroll sideways"
+      >
         {columns.map((column, index) => (
           <div
             className={styles.inboxColumn}
@@ -2130,7 +2165,17 @@ function AudiencesView({
             className={`${styles.heatRamp} ${styles.matrixRamp}`}
           />
         </div>
-        <div className={styles.tableScroller}>
+        <div
+            className={styles.tableScroller}
+            /* A region that scrolls but cannot be focused is unreachable by
+               keyboard whenever its content has no focusable element of its own —
+               and every one of these tables is read-only. Zero is the documented
+               remedy for axe's scrollable-region-focusable; the name is what
+               tells a screen-reader user what they just landed in. */
+            tabIndex={0}
+            role="region"
+            aria-label="Creative by audience matrix, scrolls sideways"
+          >
           <table className={styles.matrixTable}>
             <thead>
               <tr>

@@ -40,7 +40,7 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
 }
 
@@ -71,7 +71,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .kpiValue {
@@ -90,7 +90,7 @@
 }
 
 .kpiDelta[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .kpiDelta[data-tone="warning"] {
@@ -98,7 +98,7 @@
 }
 
 .kpiDelta[data-tone="neutral"] {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── new vs returning cards (L1768-1782) ────────────────────────── */
@@ -130,13 +130,13 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .segmentBadge {
   border-radius: 9999px;
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
   padding: 2px 9px;
   font-size: 11px;
   font-weight: 700;
@@ -152,7 +152,7 @@
 .segmentMetricLabel {
   margin: 0;
   font-size: 11px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .segmentMetricValue {
@@ -165,7 +165,7 @@
 }
 
 .segmentMetricValue[data-highlight="true"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 /* ── callouts (L1783-1790) ──────────────────────────────────────── */
@@ -218,7 +218,7 @@
 }
 
 .kindChip[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .kindChip[data-tone="warning"] {
@@ -230,7 +230,7 @@
 }
 
 .kindChip[data-tone="info"] {
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 /* Inside an opportunity card the chip sits on the title baseline (L1943). */
@@ -268,7 +268,7 @@
 .cardHint {
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .table {
@@ -310,7 +310,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
 }
 
@@ -378,7 +378,7 @@
 
 .signalChip[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .signalChip[data-tone="warning"] {
@@ -396,7 +396,7 @@
   padding: 10px 16px;
   border-top: 1px solid #f3f5f9;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── demographics (L1872-1895) ──────────────────────────────────── */
@@ -528,7 +528,7 @@
 .trailingNote {
   margin: 0;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* dashboard-v2-insights-analytics-exact-reference-type:end */

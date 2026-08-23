@@ -25,7 +25,7 @@
 
 .exactHeader p {
   margin: 0;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -108,7 +108,7 @@
 
 .exactStartCard[data-role="duplicate"] .exactStartChip {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .exactStartCard[data-role="manual"] .exactStartChip {
@@ -136,7 +136,7 @@
   margin-top: auto;
   border: 0;
   background: transparent;
-  color: #2f6bff;
+  color: #2a5fe2;
   cursor: pointer;
   font: inherit;
   font-weight: 600;
@@ -145,7 +145,7 @@
 }
 
 .exactStartAction:disabled {
-  color: #98a4ba;
+  color: #68707f;
   cursor: not-allowed;
 }
 
@@ -180,7 +180,7 @@
 }
 
 .exactSectionHeader span {
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -192,7 +192,7 @@
 
 .exactDraftTable th {
   background: #f7f9fc;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -219,7 +219,7 @@
 }
 
 .exactDraftTable td {
-  color: #7a869e;
+  color: #555d6d;
   padding: 11px 12px;
 }
 
@@ -244,7 +244,7 @@
 
 .exactValidationChip {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .exactValidationChip[data-status="failed"] {
@@ -256,11 +256,11 @@
    wired to /api/launchpad/meta/validate, because no row could ever reach it. */
 .exactValidationChip[data-status="ready"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .exactUpdated {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .exactDraftActionCell {
@@ -271,7 +271,7 @@
   height: 30px;
   border: 0;
   border-radius: 8px;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #fff;
   cursor: pointer;
   font: inherit;
@@ -295,7 +295,7 @@
 
 .exactReceiptId {
   flex: 0 0 auto;
-  color: #7a869e;
+  color: #555d6d;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
 }
 
@@ -317,12 +317,12 @@
 
 .exactReceiptStatus[data-empty="true"] {
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .exactReceiptTime {
   min-width: 0;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .exactReceiptLink,
@@ -332,13 +332,13 @@
 }
 
 .exactReceiptLink {
-  color: #2f6bff;
+  color: #2a5fe2;
   font-weight: 600;
   text-decoration: none;
 }
 
 .exactReceiptUnavailable {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* dashboard-v2-exact-typography:start launchpad */

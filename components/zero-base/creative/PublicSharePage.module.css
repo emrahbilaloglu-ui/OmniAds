@@ -30,7 +30,7 @@
   height: 24px;
   flex-shrink: 0;
   border-radius: 7px;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
   font-family: var(--adv-font-display, "Space Grotesk", sans-serif);
   font-size: 12px;
@@ -74,7 +74,7 @@
 .snapshotTag {
   border-radius: 6px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
   padding: 2px 8px;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9.5px;
@@ -93,7 +93,7 @@
   border-radius: 9999px;
   border: 1px solid #cbd9ff;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
@@ -129,7 +129,7 @@
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
   line-height: 1.7;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* ----------------------------------------------------------- disclosure */
@@ -160,7 +160,7 @@
   border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e4e8f0;
-  border-left: 3px solid #2f6bff;
+  border-left: 3px solid #2a5fe2;
   padding: 11px 13px;
 }
 
@@ -170,7 +170,7 @@
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .senderNote p + p {
@@ -207,7 +207,7 @@
   display: block;
   margin: 2px 0 0;
   font-size: 11px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .csvMessageDone,
@@ -241,7 +241,7 @@
 }
 
 .csvButton:focus-visible {
-  outline: 2px solid #2f6bff;
+  outline: 2px solid #2a5fe2;
   outline-offset: 2px;
 }
 
@@ -263,7 +263,7 @@
   margin: -4px 0 0;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 @keyframes psp-spin {
@@ -386,7 +386,7 @@
   text-align: center;
   font-size: 11.5px;
   line-height: 1.5;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .cardBody {
@@ -404,7 +404,7 @@
   margin: 3px 0 0;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .metricRows {
@@ -424,7 +424,7 @@
 
 .metricRow span {
   font-size: 11.5px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .metricRow strong {
@@ -438,7 +438,7 @@
 .metricsEmpty {
   margin: 9px 0 0;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ----------------------------------------------------------- story */
@@ -494,7 +494,7 @@
 
 .stageBand[data-band="Strong"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .stageBand[data-band="Typical"] {
@@ -524,11 +524,11 @@
 }
 
 .stageFill[data-band="Strong"] {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .stageFill[data-band="Typical"] {
-  background: #98a4ba;
+  background: #68707f;
 }
 
 .stageFill[data-band="Weak"] {
@@ -553,11 +553,11 @@
   margin: 4px 0 0;
   font-size: 10.5px;
   line-height: 1.45;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .stageTypical {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .dropOff {
@@ -609,14 +609,14 @@
   text-align: center;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 8px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .dropOffCaption {
   margin: 6px 0 0;
   font-size: 10.5px;
   line-height: 1.5;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .suggestion {
@@ -641,7 +641,7 @@
   font-size: 8.5px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .suggestion p + p {
@@ -658,7 +658,7 @@
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9px;
   line-height: 1.5;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ---------------------------------------------------------- comparison */
@@ -690,7 +690,7 @@
 .comparisonHead span {
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .tableScroll {
@@ -713,7 +713,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
   white-space: nowrap;
 }
@@ -755,7 +755,7 @@
   margin: -4px 0 0;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ------------------------------------------------------------- actions */
@@ -779,7 +779,7 @@
 .actionsHead span {
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .actionsList {
@@ -813,7 +813,7 @@
   margin-left: auto;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .actionWhy {
@@ -863,7 +863,7 @@
 .notesHead span {
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .notesCard {
@@ -883,7 +883,7 @@
 .notesEmpty {
   margin: 0;
   font-size: 12px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .noteRow {
@@ -904,11 +904,11 @@
 }
 
 .noteAvatar[data-role="sender"] {
-  background: #2f6bff;
+  background: #2a5fe2;
 }
 
 .noteAvatar[data-role="viewer"] {
-  background: #7a869e;
+  background: #555d6d;
 }
 
 .noteBody {
@@ -933,7 +933,7 @@
 .senderTag {
   border-radius: 4px;
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
   padding: 1px 6px;
   font-size: 9px;
   font-weight: 700;
@@ -943,7 +943,7 @@
 .noteTime {
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .noteText {
@@ -979,7 +979,7 @@
 }
 
 .noteInputRow input:focus {
-  border-color: #2f6bff;
+  border-color: #2a5fe2;
 }
 
 .noteInputRow button {
@@ -987,7 +987,7 @@
   padding: 0 14px;
   border-radius: 9px;
   border: none;
-  background: #2f6bff;
+  background: #2a5fe2;
   color: #ffffff;
   font-size: 12.5px;
   font-weight: 600;
@@ -1022,7 +1022,7 @@
   background: #fbfcfe;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* -------------------------------------------------------------- footer */
@@ -1036,7 +1036,7 @@
 .footer p:first-child {
   margin: 0;
   font-size: 11.5px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .footerSub {
@@ -1044,7 +1044,7 @@
   max-width: 520px;
   font-size: 11px;
   line-height: 1.6;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .footerBrand {
@@ -1065,7 +1065,7 @@
   text-align: center;
   font-size: 12.5px;
   line-height: 1.6;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* ------------------------------------------------------------ dedicated empty-snapshot page */
@@ -1108,7 +1108,7 @@
   max-width: 380px;
   font-size: 12.5px;
   line-height: 1.6;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .emptyFooterLine {
@@ -1116,7 +1116,7 @@
   text-align: center;
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 9.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ---------------------------------------------------------- unavailable */
@@ -1161,7 +1161,7 @@
   margin: 7px 0 0;
   font-size: 12.5px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .unavailableFooter {
@@ -1177,5 +1177,5 @@
 .unavailableFooter span:last-child {
   font-family: var(--adv-font-mono, "IBM Plex Mono", monospace);
   font-size: 10px;
-  color: #98a4ba;
+  color: #68707f;
 }

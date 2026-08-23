@@ -58,7 +58,7 @@ export function PublicShareUnavailable() {
     <main className={styles.unavailablePage} data-public-share="unavailable">
       <div className={styles.unavailableCard}>
         <span className={styles.unavailableIcon} aria-hidden="true">
-          <svg fill="none" height="20" stroke="#7a869e" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20">
+          <svg fill="none" height="20" stroke="#555d6d" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20">
             <path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M2 2l20 20" />
           </svg>
         </span>
@@ -237,7 +237,7 @@ function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]>
       ) : null}
       {story.suggestion ? (
         <div className={styles.suggestion}>
-          <svg fill="none" height="13" stroke="#2f6bff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="13">
+          <svg fill="none" height="13" stroke="#2a5fe2" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="13">
             <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
           </svg>
           <div>
@@ -258,7 +258,7 @@ function CreativeCard({ creative }: { creative: PublicShareCreative }) {
     creative.format === "video" ? "Video" : creative.format === "catalog" ? "Catalog" : "Image";
   const missingMedia = (iconSize: number) => (
     <p className={styles.mediaMissing} data-share-media="missing" data-share-media-for={creative.key}>
-      <svg fill="none" height={iconSize} stroke="#98a4ba" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width={iconSize}>
+      <svg fill="none" height={iconSize} stroke="#68707f" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width={iconSize}>
         <path d={MEDIA_MISSING_ICON} />
       </svg>
       {creative.mediaUnavailableReason ?? "No preview was captured for this creative."}

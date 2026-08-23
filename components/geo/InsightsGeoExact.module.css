@@ -37,7 +37,7 @@
 }
 
 .explainerBody {
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* ── sub-tab strip (L2123-2127) ─────────────────────────────────── */
@@ -59,7 +59,7 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: #7a869e;
+  color: #555d6d;
   cursor: pointer;
 }
 
@@ -95,7 +95,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .kpiValue {
@@ -111,11 +111,11 @@
   margin: 4px 0 0;
   font-size: 11px;
   font-weight: 600;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .kpiSub[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .kpiSub[data-tone="negative"] {
@@ -140,7 +140,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .intentText {
@@ -202,7 +202,7 @@
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: #98a4ba;
+  background: #68707f;
 }
 
 .priorityDot[data-tone="negative"] {
@@ -246,7 +246,7 @@
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .priorityMeta {
@@ -256,11 +256,11 @@
 
 .metaImpact {
   font-weight: 700;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .metaEffort {
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── Overview: highlight cards (L2153-2163) ─────────────────────── */
@@ -299,7 +299,7 @@
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .highlightLabel[data-tone="violet"] {
@@ -307,11 +307,11 @@
 }
 
 .highlightLabel[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .highlightLabel[data-tone="info"] {
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .highlightRow {
@@ -408,7 +408,7 @@
 }
 
 .kindChip[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .kindChip[data-tone="warning"] {
@@ -450,7 +450,7 @@
 .cardHint {
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .table {
@@ -484,7 +484,7 @@
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #7a869e;
+  color: #555d6d;
   background: #f7f9fc;
 }
 
@@ -525,7 +525,7 @@
 
 .enginePill[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .enginePill[data-tone="violet"] {
@@ -535,7 +535,7 @@
 
 .enginePill[data-tone="info"] {
   background: #eaf0ff;
-  color: #2f6bff;
+  color: #2a5fe2;
 }
 
 .enginePill[data-tone="warning"] {
@@ -556,7 +556,7 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .valueChip[data-tone="violet"] {
@@ -566,7 +566,7 @@
 
 .valueChip[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .valueChip[data-tone="warning"] {
@@ -582,7 +582,7 @@
   font-weight: 600;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .momentumChip[data-tone="violet"] {
@@ -592,7 +592,7 @@
 
 .momentumChip[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .momentumChip[data-tone="negative"] {
@@ -621,7 +621,7 @@
   padding: 10px 12px;
   text-align: left;
   font-size: 11.5px;
-  color: #7a869e;
+  color: #555d6d;
   max-width: 220px;
 }
 
@@ -654,12 +654,12 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .scorePill[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .scorePill[data-tone="warning"] {
@@ -671,7 +671,7 @@
   padding: 11px 12px;
   text-align: left;
   font-size: 11.5px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 /* ── Query Intelligence (L2217-2250) ────────────────────────────── */
@@ -710,7 +710,7 @@
   padding: 1px 6px;
   font-size: 10px;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .filterChip[data-active="true"] .filterCount {
@@ -735,7 +735,7 @@
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: #98a4ba;
+  background: #68707f;
 }
 
 .queryDot[data-tone="negative"] {
@@ -786,12 +786,12 @@
   font-weight: 700;
   cursor: pointer;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .scoreToggle[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .scoreToggle[data-tone="warning"] {
@@ -819,7 +819,7 @@
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 8.5px;
   text-transform: uppercase;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .breakdownTrack {
@@ -852,7 +852,7 @@
 }
 
 .tdPosition[data-tone="positive"] {
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .tdPosition[data-tone="warning"] {
@@ -863,7 +863,7 @@
   padding: 10px 12px;
   text-align: left;
   font-size: 11.5px;
-  color: #7a869e;
+  color: #555d6d;
   max-width: 200px;
 }
 
@@ -872,7 +872,7 @@
   padding: 10px 16px;
   border-top: 1px solid #f3f5f9;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── Topic Authority (L2251-2286) ───────────────────────────────── */
@@ -918,12 +918,12 @@
   font-size: 10.5px;
   font-weight: 700;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .coveragePill[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .coveragePill[data-tone="warning"] {
@@ -939,7 +939,7 @@
 .topicPriority {
   font-size: 11px;
   font-weight: 700;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .topicPriority[data-tone="negative"] {
@@ -956,7 +956,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .topicGap[data-tone="negative"] {
@@ -969,7 +969,7 @@
 
 .topicQueryCount {
   font-size: 11px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .topicTrack {
@@ -983,11 +983,11 @@
 .topicFill {
   height: 100%;
   border-radius: 2px;
-  background: #98a4ba;
+  background: #68707f;
 }
 
 .topicFill[data-tone="positive"] {
-  background: #0e9f6e;
+  background: #0b7954;
 }
 
 .topicFill[data-tone="warning"] {
@@ -1034,7 +1034,7 @@
 }
 
 .topicRecImpact {
-  color: #0e9f6e;
+  color: #0b7954;
   font-weight: 600;
 }
 
@@ -1051,12 +1051,12 @@
   font-weight: 700;
   white-space: nowrap;
   background: #f1f4f9;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .topicScore[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .topicScore[data-tone="warning"] {
@@ -1076,7 +1076,7 @@
 .topicAsideCaption {
   margin: 1px 0 0;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .topicClicks {
@@ -1091,19 +1091,19 @@
   margin: 6px 0 0;
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .topicAuthority {
   margin: 3px 0 0;
   font-size: 10.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 .trailingNote {
   margin: 0;
   font-size: 11.5px;
-  color: #98a4ba;
+  color: #68707f;
 }
 
 /* ── Playbook (L2287-2305) ──────────────────────────────────────── */
@@ -1132,7 +1132,7 @@
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
   font-weight: 600;
-  color: #2f6bff;
+  color: #2a5fe2;
   margin-top: 2px;
 }
 
@@ -1152,7 +1152,7 @@
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.55;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .playOutcome {
@@ -1180,7 +1180,7 @@
 
 .playChip[data-tone="positive"] {
   background: #e7f6f0;
-  color: #0e9f6e;
+  color: #0b7954;
 }
 
 .playChip[data-tone="warning"] {
@@ -1212,7 +1212,7 @@
 .methodArrow {
   font-family: var(--adv-font-mono), "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #7a869e;
+  color: #555d6d;
 }
 
 .methodLabel {
@@ -1232,7 +1232,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #7a869e;
+  color: #555d6d;
   max-width: 880px;
 }
 

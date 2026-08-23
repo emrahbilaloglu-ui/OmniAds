@@ -38,12 +38,12 @@ export const INVITE_ROLE_OPTIONS: Array<{ value: StoredTeamRole; label: string }
 
 const ROLE_CHIP: Record<DesignTeamRole, { background: string; foreground: string }> = {
   Owner: { background: "#0B1020", foreground: "#ffffff" },
-  Operator: { background: "#EAF0FF", foreground: "#2F6BFF" },
+  Operator: { background: "#EAF0FF", foreground: "#2a5fe2" },
   Analyst: { background: "#F1EBFB", foreground: "#6C41BE" },
   Viewer: { background: "#F1F4F9", foreground: "#45526B" },
 };
 
-const AVATAR_TONES = ["#2F6BFF", "#6C41BE", "#0E9F6E", "#7A869E", "#B45309"];
+const AVATAR_TONES = ["#2a5fe2", "#6C41BE", "#0b7954", "#555d6d", "#B45309"];
 
 /**
  * The capability matrix, resolved from what the server actually enforces.
@@ -254,7 +254,7 @@ export function buildTeamExactModel(input: TeamAdapterInput): TeamExactModel {
       // 2FA has no source on this backend; the action count does.
       twoFactor: TEAM_DASH,
       twoFactorBackground: "#F1F4F9",
-      twoFactorForeground: "#98A4BA",
+      twoFactorForeground: "#68707f",
       actions:
         typeof member.action_count === "number" && Number.isFinite(member.action_count)
           ? `${member.action_count} ${member.action_count === 1 ? "write" : "writes"}`
@@ -288,7 +288,7 @@ export function buildTeamExactModel(input: TeamAdapterInput): TeamExactModel {
         }
         const allowed = ROLE_RANK[role] >= GATE_RANK[capability.gate];
         return allowed
-          ? { value: "✓", foreground: "#0E9F6E", note }
+          ? { value: "✓", foreground: "#0b7954", note }
           : { value: TEAM_DASH, foreground: "#C9D2E0", note };
       }),
     };

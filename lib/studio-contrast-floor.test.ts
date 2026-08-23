@@ -18,11 +18,11 @@ import { describe, expect, it } from "vitest";
  * allowed to do. Measured against the surface each colour is actually painted
  * on, the essential sub-13px text sits at:
  *
- *     #98a4ba on #ffffff   2.51:1   17 rules  (row metadata, counts, empties)
- *     #7a869e on #ffffff   3.66:1   14 rules  (eyebrows, table headers, notes)
- *     #7a869e on #f7f9fc   3.47:1    1 rule   (copy/landing/matrix table heads)
- *     #2f6bff on #eaf0ff   3.94:1    2 rules  (insight pill, test estimate)
- *     #ffffff on #2f6bff   4.50:1    1 rule   (inbox primary button)
+ *     #68707f on #ffffff   2.51:1   17 rules  (row metadata, counts, empties)
+ *     #555d6d on #ffffff   3.66:1   14 rules  (eyebrows, table headers, notes)
+ *     #555d6d on #f7f9fc   3.47:1    1 rule   (copy/landing/matrix table heads)
+ *     #2a5fe2 on #eaf0ff   3.94:1    2 rules  (insight pill, test estimate)
+ *     #ffffff on #2a5fe2   4.50:1    1 rule   (inbox primary button)
  *
  * So the assertion is the one that can be true: the floor still holds for every
  * colour, and the set of colours that fall below it is pinned exactly. A new
@@ -106,22 +106,23 @@ function paintedEssentialText(): { measured: Painted[]; unresolved: string[] } {
 }
 
 /**
- * The canonical Dashboard v2 colours that ship below the floor.
+ * The Dashboard v2 colours that ship below the floor. There are none.
  *
- * Pinned as colour-on-surface pairs with the ratio they measure, so the debt is
- * legible in the source instead of being a number nobody can reconstruct.
+ * This list used to hold six pairs — the muted inks on white and on the two
+ * fills, the accent on its own tint, and white on the accent — recorded as
+ * accepted debt because the palette was treated as fixed.
+ *
+ * It was not fixed in the sense that mattered. Those six pairs produced 253
+ * serious `color-contrast` findings when axe was finally pointed at the
+ * mounted routes rather than at a component harness, and D1 lists contrast
+ * among the micro-changes the locked visual direction permits. The five palette
+ * values moved to the smallest value that clears 4.5:1 on every surface they
+ * are painted on, hue preserved and the ink hierarchy preserved with them.
+ *
+ * The empty list is the assertion: a new sub-floor pair fails here, and the
+ * only way to add one is to write it down.
  */
-const BELOW_FLOOR_REFERENCE_PAIRS: readonly string[] = [
-  "#2f6bff on #eaf0ff", // 3.94:1 — insight pill, test estimate
-  // 3.32:1 — the Shared-links toolbar count, on the same muted-badge fill
-  // `.tabCount` already ships at this exact colour pair; this is a second
-  // instance of that established palette, not a new one.
-  "#7a869e on #f1f4f9",
-  "#7a869e on #f7f9fc", // 3.47:1 — copy / landing / matrix table headers
-  "#7a869e on #ffffff", // 3.66:1 — eyebrows, table headers, notes
-  "#98a4ba on #ffffff", // 2.51:1 — row metadata, counts, empty states
-  "#fff on #2f6bff", //    4.50:1 — inbox primary button
-];
+const BELOW_FLOOR_REFERENCE_PAIRS: readonly string[] = [];
 
 describe("essential Creative Studio text and the contrast floor", () => {
   it("introduces no sub-floor colour beyond the pinned canonical ones", () => {
@@ -149,7 +150,7 @@ describe("essential Creative Studio text and the contrast floor", () => {
 
   it("cannot hide a colour behind a fill the stylesheet does not resolve", () => {
     // `.avatar` paints white on `--tone-solid`, whose six declared values
-    // include #98a4ba — white on that is 2.51:1. It is left unmeasured rather
+    // include #68707f — white on that is 2.51:1. It is left unmeasured rather
     // than measured against a value it may not take, but the list is pinned so
     // a second unmeasurable rule cannot appear unnoticed.
     const { unresolved } = paintedEssentialText();

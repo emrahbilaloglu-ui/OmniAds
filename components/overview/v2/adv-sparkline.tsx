@@ -155,7 +155,7 @@ export function AdvSparkline({
           <path
             d={previousPath}
             fill="none"
-            stroke={light ? "rgba(255,255,255,0.55)" : "#98A4BA"}
+            stroke={light ? "rgba(255,255,255,0.55)" : "#68707f"}
             strokeWidth={light ? 1.2 : 1.1}
             strokeDasharray="3 3"
             opacity={light ? 1 : 0.85}

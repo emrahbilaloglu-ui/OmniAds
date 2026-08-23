@@ -81,11 +81,29 @@ export function canonicalRoutesFor(businessId: string): { surfaceId: string; pat
 export async function openSurface(page: Page, handle: RuntimeHandle, path: string): Promise<void> {
   await page.goto(`${handle.baseUrl}${path}`, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("load");
-  await page
-    .locator("text=Loading workspace")
-    .first()
-    .waitFor({ state: "detached", timeout: 30_000 })
-    .catch(() => {
-      /* Some surfaces never render it; absence is the same end state. */
-    });
+
+  /*
+   * Settle on the content, not on the network.
+   *
+   * `networkidle` never arrives — these surfaces poll — and waiting for a named
+   * loading string only works for the surfaces that render that exact string.
+   * Decisions says "Loading decision data", the shell says "Loading workspace",
+   * and a surface that says neither would be measured mid-render. Two identical
+   * consecutive reads of `main` is the signal that applies to all of them, and
+   * it is what stopped a still-loading Decisions from being reported as a
+   * surface that failed to explain its empty state.
+   */
+  let previous: string | null = null;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const current = await page
+      .locator("main")
+      .first()
+      .innerText()
+      .catch(() => "");
+    const settled =
+      current === previous && current.length > 0 && !/Loading\b/i.test(current);
+    if (settled) return;
+    previous = current;
+    await page.waitForTimeout(250);
+  }
 }

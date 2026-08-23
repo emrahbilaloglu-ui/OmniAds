@@ -20,11 +20,17 @@ export interface MetaPulsePayload {
     dayPace: number;
     /** Selected-window spend (the old field incorrectly labeled MTD). */
     windowSpend?: number;
-    spendToday?: number;
+    /*
+     * Nullable on purpose: `null` is "this day was never observed", which is
+     * not the same fact as a measured zero. The pulse route returns null when
+     * no warehouse row covers the period, and the adapter renders it as an
+     * em-dash. A number here is always a measurement.
+     */
+    spendToday?: number | null;
     dailyTarget?: number;
-    avg7dSpend?: number;
-    conversionsToday?: number;
-    avg7dConversions?: number;
+    avg7dSpend?: number | null;
+    conversionsToday?: number | null;
+    avg7dConversions?: number | null;
   };
   roas: {
     selected: number;

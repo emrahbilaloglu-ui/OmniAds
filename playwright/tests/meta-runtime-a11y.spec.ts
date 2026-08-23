@@ -55,6 +55,32 @@ test.describe("axe on the mounted routes", () => {
   }
 });
 
+test.describe("landmarks are unique", () => {
+  /**
+   * Outside the WCAG tag set, and it still matters.
+   *
+   * Three bodies rendered their own `<main>` inside the shell's — Audiences,
+   * the creative detail experience and the coming-soon state — so those pages
+   * offered a screen-reader user two "main content" targets with no way to tell
+   * which was the page. axe files this under `best-practice`, which the tag
+   * filter above excludes, so it is asked for by name.
+   */
+  for (const route of routes) {
+    test(`${route.surfaceId} has one main landmark`, async ({ page }) => {
+      await openSurface(page, handle, route.path);
+      const results = await new AxeBuilder({ page })
+        .withRules(["landmark-no-duplicate-main", "landmark-unique", "landmark-one-main"])
+        .analyze();
+      expect(
+        results.violations.map(
+          (violation) => `${violation.id} ×${violation.nodes.length} — ${violation.help}`,
+        ),
+        `landmark violations on ${route.path}`,
+      ).toEqual([]);
+    });
+  }
+});
+
 /** Anything wider than the viewport that the page itself scrolls to reach. */
 async function sidewaysOverflow(page: Page, width: number): Promise<string[]> {
   return page.evaluate((viewport: number) => {

@@ -370,7 +370,9 @@ export function AppRail({
   const lockedDestination = scopedHref("/settings");
 
   return (
-    <aside className="adv-rail" data-open={open} data-shell-sidebar="v2">
+    // Named: a page body may carry its own complementary aside, and two
+    // unnamed ones are indistinguishable in a landmark list.
+    <aside className="adv-rail" aria-label="Workspace navigation" data-open={open} data-shell-sidebar="v2">
       <div className="adv-rail-head">
         <span className="adv-rail-mark">
           <Image

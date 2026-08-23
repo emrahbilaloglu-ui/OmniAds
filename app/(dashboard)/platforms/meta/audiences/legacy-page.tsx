@@ -465,13 +465,19 @@ export default function MetaAudiencesPage({
   if (!hasAuthorizedScope && workspaceResolved && !businessId) return <BusinessEmptyState />;
 
   return (
-    <main data-testid="audiences-studio-page" data-audiences-state={model.state}>
+    /*
+     * `section`, not `main`. The shell already owns the page's `main` landmark,
+     * and a second one on the same page gives a screen-reader user two "main
+     * content" targets with no way to tell which is the page. Found by a strict
+     * locator resolving `main` to two elements on the mounted route.
+     */
+    <section data-testid="audiences-studio-page" data-audiences-state={model.state}>
       <CreativeStudioExact
         activeTab="audiences"
         audiences={model}
         counts={buildCreativeStudioTabCounts({})}
         tabHrefs={tabHrefs}
       />
-    </main>
+    </section>
   );
 }

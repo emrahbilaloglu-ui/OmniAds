@@ -137,8 +137,14 @@ export function IntelligenceView({
             ))}
           </div>
         </section>
-        <aside style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
-          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{copy.campaignLabels}</h2>
+        {/*
+          Named, because the shell's rail is a complementary landmark too.
+          Two unnamed asides on one page give a screen-reader user two
+          indistinguishable "complementary" entries in the landmark list —
+          measured by axe on the mounted route.
+        */}
+        <aside aria-labelledby="meta-intel-labels-heading" style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
+          <h2 id="meta-intel-labels-heading" style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{copy.campaignLabels}</h2>
           <div data-el="label-chips" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
             {labelFacts.length > 0 ? labelFacts.map((fact, index) => (
               <span key={`${fact.label}-${index}`} style={{ padding: "4px 8px", borderRadius: 999, background: "var(--ledger-accent-tint)", color: "var(--ledger-accent-action)", fontSize: 12 }}>{fact.label} · {fact.value}</span>

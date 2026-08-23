@@ -422,7 +422,12 @@ export function CreativeDetailExperience({
           </div>
         </header>
 
-        <main
+        {/*
+          `div`, not `main`. This body renders inside the shell, which already
+          owns the page's `main` landmark; a second one gives a screen-reader
+          user two "main content" targets on the same page.
+        */}
+        <div
           className="grid h-[calc(100%-64px)] grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]"
         >
           <section className="min-h-0 overflow-hidden px-3 py-3 md:px-4 md:py-4">
@@ -544,7 +549,7 @@ export function CreativeDetailExperience({
             </div>
           </aside>
 
-        </main>
+        </div>
       </div>
     </div>
   );

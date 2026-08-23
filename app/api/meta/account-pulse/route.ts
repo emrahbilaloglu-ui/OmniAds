@@ -781,8 +781,35 @@ export async function GET(request: NextRequest) {
   const d14Totals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, addDaysToISO(endDate, -13), endDate) : totals(d14Rows);
   const d28Totals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, addDaysToISO(endDate, -27), endDate) : totals(d28Rows);
   const todayTotals = fastWarehouse ? pulseRollupTotals(fastWarehouse.daily, endDate, endDate) : totals(todayRows);
-  const avg7dSpend = d7Totals.spend / 7;
-  const avg7dConversions = d7Totals.purchases / 7;
+
+  /*
+   * D8: a sum over no rows is not a measurement.
+   *
+   * `totals()` reduces an empty row set to `spend: 0, purchases: 0`, and the
+   * Decision Center's "Spend · today" tile printed that as `₺0 — 0 conversions
+   * · 7d avg 0` on an account with no warehouse data at all — on the same
+   * screen that said "Campaign warehouse data is still being prepared for the
+   * requested range". Zero is a claim about the world; "we have not observed
+   * this day yet" is not the same claim, and an operator reading ₺0 concludes
+   * delivery has stopped.
+   *
+   * Counted rather than inferred from the sum, because a genuine zero-spend day
+   * that WAS observed must still read as ₺0. The client already renders null as
+   * an em-dash — `formatMoney(null)` and the `finite(...) === null` branch in
+   * the KPI detail — so only the server was substituting.
+   */
+  const observedDays = (from: string, to: string): number =>
+    fastWarehouse
+      ? fastWarehouse.daily.filter((row) => row.date >= from && row.date <= to).length
+      : -1;
+  const todayObservedRows = fastWarehouse ? observedDays(endDate, endDate) : todayRows.length;
+  const d7ObservedRows = fastWarehouse
+    ? observedDays(addDaysToISO(endDate, -6), endDate)
+    : d7Rows.length;
+  const spendToday = todayObservedRows > 0 ? todayTotals.spend : null;
+  const conversionsToday = todayObservedRows > 0 ? todayTotals.purchases : null;
+  const avg7dSpend = d7ObservedRows > 0 ? d7Totals.spend / 7 : null;
+  const avg7dConversions = d7ObservedRows > 0 ? d7Totals.purchases / 7 : null;
   const targetForMode = roasBenchmark.target ?? roasBenchmark.median ?? currentTotals.roas ?? 1;
   const constrainedBidShare =
     currentRows.length > 0
@@ -818,10 +845,10 @@ export async function GET(request: NextRequest) {
         mtdTarget,
         dayPace: mtdTarget > 0 ? mtdTotals.spend / mtdTarget : 0,
         windowSpend: currentTotals.spend,
-        spendToday: todayTotals.spend,
+        spendToday,
         dailyTarget: mtdTarget / 30,
         avg7dSpend,
-        conversionsToday: todayTotals.purchases,
+        conversionsToday,
         avg7dConversions,
       },
       roas: {

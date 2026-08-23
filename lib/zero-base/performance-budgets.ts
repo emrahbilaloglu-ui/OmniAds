@@ -66,7 +66,12 @@ export const KNOWN_DUPLICATE_FIRST_LOAD_READS: readonly string[] = [
  * own state; Creative Studio adds the share ledger and the brief authority.
  */
 export const FIRST_LOAD_API_CALL_DEBT: Readonly<Record<string, number>> = {
-  "meta-launchpad": 16,
-  "manage-integrations": 17,
-  "creative-studio": 13,
+  // Each is the highest count observed across repeated runs, not the typical
+  // one. The duplicate `/api/integrations` read is a race between two owners of
+  // the same store, so a surface measures one more or one fewer depending on
+  // which arrives first; pinning the typical figure would make the gate flaky,
+  // and a flaky gate teaches people to ignore it.
+  "meta-launchpad": 17, //      16–17 observed
+  "manage-integrations": 18, // 17–18 observed
+  "creative-studio": 14, //     13–14 observed
 };

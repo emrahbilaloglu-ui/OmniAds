@@ -132,6 +132,58 @@ describe("GET /api/meta/account-pulse", () => {
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });
 
+  it("does not sum an unobserved day to zero", async () => {
+    /**
+     * D8. `totals()` reduces an empty row set to `spend: 0, purchases: 0`, and
+     * the Decision Center printed that as "Spend · today ₺0 — 0 conversions ·
+     * 7d avg 0" on an account with no warehouse rows at all — on the same
+     * screen that said the warehouse was still being prepared. Measured on the
+     * mounted route.
+     *
+     * Null, not zero: the client already renders null as an em-dash.
+     */
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pacing.spendToday).toBeNull();
+    expect(payload.pacing.conversionsToday).toBeNull();
+    expect(payload.pacing.avg7dSpend).toBeNull();
+    expect(payload.pacing.avg7dConversions).toBeNull();
+  });
+
+  it("still reports an observed day that genuinely spent nothing", async () => {
+    // The other half, and the reason this is counted rather than inferred from
+    // the sum: a day that WAS observed and spent nothing is a measurement, and
+    // must read as zero rather than as an em-dash.
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [campaign({ spend: 0, revenue: 0, purchases: 0, roas: 0, cpa: null })] as never,
+      isPartial: false,
+      notReadyReason: null,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"),
+    );
+    const payload = await response.json();
+
+    expect(payload.pacing.spendToday).toBe(0);
+    expect(payload.pacing.conversionsToday).toBe(0);
+    expect(payload.pacing.avg7dSpend).toBe(0);
+  });
+
   it("returns the pulse payload shape", async () => {
     const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"));
     const payload = await response.json();

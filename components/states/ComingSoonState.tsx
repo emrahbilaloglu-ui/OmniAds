@@ -38,7 +38,9 @@ export function ComingSoonState({
   ];
 
   return (
-    <main className={cn("ad-final ad-platform-readiness", className)} data-platform={platformId}>
+    // `section`, not `main`: this renders inside the shell, which owns the
+    // page's `main` landmark already.
+    <section className={cn("ad-final ad-platform-readiness", className)} data-platform={platformId}>
       <header className="ad-platform-readiness-header">
         <div>
           <p className="ad-platform-kicker">Platform workspace</p>
@@ -79,6 +81,6 @@ export function ComingSoonState({
           performance, and no automation or write control is exposed here.
         </div>
       </section>
-    </main>
+    </section>
   );
 }

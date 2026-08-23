@@ -107,6 +107,16 @@ export const META_FAILURE_CODES = [
   "provider_auth_expired",
   "provider_outcome_ambiguous",
   "reconciliation_required",
+  /**
+   * Added 2026-08-23 with the P1 runtime gate.
+   *
+   * §9.1 names twenty codes as a floor, not a ceiling. This one is distinct
+   * from `launchpad_execution_disabled` on purpose: that is a rollout state the
+   * operator may legitimately ask to have changed, while this is a deployment
+   * error they cannot fix and must not be invited to try.
+   */
+  "launchpad_execution_disabled",
+  "launchpad_execution_safety_incomplete",
 ] as const;
 
 export type MetaFailureCode = (typeof META_FAILURE_CODES)[number];
@@ -240,6 +250,18 @@ export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>>
   reconciliation_required: {
     message:
       "An earlier action on this entity has an unresolved outcome, so further changes are blocked until it is reconciled.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  launchpad_execution_disabled: {
+    message:
+      "Creating campaigns on Meta from Launchpad is not enabled yet. Drafts, templates and validation are fully available, and a validated draft will run unchanged once execution is turned on.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  launchpad_execution_safety_incomplete: {
+    message:
+      "Creating campaigns on Meta from Launchpad is unavailable: this deployment does not yet meet the write-safety requirements for provider creates. Nothing was sent. Drafts, templates and validation are unaffected.",
     state: "refused",
     operatorActionable: false,
   },

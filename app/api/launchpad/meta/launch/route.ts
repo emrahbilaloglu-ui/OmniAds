@@ -52,6 +52,7 @@ import {
   type MetaLaunchpadManualAuthority,
 } from "@/lib/launchpad/meta-manual-authority";
 import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execution-bounds";
+import { preflightAgeSeconds } from "@/lib/launchpad/validation-preflight-disclosure";
 import {
   jsonError,
   readJsonBody,
@@ -676,6 +677,26 @@ export async function POST(request: NextRequest) {
     creative_preflight_checked_at: creativePreflight.checkedAt,
     creative_preflight_checks: preflightChecks,
   } as const;
+  /**
+   * The preflight's own age, disclosed rather than assumed (§10 step 10).
+   *
+   * It is near zero here by construction — this route re-runs the fresh
+   * creative read itself rather than trusting a validation the operator ran
+   * earlier — and that is exactly the fact worth stating. Without it the
+   * receipt records a `checkedAt` nobody reads, and a reader cannot tell a
+   * proof taken seconds before the create from one carried over from an
+   * arbitrarily old validation.
+   *
+   * `null` when the timestamp is unreadable, never 0: zero means "checked this
+   * instant", which is the most misleading value to invent for something we
+   * could not read.
+   */
+  const preflightDisclosure = {
+    checkedAt: creativePreflight.checkedAt,
+    ageSeconds: preflightAgeSeconds(creativePreflight.checkedAt),
+    creativeIdentityVerified: true,
+    providerAccountId: creativePreflight.providerAccountId,
+  } as const;
   const steps: LaunchStepResult[] = [];
   const adsetIds: string[] = [];
   const adIds: string[] = [];
@@ -990,6 +1011,9 @@ export async function POST(request: NextRequest) {
       steps,
       launchIntentId,
       launchIntentStatus: completedIntent.status,
+      // The fresh creative-identity proof this create rested on, and how old it
+      // was when the first POST went out (§10 step 10).
+      preflight: preflightDisclosure,
     });
   } catch (error) {
     const rawMessage = sanitizeErrorMessage(error);

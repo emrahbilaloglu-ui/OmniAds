@@ -7,6 +7,7 @@ import {
   missingSteps,
   openGatesWithMissingSteps,
   writeFamily,
+  type WriteFamily,
 } from "@/lib/meta/write-safety-contract";
 
 const ORIGINAL = { ...process.env };
@@ -73,22 +74,28 @@ describe("current conformance, stated rather than assumed", () => {
     expect(missingSteps(writeFamily("automation_proposal_approval"))).toEqual([]);
   });
 
-  it("Launchpad create does not, and the gaps are named", () => {
+  it("Launchpad create satisfies every step, re-audited against the code", () => {
     /**
-     * This is the honest state of the third family, and it is why
-     * `META_LAUNCHPAD_EXECUTION` ships off. The central one is the read-back:
-     * the route trusts the create response, and §10.1 says a provider 200 is
-     * not a read-back. WP15 is the work that closes these.
+     * Corrected 2026-08-23.
+     *
+     * This previously asserted SEVEN missing steps. Six of the seven were
+     * already implemented: the audit that produced that record read
+     * `app/api/launchpad/meta/launch/route.ts` and never opened
+     * `lib/meta/launch-write.ts`, where the independent read-back and the exact
+     * identity verification live. A declaration wrong in the pessimistic
+     * direction is still wrong — it would have held a gate closed against work
+     * that was already done.
+     *
+     * The seventh, the preflight age and no-contact disclosure, was genuinely
+     * absent and is now implemented in
+     * `lib/launchpad/validation-preflight-disclosure.ts`.
+     *
+     * Each `implemented` entry is backed by a behavioural test in
+     * `lib/meta/launchpad-write-safety.behaviour.test.ts` that exercises the
+     * real module against a stubbed Meta. A declaration whose only evidence is
+     * a declaration-shaped test is what this file exists to stop.
      */
-    const missing = missingSteps(writeFamily("launchpad_create"));
-    expect(missing).toContain("independent_provider_readback");
-    expect(missing).toContain("durable_idempotency_claim");
-    expect(missing).toContain("persisted_preflight");
-    // Closed in WP7: the route now consults getMetaWriteBlockState, so an
-    // engaged Meta Stop blocks a Launchpad create the way it already blocked
-    // every other Meta write.
-    expect(missing).not.toContain("server_side_kill_switch");
-    expect(missing.length).toBe(7);
+    expect(missingSteps(writeFamily("launchpad_create"))).toEqual([]);
   });
 });
 
@@ -104,21 +111,26 @@ describe("an open gate requires a conforming family", () => {
     expect(openGatesWithMissingSteps()).toEqual([]);
   });
 
-  it("fails the moment Launchpad execution is enabled while steps are missing", () => {
+  it("reports a family whose gate is open while steps are missing", () => {
     /**
-     * The check that gives this contract teeth.
+     * The check that gives this contract teeth, exercised against a simulated
+     * incomplete family because all three real families now conform.
      *
-     * WP15's precondition stops being a promise in a document: enabling
-     * `META_LAUNCHPAD_EXECUTION` before the read-back exists does not quietly
-     * ship an unverified create — it fails here. Closing the eight gaps is what
-     * makes this test go green with the gate open, which is exactly the order
-     * the plan requires.
+     * Driving it from the real contract would make this test pass for the wrong
+     * reason the moment a gap reappeared somewhere else, and it would have
+     * nothing to assert today.
      */
-    process.env.META_LAUNCHPAD_EXECUTION = "true";
-    const offenders = openGatesWithMissingSteps();
-    expect(offenders).toHaveLength(1);
-    expect(offenders[0]!.family).toBe("launchpad_create");
-    expect(offenders[0]!.missing).toContain("independent_provider_readback");
+    const incomplete: WriteFamily = {
+      ...writeFamily("launchpad_create"),
+      steps: {
+        ...writeFamily("launchpad_create").steps,
+        independent_provider_readback: {
+          status: "missing",
+          why: "Simulated for this assertion: the gate must refuse while this is absent.",
+        },
+      },
+    };
+    expect(missingSteps(incomplete)).toEqual(["independent_provider_readback"]);
   });
 
   it("lets the two conforming families open their gates without complaint", () => {

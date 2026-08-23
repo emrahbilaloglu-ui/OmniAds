@@ -182,8 +182,8 @@ describe("the dictionary and the routes agree where they overlap", () => {
 
   it("holds the uncontracted surface below its recorded ceiling", () => {
     /**
-     * 110 distinct codes emitted, 8 of them contracted by §9.1 — so 102 are
-     * not. This ceiling is a **ratchet**,
+     * 110 distinct codes emitted; the contracted set has grown, so the
+     * uncontracted remainder is 101. This ceiling is a **ratchet**,
      * not a target: it fails when the uncontracted set grows, which forces the
      * question "does this new code need an operator sentence?" at the moment
      * someone adds it rather than when an operator meets it.
@@ -192,6 +192,6 @@ describe("the dictionary and the routes agree where they overlap", () => {
      * written into the same commit.
      */
     const uncontracted = emittedCodes().filter((code) => !isMetaFailureCode(code));
-    expect(uncontracted.length).toBeLessThanOrEqual(102);
+    expect(uncontracted.length).toBeLessThanOrEqual(101);
   });
 });

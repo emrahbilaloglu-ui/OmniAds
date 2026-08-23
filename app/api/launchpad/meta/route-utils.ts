@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
-import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
+import {
+  LAUNCHPAD_EXECUTION_SAFETY_INCOMPLETE_REASON,
+  META_GATE_REFUSAL_REASONS,
+} from "@/lib/meta/release-gate-copy";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
+import { missingSteps, writeFamily } from "@/lib/meta/write-safety-contract";
 import type { MembershipRole } from "@/lib/auth";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
@@ -156,16 +160,83 @@ export function rejectIfLaunchpadReviewerReadOnly(
  * the same request will succeed unchanged once execution is enabled. A `403`
  * would tell an operator to go asking for permissions they already have.
  */
+/**
+ * The pure decision, separated from the readings so both branches stay
+ * provable.
+ *
+ * The runtime gate has to keep refusing when the safety contract is incomplete
+ * — that is the P1 fix — but the Launchpad family is complete today, so a test
+ * driven by the real contract can no longer exercise the refusal at all. A
+ * protection that cannot be tested once the thing it guards is fixed is a
+ * protection that silently rots.
+ *
+ * So the route supplies the real gate value and the real missing-step list, and
+ * this decides. A test supplies either. Nothing about the runtime path is
+ * softened: `rejectIfLaunchpadExecutionGated` below reads both facts itself and
+ * has no injection point.
+ */
+export function launchpadExecutionRefusal(input: {
+  gateOpen: boolean;
+  missingSafetySteps: readonly string[];
+  operation: "launchpad_launch" | "launchpad_add_to_existing";
+}) {
+  if (!input.gateOpen) {
+    return jsonError(
+      503,
+      "launchpad_execution_disabled",
+      META_GATE_REFUSAL_REASONS.launchpadExecution,
+      { operation: input.operation },
+    );
+  }
+  if (input.missingSafetySteps.length > 0) {
+    return jsonError(
+      503,
+      "launchpad_execution_safety_incomplete",
+      LAUNCHPAD_EXECUTION_SAFETY_INCOMPLETE_REASON,
+      { operation: input.operation },
+    );
+  }
+  return null;
+}
+
 export function rejectIfLaunchpadExecutionGated(
   operation: "launchpad_launch" | "launchpad_add_to_existing",
 ) {
-  if (readMetaReleaseGates().launchpadExecution) return null;
-  return jsonError(
-    503,
-    "launchpad_execution_disabled",
-    META_GATE_REFUSAL_REASONS.launchpadExecution,
-    { operation },
-  );
+  const gateOpen = readMetaReleaseGates().launchpadExecution;
+  /**
+   * The second gate, and the one that makes the first one safe.
+   *
+   * P1 defect, reproduced before this was written: the release flag was the
+   * whole gate, so a single runtime environment flip opened the provider-write
+   * path while §10 safety steps were still declared missing — including the
+   * independent provider read-back, without which a create's outcome is never
+   * verified. `openGatesWithMissingSteps()` existed but was only ever called
+   * from a unit test, so the claim "the gate cannot be opened while these steps
+   * are missing" was true of the test suite and false of the running server.
+   *
+   * A build-time check, a default-off value and a passing test are all things a
+   * production environment variable can step around. This is evaluated on every
+   * request, in the route, so it cannot be.
+   *
+   * Ordering: the release flag is the cheaper refusal and answers first; both
+   * land before account resolution, credential reads and any provider contact,
+   * so a replayed POST against a misconfigured environment costs nothing.
+   */
+  const missing = missingSteps(writeFamily("launchpad_create"));
+  const refusal = launchpadExecutionRefusal({
+    gateOpen,
+    missingSafetySteps: missing,
+    operation,
+  });
+  if (refusal && gateOpen) {
+    console.error("[launchpad] execution enabled with an incomplete safety contract", {
+      operation,
+      missingSteps: missing,
+      // No business, account or credential: this is a deployment-configuration
+      // fact and must be readable without carrying a tenant identifier.
+    });
+  }
+  return refusal;
 }
 
 /**

@@ -902,6 +902,43 @@ describe("POST /api/launchpad/meta/launch", () => {
     expect(launchWrite.createCampaign).not.toHaveBeenCalled();
   });
 
+  it("refuses at the route when the flag is off, before any account or provider work", async () => {
+    /**
+     * The wired path, proven at the ROUTE rather than on the helper.
+     *
+     * "The gate is checked" and "the gate stops the request before it costs
+     * anything" are different claims, and only the second keeps a misconfigured
+     * environment from resolving an account, reading a credential and calling
+     * Meta on every replayed POST.
+     *
+     * The safety-contract half of the same gate — P1 — is covered by
+     * `launchpadExecutionRefusal` in `execution-gate.test.ts`, driven with an
+     * injected incomplete family, because the real Launchpad family conforms
+     * since WP15 and can no longer produce that refusal here.
+     */
+    delete process.env.META_LAUNCHPAD_EXECUTION;
+
+    const response = await POST(
+      request({ businessId: BUSINESS_ID, payload: payload(), idempotencyKey: "idem_gate_off" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "launchpad_execution_disabled",
+        operation: "launchpad_launch",
+      },
+    });
+    // Nothing downstream ran: no account resolution, no intent preparation, no
+    // provider contact.
+    expect(validation.resolveAssignedMetaLaunchAccount).not.toHaveBeenCalled();
+    expect(intentCapability.getMetaLaunchIntentCapability).not.toHaveBeenCalled();
+    expect(intentService.prepareMetaLaunchIntentForExecution).not.toHaveBeenCalled();
+    expect(launchWrite.createCampaign).not.toHaveBeenCalled();
+    expect(launchWrite.createAdSet).not.toHaveBeenCalled();
+    expect(launchWrite.createAd).not.toHaveBeenCalled();
+  });
+
   it("still refuses a reviewer first when the gate is also closed", async () => {
     // Precedence, stated as a test: a reviewer learns they are read-only rather
     // than that the product is not ready, because the first fact is the one

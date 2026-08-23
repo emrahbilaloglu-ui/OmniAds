@@ -30,3 +30,17 @@ export const META_GATE_REFUSAL_REASONS = Object.freeze({
     "Minting new public share links is not enabled yet. Existing links keep working and can still be rotated or revoked.",
   accountPicker: "Changing the Meta ad account is not enabled yet.",
 } as const satisfies Record<keyof MetaReleaseGates, string>);
+
+/**
+ * Shown when execution is switched on but the write-safety contract is not
+ * complete.
+ *
+ * Deliberately separate from `launchpadExecution` above, because the two are
+ * different facts and only one of them is the operator's to resolve. "Not
+ * enabled yet" is a rollout state; this is "enabled, and it must not be" — a
+ * deployment error. The operator cannot fix it and must not be told to try, so
+ * the sentence names no environment variable, no step id and no remedy they
+ * could reach for.
+ */
+export const LAUNCHPAD_EXECUTION_SAFETY_INCOMPLETE_REASON =
+  "Creating campaigns on Meta from Launchpad is unavailable: this deployment does not yet meet the write-safety requirements for provider creates. Nothing was sent. Drafts, templates and validation are unaffected.";

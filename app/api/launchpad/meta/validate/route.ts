@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildValidationPreflightDisclosure } from "@/lib/launchpad/validation-preflight-disclosure";
 import {
   metaLaunchAccountBlockerHttpStatus,
   readMetaLaunchAccountChecks,
@@ -91,7 +92,16 @@ export async function POST(request: NextRequest) {
         });
       }
       return NextResponse.json(
-        { ok: true, results },
+        {
+          ok: true,
+          results,
+          // The batch shares one account-level read, so it shares one
+          // disclosure. Per-entry copies would imply per-entry freshness.
+          preflight: buildValidationPreflightDisclosure({
+            checkedAt: new Date().toISOString(),
+            providerReads: ["billing_status", "pixels", "target_account"],
+          }),
+        },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     }
@@ -116,6 +126,20 @@ export async function POST(request: NextRequest) {
       pixels: "pixels" in result ? result.pixels : [],
       target: "target" in result ? result.target : null,
       targets: "targets" in result ? result.targets : [],
+      /*
+       * §10 step 10. A green validation used to read as "this launch is
+       * cleared", and it is not: it rests on live provider state that moves,
+       * and it carries no creative-identity proof — that check runs at
+       * execution time, immediately before the first create.
+       *
+       * The disclosure names both directions on purpose. Saying only "this did
+       * not contact Meta" would be false, because validation does read billing
+       * and pixels, and a false reassurance is worse than none.
+       */
+      preflight: buildValidationPreflightDisclosure({
+        checkedAt: new Date().toISOString(),
+        providerReads: ["billing_status", "pixels", "target_account"],
+      }),
     });
   } catch (error) {
     return jsonError(500, "validation_failed", sanitizeErrorMessage(error));

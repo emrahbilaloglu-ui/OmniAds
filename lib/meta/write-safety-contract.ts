@@ -154,6 +154,24 @@ export const WRITE_FAMILIES: readonly WriteFamily[] = [
     id: "launchpad_create",
     label: "Launchpad — campaign/ad-set/ad create",
     gate: "META_LAUNCHPAD_EXECUTION",
+    /**
+     * Re-audited 2026-08-23 against the code, not against the previous
+     * declaration.
+     *
+     * The earlier version of this record declared SEVEN steps missing. Six of
+     * those seven were already implemented — the audit that produced it read
+     * `app/api/launchpad/meta/launch/route.ts` and never opened
+     * `lib/meta/launch-write.ts`, where the independent read-back and the exact
+     * identity verification live. A declaration that is wrong in the
+     * pessimistic direction is still wrong: it would have held a gate closed
+     * forever against work that was already done, and it made the contract look
+     * authoritative while being unchecked.
+     *
+     * Every `implemented` entry below is now backed by a **behavioural** test
+     * that exercises the module or the route, listed in
+     * `launchpad-write-safety.behaviour.test.ts`. A declaration with only a
+     * declaration-shaped test behind it is what this file exists to stop.
+     */
     steps: {
       exact_business_access: ok("requireLaunchpadBusinessAccess, minRole collaborator"),
       exact_physical_provider_account: ok("resolveAssignedMetaLaunchAccount"),
@@ -162,46 +180,43 @@ export const WRITE_FAMILIES: readonly WriteFamily[] = [
       ),
       explicit_action_origin: ok("evaluateMetaLaunchpadManualAuthority (D065)"),
       exact_target_identity: ok("normalizeMetaLaunchPayload + the handoff's verified lineage"),
-      fresh_provider_or_current_state_read: {
-        status: "missing",
-        why: "Create validates its inputs but does not read the target account's current state immediately before posting. §10 step 6.",
-      },
+      fresh_provider_or_current_state_read: ok(
+        "preflightMetaLaunchCreatives — a fresh Meta GET per creative binding exact id and account, immediately before the first create",
+      ),
       parent_hierarchy_and_policy: {
         status: "not_applicable",
         why: "A new campaign has no pre-existing parent. Add-to-existing DOES have one and is covered by its own target validation.",
       },
       server_side_kill_switch: ok(
-        "rejectIfLaunchpadMetaWritesBlocked → getMetaWriteBlockState, after the execution gate (WP7)",
+        "rejectIfLaunchpadMetaWritesBlocked → getMetaWriteBlockState, plus rejectIfMetaWritesBlocked before the first POST",
       ),
-      persisted_preflight: {
-        status: "missing",
-        why: "Validation is computed per request and not persisted, so there is no preflight row to age-check or to audit. §10 step 9.",
-      },
-      preflight_age_and_no_provider_contact_disclosure: {
-        status: "missing",
-        why: "Follows from the absent persisted preflight. §10 step 10.",
-      },
+      persisted_preflight: ok(
+        "recordMetaLaunchIntentValidation → meta_launch_intents.validation_receipt_json, carrying the checks and their checkedAt",
+      ),
+      preflight_age_and_no_provider_contact_disclosure: ok(
+        "lib/launchpad/validation-preflight-disclosure.ts — validate discloses what it did and did not read; launch returns the preflight's own age",
+      ),
       typed_or_explicit_confirmation: ok(
         "LaunchpadReview requires the acknowledgement before onLaunch fires",
       ),
-      durable_idempotency_claim: {
-        status: "missing",
-        why: "An idempotencyKey is required and carried, but no durable claim is written before the POST, so a concurrent replay is not excluded. §10 step 12.",
-      },
-      at_most_one_provider_post: ok("no automatic retry on create; the client posts once"),
-      immutable_attempt_receipt: ok("meta_launch_intents records the attempt"),
-      independent_provider_readback: {
-        status: "missing",
-        why: "The route trusts the create response. §10.1: a provider 200 is not a read-back. This is WP15's central requirement.",
-      },
-      exact_identity_and_state_verification: {
-        status: "missing",
-        why: "Follows from the absent read-back — there is nothing to verify against. §10 step 16.",
-      },
-      durable_terminal_receipt_or_reconciliation_marker: {
-        status: "missing",
-        why: "An ambiguous create outcome has no reconciliation parking equivalent to duplicate-ad-reconciliation. §10 step 17.",
-      },
+      durable_idempotency_claim: ok(
+        "meta_launch_intents UNIQUE (business_id, provider_account_id, operation, idempotency_key) — a database-enforced claim written before any provider work, plus the request fingerprint and the executing transition",
+      ),
+      at_most_one_provider_post: ok(
+        "no automatic retry on create; metaFetchWithRateLimitRetry is used for GET-only reads",
+      ),
+      immutable_attempt_receipt: ok(
+        "createMetaAdsActionLog before each POST, completed after; meta_launch_intents result/error receipts",
+      ),
+      independent_provider_readback: ok(
+        "lib/meta/launch-write.ts — a separate GET after every create (campaign, ad set, ad), never the create response",
+      ),
+      exact_identity_and_state_verification: ok(
+        "lib/meta/launch-write.ts — verified id, account, status and objective must equal the requested values or the result fails closed as silent_failure",
+      ),
+      durable_terminal_receipt_or_reconciliation_marker: ok(
+        "persistExecutionFailure → intent status silent_failure with an error receipt and retryAllowed:false for an ambiguous outcome",
+      ),
       rollback_or_compensation_record: {
         status: "not_applicable",
         why: "Every create is PAUSED (ADR-003 rule 4), so nothing begins spending and no compensating action is required before WP15 adds activation.",

@@ -105,6 +105,9 @@ export interface ManifestSelection {
  * match. Zero matches is stale evidence; more than one means two sets claim the
  * same tree and the run cannot tell which was verified, so both are refused.
  */
+/** `<FrameId>:<LeafId>` — how a frame capture records its leaf. */
+const FRAME_ENTRY_LEAF = /^[HBPM]\d\d:/;
+
 export function selectManifest(): ManifestSelection | null {
   if (!existsSync(ARTIFACTS)) return null;
   const candidates: string[] = [];
@@ -124,8 +127,21 @@ export function selectManifest(): ManifestSelection | null {
   const matching = candidates.filter((file) => {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as {
       provenance?: { digest?: string };
+      entries?: { leaf?: string }[];
     };
-    return parsed.provenance?.digest === current.digest;
+    if (parsed.provenance?.digest !== current.digest) return false;
+    /*
+     * Frame captures only.
+     *
+     * The shell-visual gate writes its own manifest under the same
+     * `<commit>/<set>` root, and at one tree both manifests carry the same
+     * provenance digest — which read as "two sets claim this tree" and refused
+     * a run whose evidence was in fact unambiguous. A frame capture records its
+     * leaf as `<FrameId>:<LeafId>`; the shell capture records a bare LeafId.
+     * That is a property of the evidence itself, not a naming convention, so it
+     * cannot drift out of step with the sets on disk.
+     */
+    return (parsed.entries ?? []).every((entry) => FRAME_ENTRY_LEAF.test(entry.leaf ?? ""));
   });
 
   if (matching.length === 1) {

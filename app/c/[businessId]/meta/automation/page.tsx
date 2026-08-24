@@ -11,6 +11,7 @@ import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server"
 import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
 import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
+import { readMetaGateRefusal } from "@/lib/meta/release-gate-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -196,6 +197,20 @@ export default async function MetaAutomationRoute({
       providerAccountId={providerAccountId}
       initialPayload={scopedControl}
       viewer={viewer}
+      /*
+       * The same answer the route would give, so the refusal is visible before
+       * the click. The gate holds ENGAGE only; releasing an existing stop is
+       * offered at every gate setting.
+       */
+      stopEngageRefusalReason={readMetaGateRefusal("automationStopUi")?.message ?? null}
+      /*
+       * The gate half of "may an approved proposal reach Meta". The guardrail
+       * half travels in the payload; the screen closes on either, exactly as
+       * the proposals route does.
+       */
+      liveWritesRefusalReason={
+        readMetaGateRefusal("automationLiveWrites")?.message ?? null
+      }
     />
     </>
   );

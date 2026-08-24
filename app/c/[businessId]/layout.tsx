@@ -9,6 +9,7 @@ import {
 import { UnifiedDashboardClientShell } from "@/components/dashboard-v2/unified-client-shell";
 import { readProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import { readMetaGateRefusal } from "@/lib/meta/release-gate-guard";
 
 /**
  * Canonical client scope.
@@ -101,6 +102,12 @@ export default async function ClientLayout({
   return (
     <UnifiedDashboardClientShell
       envelope={envelope}
+      /*
+       * The gate is read here, on the server, and only its sentence crosses to
+       * the client. `META_ACCOUNT_PICKER` governs the operator's ability to
+       * MOVE scope; resolution runs regardless and still fails closed.
+       */
+      accountChangeRefusalReason={readMetaGateRefusal("accountPicker")?.message ?? null}
       providerCatalogs={[metaAccounts, googleAccounts]}
     >
       {children}

@@ -55,7 +55,9 @@ const FONT_SIZE = /font-size:\s*([0-9.]+)px/g;
  *    sub-floor declarations (true) or as every font-size inside the marker
  *    (false). Both are exact; the second is stricter.
  *  - `stripsCommentsFromSelector` drops CSS comments before normalising the
- *    selector, which Creative Studio's fragment needs and no other does.
+ *    selector. Needed by every stylesheet that documents a rule immediately
+ *    above it, because the matcher takes everything between the previous `}`
+ *    and the next `{` as the selector.
  */
 interface ExactReferenceSurface {
   readonly name: string;
@@ -225,11 +227,13 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     end:
       "/* dashboard-v2-automation-exact-reference-type:end */",
     pinsBelowFloorOnly: false,
-    stripsCommentsFromSelector: false,
+    stripsCommentsFromSelector: true,
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
       { selector: ".statusPill, .killNote", size: 11.5 },
+      // The Meta Stop's engage/release control, sitting exactly ON the floor.
+      { selector: ".killAction", size: 12 },
       { selector: ".promotionCount", size: 11 },
       {
       selector:

@@ -56,6 +56,26 @@ export interface MetaAutomationPageProps {
    * no server fact to restate.
    */
   viewer?: AutomationViewerEnvelope;
+  /**
+   * Why engaging the Meta Stop is refused, read on the SERVER.
+   *
+   * Non-null exactly when `/api/meta/automation` would refuse
+   * `engage_kill_switch`, so the control states the same fact the route would.
+   * Releasing is never gated — a stop that cannot be lifted is the trap the
+   * gate exists to avoid — so this governs one direction only.
+   */
+  stopEngageRefusalReason?: string | null;
+  /**
+   * Why an approved proposal cannot reach Meta, read on the SERVER.
+   *
+   * The "Approvals reach Meta" row used to answer from the guardrail column
+   * alone, so a row saying `dryRunOnly: false` printed "Yes" while
+   * `/api/meta/automation/proposals` was independently forcing dry-run because
+   * the live-writes gate was shut. Two authorities, one of them wrong on the
+   * screen the operator reads. This is the second one, handed over as a fact
+   * rather than re-derived here.
+   */
+  liveWritesRefusalReason?: string | null;
 }
 
 interface StatusPresentation {
@@ -321,7 +341,10 @@ function formatRoas(value: number) {
   }).format(value);
 }
 
-function guardrailsFor(payload: AutomationPayload | null) {
+function guardrailsFor(
+  payload: AutomationPayload | null,
+  liveWritesRefusalReason: string | null,
+) {
   const guardrails = hasServedBusinessControl(payload)
     ? payload!.businessControl.guardrails
     : null;
@@ -340,8 +363,15 @@ function guardrailsFor(payload: AutomationPayload | null) {
        */
       key: "dry-run",
       label: "Approvals reach Meta",
+      /*
+       * The EFFECTIVE posture, not the column's alone. Either lock closes it,
+       * and the server applies exactly this rule in `metaAutomationDryRunOnly`,
+       * so the row and the route now answer together instead of disagreeing
+       * about the one fact that decides whether an approval leaves the
+       * building.
+       */
       value: guardrails
-        ? guardrails.dryRunOnly
+        ? guardrails.dryRunOnly || liveWritesRefusalReason
           ? "No — dry run only"
           : "Yes"
         : UNKNOWN,
@@ -832,6 +862,8 @@ export function MetaAutomationView({
   onSelectProviderAccount,
   ledgerCompleteness = null,
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
+  stopEngageRefusalReason = null,
+  liveWritesRefusalReason = null,
 }: {
   payload: AutomationPayload | null;
   providerAccountId?: string | null;
@@ -884,6 +916,10 @@ export function MetaAutomationView({
    * the preserved legacy mount behave exactly as they did.
    */
   viewer?: AutomationViewerEnvelope;
+  /** Server-read: why engaging the Meta Stop is refused, when it is. */
+  stopEngageRefusalReason?: string | null;
+  /** Why an approved proposal cannot reach Meta. Server fact, not inferred. */
+  liveWritesRefusalReason?: string | null;
 }) {
   // Modify has no operator-editable field on the proposal itself (a status
   // write declares none), so the only thing it can carry is what the operator
@@ -895,7 +931,72 @@ export function MetaAutomationView({
   const [modificationNote, setModificationNote] = useState("");
   const globalStatus = statusForGlobalKillSwitch(payload);
   const businessStatus = statusForBusinessKillSwitch(payload);
-  const guardrails = guardrailsFor(payload);
+
+  /**
+   * The Stop's own state, and the mutation that changes it.
+   *
+   * `stopEngaged` is read from the served control rather than held locally: a
+   * client-held stop is a stop that only this tab believes in. After either
+   * direction the payload is re-read, so what the screen shows next is what the
+   * server stored — the read-back, not the request's own optimism.
+   */
+  const [stopPending, setStopPending] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const stopEngaged = payload?.businessControl.killSwitchEngaged === true;
+
+  const onStopControl = useCallback(
+    (action: "engage_kill_switch" | "release_kill_switch") => {
+      if (!businessId || !providerAccountId || stopPending) return;
+      // The server's refusal, restated before the request. Reaching this line
+      // with a refused viewer means something bypassed the DOM, and the route
+      // would refuse anyway — but a POST from here would still put a real stop
+      // attempt on a reviewer's wire.
+      if (!viewer.canMutate) return;
+      setStopPending(true);
+      setStopError(null);
+      const query = new URLSearchParams({ businessId, providerAccountId });
+      void fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          ...(action === "release_kill_switch"
+            ? { reason: "Released from the Automation control plane." }
+            : { reason: "Engaged from the Automation control plane." }),
+        }),
+      })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            error?: { message?: string };
+          } | null;
+          if (!response.ok || body?.ok === false) {
+            setStopError(
+              body?.error?.message ??
+                "The stop could not be changed, and nothing on Meta was altered.",
+            );
+            return;
+          }
+          // Re-read rather than trust the request. The control state on screen
+          // must be the state the database holds, and only a read proves that.
+          const next = await readAutomation({ businessId, providerAccountId }).catch(
+            () => null,
+          );
+          // Hands the re-read payload to the same channel the rules editor uses
+          // to publish one, so the page owns the state and this body still owns
+          // none of it.
+          if (next) onRulesChanged?.(next);
+        })
+        .catch(() => {
+          setStopError("The automation control plane could not be reached.");
+        })
+        .finally(() => setStopPending(false));
+    },
+    [businessId, providerAccountId, stopPending, viewer.canMutate, onRulesChanged],
+  );
+  const guardrails = guardrailsFor(payload, liveWritesRefusalReason);
   const autonomy = autonomyFor(payload);
   const readiness = readinessFor(payload);
   const promotionCount = promotionCountFor(payload);
@@ -1105,11 +1206,64 @@ export function MetaAutomationView({
                 className={styles.statusPill}
                 data-tone={businessStatus.tone}
                 data-field="business-writes"
-                data-read-only="true"
               >
                 {businessStatus.label}
               </span>
             </div>
+            {/*
+              The Stop itself, which this screen described and never offered.
+              WP13 left it out deliberately, and "deliberately absent" reads on
+              screen as "this product cannot stop Meta writes" — which is false,
+              and dangerous in the moment an operator needs it.
+
+              Engage is held by `META_AUTOMATION_STOP_UI` and stays visible with
+              its reason: a control that vanishes teaches an operator there is
+              nothing here to reach for. Release is NEVER held, at any gate
+              setting — a stop that cannot be lifted is the trap the gate was
+              written to avoid.
+            */}
+            <div className={styles.killRow} data-field="business-writes-control">
+              {stopEngaged ? (
+                <button
+                  type="button"
+                  className={styles.killAction}
+                  data-ctl="live:AUTOMATION-STOP release"
+                  disabled={!viewer.canMutate || stopPending}
+                  title={viewer.canMutate ? undefined : (viewer.reason ?? undefined)}
+                  onClick={() => onStopControl("release_kill_switch")}
+                >
+                  {stopPending ? "Releasing…" : "Release the stop"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.killAction}
+                  data-ctl={
+                    stopEngageRefusalReason || !viewer.canMutate
+                      ? "disabled:AUTOMATION-STOP engage"
+                      : "live:AUTOMATION-STOP engage"
+                  }
+                  data-stop-engage-refused={stopEngageRefusalReason ? "" : undefined}
+                  disabled={
+                    Boolean(stopEngageRefusalReason) || !viewer.canMutate || stopPending
+                  }
+                  title={stopEngageRefusalReason ?? viewer.reason ?? undefined}
+                  onClick={() => onStopControl("engage_kill_switch")}
+                >
+                  {stopPending ? "Stopping…" : "Stop Meta writes"}
+                </button>
+              )}
+            </div>
+            {stopEngageRefusalReason && !stopEngaged ? (
+              <p className={styles.killNote} data-field="stop-engage-refusal" role="note">
+                {stopEngageRefusalReason}
+              </p>
+            ) : null}
+            {stopError ? (
+              <p className={styles.killNote} data-field="stop-error" role="status">
+                {stopError}
+              </p>
+            ) : null}
             <p className={styles.killNote} data-field="kill-switch-scope">
               Flipping either switch blocks every <b>Meta</b> write instantly —
               server-enforced, not a UI state.{" "}
@@ -1824,6 +1978,8 @@ export default function MetaAutomationPage({
   providerAccountId: authorizedProviderAccountId,
   initialPayload = null,
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
+  stopEngageRefusalReason = null,
+  liveWritesRefusalReason = null,
 }: MetaAutomationPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2273,6 +2429,8 @@ export default function MetaAutomationPage({
       onSelectProviderAccount={selectProviderAccount}
       ledgerCompleteness={sessionLedgerCompleteness}
       viewer={viewer}
+      stopEngageRefusalReason={stopEngageRefusalReason}
+      liveWritesRefusalReason={liveWritesRefusalReason}
     />
   );
 }

@@ -75,6 +75,13 @@ function postRequest(body: unknown) {
 describe("POST /api/creatives/share", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    /*
+     * These cases describe what minting DOES, so the mint gate is opened. It
+     * ships off; the shut-gate refusal, its position among the other refusals
+     * and the operations it deliberately does not hold are asserted below.
+     */
+    vi.stubEnv("META_PUBLIC_SHARE_MINT", "true");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "trusted_user", email: "operator@example.com" } } as never,
       membership: { businessId: "trusted_business", role: "collaborator" } as never,
@@ -260,6 +267,37 @@ describe("POST /api/creatives/share", () => {
 
     expect(response.status).toBe(403);
     expect(shareStore.createCreativeShareSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("refuses a mint while the share gate is shut, and writes nothing", async () => {
+    vi.stubEnv("META_PUBLIC_SHARE_MINT", "");
+
+    const response = await POST(postRequest(baseBody));
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error).toBe("public_share_mint_disabled");
+    // An operator cannot set a deployment variable and must not be sent looking
+    // for one.
+    expect(JSON.stringify(body)).not.toMatch(/META_[A-Z_]+/);
+    expect(shareStore.createCreativeShareSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("keeps the caller's own refusals ahead of the shut gate", async () => {
+    /*
+     * Both refuse. The one about the caller must win, so that the answer a
+     * reviewer or an unassigned account gets does not change shape when an
+     * unrelated deployment variable moves.
+     */
+    vi.stubEnv("META_PUBLIC_SHARE_MINT", "");
+    vi.mocked(creativeFetchers.fetchAssignedAccountIds).mockResolvedValue([
+      "act_other",
+    ]);
+
+    const response = await POST(postRequest(baseBody));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toBe("account_not_assigned");
   });
 
   it("honors the reviewer read-only write guard", async () => {

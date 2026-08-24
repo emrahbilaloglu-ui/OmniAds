@@ -1,3 +1,4 @@
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -234,6 +235,15 @@ describe("Automation canonical route authority", () => {
         reason: null,
         reasonCode: null,
       },
+      /*
+       * The two release-gate facts the SERVER owns, handed to the body rather
+       * than re-derived there. Both gates ship off, so both reasons are present
+       * in this default environment — and both are asserted as the exact
+       * operator sentence, so a gate cannot start refusing for a different
+       * reason without this saying so.
+       */
+      stopEngageRefusalReason: META_GATE_REFUSAL_REASONS.automationStopUi,
+      liveWritesRefusalReason: META_GATE_REFUSAL_REASONS.automationLiveWrites,
     });
   });
 

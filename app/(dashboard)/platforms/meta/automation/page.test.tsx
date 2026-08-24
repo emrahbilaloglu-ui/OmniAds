@@ -7,6 +7,7 @@ import type { MetaAutomationControlPlane } from "@/lib/meta/automation-control-p
 import type { AutomationProposalsModel } from "./automation-proposals-exact-adapter";
 import { MetaAutomationView } from "./automation-view";
 import { buildAutomationViewerEnvelope } from "./viewer-envelope";
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 
 /**
  * Every read this payload carries was actually performed.
@@ -369,8 +370,16 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).toMatch(
       /data-field="global-writes"[^>]*data-read-only="true"[^>]*>ENABLED/,
     );
-    expect(html).toMatch(
-      /data-field="business-writes"[^>]*data-read-only="true"[^>]*>STOPPED/,
+    /*
+     * The business row lost `data-read-only` when WP13's Stop control landed
+     * under it: the pill still only REPORTS, but the row is no longer a
+     * read-only corner of the screen, and marking it so would have said the
+     * product cannot stop Meta writes. The global row keeps the marker — that
+     * switch is deployment-owned and this screen can never move it.
+     */
+    expect(html).toMatch(/data-field="business-writes"[^>]*>STOPPED/);
+    expect(html).not.toMatch(
+      /data-field="business-writes"[^>]*data-read-only="true"/,
     );
     expect(html).toContain("Max budget change / day");
     expect(html).toContain("+15% max");
@@ -475,20 +484,21 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("Scale window");
     expect(html).not.toContain("data-rule-id");
 
-    // The default fixture's queue read is UNAVAILABLE, so exactly two controls
-    // exist: "+ New rule" and the queue's Retry. Nothing else.
-    expect(html.match(/<button/g)).toHaveLength(2);
+    // The default fixture's queue read is UNAVAILABLE, so exactly three controls
+    // exist: "+ New rule", the queue's Retry, and the Meta Stop. Nothing else.
+    expect(html.match(/<button/g)).toHaveLength(3);
+    expect(html).toContain('data-field="business-writes-control"');
     expect(html).toContain('data-control="retry-queue"');
 
     // A queue that was actually read and is actually empty gets no retry —
-    // there is nothing to recover from — so the canonical geometry is a single
-    // control, exactly as before.
+    // there is nothing to recover from — so the canonical geometry loses one
+    // control and keeps "+ New rule" beside the Stop.
     const proven = renderWithQueue(queueModel({
       readCompleteness: "complete",
       count: "0",
       rows: [],
     }));
-    expect(proven.match(/<button/g)).toHaveLength(1);
+    expect(proven.match(/<button/g)).toHaveLength(2);
     expect(proven).not.toContain('data-control="retry-queue"');
   });
 
@@ -1307,28 +1317,105 @@ describe("Dashboard v2 exact Automation presentation", () => {
     );
   });
 
-  it("keeps both exact kill-status pills static and exposes no write path", () => {
-    const html = render();
+  it("offers the Meta Stop, holds ENGAGE behind the gate, and never holds RELEASE", () => {
+    /*
+     * WP13's contract, replacing the older "exposes no write path" one.
+     *
+     * That earlier assertion was true of the code and wrong about the product:
+     * the screen named a Meta Stop, reported whether it was engaged, and gave
+     * an operator no way to reach it. "Deliberately absent" reads on screen as
+     * "this product cannot stop Meta writes", which is false and is at its most
+     * dangerous in exactly the moment the operator needs it.
+     *
+     * What replaces it is narrower and stronger: the control exists, engaging
+     * is held by `META_AUTOMATION_STOP_UI` with the reason visible, releasing
+     * is held by nothing, and the GLOBAL switch is still untouchable from here.
+     */
     const source = readFileSync(
       "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
       "utf8",
     );
 
-    expect(html).not.toContain('data-testid="business-stop-toggle"');
-    expect(html.match(/data-read-only="true"/g)?.length).toBeGreaterThanOrEqual(
-      3,
+    // The global switch is deployment-owned; this screen may only report it.
+    const html = render();
+    expect(html).toMatch(/data-field="global-writes"[^>]*data-read-only="true"/);
+    expect(html).toContain('data-field="business-writes-control"');
+
+    // The default fixture is STOPPED, so the one control offered is the lift —
+    // and it carries no refusal, at any gate setting.
+    expect(html).toContain('data-ctl="live:AUTOMATION-STOP release"');
+    expect(html).not.toContain("data-stop-engage-refused");
+
+    // Released, with the gate shut: engage is present, disabled, and says why.
+    const released = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          businessControl: {
+            ...payload.businessControl,
+            killSwitchEngaged: false,
+            killSwitchReason: null,
+          },
+        }}
+        providerAccountId="act_1"
+        viewer={{
+          role: "admin",
+          reviewerReadOnly: false,
+          demo: false,
+          canMutate: true,
+          reason: null,
+          reasonCode: null,
+        }}
+        stopEngageRefusalReason={META_GATE_REFUSAL_REASONS.automationStopUi}
+      />,
     );
+    expect(released).toContain('data-ctl="disabled:AUTOMATION-STOP engage"');
+    expect(released).toContain('data-stop-engage-refused=""');
+    expect(released).toContain("a stop that cannot be released is worse");
+    // The refusal is readable, not only a tooltip an operator must hunt for.
+    expect(released).toMatch(/<button[^>]*disabled=""[^>]*>Stop Meta writes<\/button>/);
+    // And it never names a deployment variable.
+    expect(released).not.toMatch(/META_[A-Z_]+/);
+
+    // Released, gate open, a viewer the server says may write: a live control.
+    const openGate = renderToStaticMarkup(
+      <MetaAutomationView
+        payload={{
+          ...payload,
+          businessControl: {
+            ...payload.businessControl,
+            killSwitchEngaged: false,
+            killSwitchReason: null,
+          },
+        }}
+        providerAccountId="act_1"
+        viewer={{
+          role: "admin",
+          reviewerReadOnly: false,
+          demo: false,
+          canMutate: true,
+          reason: null,
+          reasonCode: null,
+        }}
+        stopEngageRefusalReason={null}
+      />,
+    );
+    expect(openGate).toContain('data-ctl="live:AUTOMATION-STOP engage"');
+    expect(openGate).not.toContain("data-stop-engage-refused");
+
+    // No confirm dialog stands between an operator and a stop.
     expect(source).not.toContain("window.confirm");
-    expect(source).not.toContain("engage_kill_switch");
-    expect(source).not.toContain("release_kill_switch");
-    // The confirmation queue is the ONE mutation this screen may issue, and it
-    // goes to its own boundary. Asserted as an exact allowlist rather than a
-    // blanket ban on POST, so the kill-switch guarantee stays enforced while
-    // the queue the design requires can exist.
-    expect(source.match(/method: "POST"/g)).toHaveLength(1);
+
+    /*
+     * The POST allowlist, still exact. Two boundaries now: the proposal queue
+     * and the automation control plane. Asserted as an allowlist rather than a
+     * ban, so the Stop can exist while nothing else quietly gains a write.
+     */
+    expect(source.match(/method: "POST"/g)).toHaveLength(2);
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );
+    expect(source).toMatch(/fetch\(`\/api\/meta\/automation\?\$\{[^`]*`, \{\s*method: "POST"/);
   });
 
   it("renders persisted rules in the design's column order with real 28-day counts", () => {

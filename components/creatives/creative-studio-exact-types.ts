@@ -436,6 +436,14 @@ export interface CreativeStudioExactProps {
   onExport?: () => void;
   onShare?: () => void;
   /**
+   * Why minting a share is refused, when it is.
+   *
+   * Non-null exactly when `/api/creatives/share` would refuse the POST, so the
+   * screen states the same fact the server would. Null means the server would
+   * accept it — never "we did not check".
+   */
+  shareRefusalReason?: string | null;
+  /**
    * Rows currently ticked in the Assets table — the only way this toolbar
    * knows whether "Share with client" has anything to share. `undefined`
    * (no assets model wired yet) reads the same as 0: the button offers a

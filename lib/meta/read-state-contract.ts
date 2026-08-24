@@ -117,6 +117,19 @@ export const META_FAILURE_CODES = [
    */
   "launchpad_execution_disabled",
   "launchpad_execution_safety_incomplete",
+  /**
+   * Added 2026-08-25 when the remaining release gates were wired.
+   *
+   * Four gates were declared and read by nothing, so four capabilities had no
+   * server-side refusal at all and no code to refuse with. One code per gate,
+   * because "this is not enabled yet" is a different fact per capability and an
+   * operator reporting one needs to be able to name which.
+   */
+  "decision_workflow_disabled",
+  "automation_stop_disabled",
+  "automation_live_writes_disabled",
+  "public_share_mint_disabled",
+  "account_picker_disabled",
 ] as const;
 
 export type MetaFailureCode = (typeof META_FAILURE_CODES)[number];
@@ -262,6 +275,36 @@ export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>>
   launchpad_execution_safety_incomplete: {
     message:
       "Creating campaigns on Meta from Launchpad is unavailable: this deployment does not yet meet the write-safety requirements for provider creates. Nothing was sent. Drafts, templates and validation are unaffected.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  decision_workflow_disabled: {
+    message:
+      "Decision workflow actions are not enabled yet on this workspace. Every verdict and its evidence stay readable; only the controls that record a workflow state are held.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  automation_stop_disabled: {
+    message:
+      "The Meta Stop control is not enabled yet: releasing it again has not been proven reversible in this environment, and a stop that cannot be released is worse than no stop.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  automation_live_writes_disabled: {
+    message:
+      "Automation runs in dry-run only. Approving a proposal records what would have been sent and contacts Meta for nothing.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  public_share_mint_disabled: {
+    message:
+      "Minting new public share links is not enabled yet. Existing links keep working and can still be rotated or revoked.",
+    state: "refused",
+    operatorActionable: false,
+  },
+  account_picker_disabled: {
+    message:
+      "Changing the Meta ad account is not enabled yet. The account this workspace resolved is still the scope of everything on screen.",
     state: "refused",
     operatorActionable: false,
   },

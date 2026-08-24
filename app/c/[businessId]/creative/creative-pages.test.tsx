@@ -1,3 +1,4 @@
+import { META_GATE_REFUSAL_REASONS } from "@/lib/meta/release-gate-copy";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -134,6 +135,8 @@ const routes: Array<{
    * with the same validator, so the window already survives a reload there.
    */
   forwardsWindow: boolean;
+  /** Whether this body can mint a public share link, and so carries the gate. */
+  mintsShares?: boolean;
 }> = [
   {
     label: "Assets",
@@ -141,6 +144,7 @@ const routes: Array<{
     Page: PerformancePage,
     body: routeMocks.performanceBody,
     forwardsWindow: true,
+    mintsShares: true,
   },
   {
     label: "Copies",
@@ -179,13 +183,25 @@ function expectedBodyProps(
   route: (typeof routes)[number],
   serverDateWindow: { start: string; end: string } | null,
 ) {
+  /*
+   * Assets is the one body that can mint a public share link, so it also
+   * receives the SERVER's answer to whether minting is available — the same
+   * answer `/api/creatives/share` would give. It ships shut, so the reason is
+   * present in this default environment, and it is asserted as the exact
+   * operator sentence rather than as "some string": a gate that started
+   * refusing for a different reason would be a different product state.
+   */
+  const shareMint = route.mintsShares
+    ? { shareMintRefusalReason: META_GATE_REFUSAL_REASONS.publicShareMint }
+    : {};
   return route.forwardsWindow
     ? {
         businessId: "biz_route",
         providerAccountId: "act_assigned",
         serverDateWindow,
+        ...shareMint,
       }
-    : { businessId: "biz_route", providerAccountId: "act_assigned" };
+    : { businessId: "biz_route", providerAccountId: "act_assigned", ...shareMint };
 }
 
 function session() {

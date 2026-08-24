@@ -19,6 +19,7 @@ import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { creativeSharePath } from "@/lib/creative-share-link";
+import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
 
 type CreateShareRequest = Omit<SharePayload, "token" | "createdAt">;
 const SHARE_METRIC_KEY_SET = new Set<string>(SHARE_METRIC_KEYS);
@@ -196,6 +197,28 @@ export async function POST(request: NextRequest) {
       },
     );
   }
+
+
+  /**
+   * The mint gate, enforced on the server rather than trusted from the screen.
+   *
+   * `META_PUBLIC_SHARE_MINT` was declared as the gate for this capability and
+   * read by nothing, so the one operation it names was the one operation it did
+   * not govern. A stale tab, a replayed request or a script reached the mint
+   * with the control greyed out on every screen.
+   *
+   * Ordered after everything that is true about the CALLER — role, reviewer
+   * posture, and which accounts this business is assigned — and before the
+   * capability's own work. Those refusals hold at every rollout state, so they
+   * are returned first; a caller who may not mint HERE should not be told
+   * instead that minting is off everywhere. Nothing is written either way.
+   *
+   * Rotation, revocation and deletion are deliberately NOT gated: this is about
+   * issuing NEW public links, and withdrawing an existing one must never depend
+   * on a rollout flag.
+   */
+  const mintGated = rejectIfMetaGateClosed("publicShareMint", "creative_share_create");
+  if (mintGated) return mintGated;
 
   // Only buyer-audience shares carry the client-facing "What we did and why" feed. We build it
   // from the real Meta write ledger here (never derived from analysis.actionLabel). An empty

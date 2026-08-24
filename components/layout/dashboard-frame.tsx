@@ -29,6 +29,8 @@ interface DashboardFrameProps {
    * selected on the next render.
    */
   providerCatalogs?: readonly ProviderScopeCatalog[];
+  /** Server-read: why changing the ad account is refused, when it is. */
+  accountChangeRefusalReason?: string | null;
   children: React.ReactNode;
 }
 
@@ -197,6 +199,7 @@ function MobileMetaReadOnlySurface({
 export function DashboardFrame({
   userName,
   providerCatalogs = [],
+  accountChangeRefusalReason = null,
   children,
 }: DashboardFrameProps) {
   const pathname = usePathname();
@@ -284,6 +287,7 @@ export function DashboardFrame({
         <AppTopbar
           userName={userName}
           providerCatalogs={providerCatalogs}
+          accountChangeRefusalReason={accountChangeRefusalReason}
           onOpenNav={() => setNavOpen(true)}
           search={
             <GlobalSearch

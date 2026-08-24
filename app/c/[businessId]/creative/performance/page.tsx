@@ -11,6 +11,7 @@ import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server"
 import LegacyCreativePerformancePage from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
 import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
 import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
+import { readMetaGateRefusal } from "@/lib/meta/release-gate-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,12 @@ export default async function CreativePerformancePage({
       businessId={businessId}
       providerAccountId={providerAccountId}
       serverDateWindow={serverDateWindow}
+      /*
+       * The same answer `/api/creatives/share` would give, read here so the
+       * refusal is visible before the click rather than after a filled-in form.
+       * The screen restates the server's decision; it never makes one.
+       */
+      shareMintRefusalReason={readMetaGateRefusal("publicShareMint")?.message ?? null}
     />
     </>
   );

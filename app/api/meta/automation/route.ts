@@ -30,6 +30,7 @@ import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { rejectIfAutomationDemoWrite } from "./demo-write-authority";
+import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -217,6 +218,36 @@ export async function POST(request: NextRequest) {
     REVIEWER_ACTION_LABELS[action] ?? "automation_kill_switch_engage",
   );
   if (demoBlocked) return demoBlocked;
+
+  /**
+   * The Stop gate holds ENGAGE, and deliberately never holds RELEASE.
+   *
+   * `META_AUTOMATION_STOP_UI` exists because releasing a business-scoped stop
+   * has not been proven reversible against a provider, and the refusal says so
+   * in as many words: *"a stop that cannot be released is worse than no stop."*
+   * The dangerous act is therefore engaging one — so that is what the gate
+   * refuses, on the server as well as on the screen, where a stale tab or a
+   * script would otherwise reach it.
+   *
+   * Releasing stays open at every gate setting. Whatever the rollout state, a
+   * stop that exists must always be liftable, and gating the lift would build
+   * exactly the trap the gate was written to avoid. The global incident switch
+   * (`META_ADS_WRITE_KILL_SWITCH`) is a separate mechanism and is unaffected by
+   * either decision.
+   *
+   * Ordered LAST among the refusals, after role, reviewer and demo. Those three
+   * are facts about the caller and hold at every gate setting; this one is a
+   * fact about the deployment. Refusing in that order means a demo workspace
+   * gets the same answer whatever the rollout state, instead of a refusal that
+   * changes shape when an unrelated variable moves.
+   */
+  if (action === "engage_kill_switch") {
+    const stopGated = rejectIfMetaGateClosed(
+      "automationStopUi",
+      "automation_kill_switch_engage",
+    );
+    if (stopGated) return stopGated;
+  }
 
   const VALID_MODES: MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
   let cleanApprovalThreshold: number | null | undefined;

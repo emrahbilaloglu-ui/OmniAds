@@ -67,6 +67,8 @@ function postRequest(
 describe("GET /api/meta/automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Gates ship off; a case that opens one must not leak it into the next.
+    vi.unstubAllEnvs();
     // A proven LIVE workspace, so the demo gate is not what these cases test.
     vi.mocked(db.getDb).mockReturnValue(
       vi.fn(async () => [{ is_demo_business: false }]) as never,
@@ -256,6 +258,12 @@ describe("GET /api/meta/automation", () => {
   });
 
   it("engages only the stop-side business kill switch", async () => {
+    // This case is about WHAT engaging does, so the Stop gate is opened; the
+    // shut-gate refusal and its position among the other refusals are asserted
+    // in `demo-fail-closed.test.ts`, and the shipped default (off) in
+    // `lib/meta/release-gates.test.ts`.
+    vi.stubEnv("META_AUTOMATION_STOP_UI", "true");
+
     const response = await POST(
       postRequest({ action: "engage_kill_switch", reason: "Emergency stop." }),
     );

@@ -335,6 +335,7 @@ export function AppTopbar({
   userName,
   onOpenNav,
   providerCatalogs = [],
+  accountChangeRefusalReason = null,
   search,
   notifications,
 }: {
@@ -342,6 +343,8 @@ export function AppTopbar({
   onOpenNav: () => void;
   /** Server-resolved assigned accounts, for the shared account control. */
   providerCatalogs?: readonly ProviderScopeCatalog[];
+  /** Server-read: why changing the ad account is refused, when it is. */
+  accountChangeRefusalReason?: string | null;
   /** The working search and notification controls, mounted by the frame. */
   search?: React.ReactNode;
   notifications?: React.ReactNode;
@@ -431,7 +434,10 @@ export function AppTopbar({
           Intelligence and Creative Studio never had — the account_required
           dead-end WP4 removes.
         */}
-        <AccountScopeControl providerCatalogs={providerCatalogs} />
+        <AccountScopeControl
+          providerCatalogs={providerCatalogs}
+          changeRefusalReason={accountChangeRefusalReason}
+        />
 
         <span className="adv-topbar-divider hidden sm:block" />
 

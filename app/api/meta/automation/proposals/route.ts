@@ -52,6 +52,9 @@ import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { confirmationFor } from "@/lib/zero-base/meta/mutation-ceremony";
 import { rejectIfAutomationDemoWrite } from "../demo-write-authority";
+import { metaAutomationDryRunOnly } from "@/lib/meta/release-gate-guard";
+import { readMetaReleaseGates } from "@/lib/meta/release-gates";
+import { missingSteps, writeFamily } from "@/lib/meta/write-safety-contract";
 
 export const dynamic = "force-dynamic";
 
@@ -487,7 +490,26 @@ async function approve(input: {
     );
   }
 
-  const dryRunOnly = control.businessControl.guardrails.dryRunOnly === true;
+  /**
+   * Dry-run is decided by the guardrail AND the release gate, not by either
+   * alone.
+   *
+   * `dryRunOnly` is the operator's own persisted control row and stays
+   * authoritative — but `META_AUTOMATION_LIVE_WRITES` was declared as the gate
+   * for this family and read by nothing, so a row saying `dryRunOnly: false`
+   * produced a live provider write with the gate shut. The gate can only ever
+   * ADD dry-run: it is the second lock, never a way to remove the first.
+   *
+   * The write-safety contract is the third: with the gate open and steps
+   * missing, this family still runs dry, because "enabled" and "safe to enable"
+   * are different facts.
+   */
+  const dryRunOnly = metaAutomationDryRunOnly({
+    persistedGuardrailDryRunOnly:
+      control.businessControl.guardrails.dryRunOnly === true,
+    gateOpen: readMetaReleaseGates().automationLiveWrites,
+    missingSafetySteps: missingSteps(writeFamily("automation_proposal_approval")).map(String),
+  });
 
   const claim = await claimMetaAutomationProposal({
     businessId: input.businessId,

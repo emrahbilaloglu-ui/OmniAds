@@ -55,8 +55,20 @@ const PROVIDER_LABEL: Record<string, string> = {
 
 export function AccountScopeControl({
   providerCatalogs,
+  changeRefusalReason = null,
 }: {
   providerCatalogs: readonly ProviderScopeCatalog[];
+  /**
+   * Why CHANGING the selection is refused, read on the server.
+   *
+   * `META_ACCOUNT_PICKER` gates the operator's ability to move scope and
+   * nothing else. Resolution is never gated: with the gate shut the workspace
+   * still resolves an account, still refuses when it cannot, and still names
+   * the one it resolved — a gate that could stop scope from resolving would be
+   * a gate that turns every account-scoped surface off, which is not what it
+   * says it does.
+   */
+  changeRefusalReason?: string | null;
 }) {
   const workspace = useOptionalWorkspaceContext();
   const router = useRouter();
@@ -130,6 +142,38 @@ export function AccountScopeControl({
         title={`${label}: ${accounts[0]!.label}`}
       >
         <span className="truncate">{accounts[0]!.label}</span>
+      </span>
+    );
+  }
+
+  if (changeRefusalReason) {
+    /*
+     * Named and held, not hidden.
+     *
+     * With the change gate shut, the operator still needs to know which account
+     * is in scope — every figure on the screen is attributed to it — and an
+     * absent control would read as "this workspace has one account". So the
+     * resolved account is stated, the refusal travels on the control, and the
+     * `required` state is still distinguishable from a chosen one.
+     */
+    return (
+      <span
+        className="adv-btn"
+        data-testid="shell-account-scope"
+        data-account-scope-state={selected ? "selected-locked" : "required-locked"}
+        data-account-id={selected?.id ?? ""}
+        data-account-change-refused=""
+        role="note"
+        title={changeRefusalReason}
+      >
+        <span className="truncate">
+          {selected ? selected.label : `Select a ${label}`}
+        </span>
+        <CircleSlash
+          className="h-[13px] w-[13px] shrink-0 text-[var(--adv-ink-3)]"
+          aria-hidden="true"
+        />
+        <span className="sr-only">{changeRefusalReason}</span>
       </span>
     );
   }

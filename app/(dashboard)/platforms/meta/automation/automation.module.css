@@ -30,6 +30,34 @@
   font-size: 11.5px;
 }
 
+/*
+ * The Stop's own control, in the kill card's existing row style.
+ *
+ * D1 permits a control inside an existing context area; this is a sibling of
+ * the two status pills it sits under and introduces no new card, grid or
+ * hierarchy. Disabled keeps the label at full contrast — a refusal an operator
+ * cannot read is a refusal that does not explain itself.
+ */
+.killAction {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--adv-r-control, 9px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.killAction:disabled {
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+
 .promotionCount {
   font-size: 11px;
 }

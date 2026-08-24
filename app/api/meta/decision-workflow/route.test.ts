@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 
 const requireBusinessAccess = vi.hoisted(() => vi.fn());
 const readWorkflowRecords = vi.hoisted(() =>
@@ -81,9 +81,61 @@ describe("GET decision workflow", () => {
 describe("POST decision workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    /*
+     * These cases describe the transitions, so they run with the workflow gate
+     * OPEN. It is now a server-side refusal rather than a hidden control, and
+     * without this every one of them would be asserting the gate instead of
+     * the state machine. The shut-gate behaviour has its own case below, and
+     * the default — off — is asserted in `lib/meta/release-gates.test.ts`.
+     */
+    vi.stubEnv("META_DECISION_WORKFLOW_UI", "true");
     requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
     readWorkflowRecord.mockResolvedValue(openRecord);
     persistWorkflowTransition.mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses every transition while the workflow gate is shut", async () => {
+    vi.stubEnv("META_DECISION_WORKFLOW_UI", "");
+
+    const response = await POST(
+      postRequest({
+        businessId: "biz-1",
+        decisionKey: "dec-1",
+        action: "acknowledge",
+        expectedVersion: 1,
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error).toBe("decision_workflow_disabled");
+    // No environment variable name in an operator-facing message, and nothing
+    // written: the refusal comes before the store is touched at all.
+    expect(JSON.stringify(body)).not.toMatch(/META_[A-Z_]+/);
+    expect(persistWorkflowTransition).not.toHaveBeenCalled();
+  });
+
+  it("refuses a shut gate before it looks up an assignee", async () => {
+    // Otherwise a shut gate is a membership oracle: a 422 and a 503 would tell
+    // a caller whether a given user id belongs to this business.
+    vi.stubEnv("META_DECISION_WORKFLOW_UI", "");
+
+    const response = await POST(
+      postRequest({
+        businessId: "biz-1",
+        decisionKey: "dec-1",
+        action: "acknowledge",
+        expectedVersion: 1,
+        assigneeUserId: "user-2",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(findMembership).not.toHaveBeenCalled();
   });
 
   it("acknowledges a decision and returns the advanced version", async () => {

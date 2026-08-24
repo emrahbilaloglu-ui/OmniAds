@@ -2240,6 +2240,12 @@ export function CreativeStudioExact({
   counts,
   onExport,
   onShare,
+  /**
+   * Why minting is refused, when it is. Non-null exactly when the server would
+   * refuse: the control stays on screen, disabled, carrying the reason — a
+   * control that vanishes reads as "this product cannot share", which is false.
+   */
+  shareRefusalReason,
   shareSelectedCount,
   sharedLinksCount,
   onOpenSharedLinks,
@@ -2313,12 +2319,29 @@ export function CreativeStudioExact({
                   : styles.shareButtonIdle
               }
               data-creative-studio-share-button="true"
-              disabled={!onShare}
+              data-share-refused={shareRefusalReason ? "" : undefined}
+              disabled={!onShare || Boolean(shareRefusalReason)}
               onClick={handleShareClick}
+              title={shareRefusalReason ?? undefined}
               type="button"
             >
               {shareLabel}
             </button>
+            {/*
+              Stated, not implied by a greyed control. An operator who cannot
+              mint needs the reason where the refusal is, and a `title` alone
+              reaches neither a keyboard user nor a screen reader on a disabled
+              button.
+            */}
+            {shareRefusalReason ? (
+              <span
+                className={styles.shareNudge}
+                data-share-refusal-reason=""
+                role="note"
+              >
+                <span className={styles.shareNudgeTitle}>{shareRefusalReason}</span>
+              </span>
+            ) : null}
             {shareNudgeVisible ? (
               <span
                 className={styles.shareNudge}

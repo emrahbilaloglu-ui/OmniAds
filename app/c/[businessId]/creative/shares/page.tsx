@@ -6,6 +6,7 @@ import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { CreativeSharesClient } from "@/components/zero-base/creative/studio-clients";
 import { defaultCreativeWindow, scopeFromSearchParams } from "@/lib/zero-base/creative/route-scope";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
+import { readMetaGateRefusal } from "@/lib/meta/release-gate-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default async function CreativeSharesPage({
       providerAccountId={providerAccountId}
       start={scope.start}
       end={scope.end}
+      shareMintRefusalReason={readMetaGateRefusal("publicShareMint")?.message ?? null}
     />
   );
 }

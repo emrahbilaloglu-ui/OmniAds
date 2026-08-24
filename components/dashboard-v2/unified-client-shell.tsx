@@ -161,11 +161,13 @@ function EnvelopeScopedDashboardFrame({
   envelope,
   pathname,
   providerCatalogs,
+  accountChangeRefusalReason,
   children,
 }: {
   envelope: WorkspaceContextEnvelope;
   pathname: string;
   providerCatalogs: readonly ProviderScopeCatalog[];
+  accountChangeRefusalReason: string | null;
   children: React.ReactNode;
 }) {
   const scopedBusinessId = scopedEnvelopeBusinessId(pathname, envelope);
@@ -218,6 +220,7 @@ function EnvelopeScopedDashboardFrame({
     <DashboardFrame
       userName={envelope.actor.name}
       providerCatalogs={providerCatalogs}
+      accountChangeRefusalReason={accountChangeRefusalReason}
     >
       {children}
     </DashboardFrame>
@@ -232,10 +235,19 @@ function EnvelopeScopedDashboardFrame({
 export function UnifiedDashboardClientShell({
   envelope,
   providerCatalogs = [],
+  /**
+   * Why changing the ad account is refused, read on the SERVER by the layout.
+   *
+   * `META_ACCOUNT_PICKER` is a server gate and is never exposed to the client
+   * as a flag: what crosses this boundary is the operator sentence, already
+   * decided. A client-readable gate value would be a boundary that is not one.
+   */
+  accountChangeRefusalReason = null,
   children,
 }: {
   envelope: WorkspaceContextEnvelope;
   providerCatalogs?: ProviderScopeCatalog[];
+  accountChangeRefusalReason?: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname() ?? "";
@@ -259,6 +271,7 @@ export function UnifiedDashboardClientShell({
           envelope={effectiveEnvelope}
           pathname={pathname}
           providerCatalogs={providerCatalogs}
+          accountChangeRefusalReason={accountChangeRefusalReason}
         >
           {children}
         </EnvelopeScopedDashboardFrame>

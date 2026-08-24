@@ -34,6 +34,14 @@ interface ScopeProps {
   providerAccountId: string | null;
   start: string;
   end: string;
+  /**
+   * Why minting a share is refused, read on the server.
+   *
+   * Non-null exactly when `/api/creatives/share` would refuse the POST, so the
+   * ledger states the same fact the server would rather than leaving an absent
+   * control to imply one.
+   */
+  shareMintRefusalReason?: string | null;
 }
 
 function useJson<T>(url: string | null, label: string) {
@@ -305,6 +313,17 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
 
 /* --------------------------------------------------------------- shares */
 
+/**
+ * Why this ledger cannot mint, when the gate is not the reason.
+ *
+ * The create path here builds a payload with `creatives: []` and the server
+ * requires at least one, so every create issued from this screen was a
+ * guaranteed 400 after the operator had filled in a title, an audience and an
+ * expiry. Selection happens in the Creative Studio share flow.
+ */
+export const SHARES_LEDGER_NO_SELECTION =
+  "Choose the creatives first: open a creative in Creative Studio and share from there. This screen manages links that already exist.";
+
 export function CreativeSharesClient(props: ScopeProps) {
   /**
    * `grants`, not `shares`.
@@ -438,6 +457,14 @@ export function CreativeSharesClient(props: ScopeProps) {
          * selection to send.
          */
         onCreate={undefined}
+        /*
+         * Two different reasons, and the more specific one wins. If the mint
+         * gate is shut, that is why nothing can be minted anywhere; if it is
+         * open, the reason is this screen's own — it has no creative selection
+         * to send. Rotation and revocation stay live in both cases: withdrawing
+         * a link that already exists must never wait on a rollout flag.
+         */
+        createRefusalReason={props.shareMintRefusalReason ?? SHARES_LEDGER_NO_SELECTION}
         onRevoke={(token) => void mutate(token, "revoke")}
         onRotate={(token) => void mutate(token, "rotate")}
       />

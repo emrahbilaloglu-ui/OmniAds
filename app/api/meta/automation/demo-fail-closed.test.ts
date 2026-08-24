@@ -153,6 +153,8 @@ function stubDemoFlag(answer: "demo" | "live" | "unreadable") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Gates ship off; a case that opens one must not leak it into the next.
+  vi.unstubAllEnvs();
   vi.mocked(accountAssignments.fetchAssignedAccountIds).mockResolvedValue([
     "act_1",
   ]);
@@ -203,6 +205,13 @@ describe("POST /api/meta/automation is demo fail-closed", () => {
   // handed straight through to the action it asked for.
   it("lets a proven live workspace through to its action", async () => {
     stubDemoFlag("live");
+    /*
+     * Engaging the Stop is now also held by `META_AUTOMATION_STOP_UI`, which
+     * ships off. This case is about the DEMO boundary, so the gate is opened to
+     * keep it measuring that and not the rollout state; the gate's own refusal
+     * — and the fact that it lands after this one — is asserted below.
+     */
+    vi.stubEnv("META_AUTOMATION_STOP_UI", "true");
     vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValue({
       businessControl: { source: "persisted", killSwitchEngaged: false },
     } as never);
@@ -214,6 +223,56 @@ describe("POST /api/meta/automation is demo fail-closed", () => {
     expect(response.status).toBe(200);
     expect(
       vi.mocked(controlPlane.engageMetaAutomationKillSwitch),
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the demo refusal ahead of the Stop gate", async () => {
+    /*
+     * Both refuse, and the order matters: a demo workspace must get the same
+     * answer whatever the rollout state. If the gate ran first, the refusal an
+     * operator sees would change shape when an unrelated deployment variable
+     * moved, and the demo boundary would look conditional on it.
+     */
+    stubDemoFlag("demo");
+
+    const response = await POST(
+      postRequest({ action: "engage_kill_switch", reason: "operator stop" }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(
+      vi.mocked(controlPlane.engageMetaAutomationKillSwitch),
+    ).not.toHaveBeenCalled();
+  });
+
+  it("refuses engage on the shut gate once the caller is beyond reproach", async () => {
+    stubDemoFlag("live");
+
+    const response = await POST(
+      postRequest({ action: "engage_kill_switch", reason: "operator stop" }),
+    );
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error).toBe("automation_stop_disabled");
+    expect(
+      vi.mocked(controlPlane.engageMetaAutomationKillSwitch),
+    ).not.toHaveBeenCalled();
+  });
+
+  it("never gates RELEASE, at any setting", async () => {
+    // The whole reason the gate holds one direction only: a stop that cannot be
+    // lifted is worse than no stop.
+    stubDemoFlag("live");
+    vi.mocked(controlPlane.getMetaAutomationControlPlane).mockResolvedValue({
+      businessControl: { source: "persisted", killSwitchEngaged: true },
+    } as never);
+
+    const response = await POST(postRequest({ action: "release_kill_switch" }));
+
+    expect(response.status).toBe(200);
+    expect(
+      vi.mocked(controlPlane.releaseMetaAutomationKillSwitch),
     ).toHaveBeenCalledTimes(1);
   });
 

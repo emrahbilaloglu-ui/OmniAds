@@ -75,6 +75,16 @@ function payload(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  /*
+   * Minting is now also held by `META_PUBLIC_SHARE_MINT`, which ships off. This
+   * file is about the ACKNOWLEDGEMENT contract, which exists at every rollout
+   * state, so the gate is opened here rather than measured. Its own refusal —
+   * and the fact that it lands after the caller and scope checks — is asserted
+   * in `route.test.ts`; the shipped default is asserted in
+   * `lib/meta/release-gates.test.ts`.
+   */
+  vi.stubEnv("META_PUBLIC_SHARE_MINT", "true");
   requireBusinessAccess.mockResolvedValue({
     session: { user: { id: "user-1" } },
     membership: { businessId: "biz-1", role: "collaborator" },

@@ -2,6 +2,7 @@ import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation
 import { NextRequest, NextResponse } from "next/server";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { findMembership, requireBusinessAccess } from "@/lib/access";
+import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
 import {
   applyWorkflowTransition,
   newWorkflowRecord,
@@ -164,6 +165,22 @@ export async function POST(request: NextRequest) {
   // Changing ownership is a write; a viewer may read the overlay but not move it.
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  /**
+   * The workflow gate, on the server as well as on the screen.
+   *
+   * `META_DECISION_WORKFLOW_UI` was read by the Decisions page alone, so the
+   * controls were hidden while this handler still accepted every transition —
+   * a stale tab, a replayed request or a script moved real workflow state that
+   * the product was presenting as unavailable. Nothing here reaches Meta; what
+   * a refusal protects is the operator's own record of who acknowledged what.
+   *
+   * Placed after the role check so the first refusal an operator meets is the
+   * one about them, and before the assignee lookup so a shut gate cannot be
+   * used to probe which user ids are members of this business.
+   */
+  const gated = rejectIfMetaGateClosed("decisionWorkflowUi", `decision_workflow_${action}`);
+  if (gated) return gated;
 
   // An assignee must be an active member of THIS business. Without the check
   // work can be assigned to somebody who cannot open it — or to a user id

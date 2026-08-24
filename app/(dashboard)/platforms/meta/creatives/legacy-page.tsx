@@ -417,12 +417,22 @@ interface MetaCreativeStudioPageProps {
    * the shell control.
    */
   serverDateWindow?: CreativeRouteWindow | null;
+  /**
+   * Why minting a share is refused, read on the server.
+   *
+   * `META_PUBLIC_SHARE_MINT` is a server gate, so its answer arrives with the
+   * page rather than being worked out here. Null means the server would accept
+   * the POST; it never means "not checked", because the canonical route always
+   * asks.
+   */
+  shareMintRefusalReason?: string | null;
 }
 
 export default function MetaCreativeStudioPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
   serverDateWindow = null,
+  shareMintRefusalReason = null,
 }: MetaCreativeStudioPageProps = {}) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -1306,6 +1316,7 @@ export default function MetaCreativeStudioPage({
           // tabs already apply.
           onExport={allRows.length > 0 ? handleCsvExport : undefined}
           onShare={openShareModal}
+          shareRefusalReason={shareMintRefusalReason}
           shareSelectedCount={selectedRows.length}
           sharedLinksCount={sharedLinksQuery.data ? sharedLinksQuery.data.length : null}
           onOpenSharedLinks={() => setLinksOpen(true)}

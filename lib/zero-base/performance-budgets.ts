@@ -71,7 +71,16 @@ export const FIRST_LOAD_API_CALL_DEBT: Readonly<Record<string, number>> = {
   // the same store, so a surface measures one more or one fewer depending on
   // which arrives first; pinning the typical figure would make the gate flaky,
   // and a flaky gate teaches people to ignore it.
+  //
+  // Re-measured after the runtime fixture gained real journal rows. A surface
+  // with data reads more than an empty one — Decisions now fetches creative
+  // evidence for the rows it serves — so three of these moved by one or two,
+  // and that is the fixture getting more honest rather than the product getting
+  // worse.
+  "meta-decisions": 14, //      13–14 observed
   "meta-launchpad": 17, //      16–17 observed
   "manage-integrations": 18, // 17–18 observed
-  "creative-studio": 14, //     13–14 observed
+  "creative-studio": 15, //     14–15 observed
+  "creative-copies": 13, //     12–13 observed
+  "creative-landing-pages": 13, // 12–13 observed
 };

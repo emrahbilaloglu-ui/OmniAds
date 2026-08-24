@@ -7,6 +7,8 @@ import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
+import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 
 export const dynamic = "force-dynamic";
 
@@ -87,10 +89,40 @@ export default async function MetaDecisionsPage({
     requestedAccountId: query.get("providerAccountId"),
   });
 
+  /**
+   * The §9 envelope for this surface, resolved before any data is read.
+   *
+   * Decisions fetches its workspace client-side, so what this page can decide
+   * is the half that does not need data: whether this request was scoped at
+   * all, and whether the actor may write. That half is where the collapse
+   * mattered most — an unscoped Decision Center rendered an empty queue, and an
+   * empty queue and a queue that was never asked look identical.
+   *
+   * The served half arrives with the payload, from the same resolver, and
+   * `laterMetaSurfaceState` decides which one the screen shows.
+   */
+  const readState = await resolveMetaPageSurfaceState({
+    surfaceId: "meta-decisions",
+    businessId,
+    requestedAccountId: query.get("providerAccountId"),
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+  });
+
   // The only assignment-verified account in the request. The body prefers its
   // own picker selection and falls back to this, so a failing accounts read no
   // longer empties the surface for a value the server already established.
   return (
+    <>
+    {/*
+      The live region: this surface reads its workspace in the browser, so the
+      envelope above is only the half the server knew before the fetch. The
+      body forwards the payload's envelope and this shows whichever is later.
+    */}
+    <MetaSurfaceStateLive initial={readState} surfaceId="meta-decisions" />
     <LegacyMetaPage
       businessId={businessId}
       businessName={business?.name ?? null}
@@ -105,5 +137,6 @@ export default async function MetaDecisionsPage({
        */
       decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
     />
+    </>
   );
 }

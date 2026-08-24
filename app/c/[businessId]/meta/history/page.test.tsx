@@ -49,6 +49,28 @@ vi.mock("@/lib/zero-base/auth-routing", () => ({
   loginUrlFor: vi.fn((next: string) => `/login?next=${encodeURIComponent(next)}`),
 }));
 vi.mock("@/lib/zero-base/provider-scope-server", () => ({
+  /**
+   * The surface-state resolver reads the SCOPE, not just the id: it needs the
+   * refusal reason to tell "nothing assigned" from "several assigned, none
+   * chosen". Derived from the same mock so the two can never disagree about
+   * which account this request resolved to.
+   */
+  resolveProviderAccountScope: async (input: unknown) => {
+    // Reaches the same mock through the module itself, because the factory
+    // runs before the file's own bindings exist and cannot close over one.
+    const { resolveProviderAccountId: resolveId } = (await import(
+      "@/lib/zero-base/provider-scope-server"
+    )) as { resolveProviderAccountId: (value: unknown) => Promise<string | null> };
+    const id = await resolveId(input);
+    return id
+      ? { providerAccountId: id, refusal: null, requestedButUnassigned: null }
+      : {
+          providerAccountId: null,
+          refusal: "provider_account_none_assigned" as const,
+          requestedButUnassigned: null,
+        };
+  },
+  readProviderScopeCatalog: async () => ({ provider: "meta" as const, accounts: [] }),
   resolveProviderAccountId: vi.fn(),
 }));
 vi.mock("@/lib/meta/history-read-model", () => ({
@@ -515,8 +537,15 @@ describe("Meta History reads the window the shell states", () => {
     // `source` is what the surface prints, so it has to reach the boundary. The
     // rendering itself is pinned in `history-surface.test.tsx`, where the real
     // `HistoryClient` mounts the real `HistoryView` — here it is stubbed, so
-    // asserting on `html` would assert on the stub and prove nothing.
-    expect(html).toBe("");
+    // asserting on the body's own markup would assert on the stub and prove
+    // nothing.
+    //
+    // What DOES render here is the §9 surface-state region, which the page owns
+    // rather than the body. It is asserted rather than stripped: a page that
+    // stopped stating its read state would otherwise pass this test unchanged.
+    expect(html).toContain('data-meta-surface-state="meta-history"');
+    expect(html).toContain('data-read-state="empty-proven"');
+    expect(html.replace(/<div data-meta-surface-state[\s\S]*?<\/div>/, "")).toBe("");
   });
 
   it("marks a window the URL did state as coming from the URL, not from a default", async () => {

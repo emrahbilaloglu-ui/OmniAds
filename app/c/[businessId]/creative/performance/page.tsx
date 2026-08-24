@@ -9,6 +9,8 @@ import {
 } from "@/lib/zero-base/creative/route-scope";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import LegacyCreativePerformancePage from "@/app/(dashboard)/platforms/meta/creatives/legacy-page";
+import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 
 export const dynamic = "force-dynamic";
 
@@ -51,11 +53,34 @@ export default async function CreativePerformancePage({
   });
   const serverDateWindow = windowFromSearchParams(raw);
 
+  /**
+   * The §9 envelope. Creative Studio reads its rows client-side, so the page
+   * decides scope and authority. An unscoped Studio used to render five empty
+   * tabs, which is indistinguishable from an account that genuinely has no
+   * creatives.
+   */
+  const readState = await resolveMetaPageSurfaceState({
+    surfaceId: "creative-studio",
+    businessId,
+    requestedAccountId: requestedProviderAccountFromSearchParams(raw),
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+    evidence: serverDateWindow
+      ? { window: { startDate: serverDateWindow.start, endDate: serverDateWindow.end } }
+      : undefined,
+  });
+
   return (
+    <>
+    <MetaSurfaceStateLive initial={readState} surfaceId="creative-studio" />
     <LegacyCreativePerformancePage
       businessId={businessId}
       providerAccountId={providerAccountId}
       serverDateWindow={serverDateWindow}
     />
+    </>
   );
 }

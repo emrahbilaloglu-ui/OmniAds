@@ -14,6 +14,8 @@ import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write
 import { buildLaunchpadViewerEnvelope } from "@/app/(dashboard)/platforms/meta/launchpad/viewer-envelope";
 import LegacyMetaLaunchpadPage from "@/app/(dashboard)/platforms/meta/launchpad/legacy-page";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
+import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 
 export const dynamic = "force-dynamic";
 
@@ -153,7 +155,26 @@ export default async function MetaLaunchpadPage({
     redirect(`/c/${businessId}/meta/decisions?${refusedQuery.toString()}`);
   }
 
+  /**
+   * The §9 envelope. Launchpad reads its drafts client-side, so what the page
+   * decides is scope and authority — and on a guarded write surface that is the
+   * half that matters: a Launchpad that was never scoped must not present a
+   * draft table as though a validated launch could follow it.
+   */
+  const readState = await resolveMetaPageSurfaceState({
+    surfaceId: "meta-launchpad",
+    businessId,
+    requestedAccountId: requestedProviderAccountId,
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+  });
+
   return (
+    <>
+    <MetaSurfaceStateLive initial={readState} surfaceId="meta-launchpad" />
     <LegacyMetaLaunchpadPage
       businessId={businessId}
       businessName={business?.name ?? null}
@@ -168,5 +189,6 @@ export default async function MetaLaunchpadPage({
        */
       executionEnabled={readMetaReleaseGates().launchpadExecution}
     />
+    </>
   );
 }

@@ -10,6 +10,13 @@ import { getTodayIsoForTimeZone } from "@/lib/dashboard/date-window-presets";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
+import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
+import {
+  resolveMetaSurfaceReadState,
+  type MetaSurfaceSource,
+} from "@/lib/meta/surface-read-state";
+import { isMetaFailureCode } from "@/lib/meta/read-state-contract";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +112,70 @@ export default async function MetaIntelligencePage({
     };
   });
 
+  /**
+   * The §9 envelope, resolved on the server from the read that just happened.
+   *
+   * This page already composes every section server-side, so it knows exactly
+   * which sources answered and which did not — and until now it threw that
+   * away, handing the view eleven independent section states and no statement
+   * about the surface. A reader could not tell a screen where every source
+   * answered with nothing from one where none of them answered at all.
+   *
+   * The mapping is the section vocabulary onto the source vocabulary, and it is
+   * the only place the two meet. `partial` stays partial rather than collapsing
+   * into `served`, because a capped section presented as whole is the defect.
+   */
+  const sources: MetaSurfaceSource[] = intelligence.sections.map((section) => ({
+    id: section.key,
+    outcome:
+      section.state === "serving"
+        ? section.facts.length > 0
+          ? ("served" as const)
+          : ("empty" as const)
+        : section.state === "partial"
+          ? ("partial" as const)
+          : section.state === "unavailable"
+            ? ("not-ready" as const)
+            : ("failed" as const),
+    rowCount: section.facts.length,
+    failureCode: isMetaFailureCode(section.failureCode) ? section.failureCode : undefined,
+  }));
+
+  const pageState = await resolveMetaPageSurfaceState({
+    surfaceId: "meta-intelligence",
+    businessId,
+    requestedAccountId: first(raw.providerAccountId),
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+    evidence: { window: { startDate, endDate } },
+  });
+
+  // The page's refusal outranks the read — an unscoped surface's sections were
+  // never asked — so the served envelope is only built when the scope held.
+  const readState =
+    pageState.state === "refused"
+      ? pageState
+      : resolveMetaSurfaceReadState({
+          businessId,
+          providerAccountId,
+          requiresProviderAccount: true,
+          permissions: pageState.permissions,
+          capability: {
+            canRead: intelligence.unavailableReason === null,
+            canWrite: pageState.capability.canWrite,
+            readBlockedBy:
+              intelligence.unavailableReason === null ? undefined : "source_read_failed",
+          },
+          sources,
+          evidence: { window: { startDate, endDate } },
+        });
+
   return (
+    <>
+    <MetaSurfaceState envelope={readState} surfaceId="meta-intelligence" />
     <IntelligenceView
       sources={intelligence.sections.map((item) => ({
         key: item.key,
@@ -137,5 +207,6 @@ export default async function MetaIntelligencePage({
         queued: false,
       }}
     />
+    </>
   );
 }

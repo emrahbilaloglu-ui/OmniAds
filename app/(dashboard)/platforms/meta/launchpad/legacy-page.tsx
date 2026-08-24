@@ -99,6 +99,11 @@ import {
 } from "./viewer-envelope";
 import { LaunchIntentReceiptRows } from "./LaunchIntentReceiptRows";
 import styles from "./page.module.css";
+import {
+  resolveMetaSurfaceReadState,
+  type MetaSurfaceSource,
+} from "@/lib/meta/surface-read-state";
+import { publishMetaSurfaceState } from "@/components/meta/meta-surface-state-live";
 
 type LaunchpadMode = "new_campaign" | "add_to_existing" | "manage_existing";
 type WizardStep =
@@ -453,7 +458,37 @@ async function loadLaunchpadLibrary(
   const [manual, recent, drafts, intents] = reads.map(launchpadReadPayload);
   const manualTemplates = isLaunchpadArrayPayload(manual, "templates");
   const recentTemplates = isLaunchpadArrayPayload(recent, "templates");
+  const draftRows = isLaunchpadArrayPayload(drafts, "drafts");
+  const intentRows = isLaunchpadArrayPayload(intents, "intents");
+  /**
+   * The four reads, reported as outcomes — not judged here.
+   *
+   * Launchpad fans out to four endpoints that no single route aggregates, so
+   * there is no server that can see all four answer. What this reports is
+   * observation: which requests returned and how many rows each carried. The
+   * STATE those facts add up to is decided by
+   * `resolveMetaSurfaceReadState`, the same function the pages and the
+   * decisions route call. That keeps one authority; a second set of rules here
+   * is what §9 exists to prevent, and the surface already had one — a private
+   * `unavailableMessage` that could not tell partial from degraded.
+   */
+  const readOutcomes: MetaSurfaceSource[] = [
+    { id: "templates", read: reads[0]!, rows: manualTemplates.length + recentTemplates.length },
+    { id: "recent-templates", read: reads[1]!, rows: recentTemplates.length },
+    { id: "drafts", read: reads[2]!, rows: draftRows.length },
+    { id: "receipts", read: reads[3]!, rows: intentRows.length },
+  ].map(({ id, read, rows }) => ({
+    id,
+    outcome: read.ok ? (rows > 0 ? ("served" as const) : ("empty" as const)) : ("failed" as const),
+    rowCount: rows,
+    failureCode: read.ok
+      ? undefined
+      : read.httpStatus === 401 || read.httpStatus === 403
+        ? ("capability_read_denied" as const)
+        : ("source_read_failed" as const),
+  }));
   return {
+    readOutcomes,
     // Non-null exactly when at least one of the four reads did not answer.
     // Carried beside the rows rather than folded into them, because an empty
     // array is the one thing this state must not be mistaken for.
@@ -1250,6 +1285,22 @@ export default function MetaLaunchpadPage({
         setDraftCapability(library.draftCapability);
         setTemplateCapability(library.templateCapability);
         setLibraryUnavailableMessage(library.unavailableMessage);
+        // Observed outcomes in, one shared decision out. See `readOutcomes`.
+        publishMetaSurfaceState(
+          "meta-launchpad",
+          resolveMetaSurfaceReadState({
+            businessId,
+            providerAccountId,
+            requiresProviderAccount: true,
+            permissions: {
+              role: viewer?.role ?? null,
+              reviewerReadOnly: viewer?.reviewerReadOnly === true,
+              demo: viewer?.demo === true,
+            },
+            capability: { canRead: true, canWrite: viewer?.canMutate === true },
+            sources: library.readOutcomes,
+          }),
+        );
       })
       .catch(() => {
         if (!cancelled) {

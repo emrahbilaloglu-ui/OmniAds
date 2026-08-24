@@ -8,6 +8,8 @@ import type {
   MetaWindowKey,
 } from "@/components/meta/redesign/types";
 import { requireBusinessAccess } from "@/lib/access";
+import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
+import { decisionsWorkspaceSources } from "@/lib/meta/decisions-workspace-read-state";
 import {
   fetchMetaActiveAdConfigsReceipt,
   resolveMetaCredentials,
@@ -1381,6 +1383,47 @@ export async function GET(request: NextRequest) {
         deferrals: { dueCount: 0, items: [] },
       },
       decisionReadModel: decisionRead.model,
+      /**
+       * The §9 envelope, decided here and sent with the rows.
+       *
+       * The Decision Center reads this workspace in the browser, so the page
+       * that rendered it can only state what it knew before the fetch.
+       * Everything that separates `success` from `empty-proven`, `partial` and
+       * `degraded` is known only at this point, and it is decided by the same
+       * pure resolver the page calls — the two halves cannot disagree about
+       * what a state means. The client forwards this verbatim.
+       */
+      readState: resolveMetaSurfaceReadState({
+        businessId: pulse.businessId,
+        providerAccountId,
+        requiresProviderAccount: true,
+        permissions: {
+          role: viewer?.role ?? null,
+          reviewerReadOnly: viewer?.isReviewer === true,
+          demo: false,
+        },
+        capability: { canRead: true, canWrite: viewer?.readOnly !== true },
+        sources: decisionsWorkspaceSources({
+          decisionStatus: decisionRead.model.status,
+          decisionUnavailableCode: decisionRead.model.unavailable?.code ?? null,
+          laneRowCount:
+            servedLanes.actionNow.length +
+            servedLanes.watching.length +
+            servedLanes.nonSales.length,
+          currentAdsComplete: currentAds.complete,
+          currentAdRowCount: currentAds.rows.length,
+          commercialTargetsReadFailed: commercialTargetRead.readFailed,
+        }),
+        evidence: {
+          window: { startDate: pulse.startDate, endDate: pulse.endDate },
+          snapshotAt: servedLanes.snapshotCreatedAt ?? null,
+          observedAt: pulse.lastSyncAt ?? null,
+          // Optional on purpose: the read model's `source` block is absent in
+          // the unavailable arm, and reaching through it there turned a
+          // degraded decision read into a 500 for the whole workspace.
+          decisionAsOf: decisionRead.model.source?.snapshotAsOf ?? null,
+        },
+      }),
       os: buildMetaOsDecisionsPresentation({
         actionNow: servedLanes.actionNow,
         watching: servedLanes.watching,

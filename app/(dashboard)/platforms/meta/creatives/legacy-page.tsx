@@ -86,6 +86,11 @@ import {
   RotateLinkDialog,
   type LinkDialogPhase,
 } from "@/components/creatives/share/LinkActionDialogs";
+import {
+  resolveMetaSurfaceReadState,
+  type MetaSurfaceSource,
+} from "@/lib/meta/surface-read-state";
+import { publishMetaSurfaceState } from "@/components/meta/meta-surface-state-live";
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -614,6 +619,82 @@ export default function MetaCreativeStudioPage({
   // as 200 with no rows and must never be read as "this account served
   // nothing".
   const sourceHealth = describeMetaCreativesSourceHealth(creativesQuery.data);
+
+  /**
+   * The §9 envelope for Creative Studio, from the two reads it makes.
+   *
+   * Both are observations, not judgements: whether each query answered, what
+   * its own `status`/`isPartial` said, and how many rows it carried. The state
+   * they add up to is decided by `resolveMetaSurfaceReadState` — the same
+   * function the page, the decisions route and Launchpad call — so this surface
+   * does not get its own idea of what "ready" means. `describeMetaCreativesSourceHealth`
+   * stays exactly as it is: it owns the operator SENTENCE for a source, which
+   * is a different job from owning the surface's state.
+   */
+  useEffect(() => {
+    if (!hasExplicitAccountScope || !providerAccountId) {
+      publishMetaSurfaceState("creative-studio", null);
+      return;
+    }
+    if (creativesQuery.isLoading || briefingQuery.isLoading) {
+      publishMetaSurfaceState("creative-studio", null);
+      return;
+    }
+    const creativeRows = creativesQuery.data?.rows?.length ?? 0;
+    const sources: MetaSurfaceSource[] = [
+      {
+        id: "creatives",
+        outcome: creativesQuery.isError
+          ? "failed"
+          : sourceHealth.kind === "unavailable"
+            ? "not-ready"
+            : sourceHealth.partialReason
+              ? "partial"
+              : creativeRows > 0
+                ? "served"
+                : "empty",
+        rowCount: creativeRows,
+        failureCode:
+          creativesQuery.isError || sourceHealth.kind === "unavailable"
+            ? "source_read_failed"
+            : undefined,
+      },
+      {
+        id: "briefing",
+        outcome: briefingQuery.isError ? "failed" : briefingQuery.data ? "served" : "empty",
+        rowCount: briefingQuery.data ? 1 : 0,
+        failureCode: briefingQuery.isError ? "source_read_failed" : undefined,
+      },
+    ];
+    publishMetaSurfaceState(
+      "creative-studio",
+      resolveMetaSurfaceReadState({
+        businessId,
+        providerAccountId,
+        requiresProviderAccount: true,
+        permissions: { role: null, reviewerReadOnly: false, demo: false },
+        capability: { canRead: true, canWrite: false },
+        sources,
+        refreshing: creativesQuery.isFetching && creativeRows > 0,
+        evidence: { window: { startDate: drStart, endDate: drEnd } },
+      }),
+    );
+  }, [
+    businessId,
+    providerAccountId,
+    hasExplicitAccountScope,
+    creativesQuery.isLoading,
+    creativesQuery.isError,
+    creativesQuery.isFetching,
+    creativesQuery.data,
+    briefingQuery.isLoading,
+    briefingQuery.isError,
+    briefingQuery.data,
+    sourceHealth.kind,
+    sourceHealth.partialReason,
+    drStart,
+    drEnd,
+  ]);
 
   // One freshness contract across every Tier-0 surface. Derived from the
   // query state this surface already has, so it cannot drift from what is

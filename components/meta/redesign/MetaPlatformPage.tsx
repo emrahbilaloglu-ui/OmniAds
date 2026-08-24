@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   TrackingConfirmModal,
   useDeferState,
@@ -94,6 +94,10 @@ import { useDecisionWorkflow } from "@/components/meta/redesign/use-decision-wor
 import { buildDecisionWorkflowViewModel } from "@/components/meta/redesign/decision-workflow-view-model";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
+import {
+  publishMetaSurfaceRefreshing,
+  publishMetaSurfaceState,
+} from "@/components/meta/meta-surface-state-live";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type {
@@ -3358,7 +3362,52 @@ export function MetaPlatformPage({
     // operator-controlled Retry above is the only retry.
     retry: false,
     refetchOnWindowFocus: false,
+    /**
+     * Keep the rows that are already on screen while the next window loads.
+     *
+     * §9 is explicit that a refresh is not a first load: *"Old data still on
+     * screen while new data is fetched is not a first load, and blanking it to
+     * a skeleton throws away readable evidence to show a spinner."* Changing
+     * the window changes this query's key, so without this the operator's whole
+     * queue was replaced by a skeleton every time — and the honest cost of
+     * keeping it, that the previous window's figures are briefly under the new
+     * window's label, is precisely what `refreshing-with-stale` discloses.
+     */
+    placeholderData: keepPreviousData,
   });
+
+  /**
+   * Forward the server's §9 envelope. Nothing is computed here.
+   *
+   * The route decides the state from facts only it has — which of the four
+   * decision sources answered, and how many rows each returned — and puts the
+   * envelope in the payload. This hands it to the region the page rendered
+   * above this body, so a screen that has finished reading stops saying it is
+   * still loading. `undefined` publishes null, which leaves the page's own
+   * envelope showing rather than asserting anything.
+   */
+  useEffect(() => {
+    publishMetaSurfaceState("meta-decisions", workspaceQuery.data?.readState ?? null);
+  }, [workspaceQuery.data?.readState]);
+
+  /**
+   * A newer read is running over rows already on screen.
+   *
+   * Reported, not interpreted: `laterMetaSurfaceState` decides that this makes
+   * the surface `refreshing-with-stale`. Without it a refresh presented the
+   * previous window's figures under the new window's label with nothing saying
+   * so — §9's fourth state, and the reason it exists.
+   */
+  useEffect(() => {
+    publishMetaSurfaceRefreshing(
+      "meta-decisions",
+      // Either shape of the same fact: a refetch of the current window, or the
+      // previous window's rows held on screen while the new one loads.
+      (workspaceQuery.isFetching && workspaceQuery.data !== undefined) ||
+        workspaceQuery.isPlaceholderData,
+    );
+  }, [workspaceQuery.isFetching, workspaceQuery.isPlaceholderData, workspaceQuery.data]);
+
   /**
    * The CTR trail behind every creative row's sparkline.
    *

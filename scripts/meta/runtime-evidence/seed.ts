@@ -32,6 +32,25 @@ export const ACCOUNT_MANY_A = "act_1000000000000002";
 export const ACCOUNT_MANY_B = "act_1000000000000003";
 export const ACCOUNT_OTHER_TENANT = "act_1000000000000009";
 
+/**
+ * Journal rows the History surface really reads.
+ *
+ * Three provider writes against one ad, with three different outcomes. They
+ * exist so two things can be proven that a rowless fixture cannot show: that a
+ * surface with rows reports `success` rather than `empty-proven`, and that the
+ * number of rows the database holds is the number the screen prints — WP12's
+ * "match database counts to rendered counts", which had never been checked.
+ *
+ * `silent_failure` is included on purpose. It is the outcome the product exists
+ * to surface: a write the provider accepted and did not apply.
+ */
+export const JOURNAL_AD_ID = "23850000000000001";
+export const JOURNAL_ROWS = [
+  { action: "pause", status: "success", errorCode: null },
+  { action: "resume", status: "failure", errorCode: "provider_rejected" },
+  { action: "pause", status: "silent_failure", errorCode: null },
+] as const;
+
 export interface RuntimeSeed {
   operator: { id: string; email: string; password: string };
   businesses: {
@@ -212,6 +231,8 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
       position: 0,
     });
 
+    await seedHistoryJournal(client);
+
     return {
       operator: { id: RUNTIME_OPERATOR_ID, email: RUNTIME_OPERATOR_EMAIL, password },
       businesses: {
@@ -239,4 +260,45 @@ function hash(value: string): number {
     out = (out * 31 + value.charCodeAt(index)) | 0;
   }
   return out;
+}
+
+/**
+ * One ad dimension and three action-log rows, for the one-account business.
+ *
+ * The journal joins an action row to a dimension row to name the entity and to
+ * scope it to a provider account, so both halves are needed or the rows exist
+ * and reach no screen. Written with fixed ids so a rerun is idempotent and a
+ * count assertion can name what it is counting.
+ */
+async function seedHistoryJournal(client: Client): Promise<void> {
+  await client.query(
+    `INSERT INTO meta_ad_dimensions
+       (business_id, provider_account_id, campaign_id, adset_id, ad_id,
+        ad_name_current, ad_status, first_seen_at, last_seen_at, source_updated_at)
+     VALUES ($1, $2, 'cmp_runtime_1', 'adset_runtime_1', $3,
+             'Runtime evidence ad', 'PAUSED', now() - interval '20 days',
+             now() - interval '1 day', now() - interval '1 day')
+     ON CONFLICT (business_id, provider_account_id, ad_id) DO NOTHING`,
+    [BUSINESS_ONE_ACCOUNT, ACCOUNT_ONE, JOURNAL_AD_ID],
+  );
+
+  // Cleared first, so a rerun against a surviving cluster cannot multiply the
+  // count the rendered-versus-stored assertion depends on.
+  await client.query("DELETE FROM meta_ads_action_log WHERE business_id = $1", [
+    BUSINESS_ONE_ACCOUNT,
+  ]);
+  let offset = 0;
+  for (const row of JOURNAL_ROWS) {
+    offset += 1;
+    await client.query(
+      `INSERT INTO meta_ads_action_log
+         (business_id, ad_id, action, source, requested_at, status, error_code,
+          payload_request, payload_response, verified_at)
+       VALUES ($1, $2, $3, 'ui_manual', now() - ($4 || ' hours')::interval, $5, $6,
+               jsonb_build_object('scope_type', 'ad'),
+               jsonb_build_object('accepted', true),
+               CASE WHEN $5 = 'success' THEN now() - ($4 || ' hours')::interval ELSE NULL END)`,
+      [BUSINESS_ONE_ACCOUNT, JOURNAL_AD_ID, row.action, String(offset), row.status, row.errorCode],
+    );
+  }
 }

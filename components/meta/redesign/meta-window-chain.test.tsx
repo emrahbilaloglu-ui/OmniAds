@@ -103,6 +103,12 @@ vi.mock("@/components/meta/decision-center/MetaDecisionCenterExact", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
+  /**
+   * Mounted pages hand this to `placeholderData` so a key change keeps the
+   * previous rows on screen instead of blanking them to a skeleton. These
+   * mocks never read it; the export just has to exist for the page to mount.
+   */
+  keepPreviousData: Symbol.for("keepPreviousData"),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: (input: {
     queryKey: unknown[];

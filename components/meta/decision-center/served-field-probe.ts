@@ -366,6 +366,52 @@ function pad(value: number, width: number): string {
  * account rather than several unrelated ones.
  */
 const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
+  /**
+   * The §9 envelope the route decides and the surface region renders.
+   *
+   * A generic instantiation, so the type walk cannot synthesise it; two real
+   * envelopes are supplied instead. They differ in the field the region shows —
+   * the state and its sentence — so the probe still proves the value reaches
+   * the screen and that changing it changes what is on it.
+   */
+  "MetaDecisionsWorkspacePayload.readState": {
+    base: {
+      scope: { businessId: "sfp-biz", providerAccountId: "act_sfp" },
+      evidence: {
+        sourceUpdatedAt: null,
+        snapshotAt: null,
+        observedAt: null,
+        freshness: "fresh",
+        window: null,
+        decisionAsOf: null,
+      },
+      data: null,
+      capability: { canRead: true, canWrite: true },
+      permissions: { role: "admin", reviewerReadOnly: false, demo: false },
+      failure: null,
+      state: "success",
+    },
+    alt: {
+      scope: { businessId: "sfp-biz", providerAccountId: "act_sfp" },
+      evidence: {
+        sourceUpdatedAt: null,
+        snapshotAt: null,
+        observedAt: null,
+        freshness: "unknown",
+        window: null,
+        decisionAsOf: null,
+      },
+      data: null,
+      capability: { canRead: true, canWrite: true },
+      permissions: { role: "admin", reviewerReadOnly: false, demo: false },
+      failure: {
+        code: "source_read_failed",
+        message:
+          "One of the sources behind this screen could not be read, so what is shown is incomplete. The missing part is unknown rather than zero.",
+      },
+      state: "partial",
+    },
+  },
   // The banner action is accepted only for internal hrefs. Generic string
   // sentinels are intentionally rejected by the production helper, so use two
   // real internal destinations to prove that the served href reaches the CTA.

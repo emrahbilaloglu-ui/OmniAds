@@ -507,6 +507,13 @@ vi.mock("@/store/app-store", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  /**
+   * The real sentinel's identity is all the page uses: it hands it to
+   * `placeholderData` so a window change keeps the previous rows on screen
+   * rather than blanking the queue to a skeleton. This mock never reads it, so
+   * a stand-in with the same name is enough for the page to mount.
+   */
+  keepPreviousData: Symbol.for("keepPreviousData"),
   useQuery: (input: { queryKey: unknown[] }) => {
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);

@@ -47,6 +47,12 @@ vi.mock("@/store/app-store", () => ({
     selector({ selectedBusinessId: null }),
 }));
 vi.mock("@tanstack/react-query", () => ({
+  /**
+   * Mounted pages hand this to `placeholderData` so a key change keeps the
+   * previous rows on screen instead of blanking them to a skeleton. These
+   * mocks never read it; the export just has to exist for the page to mount.
+   */
+  keepPreviousData: Symbol.for("keepPreviousData"),
   useQuery: vi.fn(),
   useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
 }));

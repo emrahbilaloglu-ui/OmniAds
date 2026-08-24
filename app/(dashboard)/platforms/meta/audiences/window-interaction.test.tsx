@@ -166,6 +166,12 @@ const query = vi.hoisted(() => ({
   lastOptions: null as { queryKey?: unknown; queryFn?: () => Promise<unknown> } | null,
 }));
 vi.mock("@tanstack/react-query", () => ({
+  /**
+   * Mounted pages hand this to `placeholderData` so a key change keeps the
+   * previous rows on screen instead of blanking them to a skeleton. These
+   * mocks never read it; the export just has to exist for the page to mount.
+   */
+  keepPreviousData: Symbol.for("keepPreviousData"),
   useQuery: (options: unknown) => {
     query.lastOptions = options as {
       queryKey?: unknown;

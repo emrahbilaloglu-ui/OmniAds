@@ -17,6 +17,9 @@ import { getTodayIsoForTimeZone } from "@/lib/dashboard/date-window-presets";
 import { HistoryAccountPicker } from "@/components/zero-base/meta/history/history-account-picker";
 import { HistoryClient } from "@/components/zero-base/meta/history/history-client";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
+import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
+import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +108,32 @@ export default async function MetaHistoryPage({
   // as "no Meta account is assigned to this business" — a settled fact about
   // the configuration — when the truth is that the assignment could not be
   // read. That distinction is the whole point of the unavailable state.
+  /**
+   * The §9 envelope for a branch that returns before the scope is resolved.
+   *
+   * Both early returns below — an unreadable assignment source and a business
+   * with nothing assigned — already say the right thing in prose, and said it
+   * with no machine-readable state at all. That is the exact pair §9 separates:
+   * one is `degraded`, the other `refused`, and from outside the screen they
+   * were indistinguishable.
+   */
+  const earlyState = (
+    capability: { canRead: boolean; readBlockedBy?: "source_read_failed" },
+    scopeRefusal?: "provider_account_none_assigned",
+  ) =>
+    resolveMetaSurfaceReadState({
+      businessId,
+      providerAccountId: null,
+      scopeRefusal: scopeRefusal ?? null,
+      requiresProviderAccount: true,
+      permissions: {
+        role: access.context.role,
+        reviewerReadOnly: access.context.reviewerReadOnly,
+        demo: access.context.demo,
+      },
+      capability: { ...capability, canWrite: false },
+    });
+
   let accounts: MetaHistoryAccount[];
   let assignedAccountIds: string[];
   try {
@@ -114,10 +143,16 @@ export default async function MetaHistoryPage({
     ]);
   } catch {
     return (
+      <>
+      <MetaSurfaceState
+        envelope={earlyState({ canRead: false, readBlockedBy: "source_read_failed" })}
+        surfaceId="meta-history"
+      />
       <HistoryView
         rows={[]}
         unavailableReason="The persisted Meta journal is unavailable right now."
       />
+      </>
     );
   }
 
@@ -128,10 +163,16 @@ export default async function MetaHistoryPage({
 
   if (assignedAccounts.length === 0) {
     return (
+      <>
+      <MetaSurfaceState
+        envelope={earlyState({ canRead: true }, "provider_account_none_assigned")}
+        surfaceId="meta-history"
+      />
       <HistoryView
         rows={[]}
         unavailableReason="No Meta account is assigned to this business, so there is no journal to read."
       />
+      </>
     );
   }
 
@@ -161,12 +202,34 @@ export default async function MetaHistoryPage({
     requestedAccountId,
   });
 
+  /**
+   * The §9 envelope for this surface.
+   *
+   * History already refuses correctly in prose — it has two distinct sentences
+   * for the two scope refusals — and had no machine-readable state at all, so
+   * nothing outside the screen could tell a refusal from an empty journal. The
+   * envelope carries the same fact in the same words, plus the code.
+   */
+  const pageState = await resolveMetaPageSurfaceState({
+    surfaceId: "meta-history",
+    businessId,
+    requestedAccountId,
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+    evidence: { window: { startDate: dateWindow.start, endDate: dateWindow.end } },
+  });
+
   if (!providerAccountId) {
     // Two different refusals, because the remedies differ: an id this business
     // does not hold is a wrong link, several assigned accounts is a missing
     // choice. Neither may fall back to "whichever account sorts first" — that
     // would print one account's journal under another account's name.
     return (
+      <>
+      <MetaSurfaceState envelope={pageState} surfaceId="meta-history" />
       <HistoryView
         rows={[]}
         unavailableReason={
@@ -185,6 +248,7 @@ export default async function MetaHistoryPage({
           )
         }
       />
+      </>
     );
   }
 
@@ -196,10 +260,23 @@ export default async function MetaHistoryPage({
     assignedAccounts.find((item) => item.id === providerAccountId) ?? null;
   if (!account) {
     return (
+      <>
+      <MetaSurfaceState
+        envelope={resolveMetaSurfaceReadState({
+          businessId,
+          providerAccountId: null,
+          scopeRefusal: "provider_account_not_assigned",
+          requiresProviderAccount: true,
+          permissions: pageState.permissions,
+          capability: { canRead: true, canWrite: pageState.capability.canWrite },
+        })}
+        surfaceId="meta-history"
+      />
       <HistoryView
         rows={[]}
         unavailableReason={`The Meta journal could not be scoped to account ${providerAccountId}.`}
       />
+      </>
     );
   }
 
@@ -226,11 +303,31 @@ export default async function MetaHistoryPage({
   }).catch(() => null);
 
   if (!payload) {
+    // Degraded, not empty. The journal was asked and did not answer.
     return (
+      <>
+      <MetaSurfaceState
+        envelope={resolveMetaSurfaceReadState({
+          businessId,
+          providerAccountId: account.id,
+          requiresProviderAccount: true,
+          permissions: pageState.permissions,
+          capability: {
+            canRead: false,
+            canWrite: pageState.capability.canWrite,
+            readBlockedBy: "source_read_failed",
+          },
+          evidence: {
+            window: { startDate: dateWindow.start, endDate: dateWindow.end },
+          },
+        })}
+        surfaceId="meta-history"
+      />
       <HistoryView
         rows={[]}
         unavailableReason="The persisted Meta journal could not be read for this account."
       />
+      </>
     );
   }
 
@@ -240,6 +337,30 @@ export default async function MetaHistoryPage({
   // still read here so the surface renders with real rows before any client
   // code runs; the client only takes over when the operator asks for more.
   return (
+    <>
+    <MetaSurfaceState
+      envelope={resolveMetaSurfaceReadState({
+        businessId,
+        providerAccountId: account.id,
+        requiresProviderAccount: true,
+        permissions: pageState.permissions,
+        capability: { canRead: true, canWrite: pageState.capability.canWrite },
+        // One source, and its row count is the journal page the server just
+        // read. Zero rows here is a proven-empty journal, not a failed read —
+        // the failed read returned above.
+        sources: [
+          {
+            id: "journal",
+            outcome: page.rows.length > 0 ? "served" : "empty",
+            rowCount: page.rows.length,
+          },
+        ],
+        evidence: {
+          window: { startDate: dateWindow.start, endDate: dateWindow.end },
+        },
+      })}
+      surfaceId="meta-history"
+    />
     <HistoryClient
       businessId={businessId}
       providerAccountId={account.id}
@@ -250,5 +371,6 @@ export default async function MetaHistoryPage({
       initialPage={page}
       pageLimit={PAGE_LIMIT}
     />
+    </>
   );
 }

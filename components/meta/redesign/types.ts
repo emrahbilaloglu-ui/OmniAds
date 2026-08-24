@@ -4,6 +4,7 @@ import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaDecisionsWorkspaceReadModel } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
+import type { MetaResponseEnvelope } from "@/lib/meta/read-state-contract";
 
 export type MetaWindowKey = "7d" | "14d" | "28d" | "90d" | "custom";
 
@@ -311,6 +312,13 @@ export interface MetaDecisionsDigest {
 }
 
 export interface MetaDecisionsWorkspacePayload {
+  /**
+   * The §9 read state for this surface, decided by the server that served the
+   * rows. The client forwards it and never computes one: everything that
+   * separates a proven-empty queue from an unreadable one is known here and
+   * nowhere else.
+   */
+  readState?: MetaResponseEnvelope<null>;
   businessId: string;
   window: MetaWindowKey;
   statusFilter?: BriefingStatusFilter;

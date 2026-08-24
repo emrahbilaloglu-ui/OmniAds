@@ -81,24 +81,41 @@ test.describe("Launchpad execution is refused by the server, not by the screen",
     }
   });
 
-  test("the refusal happens before anything is written", async () => {
+  test("the refusal happens before anything is written", async ({ page }) => {
     /**
      * §10's ordering claim, checked rather than read: the gate sits before
      * account resolution, credential reads and any provider call. A refusal
      * that had already started an attempt would leave a row behind.
+     *
+     * Measured as a DIFFERENCE, not as an absolute count. The fixture seeds
+     * journal rows so History has something to serve, and a "the table is
+     * empty" assertion would have been measuring the seed rather than the
+     * refusal — it would pass for ever once the seed changed.
      */
     const client = new Client({ connectionString: process.env.META_RUNTIME_DATABASE_URL });
     await client.connect();
-    try {
+    const counts = async () => {
       const intents = await client.query<{ count: string }>(
         "SELECT COUNT(*)::text AS count FROM meta_launch_intents",
       );
-      expect(intents.rows[0]!.count, "a refused launch created a LaunchIntent").toBe("0");
-
       const actions = await client.query<{ count: string }>(
         "SELECT COUNT(*)::text AS count FROM meta_ads_action_log",
       );
-      expect(actions.rows[0]!.count, "a refused launch wrote an action log row").toBe("0");
+      return { intents: intents.rows[0]!.count, actions: actions.rows[0]!.count };
+    };
+    try {
+      const before = await counts();
+      const result = await post(page, "/api/launchpad/meta/launch", {
+        businessId: handle.businesses.oneAccount,
+        providerAccountId: handle.accounts.one,
+        idempotencyKey: "runtime-evidence-ordering-probe",
+        payload: { campaign: { name: "probe" }, adSets: [], ads: [] },
+      });
+      expect(result.status, result.body).toBe(503);
+
+      const after = await counts();
+      expect(after.intents, "a refused launch created a LaunchIntent").toBe(before.intents);
+      expect(after.actions, "a refused launch wrote an action log row").toBe(before.actions);
     } finally {
       await client.end();
     }

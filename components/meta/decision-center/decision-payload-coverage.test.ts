@@ -349,6 +349,9 @@ const PACING_IS_EXTRAPOLATED_FROM_SPEND = [
 ] as const;
 
 const COVERAGE: Record<string, Coverage> = {
+  "MetaDecisionsWorkspacePayload.readState": N(
+    "Not rendered BY THIS BODY, and deliberately so: the Decision Center forwards the §9 envelope to the surface-state region the canonical page mounts beside it (components/meta/meta-surface-state-live.tsx), which prints the state, the operator sentence and the failure code. Rendering it here as well would put two statements about the same read on one screen, and the body would then need its own opinion about which is current.",
+  ),
   "MetaDecisionsWorkspacePayload.businessId": N(
     "The payload echoes back the business it was requested for; the shell's business switcher is what names the account, and a second copy on screen could only agree or be wrong.",
   ),
@@ -2331,6 +2334,11 @@ const EXTERNAL_BOUNDARY: ReadonlySet<string> = new Set([
   "BriefingStatusFilter",
   // The campaign role token on lane and inventory rows.
   "MetaCampaignKind",
+  // The §9 read-state envelope. Its own shape is pinned by
+  // `lib/meta/surface-read-state.test.ts` and its rendering by
+  // `components/meta/MetaSurfaceState`; this matrix classifies the FIELD that
+  // carries it, not the contract inside it.
+  "MetaResponseEnvelope",
 ]);
 
 /**
@@ -2380,9 +2388,9 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
      * becoming pinned would move a claim from the strong proof to the weak one
      * with nothing said.
      */
-    expect(fields.length).toBe(544);
+    expect(fields.length).toBe(545);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(45);
-    expect(fields.filter((field) => field.varies).length).toBe(520);
+    expect(fields.filter((field) => field.varies).length).toBe(521);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -2511,6 +2519,12 @@ vi.mock("@/store/app-store", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
+  /**
+   * Mounted pages hand this to `placeholderData` so a key change keeps the
+   * previous rows on screen instead of blanking them to a skeleton. These
+   * mocks never read it; the export just has to exist for the page to mount.
+   */
+  keepPreviousData: Symbol.for("keepPreviousData"),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: (input: { queryKey: unknown[] }) => {
     const key = String(input.queryKey[0]);
@@ -2906,7 +2920,7 @@ const DOM_PROOF_PINNED_LEAVES = 6;
  * than a feeling. @see the test that reads it for what it does and does not
  * mean.
  */
-const NOWHERE_LEAVES = 247;
+const NOWHERE_LEAVES = 248;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -3625,7 +3639,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     expect(outcomes.size).toBe(fields.filter((field) => field.varies).length);
     // Exact, for the reason the walk's own size is exact: a probe that stopped
     // probing would satisfy every "nothing changed" assertion in the file.
-    expect(outcomes.size).toBe(520);
+    expect(outcomes.size).toBe(521);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -3960,6 +3974,13 @@ describe("Meta Decision payload · every claim, proven against the running code"
      * joined: a leaf that reaches nothing may not be classified as reaching
      * someone. And it remains bounded by the states the probe can construct:
      * eleven scenarios, not every account in the world.
+     *
+     * AND ONE MORE, BY ONE. `readState` — the §9 envelope the route now decides
+     * and sends with the rows — reaches nothing in THIS body by design: the
+     * canonical page mounts the surface-state region beside the body and that
+     * is what prints it. 247 -> 248, and the leaf is classified
+     * INTENTIONALLY-NOT-RENDERED with that reason, which is the only
+     * classification the assertion below will accept for a leaf in this list.
      */
     const nowhere = [...outcomes.entries()].filter(
       ([, outcome]) => outcome.display.length === 0,

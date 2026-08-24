@@ -8,6 +8,9 @@ import { getSessionFromCookies } from "@/lib/auth";
 import { getMetaAutomationControlPlane } from "@/lib/meta/automation-control-plane";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
+import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
+import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
+import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
 
 export const dynamic = "force-dynamic";
 
@@ -80,12 +83,120 @@ export default async function MetaAutomationRoute({
         }
       : control;
 
+  /**
+   * The §9 envelope, from the control-plane read that already happened.
+   *
+   * `getMetaAutomationControlPlane` is caught to `null` above, and a null
+   * control plane used to render as an Automation screen with its guardrails at
+   * their defaults — which is the most dangerous shape of the D8 defect on this
+   * branch, because the defaults look safe. `supervision_state_unavailable`
+   * exists in §9.1 for exactly this and now reaches the screen.
+   */
+  const pageState = await resolveMetaPageSurfaceState({
+    surfaceId: "meta-automation",
+    businessId,
+    requestedAccountId: first(raw.providerAccountId),
+    permissions: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
+  });
+  const readState =
+    pageState.state === "refused"
+      ? pageState
+      : resolveMetaSurfaceReadState({
+          businessId,
+          providerAccountId,
+          requiresProviderAccount: true,
+          permissions: pageState.permissions,
+          capability: {
+            /*
+             * `control === null` is not the failure mode.
+             *
+             * `getMetaAutomationControlPlane` never throws for a failed section:
+             * it degrades each one to a benign-looking default and records
+             * `readCompleteness`, precisely because printing "ENABLED, Tier 1,
+             * +15%, 3 actions/day" from a read that did not happen is the worst
+             * lie this screen can tell. So the capability question is whether
+             * the BUSINESS CONTROL was read — everything on the screen that
+             * looks like a safety guarantee comes from it — and the remaining
+             * sections are reported as sources below.
+             */
+            canRead:
+              control !== null &&
+              control.readCompleteness?.businessControl === "complete",
+            canWrite: pageState.capability.canWrite,
+            readBlockedBy:
+              control !== null &&
+              control.readCompleteness?.businessControl === "complete"
+                ? undefined
+                : "supervision_state_unavailable",
+          },
+          sources:
+            control === null
+              ? []
+              : [
+                  {
+                    id: "promotion-records",
+                    outcome:
+                      control.readCompleteness?.promotionRecords === "complete"
+                        ? control.promotionRecords.length > 0
+                          ? "served"
+                          : "empty"
+                        : "failed",
+                    rowCount: control.promotionRecords.length,
+                    failureCode:
+                      control.readCompleteness?.promotionRecords === "complete"
+                        ? undefined
+                        : "supervision_state_unavailable",
+                  },
+                  {
+                    id: "rules",
+                    outcome:
+                      control.readCompleteness?.rules === "complete"
+                        ? (control.rules?.length ?? 0) > 0
+                          ? "served"
+                          : "empty"
+                        : "failed",
+                    rowCount: control.rules?.length ?? 0,
+                    failureCode:
+                      control.readCompleteness?.rules === "complete"
+                        ? undefined
+                        : "supervision_state_unavailable",
+                  },
+                  {
+                    id: "activity-ledger",
+                    // Two different truncations, and they are different states:
+                    // an unread ledger is a failure, and a ledger scoped to
+                    // business-only rows because no account resolved is a real
+                    // subset of a successful read.
+                    outcome:
+                      control.readCompleteness?.activityLedger !== "complete"
+                        ? "failed"
+                        : scopedControl !== control
+                          ? "partial"
+                          : (scopedControl?.activityLedger.length ?? 0) > 0
+                            ? "served"
+                            : "empty",
+                    rowCount: scopedControl?.activityLedger.length ?? 0,
+                    failureCode:
+                      control.readCompleteness?.activityLedger === "complete"
+                        ? undefined
+                        : "supervision_state_unavailable",
+                  },
+                ],
+        });
+
   return (
+    <>
+    <MetaSurfaceState envelope={readState} surfaceId="meta-automation" />
     <MetaAutomationPage
       businessId={businessId}
       providerAccountId={providerAccountId}
       initialPayload={scopedControl}
       viewer={viewer}
     />
+    </>
   );
 }

@@ -42,6 +42,28 @@ vi.mock("@/lib/zero-base/auth-routing", () => ({
   loginUrlFor: routeMocks.loginUrlFor,
 }));
 vi.mock("@/lib/zero-base/provider-scope-server", () => ({
+  /**
+   * The surface-state resolver reads the SCOPE, not just the id: it needs the
+   * refusal reason to tell "nothing assigned" from "several assigned, none
+   * chosen". Derived from the same mock so the two can never disagree about
+   * which account this request resolved to.
+   */
+  resolveProviderAccountScope: async (input: unknown) => {
+    // Reaches the same mock through the module itself, because the factory
+    // runs before the file's own bindings exist and cannot close over one.
+    const { resolveProviderAccountId: resolveId } = (await import(
+      "@/lib/zero-base/provider-scope-server"
+    )) as { resolveProviderAccountId: (value: unknown) => Promise<string | null> };
+    const id = await resolveId(input);
+    return id
+      ? { providerAccountId: id, refusal: null, requestedButUnassigned: null }
+      : {
+          providerAccountId: null,
+          refusal: "provider_account_none_assigned" as const,
+          requestedButUnassigned: null,
+        };
+  },
+  readProviderScopeCatalog: async () => ({ provider: "meta" as const, accounts: [] }),
   resolveProviderAccountId: vi.fn(),
 }));
 vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({

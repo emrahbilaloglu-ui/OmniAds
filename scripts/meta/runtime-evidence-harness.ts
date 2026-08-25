@@ -180,21 +180,61 @@ async function main(): Promise<void> {
       return baseUrl;
     };
 
-    // Every gate at its shipped value. Nothing is set, because "not set" is the
-    // posture under test and writing `=false` would prove a different one.
-    const baseUrl = await startServer("shipped-gates", {});
+    /*
+     * Every release GATE at its shipped value. Nothing is set for those,
+     * because "not set" is the posture under test and writing `=false` would
+     * prove a different one.
+     *
+     * The rollout MODE is different in kind and is set explicitly. It is not a
+     * release gate whose unset state is the shipped posture — it is product
+     * configuration a deployment is expected to choose, and since
+     * `canonical-fallback.ts` made `off` mean something, leaving it unset here
+     * would serve every spec the preserved legacy bodies. These specs are
+     * about the canonical console, so they say so.
+     *
+     * The rolled-back postures get their own server below, which is the only
+     * way to have both: a gate has two halves and one process shows one of them.
+     */
+    const CANONICAL_ON = { ZERO_BASE_UI_MODE: "on" };
+
+    const baseUrl = await startServer("shipped-gates", { ...CANONICAL_ON });
     const gatesOpenBaseUrl = await startServer("gates-open", {
+      ...CANONICAL_ON,
       META_AUTOMATION_STOP_UI: "true",
       META_DECISION_WORKFLOW_UI: "true",
       META_PUBLIC_SHARE_MINT: "true",
       META_ACCOUNT_PICKER: "true",
     });
 
+    /*
+     * The rollback, and the allowlist, each on their own process.
+     *
+     * `rolled-back` is the shipped default made explicit: every canonical
+     * surface serves its preserved legacy owner, or says why it has none.
+     * `allowlist` names ONE business, so a single server proves both halves —
+     * the named business gets the canonical console, every other business in
+     * the same fixture gets the legacy one.
+     */
+    const rolledBackBaseUrl = await startServer("rolled-back", {
+      ZERO_BASE_UI_MODE: "off",
+    });
+    const allowlistBaseUrl = await startServer("allowlist", {
+      ZERO_BASE_UI_MODE: "allowlist",
+      ZERO_BASE_UI_BUSINESS_IDS: seed.businesses.oneAccount,
+    });
+
     mkdirSync(HANDLE_DIR, { recursive: true });
     writeFileSync(
       HANDLE_FILE,
       `${JSON.stringify(
-        { baseUrl, gatesOpenBaseUrl, databaseUrl: cluster.databaseUrl, ...seed },
+        {
+          baseUrl,
+          gatesOpenBaseUrl,
+          rolledBackBaseUrl,
+          allowlistBaseUrl,
+          databaseUrl: cluster.databaseUrl,
+          ...seed,
+        },
         null,
         2,
       )}\n`,
@@ -255,7 +295,25 @@ async function main(): Promise<void> {
     log("playwright: driving the canonical routes");
     const test = spawnSync(
       "npx",
-      ["playwright", "test", "--project=meta-runtime-chromium", "--reporter=list"],
+      [
+        "playwright",
+        "test",
+        "--project=meta-runtime-chromium",
+        "--reporter=list",
+        /*
+         * An optional filter, so a focused re-verification does not cost a
+         * full 30-minute sweep — and, more importantly, so it does not tempt
+         * anyone into `--keep` plus a hand-driven Playwright run. The servers
+         * and the cluster are torn down in this script's `finally` either way;
+         * a kept harness has no such guarantee and has already leaked a dozen
+         * standalone servers and clusters into this machine once.
+         *
+         * Unset runs everything, which is what the gate means.
+         */
+        ...(process.env.META_RUNTIME_SPEC_FILTER?.trim()
+          ? [process.env.META_RUNTIME_SPEC_FILTER.trim()]
+          : []),
+      ],
       {
         cwd: ROOT,
         stdio: "inherit",

@@ -190,8 +190,18 @@ const ROUTES: Readonly<Record<string, DashboardScreenRoute>> = {
   "/app/manage/plan": route("settings"),
 };
 
-/** Public `/app/**` spellings for reference-bound legacy destinations. */
-const APP_PATH_BY_LEGACY_PATH: Readonly<Record<string, string>> = {
+/**
+ * Public `/app/**` spellings for reference-bound legacy destinations.
+ *
+ * Exported because the ROLLBACK reads it backwards. `canonical-fallback.ts`
+ * inverts this map to answer "which legacy screen still renders this canonical
+ * surface", and it has to be this map rather than `COMPATIBILITY_TABLE`: the
+ * table only knows the 46 paths whose URL changed, so Klaviyo, Google Products,
+ * Google Plan and Plan & Billing — whose legacy screens work perfectly well —
+ * are absent from it, and a rollback that refuses four working screens is not a
+ * rollback.
+ */
+export const APP_PATH_BY_LEGACY_PATH: Readonly<Record<string, string>> = {
   "/overview": "/app/home",
   "/platforms/meta": "/app/meta/decisions",
   "/platforms/meta/history": "/app/meta/history",

@@ -23,6 +23,17 @@ export interface RuntimeHandle {
    * the gate itself.
    */
   gatesOpenBaseUrl: string;
+  /**
+   * `ZERO_BASE_UI_MODE=off` — the rollback. Every canonical surface serves its
+   * preserved legacy owner, or names itself as one that has none.
+   */
+  rolledBackBaseUrl: string;
+  /**
+   * `ZERO_BASE_UI_MODE=allowlist`, naming the one-account business only. One
+   * process proves both halves: that business gets the canonical console and
+   * every other business in the fixture gets the legacy one.
+   */
+  allowlistBaseUrl: string;
   databaseUrl: string;
   operator: { id: string; email: string; password: string };
   businesses: {

@@ -8,8 +8,12 @@
  * them for ever. The loop test below drives the real tables against the real
  * decision functions rather than asserting the property in a comment.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
+import { APP_PATH_BY_LEGACY_PATH } from "@/lib/dashboard-v2/screen-registry";
 import {
   COMPATIBILITY_TABLE,
   decideCompatibility,
@@ -40,23 +44,86 @@ function config(
 
 describe("the reverse table is derived, not written", () => {
   it("covers every business-scoped canonical destination the table names", () => {
-    const expected = new Set(
-      COMPATIBILITY_TABLE.filter(
-        (target) => target.scope === "business" && target.canonicalUrls.length === 1,
-      ).map((target) => target.canonicalUrls[0]!),
+    const fromTable = COMPATIBILITY_TABLE.filter(
+      (target) => target.scope === "business" && target.canonicalUrls.length === 1,
+    ).map((target) => target.canonicalUrls[0]!);
+    const missing = fromTable.filter(
+      (canonical) => !CANONICAL_FALLBACK_BY_TEMPLATE.has(canonical),
     );
-    expect(new Set(CANONICAL_FALLBACK_BY_TEMPLATE.keys())).toEqual(expected);
+    /*
+     * Every one, with nothing excluded here. Account Intelligence never appears
+     * in this table at all — its URL did not change, it simply did not exist
+     * before — so the deliberate exclusion lives in the screen-registry half
+     * and is asserted by the on-disk check below.
+     */
+    expect(missing).toEqual([]);
   });
 
-  it("never maps a canonical destination to more than one legacy route", () => {
-    // A Map cannot hold two values for one key, so the real assertion is that
-    // the collapse was deliberate: every canonical URL resolves to a route that
-    // the table actually lists for it.
+  it("covers the four surfaces the table alone would have refused", () => {
+    /*
+     * Klaviyo, Google Products, Google Plan and Plan & Billing. Their URLs
+     * never changed, so they are not "changed legacy paths" and
+     * `COMPATIBILITY_TABLE` does not know them — but their screens render, and
+     * a rollback must reach them.
+     */
+    expect(CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/klaviyo")).toBe(
+      "/platforms/klaviyo",
+    );
+    expect(CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/google/products")).toBe(
+      "/platforms/google/products",
+    );
+    expect(CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/google/plan")).toBe(
+      "/platforms/google/plan",
+    );
+    expect(CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/manage/plan")).toBe(
+      "/settings",
+    );
+  });
+
+  it("prefers the page over the redirect stub when a surface has several spellings", () => {
+    /*
+     * The shortest-path rule earning its keep. `/platforms/google/keywords` is
+     * a stub that forwards to `/platforms/google/search`, and
+     * `/platforms/google/audiences` forwards to `/platforms/google/assets`.
+     * Landing on a stub would make the rollback take two hops.
+     */
+    expect(CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/google/search")).toBe(
+      "/platforms/google/search",
+    );
+    expect(
+      CANONICAL_FALLBACK_BY_TEMPLATE.get("/c/[businessId]/google/assets-audiences"),
+    ).toBe("/platforms/google/assets");
+  });
+
+  it("every destination is a route that exists on disk", () => {
+    /*
+     * The check that catches an aspirational registry entry. The screen
+     * registry names `/platforms/meta/intelligence`; no page was ever built
+     * there, and a rollback that redirected to it would 404 an operator
+     * mid-incident. Walked against the filesystem so a second one fails here
+     * rather than in a browser.
+     */
+    const missing = [...CANONICAL_FALLBACK_BY_TEMPLATE.values()].filter(
+      (route) => !existsSync(path.join(process.cwd(), "app", "(dashboard)", route, "page.tsx")),
+    );
+    expect(missing, "fallback destinations with no page.tsx").toEqual([]);
+  });
+
+  it("never invents a legacy route neither source names", () => {
+    /*
+     * A Map cannot hold two values for one key, so the real assertion is that
+     * the collapse was deliberate: every canonical URL resolves to a route one
+     * of the two sources actually lists for it. Both are checked, because the
+     * union is what makes the four gap surfaces reachable.
+     */
     for (const [canonical, legacy] of CANONICAL_FALLBACK_BY_TEMPLATE) {
-      const routes = COMPATIBILITY_TABLE.filter((target) =>
+      const fromTable = COMPATIBILITY_TABLE.filter((target) =>
         target.canonicalUrls.includes(canonical),
       ).map((target) => target.route);
-      expect(routes, `${canonical} → ${legacy}`).toContain(legacy);
+      const fromRegistry = Object.entries(APP_PATH_BY_LEGACY_PATH)
+        .filter(([, appPath]) => canonicalTemplateForAppPath(appPath.replace(/^\/app\//, "")) === canonical)
+        .map(([legacyRoute]) => legacyRoute);
+      expect([...fromTable, ...fromRegistry], `${canonical} → ${legacy}`).toContain(legacy);
     }
   });
 
@@ -143,11 +210,7 @@ describe("a surface with no legacy owner is named, not redirected", () => {
     "meta/intelligence",
     "creative/briefs",
     "creative/shares",
-    "google/products",
-    "google/plan",
-    "klaviyo",
     "analytics/landing-pages",
-    "manage/plan",
   ]) {
     it(`${appPath} rolls back rather than borrowing another screen`, () => {
       expect(
@@ -193,15 +256,22 @@ describe("a surface with no legacy owner is named, not redirected", () => {
       (appPath) =>
         !CANONICAL_FALLBACK_BY_TEMPLATE.has(canonicalTemplateForAppPath(appPath)),
     );
+    /*
+     * Four, not eight. An earlier revision of this list also refused Klaviyo,
+     * Google Products, Google Plan and Plan & Billing — whose legacy screens
+     * render perfectly well and are simply absent from `COMPATIBILITY_TABLE`,
+     * because their URL never changed. A rollback that refuses four working
+     * screens is not a rollback, so the map now unions the screen registry.
+     *
+     * The four that remain never existed before the new console. Account
+     * Intelligence is the subtle one: the screen registry DOES name
+     * `/platforms/meta/intelligence` for it, and no page was ever built there.
+     */
     expect(orphans).toEqual([
       "meta/intelligence",
       "creative/briefs",
       "creative/shares",
-      "google/products",
-      "google/plan",
-      "klaviyo",
       "analytics/landing-pages",
-      "manage/plan",
     ]);
   });
 });

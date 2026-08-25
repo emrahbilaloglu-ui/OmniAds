@@ -370,6 +370,43 @@ function buildPostDeploySummary(input: {
   };
 }
 
+/**
+ * The rollout mode must be SET before a deploy, not merely valid.
+ *
+ * `parseUiMode` resolves an absent value to `off`, and `off` is now a real
+ * instruction rather than an inert default: `canonical-fallback.ts` sends every
+ * canonical surface back to its preserved legacy owner. That is exactly what
+ * the lever is for, and it is a catastrophic thing to do BY ACCIDENT — an
+ * unset variable would roll the whole product back with no code change and no
+ * error, and the compose wrapper trap in this repo's own history is precisely
+ * how a variable goes missing on a host that once had it.
+ *
+ * So absence fails here, loudly, before the deploy. This reports the name of
+ * the key and never its value: the value is a rollout decision, not a secret,
+ * but printing configuration into a release log is a habit worth not having.
+ */
+function checkRolloutModeIsSet(): {
+  ok: boolean;
+  detail: string;
+} {
+  const raw = process.env.ZERO_BASE_UI_MODE?.trim();
+  if (!raw) {
+    return {
+      ok: false,
+      detail:
+        "ZERO_BASE_UI_MODE is not set. It defaults to `off`, and `off` now routes every canonical surface back to its preserved legacy owner. Set it deliberately — `on`, `allowlist`, `internal` or `off` — so a rollback is a decision rather than an omission.",
+    };
+  }
+  const known = ["off", "internal", "allowlist", "on"];
+  if (!known.includes(raw.toLowerCase())) {
+    return {
+      ok: false,
+      detail: `ZERO_BASE_UI_MODE is set to an unrecognised value, which parses as \`off\` and rolls the product back. Expected one of: ${known.join(", ")}.`,
+    };
+  }
+  return { ok: true, detail: `ZERO_BASE_UI_MODE is set to a recognised mode.` };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
 
@@ -389,6 +426,7 @@ async function main() {
     });
     const integrity = verifyReleaseAuthorityManifestIntegrity();
     const canonicalDoc = tryReadCanonicalDoc();
+    const rolloutMode = checkRolloutModeIsSet();
     const summary = buildPreflightSummary({
       report,
       integrity,
@@ -405,6 +443,7 @@ async function main() {
           capturedAt: new Date().toISOString(),
           report,
           integrity,
+          rolloutMode,
           summary,
         },
         null,
@@ -412,7 +451,8 @@ async function main() {
       ),
     );
 
-    if (summary.result !== "pass") {
+    if (summary.result !== "pass" || !rolloutMode.ok) {
+      if (!rolloutMode.ok) console.error(`\npreflight: ${rolloutMode.detail}`);
       process.exit(1);
     }
     return;

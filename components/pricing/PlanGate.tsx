@@ -27,9 +27,31 @@ export function PlanGate({ requiredPlan, children }: Props) {
   const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
 
   if (!selectedBusinessId || isPlanLoading || !isPlanReady) {
+    /*
+     * A top-aligned skeleton, matching `BusinessGuardLoadingState`.
+     *
+     * The previous placeholder centred one line of text in a 60vh box, so the
+     * two loading states a plan-gated surface passes through looked like
+     * different pages, and neither announced itself. This is the same shape as
+     * the guard's, with a polite live region so the wait is spoken rather than
+     * only drawn.
+     *
+     * It was tried as a CLS fix and is not one: `creative-studio` measures
+     * 0.1042 before and after, to the digit. The real 52 px shift happens above
+     * `<main>`, in the shell's first client render — recorded in
+     * `CLS_DEBT` with what was eliminated.
+     */
     return (
-      <div className="flex min-h-[60vh] flex-1 items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading workspace…</div>
+      <div
+        className="rounded-xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500"
+        data-plan-gate="loading"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="h-3 w-28 animate-pulse rounded bg-neutral-200" />
+        <div className="mt-4 h-8 w-56 animate-pulse rounded bg-neutral-100" />
+        <div className="mt-3 h-3 w-72 max-w-full animate-pulse rounded bg-neutral-100" />
+        <span className="sr-only">Loading workspace…</span>
       </div>
     );
   }

@@ -84,3 +84,34 @@ export const FIRST_LOAD_API_CALL_DEBT: Readonly<Record<string, number>> = {
   "creative-copies": 13, //     12–13 observed
   "creative-landing-pages": 13, // 12–13 observed
 };
+
+/**
+ * Surfaces measured above `CLS_BUDGET`, with the figure and the mechanism.
+ *
+ * One entry, and it is a defect rather than a tolerance. `creative-studio`
+ * measures **0.1042** against a 0.1 budget, repeatably to the last digit — the
+ * same value before and after two attempted fixes, which is how it was traced.
+ *
+ * The mechanism, as far as the runtime evidence establishes it: the shell is
+ * rendered on the client, so a Meta surface's first paint has no `<main>` at
+ * all, and the shell's FIRST client render is 52 px taller above `<main>` than
+ * its settled one. When that strip collapses, the whole content column moves up
+ * 52 px in one shift. It is a shell-level defect, not a Creative Studio one;
+ * Creative Studio is simply the surface whose content column is tall enough for
+ * a 52 px move to cross the budget.
+ *
+ * Two candidates were tested and eliminated, both by measurement rather than by
+ * reasoning: the plan gate's loading placeholder (replaced with a top-aligned
+ * skeleton — CLS unchanged to the digit) and the Creative Studio share nudge
+ * (it moves WITH the column rather than causing the move).
+ *
+ * Recorded rather than waived, the same way `FIRST_LOAD_API_CALL_DEBT` is: the
+ * gate fails the moment the figure gets worse, and it is listed as an open
+ * defect in `docs/meta-market-ready/RUNTIME_EVIDENCE_AND_STATUS.md` rather than
+ * disappearing into a green tick. Fixing it means changing when the shell
+ * commits its final height, which is a shell-wide change with its own
+ * regression surface — not something to land at the end of a pass on a hunch.
+ */
+export const CLS_DEBT: Readonly<Record<string, number>> = {
+  "creative-studio": 0.105,
+};

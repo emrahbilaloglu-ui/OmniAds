@@ -85,6 +85,9 @@ function hasRouteOwnedMobileSurface(pathname: string | null) {
   return hasRouteOwnedMetaSurface(pathname) || hasRouteOwnedGoogleSurface(pathname);
 }
 
+/** The skip link's target. Exported so a test can name the same id the shell does. */
+export const DASHBOARD_MAIN_ID = "adv-main-content";
+
 function mobileSurfaceForPath(pathname: string | null) {
   // Pages with route-owned mobile read-only surfaces need their real payloads.
   // The shell keeps only the generic note for those routes.
@@ -267,6 +270,27 @@ export function DashboardFrame({
 
   return (
     <div className="ad-console-shell adv-shell">
+      {/*
+        WP17 — skip link.
+
+        The zero-base shell has had one since it was written; nothing mounts
+        that shell. Every canonical route (`/app/**` and the `/c/**` twins) and
+        every legacy one renders THIS frame, so until now a keyboard user tabbed
+        through the entire rail — every product, every module, every sub-item —
+        before reaching the page on every navigation.
+
+        Off-screen until focused, so it changes nothing visually; `<main>` takes
+        `tabIndex={-1}` so activating it MOVES focus rather than only scrolling,
+        which is the difference between a working skip link and an anchor that
+        leaves the next Tab back at the top of the rail.
+      */}
+      <a
+        href={`#${DASHBOARD_MAIN_ID}`}
+        data-skip-link=""
+        className="absolute left-2 top-[-100px] z-[60] rounded-[var(--adv-r-input,8px)] border border-[var(--adv-accent,#2a5fe2)] bg-white px-3.5 py-2.5 text-[13px] font-semibold text-[var(--adv-accent,#2a5fe2)] no-underline focus:top-2"
+      >
+        Skip to main content
+      </a>
       {/* WP17: one screen_view per mounted Meta surface, resolved from the WP2
           registry so it cannot drift from the surfaces that exist. Renders
           nothing. */}
@@ -299,6 +323,8 @@ export function DashboardFrame({
         />
         <main
           className="adv-main"
+          id={DASHBOARD_MAIN_ID}
+          tabIndex={-1}
           data-mobile-surface={mobileSurface ?? "none"}
         >
           {claimsMobileReadOnly && !routeOwnsMobileSurface ? (

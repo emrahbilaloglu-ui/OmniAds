@@ -213,11 +213,12 @@ test("mint — a selection in the studio becomes a stored snapshot", async ({ pa
   await modal.locator('[data-share-audience-option="buyer"]').click();
   await modal.getByRole("checkbox", { name: /share these financial metrics/i }).click();
   /*
-   * The CSV switch has no accessible name — it is a bare `role="switch"` next
-   * to the label text — so it is addressed structurally. That is itself worth
-   * noticing; an unlabelled switch is a WP17 finding, recorded there.
+   * By name. It used to be a bare `role="switch"` whose only description was a
+   * sibling paragraph it did not point at, so a screen reader announced
+   * "switch, on" and nothing else — found here, because this spec could not
+   * address it by name either, and fixed in `ShareSnapshotModal`.
    */
-  const csvToggle = modal.locator('[role="switch"]');
+  const csvToggle = modal.getByRole("switch", { name: "Allow CSV download" });
   await expect(csvToggle).toHaveCount(1);
   if ((await csvToggle.getAttribute("aria-checked")) !== "true") await csvToggle.click();
   await expect(csvToggle).toHaveAttribute("aria-checked", "true");
@@ -448,7 +449,18 @@ test("the canonical console can withdraw a link but cannot mint one", async ({ p
   await expect(create).toHaveCount(1, { timeout: 60_000 });
   await expect(create).toBeDisabled();
 
-  // Withdrawal is not gated on the same thing, which is the point: a link that
-  // already exists must always be revocable, whatever the mint path can do.
-  await expect(page.locator('[data-ctl="live:CREATIVE-10 revoke"]')).toHaveCount(0);
+  /*
+   * And withdrawal is not gated on the same thing, which is the point: a link
+   * that already exists must stay revocable whatever the mint path can do.
+   *
+   * Asserted as "every revoke control present is enabled", not as a count.
+   * Counting zero was wrong twice over — it asserted the ledger is empty, which
+   * is a fact about the fixture rather than about the gate, and it is false in
+   * a full run, where `meta-runtime-release-gates.spec.ts` has already minted a
+   * live share against the same database.
+   */
+  const revoke = page.locator('[data-ctl="live:CREATIVE-10 revoke"]');
+  for (let index = 0; index < (await revoke.count()); index += 1) {
+    await expect(revoke.nth(index), `revoke ${index} is disabled`).toBeEnabled();
+  }
 });

@@ -444,6 +444,16 @@ function ConfigPhase(props: ShareSnapshotModalProps) {
           </div>
           <span
             aria-checked={props.csvOn}
+            /*
+             * A switch with no name. Everything that says what this control
+             * does is in the sibling `<p>`, which the switch does not point
+             * at — so a screen reader reached a switch, announced "switch, on"
+             * and nothing else, and the operator had to guess which of the
+             * dialog's settings they had just changed. Found while driving
+             * WP11's lifecycle from the keyboard: the runtime spec could not
+             * address it by name either.
+             */
+            aria-label="Allow CSV download"
             className={props.csvOn ? styles.toggleOn : styles.toggleOff}
             onClick={props.onCsvToggle}
             onKeyDown={(event) => {

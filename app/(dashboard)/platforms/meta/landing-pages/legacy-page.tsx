@@ -330,7 +330,19 @@ export default function LandingPagesPage({
 
   return (
     <PlanGate requiredPlan="growth">
-      <main
+      {/*
+       * A `div`, not a `main`. Both shells that mount this body already own the
+       * page's main landmark — `dashboard-frame.tsx` at the legacy route and
+       * `app-shell.tsx` at the canonical one — so this element was a second
+       * one, which makes "skip to main content" ambiguous and gives a screen
+       * reader two documents to choose between. Its four sibling Studio tabs
+       * all wrap in a plain element; this one drifted.
+       *
+       * It went unnoticed because the surface is plan-gated at Growth and the
+       * runtime fixture's operator was on Starter, so the landmark check was
+       * measuring the upgrade card.
+       */}
+      <div
         data-testid="landing-pages-studio-page"
         data-landing-state={dataState}
         data-landing-source-status={query.data?.status ?? "unread"}
@@ -342,7 +354,7 @@ export default function LandingPagesPage({
           onExport={model.rows.length > 0 ? () => downloadCsv(query.data?.rows ?? []) : undefined}
           tabHrefs={tabHrefs}
         />
-      </main>
+      </div>
     </PlanGate>
   );
 }

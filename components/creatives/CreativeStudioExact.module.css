@@ -250,7 +250,20 @@
 
 .toneWarning {
   --tone-bg: #fbf1da;
-  --tone-fg: #b45309;
+  /*
+   * amber-800, not amber-700. `#b45309` on `#fbf1da` measures 4.47:1 and WCAG
+   * AA wants 4.5 — three hundredths short, on the one tone in this table that
+   * is used at 10.5px to say a decision could not be computed. Small bold text
+   * on a tinted chip is exactly the case the ratio exists for, and the pill
+   * that admits something is missing is the worst one to make hard to read.
+   *
+   * `--tone-solid` keeps the lighter value: it paints a filled background with
+   * white or near-white on top, where the same darkening would push the pair
+   * the other way. Found by axe against the mounted Creative Studio, which had
+   * been answering "Growth plan required" until the fixture's operator moved
+   * off the Starter plan.
+   */
+  --tone-fg: #92400e;
   --tone-solid: #b45309;
   color: var(--tone-fg);
 }

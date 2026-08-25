@@ -55,9 +55,23 @@ test.describe("a credential the provider refused is not presented as healthy", (
   }) => {
     await openSurface(page, handle, INTEGRATIONS);
     const healthy = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
-    expect(healthy, "the fixture did not start from a connected Meta").toMatch(
-      /Meta Ads[\s\S]{0,80}(connected|Needs setup)/,
+    /*
+     * The precondition is that Meta is NOT already refused — not that the card
+     * reads any particular healthy phrase.
+     *
+     * It used to require "connected" or "Needs setup", which passed only while
+     * `/api/meta/status` was throwing: the harness left four env vars unset
+     * that the runtime contract requires to be explicit in production, the
+     * status route answered 500 on every request, and the card fell back to a
+     * flat connected caption. With the contract satisfied the same fixture
+     * reads "Connecting · FIRST SYNC" — a connection with no snapshot yet,
+     * which is what it actually is. Asserting the old phrase would be asserting
+     * the 500.
+     */
+    expect(healthy, "the fixture starts from an already-refused Meta").not.toMatch(
+      /Meta Ads\s+Action required/,
     );
+    expect(healthy, "the fixture has no Meta card at all").toMatch(/Meta Ads/);
 
     try {
       await setConnectionStatus("error");

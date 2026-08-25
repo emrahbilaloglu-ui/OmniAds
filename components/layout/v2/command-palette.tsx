@@ -299,13 +299,85 @@ export function CommandPalette({
     [entityEntries, filteredStaticEntries],
   );
 
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setCursor(0);
+    /*
+     * Remember who opened it, and give focus back on close.
+     *
+     * Without this, dismissing the palette left `document.activeElement` on
+     * `<body>` — so the next Tab restarted at the top of the document and a
+     * keyboard user was returned to the rail rather than to the control they
+     * pressed. `aria-modal="true"` was already claiming the rest of the page
+     * was inert; the focus behaviour has to match the claim.
+     */
+    openerRef.current = document.activeElement as HTMLElement | null;
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      const opener = openerRef.current;
+      openerRef.current = null;
+      // Only if focus is still somewhere in the dialog: if the operator has
+      // already moved on — a result ran and navigated — pulling focus back to
+      // a control they left would be its own bug.
+      if (opener && typeof opener.focus === "function") {
+        const active = document.activeElement;
+        if (!active || active === document.body || dialogRef.current?.contains(active)) {
+          opener.focus();
+        }
+      }
+    };
   }, [open]);
+
+  /**
+   * Keep Tab inside the dialog.
+   *
+   * The palette is hand-rolled rather than built on a dialog primitive, so
+   * nothing was holding focus: three Tabs from the input walked out of a modal
+   * that declares `aria-modal="true"` and landed on the page behind it, which
+   * a screen reader has been told does not exist. Escape is handled here too
+   * rather than only on the input, so it works from a result row as well.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onOpenChange(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const stops = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((node) => node.offsetParent !== null || node === document.activeElement);
+      if (stops.length === 0) return;
+      const first = stops[0]!;
+      const last = stops[stops.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !dialog.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, onOpenChange]);
 
   useEffect(() => {
     setCursor(0);
@@ -338,6 +410,7 @@ export function CommandPalette({
     >
       <div
         id="dashboard-command-palette"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Jump or act"

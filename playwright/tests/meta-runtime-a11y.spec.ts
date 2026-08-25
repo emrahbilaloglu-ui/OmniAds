@@ -46,7 +46,26 @@ test.describe("axe on the mounted routes", () => {
         expect(
           blocking.map(
             (violation) =>
-              `${violation.id} (${violation.impact}) ×${violation.nodes.length} — ${violation.help}`,
+              /*
+               * The offending nodes, not only the rule name.
+               *
+               * "color-contrast ×2" names a rule and leaves the reader to find
+               * the two elements by hand across a whole surface — which is how
+               * a real violation sits unfixed while the gate keeps reporting
+               * it. The selector and the failure summary are what turn this
+               * into something somebody can act on.
+               */
+              `${violation.id} (${violation.impact}) — ${violation.help}\n` +
+              violation.nodes
+                .slice(0, 4)
+                .map(
+                  (node) =>
+                    `    ${node.target.join(" ")}\n      ${(node.failureSummary ?? "")
+                      .replace(/\s+/g, " ")
+                      .trim()
+                      .slice(0, 220)}`,
+                )
+                .join("\n"),
           ),
           `axe on ${route.path} at ${width}px ${theme}`,
         ).toEqual([]);

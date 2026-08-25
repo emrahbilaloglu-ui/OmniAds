@@ -9,6 +9,7 @@
  * for, an account to reassign.
  */
 import { useState } from "react";
+import type { MetaFailureCode, MetaReadState } from "@/lib/meta/read-state-contract";
 
 import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { Button } from "@/components/zero-base/primitives/button";
@@ -21,6 +22,16 @@ export interface IntelligenceSource {
   key: string;
   label: string;
   state: ProviderSourceState;
+  /**
+   * This section's own §9 read state, decided on the server.
+   *
+   * Optional because this view is also rendered from hand-built fixtures in the
+   * frame and shell harnesses, which predate the field. A section without one
+   * renders no marker rather than a guessed value — the view decides nothing
+   * about read state, which is the whole reason the server owns it.
+   */
+  readState?: MetaReadState;
+  readFailureCode?: MetaFailureCode;
   reason: string | null;
   observedAt: string | null;
   /** Served facts only. A source with none renders none — never a zero. */
@@ -110,7 +121,19 @@ export function IntelligenceView({
             {sources.map((row) => (
               <article key={row.key} style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) minmax(0,2fr) auto", gap: 12, alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--ledger-bg-inset)", fontSize: 12 }}>
                 <strong style={{ fontWeight: 650 }}>{row.label}</strong>
-                <span data-source-state={row.key}>
+                <span
+                  data-source-state={row.key}
+                  /*
+                   * WP9's acceptance is stated in §9 read states, and this is
+                   * where a section says which one it is in. `data-source-state`
+                   * beside it carries the older five-member ProviderSourceState
+                   * — kept because the existing gates read it, and because the
+                   * two answer different questions: one is source health, the
+                   * other is what the operator may believe about the panel.
+                   */
+                  data-section-read-state={row.readState}
+                  data-section-failure-code={row.readFailureCode ?? undefined}
+                >
                   <strong style={{ color: row.state === "serving" ? "var(--ledger-semantic-ok)" : row.state === "partial" || row.state === "degraded" ? "var(--ledger-semantic-warn)" : "var(--ledger-ink-secondary)" }}>{STATE_WORD[row.state]}</strong>
                   {row.reason ? <span style={{ display: "block", marginTop: 2, color: "var(--ledger-ink-tertiary)" }}>{row.reason}</span> : null}
                   <span style={{ display: "block", marginTop: 2, color: "var(--ledger-ink-tertiary)" }}>{row.observedAt ?? copy.notRecorded}</span>

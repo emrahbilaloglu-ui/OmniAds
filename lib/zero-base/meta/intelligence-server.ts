@@ -14,6 +14,8 @@
  */
 import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
 import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
+import type { MetaFailureCode, MetaReadState } from "@/lib/meta/read-state-contract";
+import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   getMetaCanonicalOverviewSummary,
@@ -43,6 +45,25 @@ export interface IntelligenceSection {
   label: string;
   state: ProviderSourceState;
   reason: string | null;
+  /**
+   * This section's own §9 read state.
+   *
+   * WP9's acceptance is "9 bölüm × 7 read state", and until now no per-section
+   * §9 state existed anywhere: `data-read-state` was one value for the whole
+   * page, and the per-section word was `ProviderSourceState`, a different
+   * five-member vocabulary that the plan does not ask about.
+   *
+   * Derived by the ONE authority — `resolveMetaSurfaceReadState` — from this
+   * section's own outcome, so a section and the page cannot come to disagree
+   * about what the words mean. Five of the seven are producible here; `loading`
+   * and `refreshing-with-stale` describe a read that is in flight, and these
+   * eleven are composed in a single server render, so there is no per-section
+   * in-flight moment to observe. Those two remain page-level, where
+   * `MetaSurfaceStateLive` already owns them.
+   */
+  readState: MetaReadState;
+  /** The §9.1 code behind this section's state, when it has one. */
+  readFailureCode?: MetaFailureCode;
   /**
    * The §9.1 code behind a `degraded` section, when the failure was classified.
    *
@@ -131,6 +152,55 @@ function asServedText(value: unknown): string | null {
  * unavailable means the source has nothing to give, and a failed read means we
  * do not know which of the two it is.
  */
+/**
+ * This section's §9 read state, from the one authority.
+ *
+ * `resolveMetaSurfaceReadState` is the resolver every Meta surface already uses;
+ * calling it per section with that section's single source keeps one definition
+ * of what `partial` and `empty-proven` mean. A second mapping written here
+ * would be a second opinion, and the first time the two disagreed a section
+ * would contradict the page above it.
+ *
+ * `canRead: false` is how a source that threw, or one that reported it cannot
+ * serve, reaches `degraded` — the resolver's own most-specific-first ordering
+ * does the rest.
+ */
+function sectionReadState(input: {
+  outcome: "failed" | "unavailable" | "partial" | "served";
+  failureCode: MetaFailureCode | null;
+  rowCount: number;
+}): { readState: MetaReadState; readFailureCode?: MetaFailureCode } {
+  const envelope = resolveMetaSurfaceReadState({
+    businessId: "section",
+    providerAccountId: null,
+    // Scope is decided once, for the whole surface, by the page. A section that
+    // re-decided it would be the second business resolver this must not become.
+    requiresProviderAccount: false,
+    permissions: { role: "guest", reviewerReadOnly: false, demo: false },
+    capability:
+      input.outcome === "failed" || input.outcome === "unavailable"
+        ? {
+            canRead: false,
+            canWrite: false,
+            readBlockedBy: input.failureCode ?? "source_read_failed",
+          }
+        : { canRead: true, canWrite: false },
+    sources:
+      input.outcome === "failed" || input.outcome === "unavailable"
+        ? undefined
+        : [
+            {
+              id: "section",
+              outcome: input.outcome === "partial" ? "partial" : "served",
+              rowCount: input.rowCount,
+            },
+          ],
+  });
+  return envelope.failure
+    ? { readState: envelope.state, readFailureCode: envelope.failure.code }
+    : { readState: envelope.state };
+}
+
 function section(
   key: string,
   label: string,
@@ -163,6 +233,7 @@ function section(
       state: "degraded",
       reason: failure.message,
       failureCode: failure.code,
+      ...sectionReadState({ outcome: "failed", failureCode: failure.code, rowCount: 0 }),
       observedAt: null,
       facts: [],
     };
@@ -173,6 +244,18 @@ function section(
       label,
       state: "unavailable",
       reason: "This source is not configured for this business.",
+      /*
+       * `schema_not_ready` rather than a new code. "Not configured for this
+       * business" is the closed dictionary's existing sense of a source that
+       * cannot be read yet, and §9.1 is a closed vocabulary on purpose — a
+       * private code here would be one the operator-facing dictionary has no
+       * sentence for.
+       */
+      ...sectionReadState({
+        outcome: "unavailable",
+        failureCode: "schema_not_ready",
+        rowCount: 0,
+      }),
       observedAt: null,
       facts: [],
     };
@@ -199,6 +282,11 @@ function section(
       reason:
         asServedText(outcome.value.unavailableReason) ??
         "This source reported that it cannot serve, without a reason.",
+      ...sectionReadState({
+        outcome: "unavailable",
+        failureCode: "source_read_failed",
+        rowCount: facts.length,
+      }),
       observedAt,
       facts,
     };
@@ -214,11 +302,22 @@ function section(
       reason:
         asServedText(partial.notReadyReason) ??
         "This source returned an incomplete window.",
+      ...sectionReadState({ outcome: "partial", failureCode: null, rowCount: facts.length }),
       observedAt,
       facts,
     };
   }
-  return { key, label, state: "serving", reason: null, observedAt, facts };
+  return {
+    key,
+    label,
+    state: "serving",
+    reason: null,
+    // `success` when the source contributed facts, `empty-proven` when it was
+    // read and had none. The distinction §9 exists for, per section.
+    ...sectionReadState({ outcome: "served", failureCode: null, rowCount: facts.length }),
+    observedAt,
+    facts,
+  };
 }
 
 function count(value: unknown): string {

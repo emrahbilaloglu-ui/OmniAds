@@ -484,9 +484,20 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("Scale window");
     expect(html).not.toContain("data-rule-id");
 
-    // The default fixture's queue read is UNAVAILABLE, so exactly three controls
-    // exist: "+ New rule", the queue's Retry, and the Meta Stop. Nothing else.
-    expect(html.match(/<button/g)).toHaveLength(3);
+    /*
+     * The default fixture's queue read is UNAVAILABLE, so the controls are:
+     * "+ New rule", the queue's Retry, the Meta Stop — and AUTO-03's autonomy
+     * mode, three segments on each of the four action kinds the control plane
+     * has a decision type for. Twelve plus three.
+     *
+     * Counted rather than listed, and the count moved deliberately: the ladder
+     * used to be four read-only captions, so a mode recorded by the control
+     * plane could only be read back through the API. The launch row is
+     * excluded on purpose — new spend has no decision type and never
+     * automates, so a control there would offer a choice that does not exist.
+     */
+    expect(html.match(/<button/g)).toHaveLength(15);
+    expect(html.match(/data-ctl="gated:AUTO-03 mode"/g)).toHaveLength(4);
     expect(html).toContain('data-field="business-writes-control"');
     expect(html).toContain('data-control="retry-queue"');
 
@@ -498,7 +509,8 @@ describe("Dashboard v2 exact Automation presentation", () => {
       count: "0",
       rows: [],
     }));
-    expect(proven.match(/<button/g)).toHaveLength(2);
+    // Two, plus the twelve AUTO-03 segments, which do not depend on the queue.
+    expect(proven.match(/<button/g)).toHaveLength(14);
     expect(proven).not.toContain('data-control="retry-queue"');
   });
 
@@ -1412,11 +1424,15 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(source).not.toContain("window.confirm");
 
     /*
-     * The POST allowlist, still exact. Two boundaries now: the proposal queue
-     * and the automation control plane. Asserted as an allowlist rather than a
-     * ban, so the Stop can exist while nothing else quietly gains a write.
+     * The POST allowlist, still exact. Three call sites now — the proposal
+     * queue, the Stop, and AUTO-03's mode — across two boundaries, both of
+     * which are ours: `/api/meta/automation/proposals` and
+     * `/api/meta/automation`. Asserted as an allowlist rather than a ban, so a
+     * contracted control can exist while nothing else quietly gains a write,
+     * and neither of these reaches a provider.
      */
-    expect(source.match(/method: "POST"/g)).toHaveLength(2);
+    expect(source.match(/method: "POST"/g)).toHaveLength(3);
+    expect(source).toContain('action: "set_decision_type_mode"');
     expect(source).toMatch(
       /fetch\(`\/api\/meta\/automation\/proposals\?\$\{query\.toString\(\)\}`, \{\s*method: "POST"/,
     );

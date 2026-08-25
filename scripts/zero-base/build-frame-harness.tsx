@@ -41,8 +41,40 @@ const ROOT = process.cwd();
 const OUT_DIR = path.join(ROOT, "playwright", ".frames");
 const THEME_ATTRIBUTE = "data-adc-theme";
 
-function canonicalCss(): string {
-  return readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
+/**
+ * The CSS modules the MOUNTED bodies in this harness are painted with.
+ *
+ * `css-module-stub` resolves `styles.modeSegment` to the literal
+ * `"modeSegment"`, so a module's own selectors match the rendered class names
+ * verbatim and the file can simply be appended. Without this, a mounted body
+ * renders in the harness with no styling at all and every control falls back to
+ * the user agent's defaults — which is how repointing H19/H20 produced
+ * `rgb(239, 239, 239)` and `rgba(16, 16, 16, 0.3)` findings against a body that
+ * paints neither: they were Chrome's button chrome, reported as the design's.
+ *
+ * Per FRAME, and listed rather than globbed. Because the stub leaves class
+ * names unhashed, a module appended to every frame paints elements in OTHER
+ * frames that happen to share a class name — `.tableScroll`,
+ * `.sectionFootnote` and friends are not unusual names. Appending
+ * `automation.module.css` globally moved three unrelated artboards; scoped to
+ * the two that render the body, it moves only them.
+ */
+const MOUNTED_BODY_STYLESHEETS: Record<string, readonly string[]> = {
+  H19: ["app/(dashboard)/platforms/meta/automation/automation.module.css"],
+  H20: ["app/(dashboard)/platforms/meta/automation/automation.module.css"],
+};
+
+function mountedBodyCss(frameId: string): string {
+  const files = MOUNTED_BODY_STYLESHEETS[frameId] ?? [];
+  return files
+    .map((file) => `\n/* ${file} */\n${readFileSync(path.join(ROOT, file), "utf8")}`)
+    .join("\n");
+}
+
+function canonicalCss(frameId: string): string {
+  return (
+    readFileSync(path.join(ROOT, "app", "globals.css"), "utf8") + mountedBodyCss(frameId)
+  );
 }
 
 /**
@@ -198,7 +230,6 @@ async function main() {
   // than missing evidence: it reads as a real result.
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
-  const css = canonicalCss();
   const fonts = ledgerFontFace();
   let count = 0;
 
@@ -215,7 +246,7 @@ async function main() {
 <head><meta charset="utf-8"><title>${spec.id} ${spec.leaf} ${spec.state}</title>
 <style>html,body{margin:0;padding:0;height:100%}</style>
 <style>${fonts}</style>
-<style>${css}</style>
+<style>${canonicalCss(spec.id)}</style>
 </head>
 <body><div data-frame="${spec.id}" data-frame-leaf="${spec.leaf}" data-frame-state="${spec.state}" style="height:100vh;overflow:hidden">${body}</div></body>
 </html>`;

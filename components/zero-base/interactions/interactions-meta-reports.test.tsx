@@ -6,7 +6,7 @@
  */
 import React from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -24,7 +24,11 @@ import {
 } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
-import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
+import { MetaAutomationView } from "@/app/(dashboard)/platforms/meta/automation/automation-view";
+import {
+  AUTOMATION_HARNESS_VIEWER,
+  automationControlPlaneFixture,
+} from "@/scripts/zero-base/fixtures/automation-control-plane";
 import {
   ReportBuilderView,
   ReportLibraryView,
@@ -502,29 +506,29 @@ describe("G7 — intelligence, history, automation", () => {
     expect(onReplay).toHaveBeenCalledWith("h1");
   });
 
-  const automation = (intent: "engage" | "release", props: Record<string, unknown> = {}) =>
+  /**
+   * The MOUNTED Automation body, from the served control plane.
+   *
+   * These three keys grade controls an operator can reach, and every route that
+   * shows Automation renders `MetaAutomationView`. Grading the archived
+   * presenter meant the contract could be satisfied by a component nobody could
+   * open — and it hid a real mismatch: the archived body's mode control offered
+   * `observe|suggest|act`, a vocabulary the server has never accepted.
+   *
+   * `killSwitchEngaged` is the only fact separating the two stop cases, exactly
+   * as it separates H19 from H20.
+   */
+  const automation = (
+    intent: "engage" | "release",
+    props: Record<string, unknown> = {},
+  ) =>
     render(
       <Host>
-        <AutomationView
-          postures={[
-            {
-              provider: "meta",
-              label: "Meta",
-              state: "serving",
-              reason: null,
-              stoppable: true,
-              basis: "automation_control_plane",
-            },
-          ]}
-          guardrails={{ dailyAutoActionCap: 8 }}
-          ceremony={{
-            intent,
-            viewer: { role: "admin", isReviewer: false, demo: false },
-            currentlyEngaged: intent === "release",
-            readBack: null,
-          }}
-          onEngage={vi.fn()}
-          onModeChange={vi.fn()}
+        <MetaAutomationView
+          payload={automationControlPlaneFixture({ killSwitchEngaged: intent === "release" })}
+          businessId="biz"
+          providerAccountId="act_1"
+          viewer={AUTOMATION_HARNESS_VIEWER}
           {...props}
         />
       </Host>,
@@ -541,14 +545,87 @@ describe("G7 — intelligence, history, automation", () => {
   });
 
   interactionCase("gated:AUTO-03 mode", async () => {
+    /**
+     * Against the MOUNTED body, and against the wire.
+     *
+     * This case used to drive the archived presenter's `<select>` and assert a
+     * callback was called with `"suggest"` — a vocabulary the server has never
+     * had. `MetaAutomationDecisionMode` is `manual | semi_auto | auto`, and the
+     * route takes `{action: "set_decision_type_mode", decisionType, mode}`. The
+     * old assertion could not have failed if the product were broken, because
+     * it was not measuring the product.
+     */
     const user = userEvent.setup();
-    const onModeChange = vi.fn();
-    automation("engage", { onModeChange });
-    await user.selectOptions(
-      expectOperable(ctl("gated:AUTO-03 mode"), "automation mode") as HTMLSelectElement,
-      "suggest",
+    const posts: { url: string; body: unknown }[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+      }
+      // The re-read the control performs before it believes anything.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, data: automationControlPlaneFixture() }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <Host>
+          <MetaAutomationView
+            payload={automationControlPlaneFixture()}
+            businessId="biz"
+            providerAccountId="act_1"
+            viewer={AUTOMATION_HARNESS_VIEWER}
+          />
+        </Host>,
+      );
+
+      const group = ctl("gated:AUTO-03 mode") as HTMLElement;
+      expect(group.getAttribute("role")).toBe("radiogroup");
+      const segment = within(group).getByRole("radio", { name: "Tier 3 · Auto-execute" });
+      expectOperable(segment, "automation mode");
+      await user.click(segment);
+
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]!.url).toContain("/api/meta/automation");
+      expect(posts[0]!.body).toMatchObject({
+        action: "set_decision_type_mode",
+        mode: "auto",
+      });
+      expect((posts[0]!.body as { decisionType: string }).decisionType).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refuses the mode control for a viewer who may not write", () => {
+    /** A viewer who may not write gets the control refused, with the server's reason. */
+    render(
+      <Host>
+        <MetaAutomationView
+          payload={automationControlPlaneFixture()}
+          businessId="biz"
+          providerAccountId="act_1"
+          viewer={{
+            role: "guest",
+            reviewerReadOnly: true,
+            demo: false,
+            canMutate: false,
+            reason: "Reviewer sessions are read-only.",
+            reasonCode: "reviewer_read_only",
+          }}
+        />
+      </Host>,
     );
-    expect(onModeChange).toHaveBeenCalledWith("suggest");
+    const group = ctl("gated:AUTO-03 mode") as HTMLElement;
+    expect(group.getAttribute("data-mode-refused")).toBe("");
+    for (const radio of within(group).getAllByRole("radio")) {
+      expect(radio).toBeDisabled();
+      expect(radio.getAttribute("title")).toBe("Reviewer sessions are read-only.");
+    }
   });
 });
 

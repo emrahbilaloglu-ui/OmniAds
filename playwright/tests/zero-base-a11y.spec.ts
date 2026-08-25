@@ -43,9 +43,28 @@ test.describe("G9 automated accessibility", () => {
       const blocking = results.violations.filter(
         (violation) => violation.impact === "serious" || violation.impact === "critical",
       );
-      // Name every violation, so a failure is actionable rather than a count.
+      /*
+       * Name every violation AND the nodes it fired on.
+       *
+       * "color-contrast (serious)" names a rule and leaves the reader to find
+       * the offending elements by hand across a whole harness page, which is
+       * how a real violation sits unfixed while the gate keeps reporting it.
+       */
       expect(
-        blocking.map((violation) => `${violation.id} (${violation.impact}) — ${violation.help}`),
+        blocking.map(
+          (violation) =>
+            `${violation.id} (${violation.impact}) — ${violation.help}\n` +
+            violation.nodes
+              .slice(0, 4)
+              .map(
+                (node) =>
+                  `    ${node.target.join(" ")}\n      ${(node.failureSummary ?? "")
+                    .replace(/\s+/g, " ")
+                    .trim()
+                    .slice(0, 220)}`,
+              )
+              .join("\n"),
+        ),
         `axe violations in ${name}`,
       ).toEqual([]);
     });
@@ -100,15 +119,34 @@ test.describe("G9 reduced motion", () => {
       await page.goto(fileUrl(name));
       const offenders = await page.evaluate((movement) => {
         const found: string[] = [];
+        /*
+         * A duration measured in microseconds is not motion.
+         *
+         * `globals.css` caps every element at `0.001ms` under reduced motion —
+         * the standard "effectively off" idiom — and leaves
+         * `transition-property` alone outside the zero-base root, where
+         * Tailwind's preflight sets it to `all`. Read literally that is
+         * "transitions all, duration > 0", so this flagged `html`, `head`,
+         * `meta`, `title` and `style`: elements that never paint, on a
+         * stylesheet that had switched motion off. The check never fired only
+         * because the harness used to withhold that half of the stylesheet.
+         */
+        const MOTIONLESS_MS = 1;
         for (const element of Array.from(document.querySelectorAll("*"))) {
+          // Nothing that is never rendered can animate movement.
+          if (!(element as HTMLElement).getClientRects().length) continue;
           const style = getComputedStyle(element);
-          if (style.animationName !== "none" && parseFloat(style.animationDuration) > 0) {
+          if (
+            style.animationName !== "none" &&
+            parseFloat(style.animationDuration) * 1000 > MOTIONLESS_MS
+          ) {
             found.push(`${element.tagName.toLowerCase()}: animation ${style.animationName}`);
             continue;
           }
           const properties = style.transitionProperty.split(",").map((value) => value.trim());
-          const duration = parseFloat(style.transitionDuration) || 0;
-          if (duration <= 0) continue;
+          // `transitionDuration` computes in seconds; compare in milliseconds.
+          const duration = (parseFloat(style.transitionDuration) || 0) * 1000;
+          if (duration <= MOTIONLESS_MS) continue;
           const moves = properties.some(
             (property) => property === "all" || movement.some((token) => property.includes(token)),
           );

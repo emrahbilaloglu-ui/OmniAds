@@ -25,9 +25,15 @@
   font-size: 9.5px;
 }
 
+/*
+ * 12px, not 11.5. The reference's type scale has no 11.5 step — the fidelity
+ * gate reports `11.5px is not a step of the reference type scale (nearest
+ * 12px)` — and 12px is also this repo's own readable floor. Half a pixel was
+ * buying nothing and costing a scale.
+ */
 .statusPill,
 .killNote {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /*
@@ -82,11 +88,11 @@
 }
 
 .ledgerTime {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .proposalAction {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .proposalEvidence,
@@ -919,6 +925,50 @@
 .autonomyTier[data-tone="unknown"] {
   background: #f1f4f9;
   color: #45526b;
+}
+
+/*
+ * AUTO-03 — the autonomy mode, as a segmented control.
+ *
+ * Three segments, one per rung of `MetaAutomationDecisionMode`, on the row they
+ * govern. The checked one is filled rather than merely bolded: an operator
+ * scanning four rows needs to see which tier each is on without reading, and a
+ * weight difference does not survive that scan.
+ *
+ * The refused posture is a real disabled button, not a class that looks
+ * disabled, so the keyboard and the accessibility tree agree with the eye —
+ * the same rule `.killAction:disabled` follows.
+ */
+.modeGroup {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.modeSegment {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--adv-border, #e4e8f0);
+  background: transparent;
+  color: var(--adv-ink-2, #45526b);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modeSegment[aria-checked="true"] {
+  border-color: #6c41be;
+  background: #f1ebfb;
+  color: #57309f;
+}
+
+.modeSegment:disabled {
+  cursor: not-allowed;
+  color: var(--adv-ink-3, #6b7688);
+  border-color: var(--adv-hairline, #eef1f6);
 }
 
 .progressRow {

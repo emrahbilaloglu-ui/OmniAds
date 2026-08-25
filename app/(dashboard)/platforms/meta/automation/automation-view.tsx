@@ -115,6 +115,33 @@ const MODE_LABELS: Record<MetaAutomationDecisionMode, string> = {
   auto: "Tier 3 · Auto-execute",
 };
 
+/** The ladder's three rungs, in the order the server declares them. */
+const AUTONOMY_MODES: readonly MetaAutomationDecisionMode[] = ["manual", "semi_auto", "auto"];
+
+/** What each rung says ON the segment; `MODE_LABELS` is its accessible name. */
+const MODE_SEGMENT_LABELS: Record<MetaAutomationDecisionMode, string> = {
+  manual: "Tier 1",
+  semi_auto: "Tier 2",
+  auto: "Tier 3",
+};
+
+/**
+ * The mode the control plane currently HOLDS for one action kind.
+ *
+ * Only a persisted row counts. A default the server synthesised is not a
+ * recorded choice, and drawing it as the checked segment would tell an operator
+ * they had set something they never set.
+ */
+function currentModeFor(
+  payload: AutomationPayload | null,
+  decisionType: MetaAutomationDecisionType,
+): MetaAutomationDecisionMode | null {
+  const item = (payload?.decisionTypeModes ?? []).find(
+    (entry) => entry.decisionType === decisionType && entry.source === "persisted",
+  );
+  return item?.mode ?? null;
+}
+
 const MODE_TONES: Record<
   MetaAutomationDecisionMode,
   AutonomyPresentation["tone"]
@@ -450,9 +477,20 @@ function autonomyFor(
     };
   };
 
+  /*
+   * Four controlled rows, because the server has four decision types.
+   *
+   * `bid` was missing: `MetaAutomationDecisionType` is
+   * `pause | bid | budget | creative`, `setMetaAutomationDecisionTypeMode`
+   * accepts all four, and `LEDGER_ENTITY_LABELS` already had a caption for it —
+   * but the ladder drew three, so a bid mode could be recorded by the control
+   * plane and never appear on the screen that claims to show every action
+   * kind's autonomy.
+   */
   return [
     mapped(`Budget changes ≤ ${budgetLimit}`, "budget"),
     mapped("Pause / resume", "pause"),
+    mapped("Bid changes", "bid"),
     mapped("Creative rotation", "creative"),
     {
       kind: "Launches · new spend",
@@ -996,6 +1034,96 @@ export function MetaAutomationView({
     },
     [businessId, providerAccountId, stopPending, viewer.canMutate, onRulesChanged],
   );
+  /**
+   * AUTO-03 — record the autonomy mode for one action kind.
+   *
+   * The same shape as the stop control above, for the same reasons: refuse
+   * locally before putting a refused viewer's attempt on the wire, and then
+   * RE-READ rather than trust the request. A ladder that showed what was asked
+   * for rather than what was stored would be the exact defect the stop
+   * control's own comment warns about.
+   *
+   * Per row, not per screen: two action kinds can be changed one after the
+   * other, and a single pending flag would grey out the row the operator is not
+   * touching and attribute the second failure to the first.
+   */
+  const [modePending, setModePending] = useState<string | null>(null);
+  const [modeError, setModeError] = useState<Record<string, string>>({});
+  const [modeSaved, setModeSaved] = useState<Record<string, string>>({});
+
+  const onModeChange = useCallback(
+    (decisionType: MetaAutomationDecisionType, mode: MetaAutomationDecisionMode) => {
+      if (!businessId || !providerAccountId || modePending) return;
+      if (!viewer.canMutate) return;
+      setModePending(decisionType);
+      setModeError((previous) => ({ ...previous, [decisionType]: "" }));
+      setModeSaved((previous) => ({ ...previous, [decisionType]: "" }));
+      const query = new URLSearchParams({ businessId, providerAccountId });
+      void fetch(`/api/meta/automation?${query.toString()}`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_decision_type_mode",
+          decisionType,
+          mode,
+          reason: "Set from the Automation autonomy ladder.",
+        }),
+      })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            error?: { message?: string };
+          } | null;
+          if (!response.ok || body?.ok === false) {
+            setModeError((previous) => ({
+              ...previous,
+              [decisionType]:
+                body?.error?.message ??
+                "The autonomy mode could not be changed, and nothing on Meta was altered.",
+            }));
+            return;
+          }
+          const next = await readAutomation({ businessId, providerAccountId }).catch(
+            () => null,
+          );
+          if (!next) {
+            setModeError((previous) => ({
+              ...previous,
+              [decisionType]:
+                "The change was accepted but the control plane could not be re-read, so this row may be stale.",
+            }));
+            return;
+          }
+          onRulesChanged?.(next);
+          /*
+           * Announced off the READ-BACK, never off the 200. The stored mode is
+           * the only thing worth confirming, and a confirmation that fires on a
+           * response is a confirmation of a request.
+           */
+          const stored = next.decisionTypeModes?.find(
+            (item) => item.decisionType === decisionType,
+          );
+          setModeSaved((previous) => ({
+            ...previous,
+            [decisionType]:
+              stored?.mode === mode
+                ? `Saved — ${MODE_LABELS[mode]}`
+                : "Saved, but the control plane reports a different mode. Re-read shown.",
+          }));
+        })
+        .catch(() => {
+          setModeError((previous) => ({
+            ...previous,
+            [decisionType]: "The automation control plane could not be reached.",
+          }));
+        })
+        .finally(() => setModePending(null));
+    },
+    [businessId, providerAccountId, modePending, viewer.canMutate, onRulesChanged],
+  );
+
   const guardrails = guardrailsFor(payload, liveWritesRefusalReason);
   const autonomy = autonomyFor(payload);
   const readiness = readinessFor(payload);
@@ -1300,7 +1428,13 @@ export function MetaAutomationView({
              * label and a value with no control.
              */
             data-el="guardrails-readonly"
-            data-collection="h19-guardrails"
+            /*
+             * The KIND, not the artboard-prefixed id. `collectionKind` in
+             * `verify-reference-anatomy.ts` strips the `h19-` prefix before
+             * comparing, so the prefixed value the manifest lists is never what
+             * a body should carry — a marker written as `h19-guardrails` is a
+             * marker the gate looks for and cannot find.
+             */
           >
             <p className={styles.cardKicker}>
               Guardrails
@@ -1320,6 +1454,16 @@ export function MetaAutomationView({
                 <span data-field="guardrail-source"> · defaults, not set here</span>
               ) : null}
             </p>
+            {/*
+              The collection NESTED inside the region, which is where the
+              reference puts it. `data-el="guardrails-readonly"` and
+              `data-collection="guardrails"` were on the same element, and the
+              fidelity gate reads ownership from the tree: it reported
+              `wrong-owner — reference nests this inside el:guardrails-readonly;
+              implementation nests it under the frame root`. A marker in the
+              right document but the wrong place is not the same marker.
+            */}
+            <div data-collection="guardrails">
             {guardrails.map((guardrail) => (
               <div
                 className={styles.guardrailRow}
@@ -1330,6 +1474,7 @@ export function MetaAutomationView({
                 <strong>{guardrail.value}</strong>
               </div>
             ))}
+            </div>
           </article>
 
           <article className={styles.readinessCard}>
@@ -1739,6 +1884,68 @@ export function MetaAutomationView({
                     {item.tier}
                   </span>
                 </div>
+                {/*
+                  AUTO-03 — the mode itself, as a control rather than a caption.
+                  The launch row is deliberately excluded: it has no server
+                  decision type, and new spend never automates by design, so a
+                  control there would offer a choice the product does not have.
+                */}
+                {item.decisionType ? (
+                  <div
+                    className={styles.modeGroup}
+                    role="radiogroup"
+                    aria-label={`Autonomy mode — ${item.kind}`}
+                    data-ctl="gated:AUTO-03 mode"
+                    data-mode-refused={viewer.canMutate ? undefined : ""}
+                  >
+                    {AUTONOMY_MODES.map((mode) => {
+                      const current = currentModeFor(payload, item.decisionType!);
+                      const refused = !viewer.canMutate;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={styles.modeSegment}
+                          role="radio"
+                          aria-checked={current === mode}
+                          data-mode={mode}
+                          disabled={refused || modePending === item.decisionType}
+                          title={refused ? (viewer.reason ?? undefined) : undefined}
+                          /*
+                           * Short on screen, full to a reader. Three segments
+                           * carrying "Tier 2 · Backtest" wrap the row at the
+                           * card's width and stop being one scannable control;
+                           * the tier chip beside them already spells the
+                           * current one out, and the accessible name carries
+                           * the whole thing for anyone not reading the chip.
+                           */
+                          aria-label={MODE_LABELS[mode]}
+                          onClick={() => onModeChange(item.decisionType!, mode)}
+                        >
+                          {MODE_SEGMENT_LABELS[mode]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {item.decisionType && modeError[item.decisionType] ? (
+                  <p
+                    className={styles.autonomyNext}
+                    data-field={`mode-error-${item.decisionType}`}
+                    role="status"
+                  >
+                    {modeError[item.decisionType]}
+                  </p>
+                ) : null}
+                {item.decisionType && modeSaved[item.decisionType] ? (
+                  <p
+                    className={styles.autonomyNext}
+                    data-field={`mode-saved-${item.decisionType}`}
+                    role="status"
+                  >
+                    {modeSaved[item.decisionType]}
+                  </p>
+                ) : null}
                 <div className={styles.progressRow}>
                   <span className={styles.progressTrack}>
                     <span
@@ -1755,6 +1962,20 @@ export function MetaAutomationView({
             <p className={styles.sectionFootnote}>
               promotion reviews weekly on clean-approval streaks · any error
               demotes instantly
+            </p>
+            {/*
+              What recording a mode does and does not do.
+              `setMetaAutomationDecisionTypeMode` writes a row in our own
+              control plane; it is not a Meta write and it does not by itself
+              enable auto-execution. Without this sentence, moving a row to
+              Tier 3 while `META_AUTOMATION_LIVE_WRITES` is shut reads as
+              "this now changes things on Meta", which is the one thing it
+              must never be mistaken for.
+            */}
+            <p className={styles.sectionFootnote} data-field="mode-posture">
+              {liveWritesRefusalReason
+                ? `Setting a tier records the intent in this workspace. It is not a Meta write, and it does not enable auto-execution: ${liveWritesRefusalReason}`
+                : "Setting a tier records the intent in this workspace. It is not a Meta write; execution still runs through the confirmation queue."}
             </p>
           </article>
         </div>

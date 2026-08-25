@@ -38,7 +38,19 @@ import { GooglePlanView } from "@/components/zero-base/google/plan-view";
 import { GoogleOverviewView, GoogleAdvisorView } from "@/components/zero-base/google/google-views";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
-import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
+/*
+ * The MOUNTED Automation body, not the archived presenter.
+ *
+ * H19 and H20 grade the Automation surface, and grading a body no route
+ * renders measures a component library rather than the product. The mounted
+ * one takes the served control plane, so the fixture is a real
+ * `MetaAutomationControlPlane`.
+ */
+import { MetaAutomationView } from "@/app/(dashboard)/platforms/meta/automation/automation-view";
+import {
+  AUTOMATION_HARNESS_VIEWER,
+  automationControlPlaneFixture,
+} from "@/scripts/zero-base/fixtures/automation-control-plane";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import { HomeView } from "@/components/zero-base/_reference/home-view";
 import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
@@ -466,39 +478,11 @@ const historyRows = [
   { id: "h2", occurredAt: "2026-08-08T18:20:00Z", action: "Ad set paused", outcome: "Confirmed by read-back", actor: "Dana Whitfield", replayed: true },
 ];
 
-const automationPostures = [
-  {
-    provider: "meta" as const,
-    label: "Meta",
-    state: "serving" as const,
-    reason: null,
-    stoppable: true,
-    basis: "automation_control_plane" as const,
-  },
-  {
-    provider: "google" as const,
-    label: "Google Ads",
-    state: "unknown" as const,
-    reason: "Google readiness is a separate system; this row reports connection only.",
-    stoppable: false,
-    basis: "connection_only" as const,
-  },
-];
-
-const GUARDRAILS = {
-  dailyAutoActionCap: 8,
-  perActionSpendCeilingMinor: 25000,
-  minimumConfidence: "high",
-  cooldownMinutes: 45,
-};
-
-const stopCeremony = (intent: "engage" | "release") => ({
-  intent,
-  viewer: { role: "admin" as const, isReviewer: false, demo: false },
-  currentlyEngaged: intent === "release",
-  readBack: null,
-});
-
+/*
+ * The archived Automation presenter's fixtures went with it. H19 and H20 now
+ * render the mounted body from `automationControlPlaneFixture`, which is the
+ * served contract rather than a hand-shaped view model.
+ */
 
 /* -------------------------------------------------------------- google */
 
@@ -1221,8 +1205,8 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H17–H20: intelligence, history, automation ---- */
   { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} snapshot={{ canRun: true, reason: null, queued: false }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
   { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" onClose={() => {}} query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} initialReplayId="h2" /> },
-  { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("engage")} onEngage={() => {}} onModeChange={() => {}} /> },
-  { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },
+  { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <MetaAutomationView payload={automationControlPlaneFixture()} businessId="biz" providerAccountId="act_1" viewer={AUTOMATION_HARNESS_VIEWER} /> },
+  { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <MetaAutomationView payload={automationControlPlaneFixture({ killSwitchEngaged: true })} businessId="biz" providerAccountId="act_1" viewer={AUTOMATION_HARNESS_VIEWER} /> },
 
   /* ---- H21–H28: creative ---- */
   { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 128, 5)} businessId="biz" onPresetChange={() => {}} onSortChange={() => {}} onActionStateChange={() => {}} onLoadMore={() => {}} /> },
@@ -1243,6 +1227,23 @@ export const FRAMES: readonly FrameSpec[] = [
         initialTitle="September review"
         initialExpiresAt="2026-10-01"
         initialAcknowledged
+        /*
+         * A ticked selection, because a share needs creatives.
+         *
+         * The mint control is live only when there is something to mint from —
+         * `/api/creatives/share` refuses a snapshot holding none — so the
+         * artboard's live `live:CREATIVE-10 mint` state requires a selection in
+         * the frame. Without one the frame draws the refused form and the
+         * anatomy gate correctly reports the live marker missing.
+         */
+        selection={{
+          creatives: [
+            { id: "crt_1", name: "Hook A — 9:16" },
+            { id: "crt_2", name: "Hook B — 1:1" },
+          ],
+          selectedIds: ["crt_1"],
+          onToggle: () => {},
+        }}
         /*
          * The artboard draws the create sheet open, and the design package
          * declares its anatomy: the tier explainer, expiry, the acknowledgement,

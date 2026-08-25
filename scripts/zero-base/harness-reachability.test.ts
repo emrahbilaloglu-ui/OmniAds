@@ -78,13 +78,28 @@ function isReachable(file: string): boolean {
 const UNREACHABLE_HARNESS_BODIES = [
   // Route mounts app/(dashboard)/overview/legacy-page.tsx
   "components/zero-base/_reference/home-view.tsx",
-  // Route mounts app/(dashboard)/platforms/meta/automation/automation-view.tsx
-  "components/zero-base/_reference/meta-automation-view.tsx",
   // Route mounts components/meta/redesign/MetaPlatformPage.tsx
   "components/zero-base/_reference/meta-decisions-view.tsx",
 ] as const;
 
 /**
+ * The archived Automation presenter is deliberately NOT on the list above, and
+ * is deliberately still on disk.
+ *
+ * The list is "bodies the HARNESS renders that no route can reach". H19 and H20
+ * now render `MetaAutomationView`, the body the route mounts, so the archived
+ * presenter is no longer harness-rendered and the list is two.
+ *
+ * The file stays because deleting it is a product decision rather than a
+ * cleanup. It is the only implementation of the stop CEREMONY the design's H20
+ * calls a "release preflight" — type-to-confirm, success announced only once a
+ * read-back agrees, an explicitly unknown outcome when the confirming read
+ * fails — and the mounted body has a direct engage/release pair with a server
+ * refusal and no preflight. Deleting it deletes that ceremony and the flow-I
+ * suite that encodes its laws; whether the mounted stop should GAIN the
+ * ceremony is a call the master plan does not make, and building one to justify
+ * a deletion would be inventing a feature.
+ *
  * Every unreachable body lives under `_reference`, and nothing else does.
  *
  * The list above is accurate and easy to miss: three paths in a test array do
@@ -200,8 +215,6 @@ const PERMITTED_REFERENCE_BODIES: Record<string, string> = {
     "Overview has no pure presenter: the composition is inline in a 790-line client component behind a router, a query client, a hydrated store and a preferences gate. Repointing means four fakes, and a DOM assembled from four fakes is a fifth thing to keep in sync rather than the route's.",
   "components/zero-base/_reference/meta-decisions-view.tsx":
     "Repointing at MetaDecisionCenterExact is possible and planned; it needs the 16 anatomy markers ported onto the production owner first, or the anatomy gate fails on the surface it is supposed to be measuring.",
-  "components/zero-base/_reference/meta-automation-view.tsx":
-    "Five of H19's six markers are ported onto the mounted body and its data-ctl keys now match the interaction manifest. The sixth, `gated:AUTO-03 mode`, is a radiogroup that switches automation mode — and the mounted body has no such control, only read-only autonomy rows. That is a missing feature, not a missing attribute, so repointing today would fail the anatomy gate on the surface it is meant to be measuring.",
 };
 
 describe("release evidence measures the mounted bodies", () => {
@@ -234,19 +247,24 @@ describe("release evidence measures the mounted bodies", () => {
      * A ceiling, not a floor. Three archived bodies exist; two are still
      * reached. When a harness is repointed its entry comes out of the list and
      * this number comes down with it — it must never go up.
+     *
+     * Two, since the Automation harness was repointed: H19 and H20 now render
+     * `MetaAutomationView`, the body the route mounts, and the archived
+     * Automation presenter is gone.
      */
-    expect(Object.keys(PERMITTED_REFERENCE_BODIES).length).toBeLessThanOrEqual(3);
+    expect(Object.keys(PERMITTED_REFERENCE_BODIES).length).toBeLessThanOrEqual(2);
   });
 
-  it("names the one control that blocks the Automation repoint", () => {
+  it("keeps every H19/H20 marker on the body the route mounts", () => {
     /*
-     * The debt, stated precisely enough to be actionable.
+     * This used to assert the GAP: `gated:AUTO-03 mode` named a control the
+     * mounted Automation body did not have — the autonomy ladder rendered
+     * read-only captions — so the harness had to keep grading the archived
+     * presenter, and the test asserted the absence so that building the control
+     * would be what removed the entry rather than an edit to a list.
      *
-     * `gated:AUTO-03 mode` is the only H19 marker the mounted Automation body
-     * cannot carry, because the control it names does not exist there — the
-     * autonomy ladder renders read-only rows. The other five are ported. This
-     * asserts the gap rather than the fix, so that implementing the control is
-     * what removes the entry rather than an edit to this list.
+     * The control exists now, so the assertion inverts: every marker H19 and
+     * H20 require is on the mounted body, and the archived presenter is gone.
      */
     const mounted = readFileSync(
       path.join(process.cwd(), "app/(dashboard)/platforms/meta/automation/automation-view.tsx"),
@@ -255,15 +273,28 @@ describe("release evidence measures the mounted bodies", () => {
     for (const marker of [
       'data-ctl="gated:AUTO-01A engage"',
       'data-ctl="gated:AUTO-02 release"',
+      'data-ctl="gated:AUTO-03 mode"',
       'data-el="google-posture-row"',
       'data-el="guardrails-readonly"',
-      'data-collection="h19-guardrails"',
+      // The KIND, not the artboard-prefixed id: `collectionKind` strips `h19-`
+      // before comparing, so a body carrying the prefix fails the gate.
+      'data-collection="guardrails"',
     ]) {
       expect(mounted, `the mounted Automation body lost ${marker}`).toContain(marker);
     }
-    expect(
-      mounted.includes('data-ctl="gated:AUTO-03 mode"'),
-      "the mode control exists now — remove the Automation entry from PERMITTED_REFERENCE_BODIES and repoint the harness",
-    ).toBe(false);
+
+    /*
+     * And the release evidence does not reach the archived presenter any more.
+     * The file still exists — see `UNREACHABLE_HARNESS_BODIES` for why — but no
+     * gate that produces release evidence renders it, which is the property
+     * `PERMITTED_REFERENCE_BODIES` exists to hold.
+     */
+    const reached = [...reachableFrom(
+      RELEASE_EVIDENCE_ROOTS.map((file) => path.join(process.cwd(), file)).filter((file) =>
+        existsSync(file),
+      ),
+      { followTests: true },
+    )].map((file) => path.relative(process.cwd(), file));
+    expect(reached).not.toContain("components/zero-base/_reference/meta-automation-view.tsx");
   });
 });

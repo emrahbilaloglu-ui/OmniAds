@@ -231,7 +231,13 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
     pins: [
       { selector: ".eyebrow", size: 11 },
       { selector: ".cardKicker, .cardKickerDark", size: 9.5 },
-      { selector: ".statusPill, .killNote", size: 11.5 },
+      /*
+       * 12, not 11.5. The reference's type scale has no 11.5 step — the
+       * fidelity gate reports it as "not a step of the reference type scale
+       * (nearest 12px)" — and 12 is also this file's own readable floor, so
+       * half a pixel was buying nothing and costing a scale step.
+       */
+      { selector: ".statusPill, .killNote", size: 12 },
       // The Meta Stop's engage/release control, sitting exactly ON the floor.
       { selector: ".killAction", size: 12 },
       { selector: ".promotionCount", size: 11 },
@@ -246,8 +252,8 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       size: 10,
       },
       { selector: ".autonomyNext, .ledgerResult", size: 11 },
-      { selector: ".ledgerTime", size: 11.5 },
-      { selector: ".proposalAction", size: 11.5 },
+      { selector: ".ledgerTime", size: 12 },
+      { selector: ".proposalAction", size: 12 },
       { selector: ".proposalEvidence, .proposalExpiry", size: 10 },
       { selector: ".ruleTrigger, .ruleComposerNote", size: 10 },
       { selector: ".modeChip", size: 10.5 },

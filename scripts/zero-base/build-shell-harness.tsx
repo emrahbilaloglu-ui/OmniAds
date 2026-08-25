@@ -33,7 +33,11 @@ import { DecisionsView } from "@/components/zero-base/_reference/meta-decisions-
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
-import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
+import { MetaAutomationView } from "@/app/(dashboard)/platforms/meta/automation/automation-view";
+import {
+  AUTOMATION_HARNESS_VIEWER,
+  automationControlPlaneFixture,
+} from "@/scripts/zero-base/fixtures/automation-control-plane";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
 import {
   PublicSharePage,
@@ -67,6 +71,48 @@ const SCOPE = {
   freshness: "stale" as const,
   snapshotAt: "2026-08-11T09:00:00Z",
 };
+
+/**
+ * The CSS modules the MOUNTED bodies in this harness are painted with.
+ *
+ * `css-module-stub` resolves `styles.modeSegment` to the literal
+ * `"modeSegment"`, so a module's own selectors match the rendered class names
+ * verbatim and the file can simply be appended. Without this, a mounted body
+ * renders in the harness with no styling at all and every control falls back to
+ * the user agent's defaults — which is how repointing H19/H20 produced
+ * `rgb(239, 239, 239)` and `rgba(16, 16, 16, 0.3)` findings against a body that
+ * paints neither: they were Chrome's button chrome, reported as the design's.
+ *
+ * Appended only to the pages whose body loads it. It was appended to every
+ * page this harness writes, and that immediately broke the public-share pages
+ * in dark mode — `.tableScroll`, `.sectionFootnote` and friends are ordinary
+ * names, and the stub leaves them unhashed, so one surface's stylesheet paints
+ * another's elements.
+ */
+const MOUNTED_BODY_STYLESHEETS = [
+  "app/(dashboard)/platforms/meta/automation/automation.module.css",
+];
+
+function mountedBodyCss(): string {
+  return MOUNTED_BODY_STYLESHEETS.map(
+    (file) => `\n/* ${file} */\n${readFileSync(path.join(ROOT, file), "utf8")}`,
+  ).join("\n");
+}
+
+/**
+ * The stylesheet the Automation pages need, and nothing else does.
+ *
+ * The WHOLE of globals.css, not `canonicalCss()`'s slice. That slice starts at
+ * `[data-adc-ui="zero-base"] {` — line 9878 — and the entire `.adv-*` layer
+ * that paints the mounted console lives above it, at 7893. So a mounted body
+ * rendered on a sliced page has no console styling at all: `.adv-shell` never
+ * paints its ground, the zero-base dark tokens show through underneath, and
+ * axe reports `#0e1526` text on `#1c1915` — a contrast failure that exists only
+ * because the harness withheld the surface's own stylesheet.
+ */
+function automationCss(): string {
+  return readFileSync(path.join(ROOT, "app", "globals.css"), "utf8") + mountedBodyCss();
+}
 
 function canonicalCss(): string {
   const css = readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
@@ -163,38 +209,52 @@ export function intelligenceHarnessFileName(width: number, theme: string): strin
   return `intelligence-${width}-${theme}.html`;
 }
 
-function frame(width: number, body: string): string {
+function frame(width: number, body: string, consoleGround = false): string {
   const narrow = width < DRAWER_BREAKPOINT;
+  /*
+   * `consoleGround` renders the body inside the class the ROUTE puts it in.
+   *
+   * The mounted Automation body is painted from the `--adv-*` palette, which
+   * globals.css declares on `:root` in light values only — the console has no
+   * dark variant for them. On a route that is consistent, because the console
+   * paints its own ground with `.adv-shell`. Rendered bare inside the zero-base
+   * shell, the ZERO-BASE dark tokens paint a dark ground under a light-painted
+   * body and every axe run at `data-theme="dark"` fails on contrast — a
+   * property of the harness, not of the surface an operator opens.
+   */
+  const open = consoleGround
+    ? '<div class="ad-console-shell adv-shell" style="height:100%;display:flex;flex-direction:column">'
+    : "";
+  const close = consoleGround ? "</div>" : "";
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+  <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${open}${body}${close}</main>
 </div>`;
 }
 
+/**
+ * The mirror case: the Meta stop already engaged.
+ *
+ * It used to mix a served Meta posture with a FAILED Google read to prove the
+ * Google row prints Unknown rather than Serving. The mounted body draws
+ * provider posture from the control plane's own completeness rather than from
+ * a `postures` prop, so that particular pairing has no expression here — the
+ * per-section unproven-read behaviour is graded by the Automation page's own
+ * tests, against the same body, with the read marked incomplete. What this
+ * frame still proves, and the reason it exists, is the engaged stop and the
+ * release control beside it.
+ */
 function automationMirrorMarkup(width: number): string {
   return frame(
     width,
     renderToStaticMarkup(
-      <AutomationView
-        postures={buildProviderPostures({
-          meta: { state: "serving", reason: null },
-          // The read failed. This must print Unknown, never Serving.
-          google: { read: false, reason: "integration status is unavailable" },
-        })}
-        guardrails={{
-          dailyAutoActionCap: 3,
-          perActionSpendCeilingMinor: 5000,
-          minimumConfidence: "high",
-          cooldownMinutes: 60,
-          maxEvidenceAgeHours: 24,
-        }}
-        ceremony={{
-          intent: "release",
-          viewer: { role: "admin", isReviewer: false, demo: false },
-          currentlyEngaged: true,
-          readBack: null,
-        }}
+      <MetaAutomationView
+        payload={automationControlPlaneFixture({ killSwitchEngaged: true })}
+        businessId="biz"
+        providerAccountId="act_1"
+        viewer={AUTOMATION_HARNESS_VIEWER}
       />,
     ),
+    true,
   );
 }
 
@@ -410,26 +470,18 @@ function intelligenceMarkup(width: number): string {
 }
 
 function automationMarkup(width: number): string {
-  const body = renderToStaticMarkup(
-    <AutomationView
-      // Meta degraded, Google healthy: the case where a missing Google row
-      // would teach an operator that one switch covers both providers.
-      postures={buildProviderPostures({
-        google: { read: true, connected: true },
-        meta: { state: "degraded", reason: "Token refresh is failing for one account." },
-      })}
-      guardrails={{ dailyAutoActionCap: 3, perActionSpendCeilingMinor: 5000 }}
-      ceremony={{
-        intent: "engage",
-        viewer: { role: "admin", isReviewer: false, demo: false },
-        currentlyEngaged: false,
-        // No read-back yet: no status banner may appear.
-        readBack: null,
-      }}
-    />,
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <MetaAutomationView
+        payload={automationControlPlaneFixture()}
+        businessId="biz"
+        providerAccountId="act_1"
+        viewer={AUTOMATION_HARNESS_VIEWER}
+      />,
+    ),
+    true,
   );
-
-  return frame(width, body);
 }
 
 function decisionsMarkup(width: number): string {
@@ -695,7 +747,7 @@ function main() {
 <html lang="en" ${THEME_ATTRIBUTE}="${theme}">
 <head><meta charset="utf-8"><title>Automation harness ${width} ${theme}</title>
 <style>html,body{margin:0;padding:0;height:100%}</style>
-<style>${css}</style>
+<style>${automationCss()}</style>
 </head>
 <body>${body}</body>
 </html>`;
@@ -753,7 +805,7 @@ function main() {
 <html lang="en" ${THEME_ATTRIBUTE}="${theme}">
 <head><meta charset="utf-8"><title>${name} harness ${width} ${theme}</title>
 <style>html,body{margin:0;padding:0;height:100%}</style>
-<style>${css}</style>
+<style>${name === "automation-mirror" ? automationCss() : css}</style>
 </head>
 <body>${body}</body>
 </html>`;

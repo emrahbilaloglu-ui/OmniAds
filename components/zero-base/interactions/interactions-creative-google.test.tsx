@@ -235,6 +235,21 @@ describe("G7 — share ledger", () => {
           onRevoke={vi.fn()}
           onRotate={vi.fn()}
           onCreate={vi.fn()}
+          /*
+           * Something to share. `/api/creatives/share` refuses a snapshot with
+           * no creatives, so a mint control that could be live without a
+           * selection was a control whose only possible outcome was a 400. The
+           * ledger reads the account's creatives and ticks are what make the
+           * control live.
+           */
+          selection={{
+            creatives: [
+              { id: "crt_1", name: "Hook A — 9:16" },
+              { id: "crt_2", name: "Hook B — 1:1" },
+            ],
+            selectedIds: ["crt_1"],
+            onToggle: vi.fn(),
+          }}
           // The create dialog now defaults CLOSED (WP11 item 5): arriving at
           // the ledger no longer puts a half-filled mint form in front of an
           // operator whose reason for opening the screen is usually to check,
@@ -290,13 +305,30 @@ describe("G7 — share ledger", () => {
       title: "September review",
       audience: "buyer",
       expiresAt: "2026-10-01",
+      creativeIds: ["crt_1"],
     });
   });
 
   interactionCase("disabled:CREATIVE-10 mint", async () => {
-    // A buyer share without the acknowledgement cannot be minted, and the
-    // control says why rather than vanishing.
-    shares({ initialAudience: "buyer", initialTitle: "x", initialExpiresAt: "2026-10-01" });
+    /*
+     * A buyer share without the acknowledgement cannot be minted, and the
+     * control says why rather than vanishing.
+     *
+     * The selection is supplied so the refusal under test is the ACKNOWLEDGEMENT
+     * one. Without it the control is refused for a different, equally correct
+     * reason — "a share needs at least one creative" — and the case would be
+     * grading the wrong gate.
+     */
+    shares({
+      initialAudience: "buyer",
+      initialTitle: "x",
+      initialExpiresAt: "2026-10-01",
+      selection: {
+        creatives: [{ id: "crt_1", name: "Hook A — 9:16" }],
+        selectedIds: ["crt_1"],
+        onToggle: vi.fn(),
+      },
+    });
     const mint = ctl("disabled:CREATIVE-10 mint");
     expect(mint, "the disabled mint is present").not.toBeNull();
     expect(mint!.getAttribute("aria-disabled")).toBe("true");

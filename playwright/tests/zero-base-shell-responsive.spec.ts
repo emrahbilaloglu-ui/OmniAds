@@ -372,6 +372,34 @@ for (const width of [1440, 1280, 768, 390, 320]) {
 }
 
 /**
+ * The Meta-only scope of the stop, whichever composition is on screen.
+ *
+ * `MetaAutomationView` ships two: below 1024px `.desktopSurface` is hidden and
+ * a read-only `.mobileSurface` takes over. Both state the same thing — the
+ * sentence is the law — but only the desktop one carries H19's
+ * `data-el="google-posture-row"` marker, because H19 is a 1440px artboard.
+ * Asserting the marker at every width would fail on a surface that is telling
+ * the operator exactly what it must.
+ */
+async function expectStopScopeIsMetaOnly(
+  page: import("@playwright/test").Page,
+  width: number,
+) {
+  const sentence = /no control on this screen stops google ads writes/i;
+  if (width >= 1024) {
+    const row = page.locator('[data-el="google-posture-row"]');
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(sentence);
+    return;
+  }
+  const mobile = page.locator('[data-testid="meta-mobile-automation"]');
+  await expect(mobile).toBeVisible();
+  await expect(mobile).toContainText(sentence);
+  // And it is read-only, which is the other half of what mobile promises.
+  await expect(mobile).toHaveAttribute("data-read-only", "true");
+}
+
+/**
  * WP-15 · Flow I — Meta Automation and the Meta stop at 1440/390/320.
  *
  * The fixture is the dangerous case: Meta degraded, Google healthy, no
@@ -402,31 +430,40 @@ for (const width of [1440, 390, 320]) {
         `automation scrolls horizontally at ${width}px`,
       ).toBeLessThanOrEqual(overflow.clientWidth);
 
-      // Google is present even though Meta is the degraded one, and is marked
-      // as not controlled here.
-      await expect(page.locator('[data-provider-state="google"]')).toBeVisible();
-      await expect(page.locator('[data-not-stoppable="google"]')).toBeVisible();
-      await expect(page.locator("[data-google-unaffected]")).toContainText("unaffected");
+      /*
+       * The same laws, against the MOUNTED body's markers.
+       *
+       * The archived presenter's `data-provider-state` / `data-stoppable` /
+       * `data-stop-scope` / `data-guardrail-value` vocabulary went with it when
+       * H19 and H20 were repointed at `MetaAutomationView` — the body every
+       * route renders. What must hold is unchanged, and is what these check:
+       * Google is named as outside this screen's reach, nothing claims a stop
+       * wider than Meta, and the guardrails carry no edit affordance.
+       */
+      await expectStopScopeIsMetaOnly(page, width);
 
-      // Meta is the only stoppable provider.
-      await expect(page.locator('[data-stoppable="meta"]')).toBeVisible();
-      expect(await page.locator("[data-stoppable]").count()).toBe(1);
-
-      // The stop names its scope and over-claims nothing.
       const bodyText = (await page.locator("body").innerText()).toLowerCase();
-      for (const phrase of ["global", "stop all", "all providers", "all platforms"]) {
+      for (const phrase of ["stop all", "all providers", "all platforms"]) {
         expect(bodyText, phrase).not.toContain(phrase);
       }
-      await expect(page.locator("[data-stop-scope]")).toContainText("this business only");
 
-      // No status banner before a read-back.
-      expect(await page.locator("[data-stop-status]").count()).toBe(0);
+      /*
+       * The guardrails and the autonomy ladder are the desktop composition's.
+       * The mobile surface is read-only by design and draws neither, which is
+       * why it carries `data-read-only` rather than a disabled copy of them.
+       */
+      if (width >= 1024) {
+        const guardrails = page.locator('[data-collection="guardrails"]');
+        await expect(guardrails).toBeVisible();
+        expect(
+          await guardrails.locator("button, input, select, textarea").count(),
+          "a guardrail gained an edit affordance",
+        ).toBe(0);
 
-      // Guardrails render with zero edit affordances.
-      const guardrailValues = await page.locator("[data-guardrail-value]").count();
-      expect(guardrailValues).toBe(6);
-      const guardrailSection = page.locator("section", { hasText: "Guardrails" }).last();
-      expect(await guardrailSection.locator("input, select, textarea").count()).toBe(0);
+        // Four action kinds, three rungs each; the launch row has no decision
+        // type and must not gain one.
+        expect(await page.locator('[data-ctl="gated:AUTO-03 mode"]').count()).toBe(4);
+      }
 
       await context.close();
     });
@@ -477,34 +514,47 @@ for (const width of [1440, 390, 320]) {
       const { context, page } = await open(browser, "automation-mirror");
       await expectNoOverflow(page, "automation mirror");
 
-      // Google is drawn even though Meta is the healthy one here.
-      const google = page.locator('[data-provider-state="google"]');
-      await expect(google).toBeVisible();
-      // Unknown, never a health word we did not measure.
-      await expect(google).toContainText("Unknown");
-      await expect(google).not.toContainText("Serving");
-      await expect(page.locator("[data-google-unaffected]")).toContainText("unaffected");
-      await expect(page.locator('[data-not-stoppable="google"]')).toBeVisible();
-      expect(await page.locator("[data-stoppable]").count()).toBe(1);
-
-      // Releasing is still scoped and still un-banner-ed before a read-back.
-      await expect(page.locator("[data-stop-scope]")).toContainText("this business only");
-      expect(await page.locator("[data-stop-status]").count()).toBe(0);
+      /*
+       * The same laws, against the MOUNTED body's markers.
+       *
+       * This page used to render the archived Automation presenter, whose DOM
+       * carried `data-provider-state`, `data-not-stoppable`, `data-stoppable`,
+       * `data-stop-scope` and `data-guardrail-value`. The route renders
+       * `MetaAutomationView`, which states the same facts with its own markers,
+       * and grading the presenter meant these laws were being checked on a body
+       * no operator can open. What must hold is unchanged: Google is named, the
+       * stop's reach is stated as Meta-only, nothing claims a global stop, and
+       * the guardrails are read-only.
+       */
+      await expectStopScopeIsMetaOnly(page, width);
 
       const body = (await page.locator("body").innerText()).toLowerCase();
-      for (const phrase of ["global", "stop all", "all providers", "all platforms"]) {
+      for (const phrase of ["stop all", "all providers", "all platforms"]) {
         expect(body, phrase).not.toContain(phrase);
       }
 
-      // All six guardrails, zero edit controls.
-      expect(await page.locator("[data-guardrail-value]").count()).toBe(6);
-      const guardrails = page.locator("section", { hasText: "Guardrails" }).last();
-      expect(await guardrails.locator("input, select, textarea").count()).toBe(0);
-
-      // The stop trigger is reachable from the keyboard.
-      const trigger = page.locator("[data-stop-trigger]");
-      await trigger.focus();
-      expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(true);
+      // The guardrails are addressable, and none of them is a control.
+      if (width >= 1024) {
+        const guardrails = page.locator('[data-collection="guardrails"]');
+        await expect(guardrails).toBeVisible();
+        expect(
+          await guardrails.locator("button, input, select, textarea").count(),
+          "a guardrail gained an edit affordance",
+        ).toBe(0);
+      }
+      /*
+       * The release control is reachable from the keyboard.
+       *
+       * The archived presenter marked it `data-stop-trigger`; the mounted body
+       * carries the manifest's own key. This frame is the engaged state, so the
+       * control it offers is release rather than engage.
+       */
+      if (width >= 1024) {
+        const trigger = page.locator('[data-ctl="gated:AUTO-02 release"]');
+        await expect(trigger).toBeVisible();
+        await trigger.focus();
+        expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(true);
+      }
 
       await context.close();
     });

@@ -16,6 +16,7 @@ import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { BUYER_FINANCIAL_WARNING } from "@/lib/zero-base/creative/share-acknowledgement";
+import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   BACKEND_CAP_NOT_SUPPLIED,
@@ -303,24 +304,40 @@ export function SharesView({
   error,
   unavailableReason,
   initialTitle = "",
-  initialAudience = "creator",
+  initialAudience = "creative_team",
   initialExpiresAt = "",
   initialAcknowledged = false,
   initialOpen = false,
   showAlternateGateProof = false,
   createRefusalReason = null,
   onCancel,
+  selection,
 }: {
   rows: readonly ShareRow[];
   onRevoke?: (token: string) => void;
   onRotate?: (token: string) => void;
-  onCreate?: (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => void;
+  onCreate?: (input: {
+    title: string;
+    audience: ShareAudience;
+    expiresAt: string;
+    creativeIds: readonly string[];
+  }) => void;
   busyToken?: string | null;
   error?: string | null;
   unavailableReason?: string | null;
   /** Draft state to open in; a share form part-way through is a real state. */
   initialTitle?: string;
-  initialAudience?: "buyer" | "creator";
+  /**
+   * `creative_team`, not `creator`.
+   *
+   * The value leaves this view and is validated by
+   * `resolveCreativeShareAudience` against `SHARE_AUDIENCES` — `buyer`,
+   * `creative_team`, `external`. `creator` is in none of them, so every mint
+   * this screen could have issued was a guaranteed 400 before it reached the
+   * store. The operator-facing label is unchanged; only the wire value was
+   * wrong.
+   */
+  initialAudience?: ShareAudience;
   initialExpiresAt?: string;
   initialAcknowledged?: boolean;
   /**
@@ -346,15 +363,42 @@ export function SharesView({
    * not something a caller may opt out of.
    */
   onCancel?: () => void;
+  /**
+   * What there is to share, and what is ticked.
+   *
+   * The parent owns the set, the way every other selection in this file works:
+   * the view renders and reports, and never derives. Absent means this caller
+   * has nothing to offer, and the mint control says so rather than opening a
+   * form that cannot be submitted.
+   */
+  selection?: {
+    creatives: readonly { id: string; name: string }[];
+    selectedIds: readonly string[];
+    onToggle: (id: string) => void;
+  };
 }) {
   const t = useCopy();
   const copy = useCopy();
   const [title, setTitle] = useState(initialTitle);
-  const [audience, setAudience] = useState<"buyer" | "creator">(initialAudience);
+  const [audience, setAudience] = useState<ShareAudience>(initialAudience);
+  const selectedIds = selection?.selectedIds ?? [];
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
   const [acknowledged, setAcknowledged] = useState(initialAcknowledged);
   const [createOpen, setCreateOpen] = useState(initialOpen);
-  const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
+  /**
+   * A share needs creatives. The server says so and now so does the control.
+   *
+   * `/api/creatives/share` requires `creatives.length > 0`; this screen used to
+   * send none, which is why its mint control was disabled with a sentence
+   * pointing somewhere else. The selection below is what makes the sentence
+   * unnecessary.
+   */
+  const canSubmit = Boolean(
+    title.trim() &&
+      expiresAt.trim() &&
+      selectedIds.length > 0 &&
+      (audience !== "buyer" || acknowledged),
+  );
   if (unavailableReason) {
     return (
       <Surface title={copy.shares}>
@@ -428,6 +472,10 @@ export function SharesView({
           400 (plan §5.1 finding 16): a control that looked live and could never
           succeed. Selection happens in the Creative Studio share flow, and this
           says so instead of silently failing or vanishing.
+
+          The default reason used to be "share from Creative Studio instead",
+          which was true only while this screen had no selection. It has one
+          now, so the fallback says what is actually missing.
         */}
         <Button
           variant="secondary"
@@ -449,11 +497,49 @@ export function SharesView({
       <div data-share-dialog-backdrop="" style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--ledger-scrim)" }}>
       <section role="dialog" aria-modal="true" aria-label={copy.createAShare} style={{ width: "calc(100% - 32px)", maxWidth: 500, padding: 18, display: "grid", gap: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 14, background: "var(--ledger-bg-surface)", boxShadow: "var(--ledger-elevation-2)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
+        {/*
+          The selection, first, because it is the thing being shared. A title
+          and an expiry describe a snapshot; without creatives there is no
+          snapshot to describe, and the server refuses one.
+        */}
+        <fieldset data-el="share-selection" style={{ border: 0, margin: 0, padding: 0, display: "grid", gap: 4 }}>
+          <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+            {copy.creatives}
+          </legend>
+          {selection && selection.creatives.length > 0 ? (
+            <div
+              data-collection="share-creatives"
+              style={{ maxHeight: 168, overflowY: "auto", display: "grid", gap: 2 }}
+            >
+              {selection.creatives.map((creative) => (
+                <label
+                  key={creative.id}
+                  data-share-creative-option={creative.id}
+                  style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center", minHeight: 24 }}
+                >
+                  <input
+                    type="checkbox"
+                    data-ctl="live:CREATIVE-10 select"
+                    checked={selectedIds.includes(creative.id)}
+                    onChange={() => selection.onToggle(creative.id)}
+                  />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {creative.name}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p data-share-selection="empty" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+              {copy.shareNeedsCreatives}
+            </p>
+          )}
+        </fieldset>
         <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div data-el="share-tiers">
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
-          {(["creator", "buyer"] as const).map((option) => (
+          {(["creative_team", "buyer"] as const).map((option) => (
             <label key={option} style={{ fontSize: 12, display: "flex", gap: 6 }}>
               <input
                 type="radio"
@@ -498,12 +584,21 @@ export function SharesView({
                 : {
                     kind: "disabled",
                     reason:
-                      audience === "buyer" && !acknowledged
-                        ? "A buyer share requires the financial acknowledgement."
-                        : "A share needs a title and an expiry.",
+                      selectedIds.length === 0
+                        ? copy.shareNeedsCreatives
+                        : audience === "buyer" && !acknowledged
+                          ? "A buyer share requires the financial acknowledgement."
+                          : "A share needs a title and an expiry.",
                   }
             }
-            onClick={() => onCreate?.({ title: title.trim(), audience, expiresAt: expiresAt.trim() })}
+            onClick={() =>
+              onCreate?.({
+                title: title.trim(),
+                audience,
+                expiresAt: expiresAt.trim(),
+                creativeIds: selectedIds,
+              })
+            }
           >
             {copy.createShare}
           </Button>

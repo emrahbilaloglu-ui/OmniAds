@@ -139,19 +139,126 @@ describe("CreativeSharesClient", () => {
     });
   });
 
-  it("does not offer a create it cannot complete", async () => {
+  /** One served creative, in the shape `/api/meta/creatives` answers with. */
+  const SERVED_CREATIVE = {
+    id: "crt_1",
+    name: "Hook A — 9:16",
+    format: "video",
+    creative_type: "reel",
+    launch_date: "2026-07-02",
+    currency: "USD",
+    preview: { render_mode: "video", image_url: null, video_url: null, poster_url: null, source: null, is_catalog: false },
+    spend: 120,
+    purchases: 4,
+    purchase_value: 480,
+    roas: 4,
+    impressions: 5000,
+    clicks: 60,
+  };
+
+  function ledgerAndCreatives(extra: Record<string, unknown> = {}) {
+    return {
+      "/api/creatives/share": {
+        grants: [],
+        capability: { status: "ready", canReadLedger: true, canWrite: true, missingColumns: [] },
+      },
+      "/api/meta/creatives": { rows: [SERVED_CREATIVE] },
+      ...extra,
+    };
+  }
+
+  it("mints from a ticked selection, with the audience value the server accepts", async () => {
     /**
-     * The mint form here carries a title, an audience and an expiry, and no
-     * creative selection — while the server requires `creatives.length > 0`. A
-     * create issued from this screen was a guaranteed 400 after the operator
-     * had filled the whole form in (§5.1 finding 16). It now refuses up front
-     * and says where selection happens.
+     * Two defects in one test, because they compounded.
+     *
+     * The form sent `creatives: []` while the route requires at least one, so
+     * the screen disabled its own mint control and pointed the operator at the
+     * Creative Studio — the canonical console could not produce a share at all.
+     * And the audience it would have sent was `creator`, which is in none of
+     * `SHARE_AUDIENCES` (`buyer`, `creative_team`, `external`), so even a
+     * populated payload was a 400 before it reached the store.
      */
+    serve(ledgerAndCreatives());
+
+    render(
+      <ZeroBasePortalHost>
+        <CreativeSharesClient {...SCOPE} />
+      </ZeroBasePortalHost>,
+    );
+
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]')).not.toBeNull();
+    });
+    await user.click(
+      document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]') as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[data-share-creative-option="crt_1"]')).not.toBeNull();
+    });
+
+    await user.click(
+      document.querySelector('[data-share-creative-option="crt_1"] input') as HTMLElement,
+    );
+    await user.type(screen.getByLabelText("Title"), "August cutdowns");
+    await user.type(screen.getByLabelText("Expires at"), "2099-09-01");
+    await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
+    const post = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+    )!;
+    const body = JSON.parse(String((post[1] as RequestInit).body)) as {
+      audience: string;
+      creatives: unknown[];
+      metrics: unknown[];
+      selectedRowIds: string[];
+      snapshotOnly: boolean;
+    };
+
+    expect(body.audience).toBe("creative_team");
+    // The two things the route validates and this screen used to fail.
+    expect(body.creatives.length).toBeGreaterThan(0);
+    expect(body.metrics.length).toBeGreaterThan(0);
+    expect(body.selectedRowIds).toEqual(["crt_1"]);
+    expect(body.snapshotOnly).toBe(true);
+  });
+
+  it("refuses the mint with the gate's own sentence, and still allows withdrawal", async () => {
+    serve(ledgerAndCreatives());
+    const refusal = "Public share minting is not enabled for this deployment.";
+
+    render(
+      <ZeroBasePortalHost>
+        <CreativeSharesClient {...SCOPE} shareMintRefusalReason={refusal} />
+      </ZeroBasePortalHost>,
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]')).not.toBeNull();
+    });
+    const create = document.querySelector(
+      '[data-ctl="live:CREATIVE-10 open-create"]',
+    ) as HTMLElement;
+    // Refused with the server's reason, and refusing means the form never opens.
+    expect(create.getAttribute("aria-disabled")).toBe("true");
+    await userEvent.setup().click(create);
+    expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+  });
+
+  it("says the account served nothing rather than offering an empty form", async () => {
     serve({
       "/api/creatives/share": {
         grants: [],
         capability: { status: "ready", canReadLedger: true, canWrite: true, missingColumns: [] },
       },
+      "/api/meta/creatives": { rows: [] },
     });
 
     render(
@@ -161,17 +268,12 @@ describe("CreativeSharesClient", () => {
     );
 
     await waitFor(() => {
-      expect(
-        document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]'),
-      ).not.toBeNull();
+      expect(document.querySelector('[data-ctl="live:CREATIVE-10 open-create"]')).not.toBeNull();
     });
-    // Closed by default, and it stays closed: the control is refused.
-    expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
     const create = document.querySelector(
       '[data-ctl="live:CREATIVE-10 open-create"]',
     ) as HTMLElement;
-    await userEvent.setup().click(create);
-    expect(document.querySelector("[data-share-dialog-backdrop]")).toBeNull();
+    expect(create.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("shows an unreadable ledger as unavailable, not as no shares", async () => {

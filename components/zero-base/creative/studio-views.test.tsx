@@ -239,16 +239,34 @@ describe("public share media", () => {
 /* ------------------------------------------------- creation flows are real */
 
 describe("share creation carries the acknowledgement the server requires", () => {
-  function shareForm(onCreate = vi.fn()) {
+  /**
+   * A form with something to share.
+   *
+   * The selection is not optional furniture: `/api/creatives/share` refuses a
+   * snapshot with no creatives, so a form that could submit without one was a
+   * form whose only possible outcome was a 400.
+   */
+  const SELECTABLE = [
+    { id: "crt_1", name: "Hook A — 9:16" },
+    { id: "crt_2", name: "Hook B — 1:1" },
+  ];
+
+  function shareForm(onCreate = vi.fn(), selectedIds: string[] = ["crt_1"]) {
+    const onToggle = vi.fn();
     render(
       <ZeroBasePortalHost>
-        <SharesView rows={[]} onCreate={onCreate} initialOpen />
+        <SharesView
+          rows={[]}
+          onCreate={onCreate}
+          initialOpen
+          selection={{ creatives: SELECTABLE, selectedIds, onToggle }}
+        />
       </ZeroBasePortalHost>,
     );
     return onCreate;
   }
 
-  it("shows no acknowledgement for a creator share", () => {
+  it("shows no acknowledgement for a creative-team share", () => {
     shareForm();
     expect(document.querySelector("[data-share-ack-block]")).toBeNull();
   });
@@ -273,20 +291,77 @@ describe("share creation carries the acknowledgement the server requires", () =>
       title: "Q3 creatives",
       audience: "buyer",
       expiresAt: "2026-09-01",
+      creativeIds: ["crt_1"],
     });
   });
 
-  it("creates a creator share without an acknowledgement", async () => {
+  it("creates a creative-team share without an acknowledgement", async () => {
     const onCreate = shareForm();
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Title"), "Internal");
     await user.type(screen.getByLabelText("Expires at"), "2026-09-01");
     await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+    /*
+     * `creative_team`, the value `SHARE_AUDIENCES` actually contains. This
+     * assertion used to say `creator`, which the server has never accepted:
+     * `resolveCreativeShareAudience` returns null for it and the route answers
+     * 400 before the store is reached. The test agreed with the view and both
+     * were wrong about the wire.
+     */
     expect(onCreate).toHaveBeenCalledWith({
       title: "Internal",
-      audience: "creator",
+      audience: "creative_team",
       expiresAt: "2026-09-01",
+      creativeIds: ["crt_1"],
     });
+  });
+
+  it("cannot submit with nothing ticked, and says why", async () => {
+    const onCreate = shareForm(vi.fn(), []);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Title"), "Empty");
+    await user.type(screen.getByLabelText("Expires at"), "2026-09-01");
+    await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-share-create]")!.getAttribute("data-ctl")).toBe(
+      "disabled:CREATIVE-10 mint",
+    );
+  });
+
+  it("offers every served creative, and reports a tick to its owner", async () => {
+    const onToggle = vi.fn();
+    render(
+      <ZeroBasePortalHost>
+        <SharesView
+          rows={[]}
+          onCreate={vi.fn()}
+          initialOpen
+          selection={{ creatives: SELECTABLE, selectedIds: [], onToggle }}
+        />
+      </ZeroBasePortalHost>,
+    );
+    expect(document.querySelectorAll("[data-share-creative-option]")).toHaveLength(2);
+    await userEvent.setup().click(
+      document.querySelector('[data-share-creative-option="crt_2"] input') as HTMLElement,
+    );
+    // Reported, never decided here — the parent owns the set.
+    expect(onToggle).toHaveBeenCalledWith("crt_2");
+  });
+
+  it("says there is nothing to share when the account served nothing", () => {
+    render(
+      <ZeroBasePortalHost>
+        <SharesView
+          rows={[]}
+          onCreate={vi.fn()}
+          initialOpen
+          selection={{ creatives: [], selectedIds: [], onToggle: vi.fn() }}
+        />
+      </ZeroBasePortalHost>,
+    );
+    expect(document.querySelector('[data-share-selection="empty"]')!.textContent).toMatch(
+      /at least one creative/,
+    );
   });
 });
 

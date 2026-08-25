@@ -316,20 +316,30 @@ test("message — a note left by the recipient is stored against the snapshot", 
     await box.fill(note);
 
     /*
-     * The response, not just the click. The note thread re-renders from the
-     * endpoint's own reply, so a failure would otherwise show up here as an
-     * invisible element rather than as the status code that caused it.
+     * The OUTCOME, not the response object.
+     *
+     * This used to wait on the POST and read its body for the failure message.
+     * Reading a response body from the test races the page's own read of the
+     * same stream: under load the composer's `await response.json()` never
+     * settled, so the note stayed in the textbox, the thread said "No notes
+     * yet", and the failure read as "the note is not visible" while the server
+     * had stored it and answered correctly. The test was breaking the thing it
+     * was measuring.
+     *
+     * So: click, then assert what an operator would see, and let the console
+     * listener carry the diagnosis if it does not appear.
      */
-    const [posted] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.url().includes("/messages") && response.request().method() === "POST",
-        { timeout: 30_000 },
-      ),
-      page.getByRole("button", { name: "Send" }).click(),
-    ]);
-    expect(posted.status(), (await posted.text()).slice(0, 500)).toBe(200);
-    await expect(page.getByText(note)).toBeVisible({ timeout: 30_000 });
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => consoleErrors.push(String(error?.message ?? error)));
+
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(
+      page.getByText(note),
+      `the note never reached the thread. console: ${consoleErrors.join(" | ") || "(silent)"}`,
+    ).toBeVisible({ timeout: 30_000 });
   } finally {
     await context.close();
   }
@@ -429,38 +439,271 @@ test("and the revoked link no longer opens", async ({ browser }) => {
   }
 });
 
-test("the canonical console can withdraw a link but cannot mint one", async ({ page }) => {
-  /**
-   * The finding this file's posture rests on, asserted rather than asserted in
-   * a comment.
-   *
-   * `/app/creative/shares` renders a ledger whose create control is refused
-   * with a stated reason, because the mint flow lives in the studio the
-   * canonical console replaced. Until that screen has a selection to send, the
-   * shipped canonical console cannot produce a share at all — so a market-ready
-   * claim about sharing is a claim about the legacy studio.
-   */
-  await page.goto(`${handle.baseUrl}/c/${BUSINESS}/creative/shares`, {
-    waitUntil: "domcontentloaded",
-  });
-  await page.waitForLoadState("load");
+/**
+ * The same lifecycle, on the CANONICAL console.
+ *
+ * This used to be a single test recording that `/app/creative/shares` could not
+ * mint at all: it passed `onCreate={undefined}` because it had no creative
+ * selection to send, and the mint endpoint refuses a snapshot holding none. The
+ * ledger now reads the same creatives the Performance tab reads and mints from
+ * a ticked selection, so the finding is closed and this is the proof.
+ *
+ * It runs on `gatesOpenBaseUrl` — the canonical console with
+ * `META_PUBLIC_SHARE_MINT` open — and the shipped-gate refusal is checked
+ * separately below, on the server where the gate is at its shipped value.
+ *
+ * The window is named in the URL rather than left to the default, and the
+ * reason is a real property of the read rather than a convenience: the
+ * canonical default window ends TODAY, and `getMetaCreativesApiPayload` sends
+ * any range containing the current day to a live provider read regardless of
+ * warehouse coverage. This harness has no provider, so the default window
+ * serves nothing anywhere. A scoped link — which is what `creativesListHref`
+ * builds — is the honest way to ask for a window the warehouse can answer.
+ */
+const CANONICAL_SHARES = `/c/${BUSINESS}/creative/shares?providerAccountId=${encodeURIComponent(
+  ACCOUNT,
+)}&start=${WINDOW.start}&end=${WINDOW.end}`;
 
+async function openCanonicalShares(page: Page, baseUrl: string): Promise<void> {
+  await page.goto(`${baseUrl}${CANONICAL_SHARES}`, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("load");
   const create = page.locator('[data-ctl="live:CREATIVE-10 open-create"]');
   await expect(create).toHaveCount(1, { timeout: 60_000 });
-  await expect(create).toBeDisabled();
-
   /*
-   * And withdrawal is not gated on the same thing, which is the point: a link
-   * that already exists must stay revocable whatever the mint path can do.
-   *
-   * Asserted as "every revoke control present is enabled", not as a count.
-   * Counting zero was wrong twice over — it asserted the ledger is empty, which
-   * is a fact about the fixture rather than about the gate, and it is false in
-   * a full run, where `meta-runtime-release-gates.spec.ts` has already minted a
-   * live share against the same database.
+   * Settled, not merely present. The mint control is refused while the
+   * creatives read is in flight — the zero-base `Button` expresses that as
+   * `aria-disabled`, absent when enabled — so clicking it too early does
+   * nothing and the next wait times out describing the wrong thing.
    */
-  const revoke = page.locator('[data-ctl="live:CREATIVE-10 revoke"]');
-  for (let index = 0; index < (await revoke.count()); index += 1) {
-    await expect(revoke.nth(index), `revoke ${index} is disabled`).toBeEnabled();
-  }
+  await expect(create).toBeEnabled({ timeout: 60_000 });
+}
+
+test.describe("the canonical console mints its own shares", () => {
+  /*
+   * Headroom, not a workaround. The mint runs in well under a second once the
+   * console has loaded; the extra budget is for the five servers this harness
+   * runs on one machine, where a cold first paint can take most of a minute
+   * without anything being wrong.
+   */
+  test.setTimeout(180_000);
+
+  let canonicalToken = "";
+
+  test("the ledger's own creatives read serves this scope", async ({ page }) => {
+    /*
+     * The same probe the legacy studio gets, for the same reason: a mint
+     * control that is refused because the read served nothing is a different
+     * failure from one that is refused because the gate is shut, and a test
+     * that starts by clicking cannot tell them apart.
+     */
+    await page.goto(`${handle.gatesOpenBaseUrl}${CANONICAL_SHARES}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const payload = await page.evaluate(async (url: string) => {
+      const result = await fetch(url, { credentials: "include" });
+      return { status: result.status, body: await result.text() };
+    }, `/api/meta/creatives?businessId=${BUSINESS}&providerAccountId=${encodeURIComponent(ACCOUNT)}&groupBy=creative&format=all&sort=spend&start=${WINDOW.start}&end=${WINDOW.end}`);
+
+    expect(payload.status, payload.body.slice(0, 800)).toBe(200);
+    const json = JSON.parse(payload.body) as { status?: string; rows?: unknown[] };
+    expect(json.status ?? "ok", payload.body.slice(0, 800)).toBe("ok");
+    expect((json.rows ?? []).length, payload.body.slice(0, 800)).toBeGreaterThanOrEqual(2);
+  });
+
+  test("a ticked selection becomes a stored snapshot", async ({ page }) => {
+    await openCanonicalShares(page, handle.gatesOpenBaseUrl);
+
+    const before = await shareRows();
+    const create = page.locator('[data-ctl="live:CREATIVE-10 open-create"]');
+    await expect(create, "the canonical ledger still refuses to mint").toBeEnabled();
+    await create.click();
+
+    // The selection is the half this screen never had.
+    await expect(
+      page.locator("[data-share-dialog-backdrop]"),
+      "the mint control was enabled and the dialog did not open",
+    ).toHaveCount(1, { timeout: 30_000 });
+
+    /*
+     * No `textContent()` in an assertion message.
+     *
+     * Playwright's message argument is evaluated eagerly, and `textContent()`
+     * on a locator matching nothing AUTO-WAITS — so a diagnostic for the empty
+     * case blocked the whole test until its budget ran out, and the failure
+     * pointed at the assertion it was supposed to explain. Anything read for a
+     * message has to be non-blocking; `count()` is.
+     */
+    const options = page.locator("[data-share-creative-option]");
+    const empties = await page.locator('[data-share-selection="empty"]').count();
+    await expect(
+      options.first(),
+      empties > 0
+        ? "the dialog opened saying there is nothing to share"
+        : "the dialog opened with no selectable creatives and no note either",
+    ).toBeVisible({ timeout: 30_000 });
+    expect(
+      await options.count(),
+      "the ledger offered no creatives to share",
+    ).toBeGreaterThanOrEqual(2);
+    await options.nth(0).locator("input").check();
+    await options.nth(1).locator("input").check();
+
+    await page.locator("input[data-share-title]").fill("Canonical console snapshot");
+    const expiry = new Date();
+    expiry.setUTCDate(expiry.getUTCDate() + 14);
+    await page.locator("input[data-share-expires]").fill(expiry.toISOString().slice(0, 10));
+
+    /*
+     * Enabled before clicked. A disabled control swallows the click and the
+     * response wait then times out with nothing to read — a two-minute failure
+     * that names the wrong thing. The refusal sentence is what says why.
+     */
+    const submit = page.locator("[data-share-create]");
+    const submitState = await submit.evaluate((node) => ({
+      ctl: node.getAttribute("data-ctl"),
+      disabled: node.getAttribute("aria-disabled"),
+      reason: node.getAttribute("title") ?? node.getAttribute("aria-describedby"),
+      text: (node.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 200),
+    }));
+    expect(submitState.ctl, JSON.stringify(submitState)).toBe("live:CREATIVE-10 mint");
+
+    /*
+     * Click, then read the database. Waiting on the POST and reading its body
+     * races the client's own read of the same stream — see the note test — and
+     * the claim here is about a stored snapshot rather than about a status
+     * code, so the row is the better witness. The dialog closing is the
+     * client's own signal that the POST succeeded.
+     */
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    await submit.click();
+
+    /*
+     * Whichever comes first, then say which. Waiting only for the dialog to
+     * close turns any refusal into a bare timeout, and the refusal sentence is
+     * the whole diagnosis — the server's 503 for a shut gate, its 400 for a
+     * payload it will not take, or nothing at all if the click never fired.
+     */
+    const outcome = await Promise.race([
+      page
+        .locator("[data-share-dialog-backdrop]")
+        .waitFor({ state: "detached", timeout: 45_000 })
+        .then(() => "closed" as const),
+      page
+        .locator("[data-share-error]")
+        .waitFor({ state: "visible", timeout: 45_000 })
+        .then(() => "refused" as const),
+    ]).catch(() => "neither" as const);
+    // `count()` first: `textContent()` auto-waits, and a message that blocks is
+    // a message that replaces the failure it was written to explain.
+    const refusal =
+      (await page.locator("[data-share-error]").count()) > 0
+        ? await page.locator("[data-share-error]").first().textContent()
+        : null;
+    expect(
+      outcome,
+      `mint said "${refusal ?? "(nothing)"}"; console: ${consoleErrors.join(" | ") || "(silent)"}`,
+    ).toBe("closed");
+
+    const after = await shareRows();
+    expect(after.length, "no snapshot row was written").toBe(before.length + 1);
+    const stored = after.find(
+      (row) => !before.some((earlier) => earlier.token === row.token),
+    );
+    expect(stored, "the POST answered 200 and stored nothing").toBeDefined();
+    canonicalToken = stored!.token;
+
+    // The selection, and the audience the server actually accepts.
+    expect(stored!.payload.creatives).toHaveLength(2);
+    expect(stored!.payload.audience).toBe("creative_team");
+    expect(stored!.revoked_at).toBeNull();
+  });
+
+  test("the minted link opens for a visitor with no session", async ({ browser }) => {
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const page = await context.newPage();
+    try {
+      await page.goto(`${handle.gatesOpenBaseUrl}/share/creative/${canonicalToken}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator('[data-public-share="ready"]')).toHaveCount(1);
+      await expect(page.locator("[data-share-creative]")).toHaveCount(2);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("a creative-team share withholds what the buyer tier carries", async ({ browser }) => {
+    /**
+     * The tier is the point of the audience, so it is checked on the page a
+     * recipient actually opens rather than on the payload.
+     *
+     * `resolveCreativeStudioSharePolicy` gives the creator tier no CSV and no
+     * buyer decision language; `toPublicShare` then refuses a CSV for any
+     * audience but `buyer`. Both halves are asserted, because either one alone
+     * would let the other rot.
+     */
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const page = await context.newPage();
+    try {
+      await page.goto(`${handle.gatesOpenBaseUrl}/share/creative/${canonicalToken}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator('[data-share-audience="creative_team"]')).toHaveCount(1);
+      await expect(
+        page.locator("[data-public-share-csv]"),
+        "a creative-team share offered a CSV export",
+      ).toHaveCount(0);
+      await expect(
+        page.locator("[data-share-financial-warning]"),
+        "a creative-team share carried the buyer financial warning",
+      ).toHaveCount(0);
+      // And never the workspace's own identity.
+      expect(await page.content()).not.toContain(BUSINESS);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("and the canonical ledger can withdraw what it minted", async ({ page }) => {
+    await openCanonicalShares(page, handle.gatesOpenBaseUrl);
+    const revoke = page.locator(`[data-share-revoke="${canonicalToken}"]`);
+    await expect(revoke).toHaveCount(1);
+    await expect(revoke).toBeEnabled();
+    await revoke.click();
+
+    // The row, polled rather than raced: the ledger refetches after the DELETE
+    // and the claim is about storage, not about a response object.
+    await expect
+      .poll(
+        async () =>
+          (await shareRows()).find((row) => row.token === canonicalToken)?.revoked_at ?? null,
+        { timeout: 30_000, message: "revoke left the row live" },
+      )
+      .not.toBeNull();
+  });
+
+  test("at the shipped gate setting the mint is refused, and withdrawal is not", async ({
+    page,
+  }) => {
+    /**
+     * The other half of the gate, on the server that ships it shut. The mint
+     * control carries the server's own sentence; every revoke control that
+     * exists stays enabled, because withdrawing a link that already exists must
+     * never wait on a rollout flag.
+     */
+    await page.goto(`${handle.baseUrl}${CANONICAL_SHARES}`, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
+
+    const create = page.locator('[data-ctl="live:CREATIVE-10 open-create"]');
+    await expect(create).toHaveCount(1, { timeout: 60_000 });
+    await expect(create).toBeDisabled();
+
+    const revoke = page.locator('[data-ctl="live:CREATIVE-10 revoke"]');
+    for (let index = 0; index < (await revoke.count()); index += 1) {
+      await expect(revoke.nth(index), `revoke ${index} is disabled`).toBeEnabled();
+    }
+  });
 });

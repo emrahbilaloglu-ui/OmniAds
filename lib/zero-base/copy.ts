@@ -276,8 +276,7 @@ export const ZERO_BASE_COPY = {
      * Studio share flow, and the operator is told where rather than left to
      * discover it.
      */
-    shareCreateElsewhere:
-      "Choose the creatives first: open a creative in Creative Studio and share from there. This screen manages links that already exist.",
+    shareCreateElsewhere: "A share needs at least one creative.",
     audience: "Audience",
     createShare: "Create share",
     rotateLink: "Rotate link",
@@ -414,6 +413,7 @@ export const ZERO_BASE_COPY = {
     linkNotAvailable: "This link is not available",
     shareHasNoCreatives: "This share contains no creatives.",
     creatives: "Creatives",
+    shareNeedsCreatives: "A share needs at least one creative.",
     creativePerformance: "Creative performance",
     creativeInbox: "Creative inbox",
     creativeCopies: "Creative copies",
@@ -797,8 +797,7 @@ export const ZERO_BASE_COPY = {
 
     createBriefFromCreative: "Bu kreatiften brief oluştur",
     createAShare: "Paylaşım oluştur",
-    shareCreateElsewhere:
-      "Önce kreatifleri seçin: Creative Studio'da bir kreatif açıp oradan paylaşın. Bu ekran hâlihazırda var olan bağlantıları yönetir.",
+    shareCreateElsewhere: "Bir paylaşım en az bir kreatif gerektirir.",
     audience: "Kitle",
     createShare: "Paylaşımı oluştur",
     rotateLink: "Bağlantıyı yenile",
@@ -935,6 +934,7 @@ export const ZERO_BASE_COPY = {
     linkNotAvailable: "Bu bağlantı kullanılamıyor",
     shareHasNoCreatives: "Bu paylaşım hiçbir kreatif içermiyor.",
     creatives: "Kreatifler",
+    shareNeedsCreatives: "Bir paylaşım en az bir kreatif gerektirir.",
     creativePerformance: "Kreatif performansı",
     creativeInbox: "Kreatif gelen kutusu",
     creativeCopies: "Kreatif metinleri",

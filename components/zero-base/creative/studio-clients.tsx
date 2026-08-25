@@ -7,7 +7,7 @@
  * client owns the only mutations here — revoke and rotate — and both go to the
  * existing share API rather than a new one.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   BriefsView,
@@ -26,6 +26,24 @@ import {
   type ServedShare,
 } from "@/lib/zero-base/creative/studio-adapters";
 import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
+/*
+ * The Studio's own share machinery, imported rather than reimplemented.
+ *
+ * These four decide what a share tier may carry, how a row is shaped for it,
+ * and what the public page compares against. A second copy here would be a
+ * second answer to "what may a buyer see", which is the one question the tier
+ * exists to have a single answer to.
+ */
+import {
+  computeCreativeShareBenchmarks,
+  mapApiRowToUiRow,
+  toCreatorTier0SharedCreative,
+  toSharedCreative,
+} from "@/app/(dashboard)/platforms/meta/creatives/page-support";
+import { resolveCreativeStudioSharePolicy } from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
+import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/creatives-top-section-support";
+import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
+import type { ShareAudience } from "@/components/creatives/shareCreativeTypes";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
@@ -314,15 +332,25 @@ export function CreativeLandingPagesClient(props: ScopeProps) {
 /* --------------------------------------------------------------- shares */
 
 /**
- * Why this ledger cannot mint, when the gate is not the reason.
+ * The three reasons this ledger can refuse a mint, and none of them is "this
+ * screen does not do that".
  *
- * The create path here builds a payload with `creatives: []` and the server
- * requires at least one, so every create issued from this screen was a
- * guaranteed 400 after the operator had filled in a title, an audience and an
- * expiry. Selection happens in the Creative Studio share flow.
+ * It used to be exactly that: the create path built a payload with
+ * `creatives: []`, the server requires at least one, and rather than sending a
+ * guaranteed 400 the screen disabled the control and pointed the operator at
+ * the Creative Studio. That sentence is gone because the reason is gone — the
+ * ledger now reads the same creatives the Performance tab reads and mints from
+ * a ticked selection.
+ *
+ * What is left are three real conditions, each with its own sentence, because
+ * "the gate is shut", "this account served nothing" and "the read failed" send
+ * an operator to three different places.
  */
-export const SHARES_LEDGER_NO_SELECTION =
-  "Choose the creatives first: open a creative in Creative Studio and share from there. This screen manages links that already exist.";
+const SHARE_NEEDS_CREATIVES = "A share needs at least one creative.";
+const SHARE_NO_CREATIVES_SERVED =
+  "No creatives were served for this account and window, so there is nothing to put in a share. Widen the window or choose another account.";
+const SHARE_CREATIVES_UNREAD =
+  "The creatives for this account could not be read, so a share cannot be built from them yet.";
 
 export function CreativeSharesClient(props: ScopeProps) {
   /**
@@ -343,6 +371,37 @@ export function CreativeSharesClient(props: ScopeProps) {
     capability?: { canReadLedger?: boolean; canWrite?: boolean; status?: string };
     message?: string;
   }>(scoped("/api/creatives/share", props, {}, false), "Shares");
+
+  /**
+   * What there is to share, read from the same endpoint the Performance tab
+   * reads.
+   *
+   * This screen could list, rotate and revoke but never mint, because it had no
+   * creative selection to send and the server refuses a snapshot holding none.
+   * The selection is the missing half, and it comes from `/api/meta/creatives`
+   * under this surface's own scope rather than from a second source of truth:
+   * a share must hold rows the operator could see on the Performance tab in the
+   * same account and window.
+   *
+   * `requireAccount` is true — an unscoped read would offer creatives from
+   * whichever account the server happened to pick, and a share is a claim about
+   * ONE account.
+   */
+  const creativesRead = useJson<{ rows?: MetaCreativeApiRow[] }>(
+    scoped("/api/meta/creatives", props, { groupBy: "creative", format: "all", sort: "spend" }),
+    "Creatives",
+  );
+  const selectable = useMemo(
+    () => (creativesRead.data?.rows ?? []).map(mapApiRowToUiRow),
+    [creativesRead.data],
+  );
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((previous) =>
+      previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id],
+    );
+  }, []);
+
   const [busyToken, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -376,39 +435,79 @@ export function CreativeSharesClient(props: ScopeProps) {
   );
 
   /**
-   * Create a share.
+   * Mint a share from the ticked rows.
    *
-   * A buyer share carries the acknowledgement the server requires; without it
-   * the POST is a 400 by design, so the UI sends it explicitly rather than
-   * hoping. Creator shares do not carry it, matching the server contract.
+   * The payload is built the same way the Creative Studio's own share modal
+   * builds it — `resolveCreativeStudioSharePolicy` decides which metrics a tier
+   * may carry, `toSharedCreative` / `toCreatorTier0SharedCreative` shape each
+   * row for that tier, and `computeCreativeShareBenchmarks` supplies the
+   * comparison the public page draws. None of that is re-derived here: a
+   * second policy would be a second answer to what a buyer is allowed to see,
+   * and the whole point of the tier is that there is only one.
+   *
+   * `snapshotOnly` is true because this is a frozen snapshot, and
+   * `anonymizeCampaignNames` because this payload has no campaign-name field to
+   * offer — the same explicit choice the Studio makes.
    */
   const create = useCallback(
-    async (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => {
+    async (input: {
+      title: string;
+      audience: ShareAudience;
+      expiresAt: string;
+      creativeIds: readonly string[];
+    }) => {
+      const rows = selectable.filter((row) => input.creativeIds.includes(row.id));
+      if (rows.length === 0) {
+        setError(SHARE_NEEDS_CREATIVES);
+        return;
+      }
       setBusy("new");
       setError(null);
       try {
+        const policy = resolveCreativeStudioSharePolicy({
+          audience: input.audience,
+          selectedMetricIds: DEFAULT_TOP_METRIC_IDS,
+          buyerDecisionLanguage: false,
+          allowCsv: false,
+          anonymizeCampaignNames: true,
+        });
         const response = await fetch("/api/creatives/share", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({
             businessId: props.businessId,
             providerAccountId: props.providerAccountId,
             title: input.title,
-            dateRange: `${props.start}..${props.end}`,
+            dateRange: `${props.start} - ${props.end}`,
             expiresAt: input.expiresAt,
-            metrics: [],
-            creatives: [],
+            metrics: policy.metrics,
             audience: input.audience,
             ...(input.audience === "buyer"
               ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
               : {}),
+            presetId: "creative-shares",
+            presetLabel: "Shares ledger",
+            includeCampaignNames: policy.includeCampaignNames,
+            includeDecisionLanguage: policy.includeDecisionLanguage,
+            allowCsv: policy.allowCsv,
+            snapshotOnly: true,
+            filters: ["Shares ledger", "selected creatives"],
+            selectedRowIds: rows.map((row) => row.id),
+            totalRows: selectable.length,
+            benchmarks: computeCreativeShareBenchmarks(selectable),
+            creatives: rows.map((row) =>
+              policy.creatorTier0 ? toCreatorTier0SharedCreative(row) : toSharedCreative(row),
+            ),
           }),
         });
         if (!response.ok) {
           const json = (await response.json().catch(() => null)) as { message?: string } | null;
+          // The server's own sentence, including the gate's 503, rather than a
+          // status code the operator cannot act on.
           setError(json?.message ?? `The share could not be created (HTTP ${response.status}).`);
           return;
         }
+        setSelectedIds([]);
         refresh();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "The share API could not be reached.");
@@ -416,8 +515,23 @@ export function CreativeSharesClient(props: ScopeProps) {
         setBusy(null);
       }
     },
-    [props.businessId, props.providerAccountId, props.start, props.end, refresh],
+    [props.businessId, props.providerAccountId, props.start, props.end, refresh, selectable],
   );
+
+  /**
+   * Why minting is refused, when it is — in the order the reasons matter.
+   *
+   * A shut gate outranks an empty account: telling an operator "no creatives
+   * were served" while the mint path is switched off product-wide would send
+   * them looking at their data for a problem that is in the deployment.
+   */
+  const mintRefusal =
+    props.shareMintRefusalReason ??
+    (creativesRead.surface.kind === "ready" && selectable.length === 0
+      ? SHARE_NO_CREATIVES_SERVED
+      : creativesRead.surface.kind === "ready"
+        ? null
+        : SHARE_CREATIVES_UNREAD);
 
   const now = new Date();
   /**
@@ -447,24 +561,21 @@ export function CreativeSharesClient(props: ScopeProps) {
         busyToken={busyToken}
         error={error}
         /*
-         * Minting is refused here, not offered and then rejected.
-         *
-         * `create` below builds a payload with `creatives: []`, and the server
-         * requires at least one — so every create issued from this ledger was a
-         * guaranteed 400 after the operator filled in a title, an audience and
-         * an expiry. Selection happens in the Creative Studio share flow. The
-         * function is kept so the path is one prop away once this screen has a
-         * selection to send.
+         * Offered only when it can succeed. The gate is the server's decision
+         * and is restated here so the refusal is visible before the form rather
+         * than after it; a read that could not serve any creatives is this
+         * screen's own reason, and it is a different sentence because it is a
+         * different problem.
          */
-        onCreate={undefined}
+        onCreate={mintRefusal ? undefined : (input) => void create(input)}
+        selection={{ creatives: selectable, selectedIds, onToggle: toggleSelected }}
         /*
-         * Two different reasons, and the more specific one wins. If the mint
-         * gate is shut, that is why nothing can be minted anywhere; if it is
-         * open, the reason is this screen's own — it has no creative selection
-         * to send. Rotation and revocation stay live in both cases: withdrawing
-         * a link that already exists must never wait on a rollout flag.
+         * Precedence: the gate first, because a shut gate is why nothing can be
+         * minted ANYWHERE; then this account's own emptiness. Rotation and
+         * revocation stay live under both: withdrawing a link that already
+         * exists must never wait on a rollout flag.
          */
-        createRefusalReason={props.shareMintRefusalReason ?? SHARES_LEDGER_NO_SELECTION}
+        createRefusalReason={mintRefusal}
         onRevoke={(token) => void mutate(token, "revoke")}
         onRotate={(token) => void mutate(token, "rotate")}
       />

@@ -1,8 +1,8 @@
 {
-  "commit": "fbbe089441",
-  "package": "wp9-controls",
-  "createdAt": "2026-08-25T22:30:42.101Z",
-  "artifactSet": "zero-base/fbbe089441/wp9-controls",
+  "commit": "113177f9df",
+  "package": "shell-scope",
+  "createdAt": "2026-08-25T23:15:31.353Z",
+  "artifactSet": "zero-base/113177f9df/shell-scope",
   "provenance": {
     "digest": "e79368f2cbc67a8ba6e81d18f4150e9e3aaac01d01afa074f548fca7ad7f8ced",
     "files": {
@@ -740,8 +740,8 @@
       "width": 390,
       "theme": "light",
       "file": "H51__L-AG-TODAY__narrow-agency__390__light.png",
-      "sha256": "3033e50aba7afa535bcca2ac712b32ff929afeccce971a10282191ad1c9502c4",
-      "bytes": 141709
+      "sha256": "8e47f7a6f30d03f0fe26a5136b9520d80be9792eba012114ff2b6769a3a276c7",
+      "bytes": 141696
     },
     {
       "leaf": "H52:L-C-META-DEC",
@@ -767,8 +767,8 @@
       "width": 390,
       "theme": "light",
       "file": "H54__L-SH-CREATIVE__narrow-share__390__light.png",
-      "sha256": "b51d021a24f4bf0df0354c37b3de0ba1eef0b37bfd33dd89ba5060670eff93cf",
-      "bytes": 85308
+      "sha256": "03fa11bb097afae9c22938cd9584d2724b12c9c6e0bb52699ca5e8c8aa18f308",
+      "bytes": 85260
     },
     {
       "leaf": "H55:L-C-HOME",
@@ -785,8 +785,8 @@
       "width": 320,
       "theme": "light",
       "file": "H56__L-AG-CLIENTS__narrow-agency-wrapping__320__light.png",
-      "sha256": "deb8b866c07e91d829d845dd8d8e13e97f5a07eda2968b4dee04680273da89db",
-      "bytes": 127721
+      "sha256": "ba15def9a39da0e231680ec5c5fe3cf19c3316b8fe9b65048f8a31580541215d",
+      "bytes": 127710
     },
     {
       "leaf": "H57:L-C-META-DEC",
@@ -812,8 +812,8 @@
       "width": 320,
       "theme": "dark",
       "file": "H59__L-SH-CREATIVE__narrow-share-gone__320__dark.png",
-      "sha256": "aab53e684249362b921ae4556f888619eb16b7987921fbcedb7abc6425eadba6",
-      "bytes": 80839
+      "sha256": "f3d6d43fc3451f9cdcacabb5b2e6687e21bdcf6211dddc20b26935b46d99bac4",
+      "bytes": 80806
     },
     {
       "leaf": "H60:L-C-HOME",
@@ -839,8 +839,8 @@
       "width": 390,
       "theme": "light",
       "file": "H62__L-AG-CLIENTS__agency-to-client__390__light.png",
-      "sha256": "c5eca4d1c08f3e00fa1347c555af3ab9e3613e6ee9acf5dc7d34542fb8b92267",
-      "bytes": 141692
+      "sha256": "3261268769bfa20fd41aaab332291ddaaadeb0f7004fcb349045cfc06852f16a",
+      "bytes": 141677
     },
     {
       "leaf": "H63:L-C-HOME",

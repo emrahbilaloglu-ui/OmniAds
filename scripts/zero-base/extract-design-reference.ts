@@ -197,17 +197,73 @@ export function buildReferenceManifest(): ReferenceManifest {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
-  const manifest = buildReferenceManifest();
+  /**
+   * Regenerate from the archive when it is here; otherwise verify the vendored
+   * manifest and stop.
+   *
+   * `docs/zero-base-design/v3/SOURCE.md` states the rule this now follows:
+   * *"The application must never import the design package from `Downloads/` or
+   * `/tmp`. These files are the exact bytes copied from the hash-verified
+   * archive at vendor time."* The manifest beside it was generated from that
+   * archive and records the digest it came from — so on a machine without the
+   * archive the honest answer is not to fail, and it is certainly not to
+   * regenerate a partial manifest from whatever happens to be vendored. It is
+   * to check that the vendored manifest is the one the accepted archive
+   * produced, and to say which bytes the run is standing on.
+   *
+   * This refuses in three cases, and each is a real problem rather than a
+   * missing laptop:
+   *
+   *   - the archive is present but its digest does not match — the reference
+   *     authority changed and the manifest must be regenerated deliberately;
+   *   - the archive is absent and no vendored manifest exists — there is no
+   *     reference at all;
+   *   - the archive is absent and the vendored manifest names a DIFFERENT
+   *     archive — the two authorities disagree, and neither may be assumed.
+   */
   const out = path.join(ROOT, REFERENCE_MANIFEST);
-  mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  console.log("zero-base design reference (accepted package)\n");
-  console.log(`  archive        ${manifest.generatedFrom}`);
-  console.log(`  sha256         ${manifest.zipSha256}`);
-  console.log(`  artboards      ${manifest.frames.length}`);
-  console.log(`  contracts      ${manifest.contracts.length}`);
-  console.log(`  palette        ${manifest.style.palette.length} colours`);
-  console.log(`  type scale     ${manifest.style.typeScale.length} sizes, smallest ${manifest.style.minFontPx}px`);
-  console.log(`\n  written to ${REFERENCE_MANIFEST}`);
+  if (existsSync(DESIGN_ZIP)) {
+    const manifest = buildReferenceManifest();
+    mkdirSync(path.dirname(out), { recursive: true });
+    writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    console.log("zero-base design reference (regenerated from the accepted archive)\n");
+    console.log(`  archive        ${manifest.generatedFrom}`);
+    console.log(`  sha256         ${manifest.zipSha256}`);
+    console.log(`  artboards      ${manifest.frames.length}`);
+    console.log(`  contracts      ${manifest.contracts.length}`);
+    console.log(`  palette        ${manifest.style.palette.length} colours`);
+    console.log(
+      `  type scale     ${manifest.style.typeScale.length} sizes, smallest ${manifest.style.minFontPx}px`,
+    );
+    console.log(`\n  written to ${REFERENCE_MANIFEST}`);
+  } else {
+    if (!existsSync(out)) {
+      throw new Error(
+        `No design archive at ${DESIGN_ZIP} and no vendored manifest at ${REFERENCE_MANIFEST}.\n` +
+          "There is no reference to check against. Restore one of the two.",
+      );
+    }
+    const vendored = JSON.parse(readFileSync(out, "utf8")) as ReferenceManifest;
+    if (vendored.zipSha256 !== DESIGN_ZIP_SHA256) {
+      throw new Error(
+        "The vendored reference manifest was generated from a different archive.\n" +
+          `  manifest names ${vendored.zipSha256}\n` +
+          `  this tree binds ${DESIGN_ZIP_SHA256}\n` +
+          "Neither may be assumed correct; regenerate from the accepted archive.",
+      );
+    }
+
+    console.log("zero-base design reference (vendored bytes — archive not on this machine)\n");
+    console.log(`  bound to       ${vendored.zipSha256}`);
+    console.log(`  generated from ${vendored.generatedFrom}`);
+    console.log(`  artboards      ${vendored.frames.length}`);
+    console.log(`  contracts      ${vendored.contracts.length}`);
+    console.log(`  palette        ${vendored.style.palette.length} colours`);
+    console.log(
+      `  type scale     ${vendored.style.typeScale.length} sizes, smallest ${vendored.style.minFontPx}px`,
+    );
+    console.log(`\n  read from ${REFERENCE_MANIFEST} — not regenerated.`);
+  }
 }

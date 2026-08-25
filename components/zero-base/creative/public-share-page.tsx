@@ -19,6 +19,7 @@ import { PUBLIC_SHARE_GONE } from "@/lib/zero-base/creative/public-share";
 import { toneStyle } from "@/lib/zero-base/creative/public-share-story";
 import type { SharedMessage } from "@/components/creatives/shareCreativeTypes";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import { PublicShareScreenView } from "@/components/zero-base/creative/public-share-screen-view";
 import styles from "./PublicSharePage.module.css";
 
 const VERDICT_ICON_PATH: Record<"good" | "mixed" | "bad", string> = {
@@ -505,7 +506,10 @@ export function PublicSharePage({
   const actions = share.actions ?? [];
 
   return (
-    <main className={styles.page} data-el="public-share" data-public-share="ready" data-share-audience={share.audience}>
+    <>
+      {/* Anonymous, identifier-free, and only on the served page. */}
+      <PublicShareScreenView />
+      <main className={styles.page} data-el="public-share" data-public-share="ready" data-share-audience={share.audience}>
       <div className={styles.pageInner}>
         <header className={styles.header}>
           <div className={styles.headerRow}>
@@ -599,6 +603,7 @@ export function PublicSharePage({
         </footer>
       </div>
     </main>
+    </>
   );
 }
 

@@ -2163,14 +2163,14 @@ export const GENERATED_INSTRUMENTATION: readonly GeneratedInstrumentationRow[] =
     leaf: "L-SH-CREATIVE",
     surface: "share_creative",
     event: "screen_view",
-    anonymous: false,
+    anonymous: true,
     properties: ["actor_role", "surface", "token_hash", "ts", "width_bucket"],
   },
   {
     leaf: "L-SH-REPORT",
     surface: "share_report",
     event: "screen_view",
-    anonymous: false,
+    anonymous: true,
     properties: ["actor_role", "surface", "token_hash", "ts", "width_bucket"],
   },
 ] as const;

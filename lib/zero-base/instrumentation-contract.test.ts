@@ -43,13 +43,40 @@ describe("74 screen emitters, exactly", () => {
     expect(new Set(GENERATED_INSTRUMENTATION.map((row) => row.surface)).size).toBe(74);
   });
 
-  it("permits anonymous emission only from the 15 pre-auth public surfaces", () => {
+  it("permits anonymous emission only where the ledger says there is no session", () => {
+    /*
+     * Seventeen, not fifteen. The ledger has six `actorScope` values and two of
+     * them describe a caller with no session: `Public · pre-auth` (15 leaves)
+     * and `Unauthenticated recipient · token scope only` (the public creative
+     * and report shares).
+     *
+     * The generator matched only the first, so both share leaves came out
+     * `anonymous: false` — and the ingest then refused the very pages the
+     * ledger records as `availability: live` for an unauthenticated recipient.
+     * That was a derivation bug, not a design statement, and this assertion
+     * previously pinned it in place.
+     */
     const anonymousRows = GENERATED_INSTRUMENTATION.filter((row) => row.anonymous);
-    expect(anonymousRows).toHaveLength(15);
+    expect(anonymousRows).toHaveLength(17);
+
     const publicLeaves = new Set(
       GENERATED_LEAVES.filter((leaf) => leaf.ctx === "Public").map((leaf) => leaf.leaf),
     );
-    for (const row of anonymousRows) expect(publicLeaves.has(row.leaf), row.leaf).toBe(true);
+    /** The two token-scope recipients, named so a third cannot join quietly. */
+    const TOKEN_SCOPE_LEAVES = new Set(["L-SH-CREATIVE", "L-SH-REPORT"]);
+
+    for (const row of anonymousRows) {
+      expect(
+        publicLeaves.has(row.leaf) || TOKEN_SCOPE_LEAVES.has(row.leaf),
+        `${row.leaf} is emitted anonymously and is neither pre-auth nor token-scoped`,
+      ).toBe(true);
+    }
+    for (const leaf of TOKEN_SCOPE_LEAVES) {
+      expect(
+        anonymousRows.some((row) => row.leaf === leaf),
+        `${leaf} has an unauthenticated recipient and cannot emit`,
+      ).toBe(true);
+    }
   });
 
   it("declares only server-derivable or opaque-id properties", () => {

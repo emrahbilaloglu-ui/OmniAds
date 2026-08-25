@@ -43,6 +43,26 @@ export const SIGNUP_POLICY: ThrottlePolicy = {
   refillPerMs: 3 / (60 * 60_000),
 };
 
+/**
+ * Telemetry from a caller with no session.
+ *
+ * The instrumentation ingest is the only write path an unauthenticated visitor
+ * can reach — the public share pages emit a `screen_view` and nothing else — so
+ * it is the only one where a stranger controls how often we touch the database.
+ * Analytics is not worth a write amplifier.
+ *
+ * Roomier than the auth policies on purpose. A real recipient opens a share
+ * link, reloads it, follows it from two devices; sixty events with a slow
+ * refill absorbs all of that and still bounds a script to about one write a
+ * minute once the bucket is spent. Keyed on the address, like login, because a
+ * per-token key would let anyone holding a link exhaust that link's budget for
+ * its genuine recipient.
+ */
+export const ANONYMOUS_TELEMETRY_POLICY: ThrottlePolicy = {
+  capacity: 60,
+  refillPerMs: 60 / (60 * 60_000),
+};
+
 export interface ThrottleDecision {
   allowed: boolean;
   retryAfterSeconds: number;

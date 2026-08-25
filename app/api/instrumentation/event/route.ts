@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ANONYMOUS_TELEMETRY_POLICY, consumeToken } from "@/lib/auth-throttle";
+import { getTrustedClientIp } from "@/lib/request-client-ip";
 
 import { requireAuthedRequest, requireBusinessAccess } from "@/lib/access";
 import { getSessionFromRequest } from "@/lib/auth";
@@ -158,6 +160,36 @@ async function handleZeroBaseEvent(
   body: Record<string, unknown>,
 ): Promise<NextResponse> {
   const session = await getSessionFromRequest(request);
+
+  /*
+   * A caller with no session is rate limited before anything touches the
+   * database.
+   *
+   * This is the only write path an unauthenticated visitor can reach, and it
+   * became reachable when the public share leaves were corrected to
+   * `anonymous: true`. Without a bound, a stranger with a share URL controls
+   * how often we INSERT — and telemetry is not worth a write amplifier.
+   *
+   * Ordered first, above the session-scoped work, so a refused caller costs a
+   * bucket lookup and nothing else. An authenticated caller is untouched: they
+   * are already bounded by having an account.
+   */
+  if (!session) {
+    const clientIp = getTrustedClientIp(request);
+    const gate = consumeToken(
+      clientIp ? `instrumentation:ip:${clientIp}` : "instrumentation:ip:unknown",
+      ANONYMOUS_TELEMETRY_POLICY,
+      Date.now(),
+    );
+    if (!gate.allowed) {
+      // 429 with nothing else. The caller learns it was too fast and nothing
+      // about whether the surface, the event or the link was real.
+      return NextResponse.json(
+        { error: "rate_limited" },
+        { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+      );
+    }
+  }
 
   // Server-derived. A client that could name its own role could relabel its
   // own telemetry, so nothing here is read from the body.

@@ -144,18 +144,24 @@ describe("the instrumentation contract says what it says", () => {
     expect(PRODUCT_INSTRUMENTATION_SURFACES).toHaveLength(24);
   });
 
-  it("records that the public share leaf is contracted as NOT anonymous", () => {
+  it("contracts the public share leaf as anonymous, which it now is", () => {
     /*
-     * Pinned because an earlier revision of this file asserted the opposite in
-     * prose while citing this very row. The contract wants an actor and a
-     * `token_hash` for a page that has neither an actor nor a link the visitor
-     * may be identified by — which is why closing this gap is a divergence to
-     * ratify, not a mapping to add.
+     * This assertion has been wrong twice, in opposite directions, which is
+     * worth leaving on the record.
+     *
+     * First it claimed in prose that the row was anonymous when the generated
+     * file said `false`. Then it pinned `false` as the truth — and `false` was
+     * itself a generator bug: the ledger describes this leaf as
+     * `Unauthenticated recipient · token scope only`, and the derivation
+     * matched only `Public · pre-auth`. Fixing the derivation flipped exactly
+     * two booleans and nothing else.
+     *
+     * `token_hash` is still in the contracted property list and is still not
+     * emitted — see the emitter, which sends no identifier of any kind.
      */
     const row = GENERATED_INSTRUMENTATION.find((entry) => entry.surface === "share_creative");
     expect(row, "the contract no longer names a public creative share leaf").toBeDefined();
-    expect(row!.anonymous).toBe(false);
-    expect(row!.properties).toContain("token_hash");
+    expect(row!.anonymous).toBe(true);
   });
 
   it("still binds 74 leaves, each with a surface and properties", () => {

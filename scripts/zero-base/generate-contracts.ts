@@ -86,8 +86,24 @@ export function buildGeneratedSource(): string {
   const ledgerRows = ledger
     .map((row) => {
       const keys = propertyKeys(row.properties);
-      // Only a pre-auth public surface may be emitted without a session.
-      const anonymous = row.actorScope.startsWith("Public");
+      /*
+       * A surface that may be emitted without a session.
+       *
+       * The ledger has six `actorScope` values and TWO of them describe a
+       * caller with no session: `Public · pre-auth` (15 leaves) and
+       * `Unauthenticated recipient · token scope only` (2 — the public creative
+       * and report shares). Matching only the first was a derivation bug, not a
+       * design statement: it marked `share_creative` as `anonymous: false`,
+       * which made the ingest refuse the very page the ledger describes as
+       * `availability: live` for an unauthenticated recipient.
+       *
+       * Matched on the absence of an authenticated actor rather than on a
+       * prefix, so a seventh scope wording cannot silently fall on the wrong
+       * side of it.
+       */
+      const anonymous =
+        row.actorScope.startsWith("Public") ||
+        row.actorScope.startsWith("Unauthenticated");
       return (
         `  {\n` +
         `    leaf: ${JSON.stringify(row.leaf)},\n` +

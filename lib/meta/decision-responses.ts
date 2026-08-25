@@ -3,15 +3,18 @@ import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { buildOperatorInstruction } from "@/lib/operator-prescription";
 import { emitOperatorDecisionTelemetryEvent } from "@/lib/operator-decision-telemetry";
 
-export const META_DECISION_RESPONSE_ACTIONS = [
-  "acted",
-  "deferred",
-  "undeferred",
-  "ignored",
-] as const;
+/*
+ * Re-exported, not redeclared. The vocabulary lives in a module with no
+ * imports so a client component can read it without dragging `lib/db` — and
+ * therefore `pg` — into the browser bundle.
+ */
+import {
+  META_DECISION_RESPONSE_ACTIONS,
+  type MetaDecisionResponseAction,
+} from "@/lib/meta/decision-response-actions";
 
-export type MetaDecisionResponseAction =
-  (typeof META_DECISION_RESPONSE_ACTIONS)[number];
+export { META_DECISION_RESPONSE_ACTIONS };
+export type { MetaDecisionResponseAction };
 
 export interface MetaDecisionResponseRow {
   recId: string;

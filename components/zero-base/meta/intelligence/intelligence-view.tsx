@@ -15,7 +15,7 @@ import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
-import { META_DECISION_RESPONSE_ACTIONS } from "@/lib/meta/decision-responses";
+import { META_DECISION_RESPONSE_ACTIONS } from "@/lib/meta/decision-response-actions";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 

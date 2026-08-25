@@ -181,7 +181,20 @@ test.describe("loading — observed while the read is genuinely in flight", () =
       `${handle.baseUrl}${routeFor("meta-decisions", handle.businesses.oneAccount)}`,
       { waitUntil: "domcontentloaded" },
     );
-    await page.waitForSelector("[data-meta-surface-state]", { timeout: 30_000 });
+    /*
+     * Attached, not visible.
+     *
+     * `[data-meta-surface-state]` is the attribute carrier — the element every
+     * gate reads `data-read-state` from — and it has no box of its own. Its
+     * VISIBLE content is the notice inside it, and for `loading` that notice is
+     * pinned out of flow so a state that always ends cannot move the page when
+     * it does. Waiting for the carrier to be visible waits for a box that does
+     * not exist and never will.
+     */
+    await page.waitForSelector("[data-meta-surface-state]", {
+      state: "attached",
+      timeout: 30_000,
+    });
     const whileReading = await readSurfaceState(page);
     expect(whileReading!.state, "the surface claimed a state before it had read").toBe("loading");
     expect(whileReading!.text).toMatch(/Nothing below is final yet/);

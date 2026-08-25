@@ -23,6 +23,17 @@ export const RUNTIME_OPERATOR_EMAIL = "runtime-evidence@adsecute.local";
 export const BUSINESS_ZERO_ACCOUNTS = "e0000000-0000-4000-8000-0000000000a0";
 export const BUSINESS_ONE_ACCOUNT = "e0000000-0000-4000-8000-0000000000a1";
 export const BUSINESS_MANY_ACCOUNTS = "e0000000-0000-4000-8000-0000000000a2";
+/**
+ * One assigned account and NO timezone.
+ *
+ * D7 treats the reporting timezone as a fact that can be missing, and every
+ * other business here has one — so the "missing" branch of every window label,
+ * every as-of line and every day-boundary decision had no fixture to be read
+ * against. A surface that quietly assumes UTC when it does not know is exactly
+ * the D8 defect, one clock over.
+ */
+export const BUSINESS_NO_TIMEZONE = "e0000000-0000-4000-8000-0000000000a3";
+export const ACCOUNT_NO_TIMEZONE = "act_1000000000000005";
 /** A second tenant, for the isolation checks. Never assigned to the operator. */
 export const BUSINESS_OTHER_TENANT = "e0000000-0000-4000-8000-0000000000b0";
 export const OTHER_TENANT_OWNER_ID = "e0000000-0000-4000-8000-000000000002";
@@ -66,12 +77,15 @@ export interface RuntimeSeed {
     zeroAccounts: string;
     oneAccount: string;
     manyAccounts: string;
+    noTimezone: string;
     otherTenant: string;
   };
   accounts: {
     one: string;
     manyA: string;
     manyB: string;
+    manyUnassigned: string;
+    noTimezone: string;
     otherTenant: string;
   };
 }
@@ -180,10 +194,25 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
       );
     }
 
-    // The operator is a member of the first three and of nothing else. The
-    // fourth business exists precisely so "no membership" is a real state a
-    // request can be made against rather than a described one.
-    for (const businessId of [BUSINESS_ZERO_ACCOUNTS, BUSINESS_ONE_ACCOUNT, BUSINESS_MANY_ACCOUNTS]) {
+    // Written separately because the column is NULL and the tuple list above
+    // is typed for four strings; spelling it out also keeps the missing fact
+    // visible instead of hidden behind an empty cell in a table.
+    await client.query(
+      `INSERT INTO businesses (id, name, owner_id, timezone, currency)
+       VALUES ($1, 'No Timezone Co.', $2, NULL, 'USD')
+       ON CONFLICT (id) DO UPDATE SET timezone = NULL`,
+      [BUSINESS_NO_TIMEZONE, RUNTIME_OPERATOR_ID],
+    );
+
+    // The operator is a member of the first four and of nothing else. The
+    // other-tenant business exists precisely so "no membership" is a real state
+    // a request can be made against rather than a described one.
+    for (const businessId of [
+      BUSINESS_ZERO_ACCOUNTS,
+      BUSINESS_ONE_ACCOUNT,
+      BUSINESS_MANY_ACCOUNTS,
+      BUSINESS_NO_TIMEZONE,
+    ]) {
       await client.query(
         `INSERT INTO memberships (user_id, business_id, role, status)
          VALUES ($1, $2, 'admin', 'active')
@@ -252,6 +281,21 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
       position: 2,
     });
 
+    await connectMeta(client, BUSINESS_NO_TIMEZONE);
+    await connectAccount(client, {
+      businessId: BUSINESS_NO_TIMEZONE,
+      externalAccountId: ACCOUNT_NO_TIMEZONE,
+      accountName: "No Timezone Co. — Main",
+      currency: "USD",
+      // The ACCOUNT has one and the BUSINESS does not, which is the case worth
+      // seeding: a surface that silently borrows the account's clock for the
+      // business's day boundary is wrong in a way that only shows up near
+      // midnight.
+      timezone: "America/Los_Angeles",
+      selected: true,
+      position: 0,
+    });
+
     await connectAccount(client, {
       businessId: BUSINESS_OTHER_TENANT,
       externalAccountId: ACCOUNT_OTHER_TENANT,
@@ -271,12 +315,15 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
         zeroAccounts: BUSINESS_ZERO_ACCOUNTS,
         oneAccount: BUSINESS_ONE_ACCOUNT,
         manyAccounts: BUSINESS_MANY_ACCOUNTS,
+        noTimezone: BUSINESS_NO_TIMEZONE,
         otherTenant: BUSINESS_OTHER_TENANT,
       },
       accounts: {
         one: ACCOUNT_ONE,
         manyA: ACCOUNT_MANY_A,
         manyB: ACCOUNT_MANY_B,
+        manyUnassigned: ACCOUNT_MANY_UNASSIGNED,
+        noTimezone: ACCOUNT_NO_TIMEZONE,
         otherTenant: ACCOUNT_OTHER_TENANT,
       },
     };
@@ -300,6 +347,7 @@ async function assertD6Shape(client: Client): Promise<void> {
     [BUSINESS_ZERO_ACCOUNTS, "zero", 0],
     [BUSINESS_ONE_ACCOUNT, "one", 1],
     [BUSINESS_MANY_ACCOUNTS, "many", 2],  // plus one discovered and unassigned
+    [BUSINESS_NO_TIMEZONE, "no timezone", 1],
     [BUSINESS_OTHER_TENANT, "other tenant", 1],
   ];
   for (const [businessId, label, count] of expected) {

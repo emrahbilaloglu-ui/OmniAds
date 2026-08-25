@@ -29,9 +29,19 @@ export interface RuntimeHandle {
     zeroAccounts: string;
     oneAccount: string;
     manyAccounts: string;
+    /** One assigned account, and no reporting timezone. D7's missing fact. */
+    noTimezone: string;
     otherTenant: string;
   };
-  accounts: { one: string; manyA: string; manyB: string; otherTenant: string };
+  accounts: {
+    one: string;
+    manyA: string;
+    manyB: string;
+    /** Discovered by the credential, never assigned to the business. */
+    manyUnassigned: string;
+    noTimezone: string;
+    otherTenant: string;
+  };
 }
 
 export function runtimeHandle(): RuntimeHandle {

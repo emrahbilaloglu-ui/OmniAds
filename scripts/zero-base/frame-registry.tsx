@@ -471,6 +471,48 @@ const intelSources = [
     reason: "Two ad sets returned no delivery estimate for this window.",
     observedAt: "2026-08-09T06:00:00Z",
   },
+  /*
+   * The two control sections, as the composer now builds them.
+   *
+   * The respond control used to render on every row whenever an `onRespond`
+   * prop was passed, so this fixture drew it without saying which section owned
+   * it. It renders where the server says there is a control, which means a
+   * frame that wants to draw one has to carry one — and H17 does draw it.
+   */
+  {
+    key: "recommendations",
+    label: "Recommendations",
+    state: "serving" as const,
+    reason: null,
+    observedAt: "2026-08-09T06:00:00Z",
+    facts: [
+      { label: "Recommendations", value: "4" },
+      { label: "Snapshot date", value: "2026-08-09" },
+    ],
+    control: {
+      kind: "respond" as const,
+      enabled: true,
+      refusalCode: null,
+      refusalMessage: null,
+    },
+  },
+  {
+    key: "snapshot",
+    label: "Snapshot run",
+    state: "serving" as const,
+    reason: null,
+    observedAt: "2026-08-09T06:00:00Z",
+    facts: [
+      { label: "Last snapshot", value: "2026-08-09" },
+      { label: "Written at", value: "2026-08-09T06:00:00Z" },
+    ],
+    control: {
+      kind: "run-snapshot" as const,
+      enabled: true,
+      refusalCode: null,
+      refusalMessage: null,
+    },
+  },
 ];
 
 const historyRows = [
@@ -1203,7 +1245,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H16", leaf: "L-C-META-WRITE", state: "ceremony-reconciliation", width: 1440, theme: "light", render: () => ceremony(CEREMONY_RECONCILE) },
 
   /* ---- H17–H20: intelligence, history, automation ---- */
-  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} snapshot={{ canRun: true, reason: null, queued: false }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
+  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
   { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" onClose={() => {}} query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} initialReplayId="h2" /> },
   { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <MetaAutomationView payload={automationControlPlaneFixture()} businessId="biz" providerAccountId="act_1" viewer={AUTOMATION_HARNESS_VIEWER} /> },
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <MetaAutomationView payload={automationControlPlaneFixture({ killSwitchEngaged: true })} businessId="biz" providerAccountId="act_1" viewer={AUTOMATION_HARNESS_VIEWER} /> },

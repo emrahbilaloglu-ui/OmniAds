@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 
 import { MetricCard } from "@/components/zero-base/home/metric-card";
 import { Sparkline } from "@/components/zero-base/home/sparkline";
-import { HomeView } from "@/components/zero-base/home/home-view";
+import { HomeView } from "@/components/zero-base/_reference/home-view";
 import { BannerStack, SourceHealthPanel } from "@/components/zero-base/home/source-health";
 import {
   buildBannerStack,

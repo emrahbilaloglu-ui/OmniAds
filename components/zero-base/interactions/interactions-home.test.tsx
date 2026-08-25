@@ -21,7 +21,7 @@ import {
   interactionCase,
 } from "@/components/zero-base/interactions/interaction-harness";
 
-import { HomeView } from "@/components/zero-base/home/home-view";
+import { HomeView } from "@/components/zero-base/_reference/home-view";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
 import type { HomeContract } from "@/lib/zero-base/home/metric-contract";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";

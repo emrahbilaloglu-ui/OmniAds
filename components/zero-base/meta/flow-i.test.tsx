@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";

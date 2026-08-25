@@ -12,7 +12,7 @@
  */
 import { useCallback, useState } from "react";
 
-import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
 import type { ProviderPosture, StopCeremonyInput } from "@/lib/zero-base/meta/automation-posture";
 
 export interface AutomationReadBack {

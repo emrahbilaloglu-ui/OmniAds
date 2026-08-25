@@ -69,11 +69,11 @@ describe("render provenance", () => {
 
   it("REGRESSION: a changed component is stale evidence", () => {
     const drift = compareFingerprints(
-      withChange(current, "components/zero-base/home/home-view.tsx", "0".repeat(64)),
+      withChange(current, "components/zero-base/_reference/home-view.tsx", "0".repeat(64)),
       current,
     );
     expect(isStale(drift)).toBe(true);
-    expect(drift.changed).toContain("components/zero-base/home/home-view.tsx");
+    expect(drift.changed).toContain("components/zero-base/_reference/home-view.tsx");
     // The failure names the file rather than saying "something moved".
     expect(describeDrift(drift).join("\n")).toContain("home-view.tsx");
   });
@@ -125,7 +125,7 @@ describe("render provenance", () => {
 
   it("REGRESSION: a new or deleted render file is stale evidence", () => {
     const added = { ...current, files: { ...current.files } };
-    delete added.files["components/zero-base/home/home-view.tsx"];
+    delete added.files["components/zero-base/_reference/home-view.tsx"];
     // Recorded set is missing a file the tree now has → added.
     expect(isStale(compareFingerprints(added, current))).toBe(true);
     // Recorded set has a file the tree no longer has → removed.

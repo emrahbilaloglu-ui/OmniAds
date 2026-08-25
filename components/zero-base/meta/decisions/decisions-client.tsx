@@ -24,7 +24,7 @@ import { useRouter } from "next/navigation";
 import {
   DecisionsView,
   type DecisionsWorkflow,
-} from "@/components/zero-base/meta/decisions/decisions-view";
+} from "@/components/zero-base/_reference/meta-decisions-view";
 import type {
   DispatchAnswer,
   MutationCeremonySeed,

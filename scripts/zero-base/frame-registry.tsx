@@ -29,7 +29,7 @@ import React from "react";
 
 import { CeremonyResult, IntegrationsView, TeamView, BusinessView, PlanView } from "@/components/zero-base/manage/manage-views";
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
-import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { DecisionsView } from "@/components/zero-base/_reference/meta-decisions-view";
 import {
   MutationCeremonyPanel,
   type Step as CeremonyStep,
@@ -38,9 +38,9 @@ import { GooglePlanView } from "@/components/zero-base/google/plan-view";
 import { GoogleOverviewView, GoogleAdvisorView } from "@/components/zero-base/google/google-views";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
-import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
-import { HomeView } from "@/components/zero-base/home/home-view";
+import { HomeView } from "@/components/zero-base/_reference/home-view";
 import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import type { OverviewMetricUnit } from "@/src/types/models";

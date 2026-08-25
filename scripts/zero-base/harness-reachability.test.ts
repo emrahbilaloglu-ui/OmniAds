@@ -77,12 +77,23 @@ function isReachable(file: string): boolean {
  */
 const UNREACHABLE_HARNESS_BODIES = [
   // Route mounts app/(dashboard)/overview/legacy-page.tsx
-  "components/zero-base/home/home-view.tsx",
+  "components/zero-base/_reference/home-view.tsx",
   // Route mounts app/(dashboard)/platforms/meta/automation/automation-view.tsx
-  "components/zero-base/meta/automation/automation-view.tsx",
+  "components/zero-base/_reference/meta-automation-view.tsx",
   // Route mounts components/meta/redesign/MetaPlatformPage.tsx
-  "components/zero-base/meta/decisions/decisions-view.tsx",
+  "components/zero-base/_reference/meta-decisions-view.tsx",
 ] as const;
+
+/**
+ * Every unreachable body lives under `_reference`, and nothing else does.
+ *
+ * The list above is accurate and easy to miss: three paths in a test array do
+ * not stop somebody importing one of these into a route next week under the
+ * impression it is product code. The directory name says it, and this keeps
+ * the two in agreement in both directions — a body that becomes reachable must
+ * leave `_reference`, and one that becomes unreachable must enter it.
+ */
+const REFERENCE_DIR = "components/zero-base/_reference/";
 
 describe("harness DOM versus user-visible DOM", () => {
   it("finds the bodies the harness renders, so a pass is not vacuous", () => {
@@ -92,6 +103,33 @@ describe("harness DOM versus user-visible DOM", () => {
   it("enumerates exactly which harness bodies no route can reach", () => {
     const unreachable = harnessRenderedBodies().filter((file) => !isReachable(file));
     expect(unreachable).toEqual([...UNREACHABLE_HARNESS_BODIES]);
+  });
+
+  it("keeps every unreachable body under _reference, and nothing else there", () => {
+    const bodies = harnessRenderedBodies();
+    const misplaced = bodies.filter(
+      (file) => file.startsWith(REFERENCE_DIR) !== !isReachable(file),
+    );
+    expect(
+      misplaced,
+      "a body whose reachability disagrees with the directory it lives in",
+    ).toEqual([]);
+  });
+
+  it("never lets a route reach into _reference", () => {
+    /*
+     * The rollback for this move is `git mv` back and one edit to the list
+     * above; the thing that must not happen silently in the meantime is a
+     * route importing a body from here, which would make `_reference` a lie
+     * without failing anything else.
+     */
+    const importers = [...reachable].filter((file) =>
+      readFileSync(file, "utf8").includes("zero-base/_reference/"),
+    );
+    expect(
+      importers.map((file) => path.relative(process.cwd(), file)),
+      "route-reachable files importing from _reference",
+    ).toEqual([]);
   });
 
   it("does reach some of them, so the detector is not simply saying no", () => {

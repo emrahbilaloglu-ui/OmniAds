@@ -16,7 +16,7 @@ import {
   interactionCase,
 } from "@/components/zero-base/interactions/interaction-harness";
 
-import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { DecisionsView } from "@/components/zero-base/_reference/meta-decisions-view";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import {
   MutationCeremonyPanel,
@@ -24,7 +24,7 @@ import {
 } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
-import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
 import {
   ReportBuilderView,
   ReportLibraryView,

@@ -27,13 +27,13 @@ import { MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
 import { Rail } from "@/components/zero-base/shell/rail";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { buildAgencyDirectoryPage } from "@/lib/zero-base/agency-projection";
-import { HomeView } from "@/components/zero-base/home/home-view";
+import { HomeView } from "@/components/zero-base/_reference/home-view";
 import { toHomeMetric, type HomeContract } from "@/lib/zero-base/home/metric-contract";
-import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { DecisionsView } from "@/components/zero-base/_reference/meta-decisions-view";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
-import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { AutomationView } from "@/components/zero-base/_reference/meta-automation-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
 import {
   PublicSharePage,

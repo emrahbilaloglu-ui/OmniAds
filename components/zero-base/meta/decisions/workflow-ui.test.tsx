@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { DecisionsView } from "@/components/zero-base/_reference/meta-decisions-view";
 import { WorkflowPanel, type WorkflowSubmitResult } from "@/components/zero-base/meta/decisions/workflow-overlay";
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";

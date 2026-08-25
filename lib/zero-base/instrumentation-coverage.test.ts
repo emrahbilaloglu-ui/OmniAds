@@ -22,8 +22,10 @@
  * `GENERATED_INSTRUMENTATION` names 74 leaves — `meta_launchpad`,
  * `manage_integrations`, `creative_copies`, `creative_landing_pages` — while
  * `PRODUCT_INSTRUMENTATION_SURFACES`, the allowlist the sink validates against,
- * names 16 coarser ones — `launchpad`, `integrations`, and a single
- * `creative_studio` covering eight contracted leaves.
+ * names 15 coarser ones — `launchpad`, `integrations`, and a single
+ * `creative_studio` covering eight contracted leaves. (Fifteen, counted from
+ * `lib/product-instrumentation.ts`; an earlier revision of this comment said
+ * sixteen and nothing asserted the number, so the count is now a test below.)
  *
  * They were never reconciled, and the consequence is measurable rather than
  * theoretical: per-tab adoption inside Creative Studio cannot be read from this
@@ -109,7 +111,7 @@ const OUT_OF_PLAN_SCOPE: { prefix: string; why: string }[] = [
  */
 const KNOWN_NON_EMITTING: Record<string, string> = {
   "public-creative-share":
-    "Renders outside the dashboard shell — no session, no workspace context, and the shell is where the emitter mounts. The contracted `share_creative` row is anonymous, so the event is owed and is not emitted.",
+    "Renders outside the dashboard shell — no session, no workspace context, and the shell is where the emitter mounts. The contracted `share_creative` row is NOT anonymous (`anonymous: false`, with `token_hash` among its properties), which is a second problem rather than an excuse: an anonymous visitor cannot supply an actor, and a token hash identifies the link.",
 };
 
 function contractedSurfaces(): string[] {
@@ -125,6 +127,28 @@ describe("the instrumentation contract says what it says", () => {
     expect([...new Set(GENERATED_INSTRUMENTATION.map((row) => row.event))]).toEqual([
       "screen_view",
     ]);
+  });
+
+  it("has 15 runtime surface names, counted rather than remembered", () => {
+    /*
+     * The prose above said sixteen for a while and nothing checked it. A count
+     * that appears in a comment and in no assertion is a number that drifts.
+     */
+    expect(PRODUCT_INSTRUMENTATION_SURFACES).toHaveLength(15);
+  });
+
+  it("records that the public share leaf is contracted as NOT anonymous", () => {
+    /*
+     * Pinned because an earlier revision of this file asserted the opposite in
+     * prose while citing this very row. The contract wants an actor and a
+     * `token_hash` for a page that has neither an actor nor a link the visitor
+     * may be identified by — which is why closing this gap is a divergence to
+     * ratify, not a mapping to add.
+     */
+    const row = GENERATED_INSTRUMENTATION.find((entry) => entry.surface === "share_creative");
+    expect(row, "the contract no longer names a public creative share leaf").toBeDefined();
+    expect(row!.anonymous).toBe(false);
+    expect(row!.properties).toContain("token_hash");
   });
 
   it("still binds 74 leaves, each with a surface and properties", () => {

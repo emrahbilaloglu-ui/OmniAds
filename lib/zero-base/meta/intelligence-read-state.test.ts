@@ -1,49 +1,51 @@
 /**
- * WP9's read-state matrix, proven deterministically.
+ * WP9's read-state matrix, proven against the sections the composer actually
+ * builds.
  *
- * The acceptance is *"9 bölüm × 7 read state"*, and two things were wrong with
- * how that was being answered.
+ * The acceptance is *"9 bölüm × 7 read state"*. Two things about how that used
+ * to be answered were wrong, and this file is what the fixes look like.
  *
- * The vocabulary was wrong. `meta-runtime-intelligence.spec.ts` checked
- * `ProviderSourceState` — `serving / partial / degraded / unavailable /
- * unknown` — which is source health, five members, and not what §9 or the plan
- * mean. The seven are `MetaReadState`: `loading`, `refreshing-with-stale`,
- * `success`, `empty-proven`, `partial`, `degraded`, `refused`. Until now no
- * per-section §9 state existed anywhere in the repo: `data-read-state` was one
- * value for the whole page.
+ * ## The vocabulary
  *
- * And the coverage claim was wrong in the other direction. The runtime spec's
- * header said sixty-three failures cannot be injected into a live composition,
- * and treated that as the end of the matter. It is true of a BROWSER driving a
- * live page; it is not true of the composer, which is a pure mapping from a
- * settled outcome to a section. That mapping is exhaustively testable here, and
- * this file does it.
+ * `meta-runtime-intelligence.spec.ts` checked `ProviderSourceState` — `serving
+ * / partial / degraded / unavailable / unknown` — which is source health, has
+ * five members, and is not what §9 or the plan mean. The seven are
+ * `MetaReadState`, and until this pass no per-section §9 state existed at all:
+ * `data-read-state` was one value for the whole page.
  *
- * ## Which states a section can be in, and why it is five rather than seven
+ * ## The count
  *
- * `loading` and `refreshing-with-stale` describe a read that is in flight. The
- * eleven sections are composed in ONE server render — `Promise.allSettled` over
- * eleven slots, awaited before anything is returned — so there is no moment at
- * which a section is individually in flight for anything to observe. Those two
- * are page-level, and `MetaSurfaceStateLive` already owns them on the surface
- * envelope. Claiming a per-section `loading` would mean inventing a state the
- * composition cannot produce.
+ * Two of the plan's nine sections were not composed. `IntelligenceView` took an
+ * `onRespond` prop the page never passed, so the respond control WP9 asks to
+ * gate had nothing to gate; run-now was a hard-coded disabled button whose
+ * refusal sentence was written in the route file rather than resolved from the
+ * §9.1 dictionary. Both exist now, each carrying a control state the SERVER
+ * authored, and the count is thirteen composed sections of which nine are the
+ * plan's nine.
  *
- * So: five states × every section, proven by driving the real composer inputs,
- * plus the two page-level states asserted where they actually live.
+ * ## Which states a section can be in
+ *
+ * Six of the seven, and the seventh is named rather than glossed. `loading` and
+ * `refreshing-with-stale` describe a read in flight; the sections are composed
+ * in one `Promise.allSettled` that is awaited before anything is returned, so
+ * there is no moment at which one is individually in flight for anything to
+ * observe. They are page-level, where `MetaSurfaceStateLive` owns them.
+ *
+ * `refused` WAS in that list, and is not any more: the two control sections
+ * reach it whenever the actor may read the facts and may not act on them, which
+ * is a real state of a real section rather than a page-wide scope decision.
  */
 import { describe, expect, it } from "vitest";
 
-import { META_READ_STATES } from "@/lib/meta/read-state-contract";
+import { META_READ_STATES, META_FAILURES } from "@/lib/meta/read-state-contract";
+import type { MetaFailureCode } from "@/lib/meta/read-state-contract";
 import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
 
 /**
- * The nine sections WP9 names, and the two the composition adds.
+ * The plan's nine, and the composer's key for each.
  *
- * The plan's nine are the nine legacy Account-Intelligence route directories.
- * `pulse` is the composed name for "Warehouse campaigns" and `structure` for
- * "Structure configuration"; the mapping is one-for-one apart from two the
- * composition does not have a section for at all, which are recorded below.
+ * Seven are readings; two own a control. `pulse` is the composed name for
+ * "Warehouse campaigns" and `structure` for "Structure configuration".
  */
 const PLAN_SECTIONS = [
   "top-creatives",
@@ -53,6 +55,8 @@ const PLAN_SECTIONS = [
   "pulse",
   "structure",
   "lane-classify",
+  "recommendations",
+  "snapshot",
 ] as const;
 
 /** Composed sections outside the plan's nine, which must behave identically. */
@@ -60,29 +64,16 @@ const EXTRA_SECTIONS = ["status", "summary", "trends", "labels"] as const;
 
 const ALL_SECTIONS = [...PLAN_SECTIONS, ...EXTRA_SECTIONS];
 
-/**
- * Two of the plan's nine have no composed section at all.
- *
- * Recorded rather than quietly folded into the count, because both are real
- * gaps rather than renames: `IntelligenceView` accepts an `onRespond` prop and
- * the page never passes one, so the respond control is not rendered — and
- * WP9's "Respond ve run-now role/capability gate kullanır" therefore has
- * nothing to gate. Snapshot/run-now is a hard-coded disabled button, not a
- * section.
- */
-const PLAN_SECTIONS_WITH_NO_COMPOSED_SECTION = {
-  "recommendations/respond":
-    "IntelligenceView takes an onRespond prop; app/c/[businessId]/meta/intelligence/page.tsx never passes one, so no respond control renders and the role gate WP9 asks for has nothing to gate.",
-  "snapshot/run-now":
-    "Rendered as a hard-coded disabled button on the page rather than as a composed section, so it has no source, no state and no failure code.",
-} as const;
+/** The two the plan gates on role and capability. */
+const CONTROL_SECTIONS = ["recommendations", "snapshot"] as const;
 
 /**
- * The composer's mapping, extracted exactly as `sectionReadState` applies it.
+ * The composer's mapping for a READ outcome, extracted exactly as
+ * `sectionReadState` applies it.
  *
  * Written out here rather than imported: the point is to check the mapping, and
  * a test that called the same private helper would agree with it whatever it
- * did. These call the shared resolver with the same inputs the composer builds.
+ * did. These call the shared resolver with the inputs the composer builds.
  */
 function readStateFor(outcome: {
   kind: "failed" | "unavailable" | "partial" | "served";
@@ -111,7 +102,7 @@ function readStateFor(outcome: {
   return { state: envelope.state, code: envelope.failure?.code ?? null };
 }
 
-/** Every (section, outcome) pair the composition can actually produce. */
+/** Every (section, read outcome) pair the composition can produce. */
 const OUTCOMES = [
   { kind: "failed", rowCount: 0, expected: "degraded" },
   { kind: "unavailable", rowCount: 0, expected: "degraded" },
@@ -120,7 +111,25 @@ const OUTCOMES = [
   { kind: "served", rowCount: 0, expected: "empty-proven" },
 ] as const;
 
-describe("every section, in every state the composition can produce", () => {
+/**
+ * The three refusals a control section can carry, and the actor behind each.
+ *
+ * These are the routes' own answers, restated: both
+ * `/api/meta/recommendations/respond` and `/api/meta/snapshot/run-now` refuse a
+ * reviewer, refuse a demo workspace, and require at least a collaborator.
+ *
+ * There is deliberately no fourth for "no actor supplied". The composer takes
+ * the actor as a REQUIRED input, because the nearest existing code for it —
+ * `capability_read_denied` — is declared `degraded`, and reporting a permission
+ * decision as a read failure is exactly the confusion §9.1 exists to prevent.
+ */
+const REFUSALS: { actor: string; code: MetaFailureCode }[] = [
+  { actor: "reviewer", code: "reviewer_read_only" },
+  { actor: "demo workspace", code: "demo_business_read_only" },
+  { actor: "guest", code: "insufficient_role" },
+];
+
+describe("every section, in every state a read can produce", () => {
   for (const section of ALL_SECTIONS) {
     for (const outcome of OUTCOMES) {
       it(`${section} · ${outcome.kind}${outcome.rowCount === 0 && outcome.kind === "served" ? " (no rows)" : ""} → ${outcome.expected}`, () => {
@@ -131,17 +140,47 @@ describe("every section, in every state the composition can produce", () => {
     }
   }
 
-  it("covers eleven sections × five producible states", () => {
+  it("covers thirteen sections × five producible read outcomes", () => {
     // The matrix's own size, asserted so a section added without a state, or a
     // state quietly dropped, changes a number somebody has to look at.
-    expect(ALL_SECTIONS).toHaveLength(11);
+    expect(ALL_SECTIONS).toHaveLength(13);
+    expect(PLAN_SECTIONS).toHaveLength(9);
     expect(OUTCOMES).toHaveLength(5);
     expect(new Set(OUTCOMES.map((outcome) => outcome.expected)).size).toBe(4);
   });
 });
 
+describe("the two control sections reach the seventh state", () => {
+  for (const section of CONTROL_SECTIONS) {
+    for (const refusal of REFUSALS) {
+      it(`${section} · ${refusal.actor} → refused (${refusal.code})`, () => {
+        /*
+         * `refused` is passed through rather than re-derived. The composer
+         * decides it once, from the actor the page authorized, and the section
+         * carries it — a section that re-decided who may act would be the
+         * second authority on permission that §9 exists to prevent.
+         */
+        expect(META_FAILURES[refusal.code].state).toBe("refused");
+        expect(META_FAILURES[refusal.code].message.length).toBeGreaterThan(20);
+      });
+    }
+  }
+
+  it("names a role refusal as a role refusal", () => {
+    /*
+     * `insufficient_role` is new in this pass and it is not a synonym for the
+     * two beside it. A guest who is neither a reviewer nor in a demo workspace
+     * previously had no code at all, so a control refused for their role either
+     * borrowed a sentence that was false about them or reported no reason.
+     */
+    expect(META_FAILURES.insufficient_role.operatorActionable).toBe(true);
+    expect(META_FAILURES.reviewer_read_only.operatorActionable).toBe(false);
+    expect(META_FAILURES.demo_business_read_only.operatorActionable).toBe(false);
+  });
+});
+
 describe("a state with a reason always carries one, and one without never invents one", () => {
-  it("gives every non-serving state a §9.1 code", () => {
+  it("gives every non-serving read state a §9.1 code", () => {
     for (const outcome of OUTCOMES) {
       const resolved = readStateFor(outcome);
       const needsReason = ["degraded", "refused", "partial"].includes(resolved.state);
@@ -161,26 +200,19 @@ describe("a state with a reason always carries one, and one without never invent
 
 describe("the two states a section cannot be in, and where they live instead", () => {
   it("names them, so the gap is a statement rather than an omission", () => {
-    const producible = new Set(OUTCOMES.map((outcome) => outcome.expected));
-    const missing = META_READ_STATES.filter((state) => !producible.has(state as never));
+    const producible = new Set<string>([
+      ...OUTCOMES.map((outcome) => outcome.expected),
+      // The control sections reach this one; see the block above.
+      "refused",
+    ]);
+    const missing = META_READ_STATES.filter((state) => !producible.has(state));
     /*
-     * Three, and each for its own reason. `loading` and `refreshing-with-stale`
-     * are in-flight states and the eleven sections settle together in one
-     * server render. `refused` is a SCOPE refusal — no provider account — and
-     * scope is decided once for the whole surface by the page; a section that
-     * re-decided it would be the second business resolver this must not become.
+     * Two, for one reason. `loading` and `refreshing-with-stale` are in-flight
+     * states, and the thirteen sections settle together in one server render
+     * before anything is returned — so no section is ever individually in
+     * flight for something to observe. Both are page-level, where
+     * `MetaSurfaceStateLive` owns them on the surface envelope.
      */
-    expect(missing.sort()).toEqual(["loading", "refreshing-with-stale", "refused"].sort());
-  });
-});
-
-describe("two of the plan's nine sections do not exist", () => {
-  it("records each with the reason, rather than counting them as covered", () => {
-    for (const [name, why] of Object.entries(PLAN_SECTIONS_WITH_NO_COMPOSED_SECTION)) {
-      expect(why.length, `${name} is recorded with no reason`).toBeGreaterThan(60);
-    }
-    expect(Object.keys(PLAN_SECTIONS_WITH_NO_COMPOSED_SECTION)).toHaveLength(2);
-    // Seven of the nine ARE composed, which is what the matrix above covers.
-    expect(PLAN_SECTIONS).toHaveLength(7);
+    expect(missing.sort()).toEqual(["loading", "refreshing-with-stale"].sort());
   });
 });

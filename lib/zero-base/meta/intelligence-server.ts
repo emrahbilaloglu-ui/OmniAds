@@ -13,8 +13,11 @@
  * metric: sections carry counts and states the read models themselves produced.
  */
 import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
+import { readLatestMetaDecisionSnapshot } from "@/lib/meta/snapshot";
 import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
+import { META_FAILURES } from "@/lib/meta/read-state-contract";
 import type { MetaFailureCode, MetaReadState } from "@/lib/meta/read-state-contract";
+import type { MembershipRole } from "@/lib/auth";
 import { resolveMetaSurfaceReadState } from "@/lib/meta/surface-read-state";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
@@ -77,6 +80,8 @@ export interface IntelligenceSection {
   failureCode?: string;
   observedAt: string | null;
   facts: IntelligenceFact[];
+  /** Present only on the two sections that own a control. */
+  control?: SectionControl;
 }
 
 export interface MetaIntelligence {
@@ -84,6 +89,35 @@ export interface MetaIntelligence {
   sections: IntelligenceSection[];
   /** Set only when the whole surface cannot be composed. */
   unavailableReason: string | null;
+}
+
+/**
+ * Whether this actor may act on the two control sections, and why not.
+ *
+ * One decision, made once, in the order the routes make it:
+ * `/api/meta/recommendations/respond` and `/api/meta/snapshot/run-now` both
+ * refuse a reviewer, both refuse a demo workspace, and both require at least a
+ * collaborator. This RESTATES those refusals so they are visible before the
+ * click; it does not create them, and the routes re-check on their own
+ * authority.
+ *
+ * The actor is required rather than optional: see `readMetaIntelligence`'s own
+ * note for why "no actor" is not a state this composer should be able to be in.
+ */
+function resolveSectionControls(actor: {
+  role: MembershipRole;
+  reviewerReadOnly: boolean;
+  demo: boolean;
+}): { enabled: boolean; refusalCode: MetaFailureCode | null; refusalMessage: string | null } {
+  const refuse = (code: MetaFailureCode) => ({
+    enabled: false,
+    refusalCode: code,
+    refusalMessage: META_FAILURES[code].message,
+  });
+  if (actor.reviewerReadOnly) return refuse("reviewer_read_only");
+  if (actor.demo) return refuse("demo_business_read_only");
+  if (actor.role === "guest") return refuse("insufficient_role");
+  return { enabled: true, refusalCode: null, refusalMessage: null };
 }
 
 /** Shape of a read model that reports its own partial state. */
@@ -116,6 +150,29 @@ interface SectionOutcome {
    * view renders it as "Not recorded".
    */
   observedAt?: string | null;
+  /**
+   * A control this section owns, and whether the actor may use it.
+   *
+   * Two of WP9's nine sections are not readings at all — Recommendations
+   * carries a respond control and Snapshot carries run-now — and until now
+   * neither existed: the view took an `onRespond` prop the page never passed,
+   * and run-now was a hard-coded disabled button with two literal sentences
+   * beside it. The state is authored HERE, on the server, for the same reason
+   * every other refusal is: a control whose availability the browser decides is
+   * a control whose refusal the browser can be wrong about.
+   */
+  control?: SectionControl;
+}
+
+/** Whether a section's control may be used, and the §9.1 reason when it may not. */
+export interface SectionControl {
+  /** Which control this is, so the view renders the right one rather than guessing. */
+  kind: "respond" | "run-snapshot";
+  enabled: boolean;
+  /** Non-null exactly when `enabled` is false. */
+  refusalCode: MetaFailureCode | null;
+  /** The dictionary's sentence for that code. Never composed here. */
+  refusalMessage: string | null;
 }
 
 /**
@@ -166,10 +223,26 @@ function asServedText(value: unknown): string | null {
  * does the rest.
  */
 function sectionReadState(input: {
-  outcome: "failed" | "unavailable" | "partial" | "served";
+  outcome: "failed" | "unavailable" | "partial" | "served" | "refused";
   failureCode: MetaFailureCode | null;
   rowCount: number;
 }): { readState: MetaReadState; readFailureCode?: MetaFailureCode } {
+  /*
+   * `refused` is a decision about the ACTOR, not about a read.
+   *
+   * Every other outcome here describes what a source did; this one describes
+   * what this membership may do with it, and it is decided once by the page and
+   * passed down. It is passed straight through rather than run back through the
+   * resolver, because the resolver would need a scope and a capability to
+   * re-derive an answer the caller already holds — and re-deriving it is how a
+   * section becomes the second authority on who may act.
+   */
+  if (input.outcome === "refused") {
+    return {
+      readState: "refused",
+      ...(input.failureCode ? { readFailureCode: input.failureCode } : {}),
+    };
+  }
   const envelope = resolveMetaSurfaceReadState({
     businessId: "section",
     providerAccountId: null,
@@ -289,6 +362,13 @@ function section(
       }),
       observedAt,
       facts,
+      /*
+       * A control section keeps its control even when its read failed. The
+       * refusal and the read failure are different facts: an operator who may
+       * act should not be told they may not, just because the section behind
+       * the control could not be read.
+       */
+      ...(outcome.value.control ? { control: outcome.value.control } : {}),
     };
   }
   const partial = outcome.value.partial;
@@ -305,6 +385,32 @@ function section(
       ...sectionReadState({ outcome: "partial", failureCode: null, rowCount: facts.length }),
       observedAt,
       facts,
+      ...(outcome.value.control ? { control: outcome.value.control } : {}),
+    };
+  }
+  const control = outcome.value.control;
+  /*
+   * A control section that the actor may not use is `refused`, not `success`.
+   *
+   * The facts are still served — a reviewer can READ what the respond control
+   * would act on — but §9's word for "you may see this and may not act" is
+   * `refused`, and reporting `success` on a section whose only affordance is
+   * denied would be the surface claiming it served something it did not.
+   */
+  if (control && !control.enabled) {
+    return {
+      key,
+      label,
+      state: "serving",
+      reason: control.refusalMessage,
+      ...sectionReadState({
+        outcome: "refused",
+        failureCode: control.refusalCode,
+        rowCount: facts.length,
+      }),
+      observedAt,
+      facts,
+      control,
     };
   }
   return {
@@ -317,6 +423,7 @@ function section(
     ...sectionReadState({ outcome: "served", failureCode: null, rowCount: facts.length }),
     observedAt,
     facts,
+    ...(control ? { control } : {}),
   };
 }
 
@@ -388,8 +495,25 @@ export async function readMetaIntelligence(input: {
    * this business already holds — never widen it.
    */
   providerAccountId?: string | null;
+  /**
+   * Who is asking, resolved by the caller through `requireBusinessPageContext`.
+   *
+   * REQUIRED, because the two control sections cannot be composed without it
+   * and there is no honest §9.1 code for "we did not establish who is asking".
+   * Making it optional meant inventing one — and the nearest existing code,
+   * `capability_read_denied`, is declared `degraded`, which would have reported
+   * a permission decision as a read failure. A caller that cannot say who is
+   * asking has not authorized the request yet, and this composer is not the
+   * place to discover that.
+   */
+  actor: {
+    role: MembershipRole;
+    reviewerReadOnly: boolean;
+    demo: boolean;
+  };
 }): Promise<MetaIntelligence> {
   const { businessId, startDate, endDate } = input;
+  const control = resolveSectionControls(input.actor);
 
   const integrations = await getIntegrationStatusByBusiness(businessId).catch(() => null);
   if (!integrations) {
@@ -478,6 +602,8 @@ export async function readMetaIntelligence(input: {
     topCreatives,
     pageStatus,
     laneClassify,
+    recommendations,
+    snapshotRun,
   ] = await Promise.allSettled([
       // 1 · status — the connection and account assignment behind everything else.
       (async () => ({
@@ -938,6 +1064,73 @@ export async function readMetaIntelligence(input: {
           observedAt: model.source?.computedAt ?? null,
         };
       })(),
+      /*
+       * 12 · recommendations — the decisions this account has been given, and
+       * the control that responds to them.
+       *
+       * WP9 names Recommendations/respond as one of its nine sections and it
+       * has never been composed: `IntelligenceView` accepted an `onRespond`
+       * prop and the page never passed one, so the control WP9 asks to gate had
+       * nothing to gate. The read is the same snapshot the Decision Center
+       * serves from, and the observation instant is the snapshot's own — never
+       * this module's clock.
+       */
+      (async () => {
+        const model = await readLatestMetaDecisionSnapshot({
+          businessId,
+          startDate,
+          endDate,
+        }).catch(() => null);
+        if (!model) {
+          return {
+            facts: [],
+            unavailableReason:
+              "No decision snapshot has been written for this window, so there is nothing to respond to yet.",
+            observedAt: null,
+            control: { kind: "respond" as const, ...control },
+          } satisfies SectionOutcome;
+        }
+        return {
+          facts: [
+            { label: "Recommendations", value: count(model.recommendations.length) },
+            { label: "Snapshot date", value: asServedText(model.snapshotDate) ?? "Not recorded" },
+          ],
+          observedAt: model.snapshotCreatedAt ?? model.snapshotDate ?? null,
+          control: { kind: "respond" as const, ...control },
+        } satisfies SectionOutcome;
+      })(),
+
+      /*
+       * 13 · snapshot — when the engine last wrote, and the control that asks
+       * it to write again.
+       *
+       * It has no read model of its own: its facts come from the same snapshot
+       * read above, and its substance is the control's state. Nothing here
+       * requests a refresh — a render that triggered a snapshot run would make
+       * opening a page a write.
+       */
+      (async () => {
+        const model = await readLatestMetaDecisionSnapshot({
+          businessId,
+          startDate,
+          endDate,
+        }).catch(() => null);
+        return {
+          facts: [
+            {
+              label: "Last snapshot",
+              value: asServedText(model?.snapshotDate ?? null) ?? "Never run",
+            },
+            {
+              label: "Written at",
+              value: asServedText(model?.snapshotCreatedAt ?? null) ?? "Not recorded",
+            },
+          ],
+          observedAt: model?.snapshotCreatedAt ?? null,
+          control: { kind: "run-snapshot" as const, ...control },
+        } satisfies SectionOutcome;
+      })(),
+
     ]);
 
   // Each row carries its own authority's observation time. There is deliberately
@@ -951,10 +1144,22 @@ export async function readMetaIntelligence(input: {
     section("breakdowns", "Breakdowns", breakdowns),
     section("anomalies", "Anomalies", anomalies),
     section("labels", "Campaign labels", labels),
-    section("structure", "Structure & recommendations", workspace),
+    /*
+     * "Structure", not "Structure & recommendations". The label asserted
+     * coverage of the plan's recommendations item that this row never provided;
+     * there is a real recommendations section below now, and the two would
+     * otherwise both claim it.
+     */
+    section("structure", "Structure configuration", workspace),
     section("top-creatives", "Top creatives", topCreatives),
     section("page-status", "Page status", pageStatus),
     section("lane-classify", "Lane classify", laneClassify),
+    /*
+     * The two WP9 named and the composition never had. Thirteen rows now, of
+     * which nine are the plan's nine.
+     */
+    section("recommendations", "Recommendations", recommendations),
+    section("snapshot", "Snapshot run", snapshotRun),
   ];
 
   return { providerAccountId, sections, unavailableReason: null };

@@ -31,10 +31,26 @@ vi.mock("@/lib/meta/creatives-warehouse", () => ({
   readMetaCreativesWarehouseObservedAt,
 }));
 vi.mock("@/lib/meta/warehouse", () => ({ getMetaAccountDailyCoverage }));
+/*
+ * The decision snapshot behind the two control sections. Mocked to a served
+ * shape by default so the gate cases below are about the ACTOR rather than
+ * about a missing snapshot; the unavailable path has its own case.
+ */
+const readLatestMetaDecisionSnapshot = vi.hoisted(() => vi.fn(async () => ({
+  status: "ok" as const,
+  summary: {},
+  recommendations: [{ id: "rec_1" }],
+  snapshotDate: "2026-08-11",
+  snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+})));
+vi.mock("@/lib/meta/snapshot", () => ({ readLatestMetaDecisionSnapshot }));
 
 import { readMetaIntelligence } from "@/lib/zero-base/meta/intelligence-server";
 
 const WINDOW = { startDate: "2026-07-15", endDate: "2026-08-11" };
+
+/** The actor most cases use: an admin who may act on the control sections. */
+const ADMIN_ACTOR = { role: "admin" as const, reviewerReadOnly: false, demo: false };
 
 /**
  * Shaped like the labels authority actually serves them.
@@ -73,8 +89,21 @@ function availableWorkspace() {
   };
 }
 
-function read(overrides: { providerAccountId?: string | null } = {}) {
-  return readMetaIntelligence({ businessId: "biz-1", ...WINDOW, ...overrides });
+function read(
+  overrides: {
+    providerAccountId?: string | null;
+    actor?: { role: "admin" | "collaborator" | "guest"; reviewerReadOnly: boolean; demo: boolean };
+  } = {},
+) {
+  return readMetaIntelligence({
+    businessId: "biz-1",
+    ...WINDOW,
+    // An admin who may act, unless a case overrides it. The composer takes the
+    // actor as a required input because the two control sections cannot be
+    // composed without knowing who is asking.
+    actor: ADMIN_ACTOR,
+    ...overrides,
+  });
 }
 
 // `now` is deliberately gone from the input. It existed only to make the
@@ -117,9 +146,13 @@ describe("account intelligence composition", () => {
   it("composes every named authority as its own section", async () => {
     const result = await read();
     /**
-     * Eight became eleven. WP9 of the Meta market-ready plan names nine
+     * Eight became eleven, and eleven became thirteen. WP9 names nine
      * sections; three were never composed — Top creatives, Page status and Lane
-     * classify.
+     * classify — and two more, Recommendations/respond and Snapshot/run-now,
+     * existed nowhere at all: the view took an `onRespond` prop the page never
+     * passed, and run-now was a hard-coded disabled button with its refusal
+     * written in the route file. Both are composed now, each carrying a
+     * server-authored control state.
      *
      * Each is built from a read model that already exists rather than from its
      * route handler: the creatives warehouse reader Creative Studio serves
@@ -140,6 +173,8 @@ describe("account intelligence composition", () => {
       "top-creatives",
       "page-status",
       "lane-classify",
+      "recommendations",
+      "snapshot",
     ]);
     expect(result.providerAccountId).toBe("act_1");
   });
@@ -552,6 +587,7 @@ describe("account scope", () => {
   it("scopes the summary to the selected account instead of withholding it", async () => {
     getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1", "act_2"] });
     const result = await readMetaIntelligence({
+      actor: ADMIN_ACTOR,
       businessId: "biz-1",
       ...WINDOW,
       providerAccountId: "act_2",
@@ -577,6 +613,7 @@ describe("account scope", () => {
     // account, and "could not check" must not resolve to "safe to widen".
     getProviderAccountAssignments.mockRejectedValue(new Error("assignment read failed"));
     const result = await readMetaIntelligence({
+      actor: ADMIN_ACTOR,
       businessId: "biz-1",
       ...WINDOW,
       providerAccountId: "act_1",
@@ -763,6 +800,7 @@ describe("the caller's resolved account is honoured", () => {
     // cannot widen scope. Ignoring it made a surface the operator had scoped
     // report itself as unscoped.
     const result = await readMetaIntelligence({
+      actor: ADMIN_ACTOR,
       businessId: "biz-1",
       ...WINDOW,
       providerAccountId: "act_2",
@@ -776,6 +814,7 @@ describe("the caller's resolved account is honoured", () => {
 
   it("still refuses when the caller resolved nothing", async () => {
     const result = await readMetaIntelligence({
+      actor: ADMIN_ACTOR,
       businessId: "biz-1",
       ...WINDOW,
       providerAccountId: null,
@@ -919,5 +958,85 @@ describe("WP9 — the three sections that were never composed", () => {
     const section = sectionOf((await read()).sections, "lane-classify");
     const eligible = section.facts.find((fact) => fact.label === "Ad candidates eligible");
     expect(eligible?.value).toBe("Not reported");
+  });
+});
+
+/**
+ * WP9's role and capability gate, on the two sections that have controls.
+ *
+ * "Respond ve run-now role/capability gate kullanır" had nothing to gate: the
+ * view accepted an `onRespond` prop the page never passed, and run-now was a
+ * hard-coded disabled button whose refusal was written in the route file. Both
+ * are composed sections now, and the gate is the server's — these cases prove
+ * the composer authors it rather than the browser.
+ */
+describe("the two control sections carry a server-authored gate", () => {
+  const CONTROLLED = ["recommendations", "snapshot"] as const;
+
+  async function controlsFor(actor: {
+    role: "admin" | "collaborator" | "guest";
+    reviewerReadOnly: boolean;
+    demo: boolean;
+  }) {
+    const result = await read({ actor });
+    return CONTROLLED.map((key) => {
+      const section = result.sections.find((item) => item.key === key);
+      return { key, section };
+    });
+  }
+
+  it("offers both controls to an actor who may act", async () => {
+    for (const { key, section } of await controlsFor(ADMIN_ACTOR)) {
+      expect(section, `${key} was not composed`).toBeDefined();
+      expect(section!.control?.enabled, key).toBe(true);
+      expect(section!.control?.refusalCode, key).toBeNull();
+      // A section whose control is available is not `refused`.
+      expect(section!.readState, key).not.toBe("refused");
+    }
+  });
+
+  for (const [label, actor, code] of [
+    ["a reviewer", { role: "admin" as const, reviewerReadOnly: true, demo: false }, "reviewer_read_only"],
+    ["a demo workspace", { role: "admin" as const, reviewerReadOnly: false, demo: true }, "demo_business_read_only"],
+    ["a guest", { role: "guest" as const, reviewerReadOnly: false, demo: false }, "insufficient_role"],
+  ] as const) {
+    it(`refuses both controls for ${label}, with the code the route would return`, async () => {
+      for (const { key, section } of await controlsFor(actor)) {
+        expect(section!.control?.enabled, key).toBe(false);
+        expect(section!.control?.refusalCode, key).toBe(code);
+        /*
+         * `refused`, and the facts still served. A reviewer may READ what the
+         * respond control would act on — withholding the counts as well would
+         * be refusing a read nobody refused.
+         */
+        expect(section!.readState, key).toBe("refused");
+        expect(section!.readFailureCode, key).toBe(code);
+      }
+    });
+  }
+
+  it("precedence is the routes' own: reviewer before demo before role", async () => {
+    /*
+     * A reviewer in a demo workspace with a guest role is refused as a
+     * reviewer, because that is the first check `rejectIfReviewerReadOnly`
+     * makes and the sentence an operator can act on is the outermost one.
+     */
+    const [{ section }] = await controlsFor({
+      role: "guest",
+      reviewerReadOnly: true,
+      demo: true,
+    });
+    expect(section!.control?.refusalCode).toBe("reviewer_read_only");
+  });
+
+  it("never leaks a refusal into a reading section", async () => {
+    // The gate belongs to the two sections that own controls. A reading
+    // section that reported `refused` would be claiming the actor may not read
+    // what they just read.
+    const result = await read({ actor: { role: "guest", reviewerReadOnly: false, demo: false } });
+    const leaked = result.sections
+      .filter((item) => !CONTROLLED.includes(item.key as (typeof CONTROLLED)[number]))
+      .filter((item) => item.readState === "refused" || item.control);
+    expect(leaked.map((item) => item.key)).toEqual([]);
   });
 });

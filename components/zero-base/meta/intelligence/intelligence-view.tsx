@@ -15,6 +15,7 @@ import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
+import { META_DECISION_RESPONSE_ACTIONS } from "@/lib/meta/decision-responses";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
@@ -32,6 +33,20 @@ export interface IntelligenceSource {
    */
   readState?: MetaReadState;
   readFailureCode?: MetaFailureCode;
+  /**
+   * A control this section owns, and whether the actor may use it.
+   *
+   * Authored on the server. This view renders what it is told and decides
+   * nothing: a respond control offered because the browser thought a role
+   * looked sufficient is a control whose refusal arrives as a 403 after the
+   * click, which is the shape WP9 exists to remove.
+   */
+  control?: {
+    kind: "respond" | "run-snapshot";
+    enabled: boolean;
+    refusalCode?: MetaFailureCode | null;
+    refusalMessage?: string | null;
+  };
   reason: string | null;
   observedAt: string | null;
   /** Served facts only. A source with none renders none — never a zero. */
@@ -71,6 +86,26 @@ export function IntelligenceView({
   // Declared above the early return so the hook order never depends on whether
   // the surface could be composed.
   const [tab, setTab] = useState<TabId>("sources");
+  /**
+   * Run-now's state, from the section that owns it.
+   *
+   * The page used to hand this in as a `snapshot` prop with two hard-coded
+   * sentences beside it, so the refusal an operator read was composed in a
+   * route file rather than resolved from the §9.1 dictionary. It now comes off
+   * the composed section. The prop is still honoured, because the frame and
+   * shell harnesses build `sources` by hand and predate the control.
+   */
+  const snapshotSection = sources.find((row) => row.control?.kind === "run-snapshot");
+  const snapshotControl = snapshotSection?.control
+    ? {
+        canRun: snapshotSection.control.enabled,
+        reason: snapshotSection.control.refusalMessage ?? null,
+        refusalCode: snapshotSection.control.refusalCode ?? null,
+        queued: false,
+      }
+    : snapshot
+      ? { canRun: snapshot.canRun, reason: snapshot.reason, refusalCode: null, queued: snapshot.queued }
+      : null;
   if (unavailableReason) {
     return (
       <div
@@ -147,13 +182,46 @@ export function IntelligenceView({
                     </span>
                   )}
                 </span>
-                {onRespond ? (
-                  <label style={{ display: "grid", gap: 3, color: "var(--ledger-ink-tertiary)" }}>
+                {/*
+                  The respond control, on the section that owns it.
+                  
+                  It used to render on EVERY row whenever an `onRespond` prop
+                  was passed — which no page ever did — and offered
+                  `acknowledged | acted | dismissed`, two of which the backend
+                  rejects with `invalid_action`. The vocabulary now comes from
+                  `META_DECISION_RESPONSE_ACTIONS`, the module the route
+                  validates against, and the control appears only where the
+                  server said there is one.
+                */}
+                {row.control?.kind === "respond" ? (
+                  <label
+                    style={{ display: "grid", gap: 3, color: "var(--ledger-ink-tertiary)" }}
+                    data-section-control="respond"
+                    data-section-control-enabled={row.control.enabled ? "" : undefined}
+                    data-section-control-refusal={row.control.refusalCode ?? undefined}
+                  >
                     <span>{copy.recordResponse}</span>
-                    <select data-ctl="live:META-INTEL-07 respond" aria-label={`${copy.recordResponse} — ${row.label}`} defaultValue="" onChange={(event) => onRespond(row.key, event.target.value)} style={{ minHeight: 32, padding: "3px 7px" }}>
+                    <select
+                      data-ctl="live:META-INTEL-07 respond"
+                      aria-label={`${copy.recordResponse} — ${row.label}`}
+                      defaultValue=""
+                      disabled={!row.control.enabled || !onRespond}
+                      title={row.control.refusalMessage ?? undefined}
+                      onChange={(event) => onRespond?.(row.key, event.target.value)}
+                      style={{ minHeight: 32, padding: "3px 7px" }}
+                    >
                       <option value="">—</option>
-                      {["acknowledged", "acted", "dismissed"].map((value) => <option key={value} value={value}>{value}</option>)}
+                      {META_DECISION_RESPONSE_ACTIONS.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
                     </select>
+                    {row.control.enabled ? null : (
+                      <span data-section-control-reason="respond" style={{ color: "var(--ledger-ink-tertiary)" }}>
+                        {row.control.refusalMessage}
+                      </span>
+                    )}
                   </label>
                 ) : null}
               </article>
@@ -218,17 +286,22 @@ export function IntelligenceView({
         </p>
       ) : null}
         </div>
-      {snapshot ? (
-        <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+      {snapshotControl ? (
+        <div
+          style={{ display: "grid", gap: 6, justifyItems: "end" }}
+          data-section-control="run-snapshot"
+          data-section-control-enabled={snapshotControl.canRun ? "" : undefined}
+          data-section-control-refusal={snapshotControl.refusalCode ?? undefined}
+        >
           <Button
             variant="secondary"
             data-ctl="gated:META-INTEL-09 run-snapshot"
             state={
-              snapshot.queued
+              snapshotControl.queued
                 ? { kind: "busy", label: copy.queued }
-                : snapshot.canRun
+                : snapshotControl.canRun
                   ? { kind: "enabled" }
-                  : { kind: "disabled", reason: snapshot.reason ?? "" }
+                  : { kind: "disabled", reason: snapshotControl.reason ?? "" }
             }
             onClick={onRunSnapshot}
           >
@@ -236,7 +309,7 @@ export function IntelligenceView({
           </Button>
           {/* Queued is not done: the run's own progress shows up as a fact in
               the recent-facts list, not as a claim here. */}
-          {snapshot.queued ? (
+          {snapshotControl.queued ? (
             <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {copy.snapshotQueuedNote}
             </p>

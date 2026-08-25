@@ -92,6 +92,7 @@ export const META_FAILURE_CODES = [
   "account_required",
   "reviewer_read_only",
   "demo_business_read_only",
+  "insufficient_role",
   "supervision_state_unavailable",
   "kill_switch_engaged",
   "kill_switch_release_preflight_failed",
@@ -170,6 +171,23 @@ export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>>
       "Reviewer access is read-only. Everything on this screen can be read; nothing can be changed.",
     state: "refused",
     operatorActionable: false,
+  },
+  /**
+   * The refusal a role produces, distinct from the two beside it.
+   *
+   * `reviewer_read_only` and `demo_business_read_only` are properties of the
+   * SESSION and the WORKSPACE; this one is a property of the membership. A
+   * guest who is neither a reviewer nor in a demo workspace had no code at all,
+   * so a control refused for their role either borrowed a sentence that was
+   * false about them — telling a real operator they are a reviewer — or
+   * reported no reason. Whoever grants the role can lift this one, which is why
+   * it is operator-actionable and the other two are not.
+   */
+  insufficient_role: {
+    message:
+      "Your role on this workspace can read this but cannot act on it. An admin can change that.",
+    state: "refused",
+    operatorActionable: true,
   },
   demo_business_read_only: {
     message:

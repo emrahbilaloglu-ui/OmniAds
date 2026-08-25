@@ -9,7 +9,7 @@ import { resolveIntelligenceWindow } from "@/lib/zero-base/meta/intelligence-win
 import { getTodayIsoForTimeZone } from "@/lib/dashboard/date-window-presets";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import { classifySourceFailure } from "@/lib/meta/source-failure-classifier";
-import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
+import { IntelligenceControlsClient } from "@/components/zero-base/meta/intelligence/intelligence-controls-client";
 import { MetaSurfaceState } from "@/components/meta/MetaSurfaceState";
 import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 import {
@@ -89,6 +89,19 @@ export default async function MetaIntelligencePage({
     providerAccountId,
     startDate,
     endDate,
+    /*
+     * Who is asking, so the composer can author the two control sections'
+     * refusals on the server.
+     *
+     * The same context the page already authorized with; not a second read and
+     * not a second opinion. Without it the composer refuses both controls,
+     * which is the correct answer for a caller that never said who is asking.
+     */
+    actor: {
+      role: access.context.role,
+      reviewerReadOnly: access.context.reviewerReadOnly,
+      demo: access.context.demo,
+    },
   }).catch((error: unknown) => {
     /**
      * Classified, not printed.
@@ -176,11 +189,21 @@ export default async function MetaIntelligencePage({
   return (
     <>
     <MetaSurfaceState envelope={readState} surfaceId="meta-intelligence" />
-    <IntelligenceView
+    <IntelligenceControlsClient
+      businessId={businessId}
       sources={intelligence.sections.map((item) => ({
         key: item.key,
         label: item.label,
         state: item.state,
+        /*
+         * Composed AND forwarded. These two were resolved by the server and
+         * dropped here, so WP9's per-section §9 acceptance was unobservable on
+         * the route that mounts it: the markers rendered only for callers that
+         * happened to build `sources` by hand.
+         */
+        readState: item.readState,
+        readFailureCode: item.readFailureCode,
+        control: item.control,
         reason: item.reason,
         observedAt: item.observedAt,
         facts: item.facts,
@@ -188,24 +211,19 @@ export default async function MetaIntelligencePage({
       unavailableReason={intelligence.unavailableReason}
       window={{ startDate, endDate }}
       /*
-       * Absent-with-reason rather than absent.
+       * No `snapshot` prop, and no `onRunSnapshot`/`onRespond` handler here.
        *
-       * The design draws no run-snapshot control on this screen, so §18 keeps
-       * it out of this pass. Passing `canRun: false` with a reason renders the
-       * control disabled and explained instead of omitting it — a control that
-       * simply is not there reads as "this product cannot do that", which is
-       * false: `/api/meta/snapshot` exists and the capability is real.
+       * Both controls now take their state from the composed sections, where
+       * the server authored them — this page used to hand in `canRun: false`
+       * with two sentences written in this file, so the refusal an operator
+       * read was invented at the route rather than resolved from the §9.1
+       * dictionary, and it said "not enabled yet" about capabilities that are
+       * shipped and tested.
        *
-       * A read-only viewer is told the more specific fact, because that is the
-       * one they can act on.
+       * The handlers live in `IntelligenceControlsClient`, which is a client
+       * component because a POST needs one; this page stays a server component
+       * and passes it nothing but what the server decided.
        */
-      snapshot={{
-        canRun: false,
-        reason: access.context.reviewerReadOnly
-          ? "Reviewer access is read-only, so a snapshot cannot be queued from here."
-          : "Queuing a snapshot from this screen is not enabled yet. The sections above show the last snapshot that was taken.",
-        queued: false,
-      }}
     />
     </>
   );

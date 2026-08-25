@@ -428,12 +428,30 @@ describe("G7 — intelligence, history, automation", () => {
   });
 
   interactionCase("live:META-INTEL-07 respond", async () => {
+    /*
+     * On the section that OWNS the control, and with the server's own state.
+     *
+     * This used to render the control on any section whenever an `onRespond`
+     * prop was passed — which no page ever did — so the case graded an
+     * affordance nothing mounted. The control now appears where the composer
+     * said there is one, and its availability comes from the same `control`
+     * the server authored.
+     */
     const user = userEvent.setup();
     const onRespond = vi.fn();
     render(
       <Host>
         <IntelligenceView
-          sources={[{ key: "s", label: "Meta", state: "serving", reason: null, observedAt: null }]}
+          sources={[
+            {
+              key: "recommendations",
+              label: "Recommendations",
+              state: "serving",
+              reason: null,
+              observedAt: null,
+              control: { kind: "respond", enabled: true, refusalCode: null, refusalMessage: null },
+            },
+          ]}
           onRespond={onRespond}
         />
       </Host>,
@@ -442,7 +460,44 @@ describe("G7 — intelligence, history, automation", () => {
       expectOperable(ctl("live:META-INTEL-07 respond"), "respond") as HTMLSelectElement,
       "acted",
     );
-    expect(onRespond).toHaveBeenCalledWith("s", "acted");
+    expect(onRespond).toHaveBeenCalledWith("recommendations", "acted");
+  });
+
+  it("refuses the respond control with the server's §9.1 reason", () => {
+    render(
+      <Host>
+        <IntelligenceView
+          sources={[
+            {
+              key: "recommendations",
+              label: "Recommendations",
+              state: "serving",
+              reason: null,
+              observedAt: null,
+              readState: "refused",
+              readFailureCode: "reviewer_read_only",
+              control: {
+                kind: "respond",
+                enabled: false,
+                refusalCode: "reviewer_read_only",
+                refusalMessage: "Reviewer access is read-only.",
+              },
+            },
+          ]}
+          onRespond={vi.fn()}
+        />
+      </Host>,
+    );
+    const control = ctl("live:META-INTEL-07 respond") as HTMLSelectElement;
+    expect(control.disabled).toBe(true);
+    expect(
+      document.querySelector('[data-section-control-reason="respond"]')?.textContent,
+    ).toContain("read-only");
+    expect(
+      document
+        .querySelector('[data-section-control="respond"]')
+        ?.getAttribute("data-section-control-refusal"),
+    ).toBe("reviewer_read_only");
   });
 
   const history = (props: Record<string, unknown> = {}) =>

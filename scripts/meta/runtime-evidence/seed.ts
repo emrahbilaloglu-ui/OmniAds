@@ -30,6 +30,15 @@ export const OTHER_TENANT_OWNER_ID = "e0000000-0000-4000-8000-000000000002";
 export const ACCOUNT_ONE = "act_1000000000000001";
 export const ACCOUNT_MANY_A = "act_1000000000000002";
 export const ACCOUNT_MANY_B = "act_1000000000000003";
+/**
+ * Known to the credential and NOT assigned.
+ *
+ * `ACCOUNT_MANY_B` used to carry this role, which is why the "many accounts"
+ * business had only one assigned account. The two facts are separate — a
+ * business can be assigned several accounts AND see one it has not been
+ * assigned — so they now have an account each.
+ */
+export const ACCOUNT_MANY_UNASSIGNED = "act_1000000000000004";
 export const ACCOUNT_OTHER_TENANT = "act_1000000000000009";
 
 /**
@@ -218,9 +227,31 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
       accountName: "Many Accounts Co. — Wholesale",
       currency: "GBP",
       timezone: "Europe/London",
-      selected: false,
+      /*
+       * ASSIGNED, not merely discovered.
+       *
+       * This was `false`, and `readProviderScopeCatalog` only ever returns
+       * accounts with `is_selected`, so the "many accounts" business had
+       * exactly ONE assigned account. Every N-account claim measured against
+       * this fixture was measuring the 1-account posture under an N-account
+       * name: no surface here had ever reached `account_required`, and no
+       * picker had ever had a second option to offer.
+       */
+      selected: true,
       position: 1,
     });
+    await connectAccount(client, {
+      businessId: BUSINESS_MANY_ACCOUNTS,
+      externalAccountId: ACCOUNT_MANY_UNASSIGNED,
+      accountName: "Many Accounts Co. — Not assigned",
+      currency: "GBP",
+      timezone: "Europe/London",
+      // Visible to the credential, never assigned: the case where a requested
+      // id exists and is still refused.
+      selected: false,
+      position: 2,
+    });
+
     await connectAccount(client, {
       businessId: BUSINESS_OTHER_TENANT,
       externalAccountId: ACCOUNT_OTHER_TENANT,
@@ -232,6 +263,7 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
     });
 
     await seedHistoryJournal(client);
+    await assertD6Shape(client);
 
     return {
       operator: { id: RUNTIME_OPERATOR_ID, email: RUNTIME_OPERATOR_EMAIL, password },
@@ -253,6 +285,40 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
   }
 }
 
+/**
+ * The fixture is 0 / 1 / N, checked rather than assumed.
+ *
+ * `ACCOUNT_MANY_B` was seeded unselected, and every reader of an assignment
+ * filters on `is_selected` — so the "many accounts" business had one assigned
+ * account and every N-account assertion in this harness was silently measuring
+ * the 1-account posture. A fixture that lies about its own shape makes every
+ * test written against it agree with the wrong thing, so it is asserted here,
+ * once, in the same terms the product reads it.
+ */
+async function assertD6Shape(client: Client): Promise<void> {
+  const expected: ReadonlyArray<[string, string, number]> = [
+    [BUSINESS_ZERO_ACCOUNTS, "zero", 0],
+    [BUSINESS_ONE_ACCOUNT, "one", 1],
+    [BUSINESS_MANY_ACCOUNTS, "many", 2],  // plus one discovered and unassigned
+    [BUSINESS_OTHER_TENANT, "other tenant", 1],
+  ];
+  for (const [businessId, label, count] of expected) {
+    const rows = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM business_provider_accounts
+        WHERE business_id = $1 AND provider = 'meta' AND is_selected`,
+      [businessId],
+    );
+    const actual = Number(rows.rows[0]?.count ?? "0");
+    if (actual !== count) {
+      throw new Error(
+        `the ${label} fixture has ${actual} assigned Meta accounts, not ${count}. ` +
+          "Every D6 assertion made against it would be measuring a posture it does not have.",
+      );
+    }
+  }
+}
+
 /** Deterministic per cluster, so a rerun on the same URL keeps the password. */
 function hash(value: string): number {
   let out = 0;
@@ -267,7 +333,16 @@ function hash(value: string): number {
  *
  * The journal joins an action row to a dimension row to name the entity and to
  * scope it to a provider account, so both halves are needed or the rows exist
- * and reach no screen. Written with fixed ids so a rerun is idempotent and a
+ * and reach no screen.
+ *
+ * Dated three days back, not `now()`. The default evidence window is the last
+ * 28 days ENDING YESTERDAY, so rows written at `now() - 3 hours` were inside it
+ * before local midnight and outside it after — the same class of clock race
+ * that `migrations-from-zero` hit in its own fixture. A History surface that
+ * says `success` in the evening and `empty-proven` after midnight is not
+ * reporting on the product.
+ *
+ * Written with fixed ids so a rerun is idempotent and a
  * count assertion can name what it is counting.
  */
 async function seedHistoryJournal(client: Client): Promise<void> {
@@ -294,10 +369,13 @@ async function seedHistoryJournal(client: Client): Promise<void> {
       `INSERT INTO meta_ads_action_log
          (business_id, ad_id, action, source, requested_at, status, error_code,
           payload_request, payload_response, verified_at)
-       VALUES ($1, $2, $3, 'ui_manual', now() - ($4 || ' hours')::interval, $5, $6,
+       VALUES ($1, $2, $3, 'ui_manual',
+               now() - interval '3 days' - ($4 || ' hours')::interval, $5, $6,
                jsonb_build_object('scope_type', 'ad'),
                jsonb_build_object('accepted', true),
-               CASE WHEN $5 = 'success' THEN now() - ($4 || ' hours')::interval ELSE NULL END)`,
+               CASE WHEN $5 = 'success'
+                    THEN now() - interval '3 days' - ($4 || ' hours')::interval
+                    ELSE NULL END)`,
       [BUSINESS_ONE_ACCOUNT, JOURNAL_AD_ID, row.action, String(offset), row.status, row.errorCode],
     );
   }

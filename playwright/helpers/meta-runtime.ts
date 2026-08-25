@@ -12,6 +12,17 @@ import { META_SURFACES } from "../../lib/meta/surface-registry";
 
 export interface RuntimeHandle {
   baseUrl: string;
+  /**
+   * A second server on the SAME database, differing only in release-gate
+   * environment: the Meta Stop, the decision workflow, the share mint and the
+   * account picker are open there. Nothing whose next step is a call to Meta is
+   * opened anywhere in this harness.
+   *
+   * A gate has two halves and one process can only show one of them. The
+   * difference between what these two servers answer to the same request is
+   * the gate itself.
+   */
+  gatesOpenBaseUrl: string;
   databaseUrl: string;
   operator: { id: string; email: string; password: string };
   businesses: {
@@ -78,8 +89,14 @@ export function canonicalRoutesFor(businessId: string): { surfaceId: string; pat
  * "Loading workspace" text disappearing rather than on `networkidle`, because
  * these surfaces poll and `networkidle` never arrives.
  */
-export async function openSurface(page: Page, handle: RuntimeHandle, path: string): Promise<void> {
-  await page.goto(`${handle.baseUrl}${path}`, { waitUntil: "domcontentloaded" });
+export async function openSurface(
+  page: Page,
+  handle: RuntimeHandle,
+  path: string,
+  /** Which of the two servers to drive. Defaults to the shipped-gate one. */
+  baseUrl: string = handle.baseUrl,
+): Promise<void> {
+  await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("load");
 
   /*

@@ -95,11 +95,21 @@ test.describe("refused — D6, and never an empty screen instead", () => {
 
 test.describe("served — the state names what the read actually did", () => {
   test("a surface with an account and no rows is proven-empty, not degraded", async ({ page }) => {
-    // The many-account business has a selected account and no journal at all,
-    // so proven-empty is the honest answer — and it is a different answer from
-    // the one the same screen must give when the journal cannot be read, which
-    // the degraded case below provokes for real.
-    await openSurface(page, handle, routeFor("meta-history", handle.businesses.manyAccounts));
+    /*
+     * The many-account business with an account CHOSEN, and no journal at all,
+     * so proven-empty is the honest answer — a different answer from the one
+     * the same screen must give when the journal cannot be read, which the
+     * degraded case below provokes for real.
+     *
+     * The choice is explicit because the fixture now assigns this business two
+     * accounts. It previously assigned one (the sibling was seeded unselected),
+     * so this case was reading the 1-account posture and calling it many.
+     */
+    await openSurface(
+      page,
+      handle,
+      `${routeFor("meta-history", handle.businesses.manyAccounts)}?providerAccountId=${handle.accounts.manyA}`,
+    );
     const observed = await readSurfaceState(page);
     expect(observed!.state).toBe("empty-proven");
     expect(observed!.code).toBeNull();
@@ -118,11 +128,15 @@ test.describe("served — the state names what the read actually did", () => {
   });
 
   test("a surface whose sources all answered with nothing is proven-empty", async ({ page }) => {
-    // The many-account business, which has a selected account and no activity
-    // at all. On the one-account business Automation reads the same action log
-    // History does, so the seeded writes reach its ledger and `success` is the
-    // honest answer there — a distinction worth having both sides of.
-    await openSurface(page, handle, routeFor("meta-automation", handle.businesses.manyAccounts));
+    // The many-account business with an account chosen, and no activity at all.
+    // On the one-account business Automation reads the same action log History
+    // does, so the seeded writes reach its ledger and `success` is the honest
+    // answer there — a distinction worth having both sides of.
+    await openSurface(
+      page,
+      handle,
+      `${routeFor("meta-automation", handle.businesses.manyAccounts)}?providerAccountId=${handle.accounts.manyA}`,
+    );
     const observed = await readSurfaceState(page);
     expect(observed!.state).toBe("empty-proven");
     expect(observed!.code).toBeNull();

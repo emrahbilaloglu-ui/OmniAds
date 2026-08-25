@@ -47,17 +47,58 @@ test.describe("D6 — the three account postures, on the real surface", () => {
     expect(text).not.toContain("No Meta ad account");
   });
 
-  test("many accounts resolves to the selected one, not to both and not to all", async ({
-    page,
-  }) => {
+  test("many accounts resolves to NOTHING until one is chosen", async ({ page }) => {
+    /**
+     * D6's third posture, and the one this fixture could not previously
+     * express: `ACCOUNT_MANY_B` was seeded unassigned, so the "many accounts"
+     * business had exactly one assigned account and every N-account assertion
+     * here was measuring the 1-account case under an N-account name.
+     *
+     * With two genuinely assigned, the honest answer to "which account am I
+     * reading" is that nobody has said. Auto-picking the first would answer a
+     * question about one account with another's data, and `null` meaning "all
+     * of them" is the collapse D6 forbids outright.
+     */
     await openSurface(page, handle, `/c/${handle.businesses.manyAccounts}/meta/decisions`);
 
-    const text = await scopeText(page);
-    expect(text).toContain(handle.accounts.manyA);
-    // The unselected sibling must not appear in the resolved scope. A surface
-    // that showed both would be reading "all accounts", which D6 forbids.
-    const scope = await page.locator("[data-account-scope], header").first().innerText();
-    expect(scope).not.toContain(handle.accounts.manyB);
+    const state = page.locator("[data-meta-surface-state]").first();
+    await expect(state).toHaveAttribute("data-read-state", "refused");
+    await expect(state).toHaveAttribute("data-failure-code", "account_required");
+    expect(await state.getAttribute("data-provider-account")).toBeNull();
+  });
+
+  test("many accounts resolves to the chosen one, not to both and not to all", async ({
+    page,
+  }) => {
+    await openSurface(
+      page,
+      handle,
+      `/c/${handle.businesses.manyAccounts}/meta/decisions?providerAccountId=${handle.accounts.manyA}`,
+    );
+
+    const state = page.locator("[data-meta-surface-state]").first();
+    await expect(state).toHaveAttribute("data-provider-account", handle.accounts.manyA);
+    await expect(state).not.toHaveAttribute("data-read-state", "refused");
+  });
+
+  test("an account the credential can see but the business was never assigned is refused", async ({
+    page,
+  }) => {
+    // Assigned and discovered are different facts. This id is in the same
+    // tenant and in the account snapshot, and it is still not this business's
+    // to read.
+    await openSurface(
+      page,
+      handle,
+      `/c/${handle.businesses.manyAccounts}/meta/decisions?providerAccountId=act_1000000000000004`,
+    );
+
+    const state = page.locator("[data-meta-surface-state]").first();
+    await expect(state).toHaveAttribute("data-read-state", "refused");
+    await expect(state).toHaveAttribute(
+      "data-failure-code",
+      "provider_account_not_assigned",
+    );
   });
 });
 
@@ -80,7 +121,14 @@ test.describe("switching business cannot leave the previous account on screen", 
   });
 
   test("many accounts, then one account, in the same session", async ({ page }) => {
-    await openSurface(page, handle, `/c/${handle.businesses.manyAccounts}/meta/decisions`);
+    // An explicit choice, because the many-account business no longer resolves
+    // without one — which is the point of the posture, and makes this the
+    // sharper version of the same cache-key test.
+    await openSurface(
+      page,
+      handle,
+      `/c/${handle.businesses.manyAccounts}/meta/decisions?providerAccountId=${handle.accounts.manyA}`,
+    );
     expect(await scopeText(page)).toContain(handle.accounts.manyA);
 
     await openSurface(page, handle, `/c/${handle.businesses.oneAccount}/meta/decisions`);
@@ -151,7 +199,7 @@ test.describe("the fixture is real, and the read-back proves it", () => {
    * Without this, "the page said act_1000000000000001" only proves the page
    * says something; it does not prove it came from the selection contract.
    */
-  test("the selection contract holds exactly one selected account per business", async () => {
+  test("the selection contract gives each business the posture it is named for", async () => {
     const client = new Client({ connectionString: process.env.META_RUNTIME_DATABASE_URL });
     await client.connect();
     try {
@@ -171,9 +219,19 @@ test.describe("the fixture is real, and the read-back proves it", () => {
         selected: "1",
         total: "1",
       });
+      /*
+       * Two assigned and one merely discovered.
+       *
+       * This assertion used to read `selected: "1", total: "2"` and it was the
+       * fixture bug written down: a business with ONE assigned account cannot
+       * exercise D6's N posture, so every "many accounts" test in this harness
+       * was agreeing with the wrong thing. The third account keeps the case
+       * the old shape did cover — an id the credential can see that this
+       * business was never assigned — without conflating it with N.
+       */
       expect(byBusiness.get(handle.businesses.manyAccounts)).toMatchObject({
-        selected: "1",
-        total: "2",
+        selected: "2",
+        total: "3",
       });
     } finally {
       await client.end();

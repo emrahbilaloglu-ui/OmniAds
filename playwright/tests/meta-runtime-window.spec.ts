@@ -109,11 +109,37 @@ async function labelledWindow(page: Page): Promise<{ start: string; end: string 
   };
 }
 
-/** Yesterday, in ISO, on the machine's clock — the end of every preset. */
+/**
+ * The workspace's own clock, which is the one the product resolves presets on.
+ *
+ * `Europe/Istanbul` — the timezone the D6 fixture gives the one-account
+ * business and its Meta account. Named here rather than read from the product,
+ * so this is still an independent expectation, but named at all because the
+ * previous version used UTC and that is a different day for three hours out of
+ * every twenty-four.
+ *
+ * The failure it produced is worth recording because it reads as a product bug:
+ * between 21:00 and 24:00 UTC, Istanbul is already tomorrow, so the test's
+ * "yesterday" and the shell's "yesterday" were different dates. The shell then
+ * could not match the URL's explicit window to the `7d` preset that named it
+ * and captioned the range `7 days` instead of `Last 7 days` — correct dates, a
+ * preset it could no longer recognise, and a test failing on the operator's
+ * word for a window rather than on the window.
+ */
+const WORKSPACE_TIME_ZONE = "Europe/Istanbul";
+
+/** `days` before today, in ISO, on the workspace's clock. */
 function isoDaysAgo(days: number): string {
-  const now = new Date();
-  now.setUTCDate(now.getUTCDate() - days);
-  return now.toISOString().slice(0, 10);
+  // `en-CA` formats as YYYY-MM-DD, which is the ISO date this compares against.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: WORKSPACE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const shifted = new Date(`${today}T00:00:00Z`);
+  shifted.setUTCDate(shifted.getUTCDate() - days);
+  return shifted.toISOString().slice(0, 10);
 }
 
 /**

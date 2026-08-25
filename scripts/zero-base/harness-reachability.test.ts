@@ -2,7 +2,7 @@ import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { reachableFromRoutes } from "@/scripts/meta/verify-mounted-bodies";
+import { reachableFrom, reachableFromRoutes } from "@/scripts/meta/verify-mounted-bodies";
 
 /**
  * WP16 — is the DOM the gates measure the DOM a user sees?
@@ -156,5 +156,114 @@ describe("harness DOM versus user-visible DOM", () => {
     expect(source.indexOf('import "./css-module-stub"')).toBeLessThan(
       source.indexOf('from "@/components/'),
     );
+  });
+});
+
+/**
+ * Every path that produces RELEASE EVIDENCE about how the product looks.
+ *
+ * D2 is binding: the mounted production bodies own the pixels. So the visual,
+ * accessibility, responsive, fidelity and frame gates must measure those bodies
+ * — and a gate that reaches an archived `_reference` body is not measuring the
+ * product, it is measuring a copy of it that no operator can open.
+ *
+ * Four of these roots are `.spec.ts` files, which is why the walk below cannot
+ * reuse `reachableFromRoutes()`: that one skips tests deliberately, because a
+ * component imported only by its own test is not mounted. Here the spec IS the
+ * entry point, and an archived body pulled in through one would be the exact
+ * drift this gate exists to catch.
+ */
+const RELEASE_EVIDENCE_ROOTS = [
+  "scripts/zero-base/build-shell-harness.tsx",
+  "scripts/zero-base/build-frame-harness.tsx",
+  "scripts/zero-base/frame-registry.tsx",
+  "scripts/zero-base/frame-shell.tsx",
+  "scripts/zero-base/reconcile-frames.ts",
+  "scripts/zero-base/verify-reference-anatomy.ts",
+  "scripts/zero-base/verify-reference-fidelity.ts",
+  "scripts/zero-base/visual-regression.ts",
+  "playwright/tests/zero-base-a11y.spec.ts",
+  "playwright/tests/zero-base-visual.spec.ts",
+  "playwright/tests/zero-base-frames.spec.ts",
+];
+
+/**
+ * Bodies the release evidence is still allowed to reach, and why.
+ *
+ * This list is the WP16 debt, stated as data. It shrinks to empty as each
+ * harness is repointed at its production owner; it may never grow. An entry
+ * here is a promise that the gate measuring that surface is measuring a copy,
+ * and the reason is recorded beside it so nobody has to re-derive why.
+ */
+const PERMITTED_REFERENCE_BODIES: Record<string, string> = {
+  "components/zero-base/_reference/home-view.tsx":
+    "Overview has no pure presenter: the composition is inline in a 790-line client component behind a router, a query client, a hydrated store and a preferences gate. Repointing means four fakes, and a DOM assembled from four fakes is a fifth thing to keep in sync rather than the route's.",
+  "components/zero-base/_reference/meta-decisions-view.tsx":
+    "Repointing at MetaDecisionCenterExact is possible and planned; it needs the 16 anatomy markers ported onto the production owner first, or the anatomy gate fails on the surface it is supposed to be measuring.",
+  "components/zero-base/_reference/meta-automation-view.tsx":
+    "Five of H19's six markers are ported onto the mounted body and its data-ctl keys now match the interaction manifest. The sixth, `gated:AUTO-03 mode`, is a radiogroup that switches automation mode — and the mounted body has no such control, only read-only autonomy rows. That is a missing feature, not a missing attribute, so repointing today would fail the anatomy gate on the surface it is meant to be measuring.",
+};
+
+describe("release evidence measures the mounted bodies", () => {
+  it("reaches only the archived bodies this list still permits", () => {
+    const roots = RELEASE_EVIDENCE_ROOTS.map((file) => path.join(process.cwd(), file)).filter(
+      (file) => existsSync(file),
+    );
+    expect(roots.length, "a release-evidence root was renamed or removed").toBe(
+      RELEASE_EVIDENCE_ROOTS.length,
+    );
+
+    const reached = [...reachableFrom(roots, { followTests: true })]
+      .map((file) => path.relative(process.cwd(), file))
+      .filter((file) => file.startsWith(REFERENCE_DIR))
+      .sort();
+
+    const unpermitted = reached.filter((file) => !(file in PERMITTED_REFERENCE_BODIES));
+    expect(
+      unpermitted,
+      "release evidence reached an archived body with no recorded reason",
+    ).toEqual([]);
+  });
+
+  it("keeps every permitted entry justified, and keeps the list shrinking", () => {
+    for (const [file, why] of Object.entries(PERMITTED_REFERENCE_BODIES)) {
+      expect(existsSync(path.join(process.cwd(), file)), `${file} no longer exists`).toBe(true);
+      expect(why.length, `${file} is permitted with no reason`).toBeGreaterThan(60);
+    }
+    /*
+     * A ceiling, not a floor. Three archived bodies exist; two are still
+     * reached. When a harness is repointed its entry comes out of the list and
+     * this number comes down with it — it must never go up.
+     */
+    expect(Object.keys(PERMITTED_REFERENCE_BODIES).length).toBeLessThanOrEqual(3);
+  });
+
+  it("names the one control that blocks the Automation repoint", () => {
+    /*
+     * The debt, stated precisely enough to be actionable.
+     *
+     * `gated:AUTO-03 mode` is the only H19 marker the mounted Automation body
+     * cannot carry, because the control it names does not exist there — the
+     * autonomy ladder renders read-only rows. The other five are ported. This
+     * asserts the gap rather than the fix, so that implementing the control is
+     * what removes the entry rather than an edit to this list.
+     */
+    const mounted = readFileSync(
+      path.join(process.cwd(), "app/(dashboard)/platforms/meta/automation/automation-view.tsx"),
+      "utf8",
+    );
+    for (const marker of [
+      'data-ctl="gated:AUTO-01A engage"',
+      'data-ctl="gated:AUTO-02 release"',
+      'data-el="google-posture-row"',
+      'data-el="guardrails-readonly"',
+      'data-collection="h19-guardrails"',
+    ]) {
+      expect(mounted, `the mounted Automation body lost ${marker}`).toContain(marker);
+    }
+    expect(
+      mounted.includes('data-ctl="gated:AUTO-03 mode"'),
+      "the mode control exists now — remove the Automation entry from PERMITTED_REFERENCE_BODIES and repoint the harness",
+    ).toBe(false);
   });
 });

@@ -1227,7 +1227,7 @@ export function MetaAutomationView({
                 <button
                   type="button"
                   className={styles.killAction}
-                  data-ctl="live:AUTOMATION-STOP release"
+                  data-ctl="gated:AUTO-02 release"
                   disabled={!viewer.canMutate || stopPending}
                   title={viewer.canMutate ? undefined : (viewer.reason ?? undefined)}
                   onClick={() => onStopControl("release_kill_switch")}
@@ -1238,11 +1238,20 @@ export function MetaAutomationView({
                 <button
                   type="button"
                   className={styles.killAction}
-                  data-ctl={
-                    stopEngageRefusalReason || !viewer.canMutate
-                      ? "disabled:AUTOMATION-STOP engage"
-                      : "live:AUTOMATION-STOP engage"
-                  }
+                  /*
+                   * The manifest's own key, prefix included.
+                   *
+                   * `docs/zero-base-design/v3/export/interaction-manifest.json`
+                   * states `k: "gated:AUTO-01A engage"`, and the key IS the
+                   * `data-ctl` value — the `gated:` prefix is part of the
+                   * contract, not a state this body chooses. An earlier
+                   * revision invented `live:`/`disabled:AUTOMATION-STOP`, which
+                   * left the anatomy gate unable to find the control it was
+                   * looking for. Whether the control is currently refused is
+                   * carried by `disabled` and `data-stop-engage-refused`, where
+                   * a state belongs.
+                   */
+                  data-ctl="gated:AUTO-01A engage"
                   data-stop-engage-refused={stopEngageRefusalReason ? "" : undefined}
                   disabled={
                     Boolean(stopEngageRefusalReason) || !viewer.canMutate || stopPending
@@ -1264,14 +1273,35 @@ export function MetaAutomationView({
                 {stopError}
               </p>
             ) : null}
-            <p className={styles.killNote} data-field="kill-switch-scope">
+            <p
+              className={styles.killNote}
+              data-field="kill-switch-scope"
+              /*
+               * H19's `google-posture-row`. This IS the row that states
+               * Google's posture: that neither switch above reaches it. The
+               * artboard requires the claim to be addressable, because "one
+               * switch stops everything" is the belief this sentence exists to
+               * correct.
+               */
+              data-el="google-posture-row"
+            >
               Flipping either switch blocks every <b>Meta</b> write instantly —
               server-enforced, not a UI state.{" "}
               <b>No control on this screen stops Google Ads writes.</b>
             </p>
           </article>
 
-          <article className={styles.guardrailCard}>
+          <article
+            className={styles.guardrailCard}
+            /*
+             * H19 requires the guardrails to be addressable AND to say that
+             * they are read-only here — `AUTO-05..10 remain read-only rows` in
+             * the interaction manifest. They are: every row below renders a
+             * label and a value with no control.
+             */
+            data-el="guardrails-readonly"
+            data-collection="h19-guardrails"
+          >
             <p className={styles.cardKicker}>
               Guardrails
               {hasServedBusinessControl(payload) &&

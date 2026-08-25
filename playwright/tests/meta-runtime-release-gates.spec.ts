@@ -228,7 +228,10 @@ test.describe("the Meta Stop, engaged and released against the real database", (
     await expect(control).toHaveCount(1);
     // The Stop is released at this point, so the offered direction is engage.
     await expect(control).toBeDisabled();
-    await expect(control).toHaveAttribute("data-ctl", "disabled:AUTOMATION-STOP engage");
+    // The contract key is constant; the refusal is the `disabled` state and
+    // the reason beside it, which the next assertions read.
+    await expect(control).toHaveAttribute("data-ctl", "gated:AUTO-01A engage");
+    await expect(control).toHaveAttribute("data-stop-engage-refused", "");
 
     const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
     expect(text).toMatch(/a stop that cannot be released is worse than no stop/i);
@@ -245,7 +248,8 @@ test.describe("the Meta Stop, engaged and released against the real database", (
 
     const control = page.locator('[data-field="business-writes-control"] button');
     await expect(control).toHaveCount(1);
-    await expect(control).toHaveAttribute("data-ctl", "live:AUTOMATION-STOP engage");
+    await expect(control).toHaveAttribute("data-ctl", "gated:AUTO-01A engage");
+    expect(await control.getAttribute("data-stop-engage-refused")).toBeNull();
     await expect(control).toBeEnabled();
   });
 });

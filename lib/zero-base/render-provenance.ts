@@ -44,7 +44,22 @@ export const RENDER_SOURCE_PATHS: readonly string[] = [
   "lib/design",
   // Tokens and the canonical stylesheet.
   "app/globals.css",
+  /*
+   * Production visual owners the harness reaches, or is being repointed at.
+   *
+   * D2 makes these the pixel owners, and a fingerprint that ignored them would
+   * be a fingerprint of the wrong thing: editing the mounted Automation body
+   * would leave the hash unchanged and a stale capture would pass as current
+   * evidence — precisely the failure this file exists to kill, re-created on
+   * the other side. Named narrowly rather than as `components/meta`, because
+   * the wider the walk the more often an unrelated edit invalidates the
+   * 92-frame capture set.
+   */
+  "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
+  "components/meta/decision-center",
+  "components/meta/redesign",
   // The harness: registry, shell wrapper and the renderer.
+  "scripts/zero-base/build-shell-harness.tsx",
   "scripts/zero-base/frame-registry.tsx",
   "scripts/zero-base/frame-shell.tsx",
   "scripts/zero-base/build-frame-harness.tsx",

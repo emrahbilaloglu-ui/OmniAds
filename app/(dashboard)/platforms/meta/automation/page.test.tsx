@@ -1343,7 +1343,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
 
     // The default fixture is STOPPED, so the one control offered is the lift —
     // and it carries no refusal, at any gate setting.
-    expect(html).toContain('data-ctl="live:AUTOMATION-STOP release"');
+    expect(html).toContain('data-ctl="gated:AUTO-02 release"');
     expect(html).not.toContain("data-stop-engage-refused");
 
     // Released, with the gate shut: engage is present, disabled, and says why.
@@ -1369,7 +1369,12 @@ describe("Dashboard v2 exact Automation presentation", () => {
         stopEngageRefusalReason={META_GATE_REFUSAL_REASONS.automationStopUi}
       />,
     );
-    expect(released).toContain('data-ctl="disabled:AUTOMATION-STOP engage"');
+    /*
+     * The contract key does not change with the state. `gated:AUTO-01A engage`
+     * is the manifest's own value for this control; whether it is currently
+     * refused is `disabled` plus `data-stop-engage-refused`, asserted below.
+     */
+    expect(released).toContain('data-ctl="gated:AUTO-01A engage"');
     expect(released).toContain('data-stop-engage-refused=""');
     expect(released).toContain("a stop that cannot be released is worse");
     // The refusal is readable, not only a tooltip an operator must hunt for.
@@ -1400,7 +1405,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
         stopEngageRefusalReason={null}
       />,
     );
-    expect(openGate).toContain('data-ctl="live:AUTOMATION-STOP engage"');
+    expect(openGate).toContain('data-ctl="gated:AUTO-01A engage"');
     expect(openGate).not.toContain("data-stop-engage-refused");
 
     // No confirm dialog stands between an operator and a stop.

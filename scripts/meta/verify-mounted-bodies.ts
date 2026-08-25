@@ -85,9 +85,22 @@ function specifiersIn(source: string): string[] {
   return found;
 }
 
-export function reachableFromRoutes(): Set<string> {
+/**
+ * Every module reachable from a set of entry points.
+ *
+ * Parameterised because two different questions use the same walk. "What does a
+ * ROUTE reach" must skip test files — a component imported only by its own test
+ * is not mounted by anything. "What does the RELEASE EVIDENCE reach" must not,
+ * because four of its entry points ARE `.spec.ts` files, and a harness that
+ * pulled an archived body in through a spec would be exactly the drift the walk
+ * exists to catch.
+ */
+export function reachableFrom(
+  roots: readonly string[],
+  options: { followTests: boolean },
+): Set<string> {
   const seen = new Set<string>();
-  const queue = routeEntryPoints();
+  const queue = [...roots];
   for (const entry of queue) seen.add(entry);
 
   while (queue.length > 0) {
@@ -100,12 +113,17 @@ export function reachableFromRoutes(): Set<string> {
     }
     for (const specifier of specifiersIn(source)) {
       const resolved = resolveSpecifier(file, specifier);
-      if (!resolved || seen.has(resolved) || isTestFile(resolved)) continue;
+      if (!resolved || seen.has(resolved)) continue;
+      if (!options.followTests && isTestFile(resolved)) continue;
       seen.add(resolved);
       queue.push(resolved);
     }
   }
   return seen;
+}
+
+export function reachableFromRoutes(): Set<string> {
+  return reachableFrom(routeEntryPoints(), { followTests: false });
 }
 
 export function unmountedRegistryBodies(): string[] {

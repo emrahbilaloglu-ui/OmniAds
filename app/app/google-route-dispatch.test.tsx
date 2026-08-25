@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dispatcherMocks = vi.hoisted(() => ({
   redirect: vi.fn((href: string): never => {
@@ -36,6 +36,18 @@ const auth = await import("@/lib/auth");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  /*
+   * These cases are about DISPATCH, so the canonical UI is switched on.
+   *
+   * `/app/**` now consults the rollout mode before it dispatches — the reverse
+   * half of the compatibility decision, added because the mode defaults to OFF
+   * and the canonical family was serving every surface regardless, which made
+   * the documented rollback roll nothing back. With the mode unset these tests
+   * would be asserting the fallback rather than the routing table. The fallback
+   * has its own cases in `lib/zero-base/canonical-fallback.test.ts` and, at
+   * runtime, in `playwright/tests/meta-runtime-rollout.spec.ts`.
+   */
+  vi.stubEnv("ZERO_BASE_UI_MODE", "on");
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue({
     sessionId: "session_1",
     user: {
@@ -52,6 +64,10 @@ beforeEach(() => {
   dispatcherMocks.advisorPage.mockResolvedValue(null);
   dispatcherMocks.searchPage.mockResolvedValue(null);
   dispatcherMocks.productsPage.mockResolvedValue(null);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("/app Google route dispatch", () => {

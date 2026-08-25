@@ -1,6 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getSessionFromCookies } from "@/lib/auth";
+import { resolveCanonicalFallback } from "@/lib/zero-base/canonical-fallback";
+import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
+import { RolledBackSurface } from "@/components/zero-base/rolled-back-surface";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,26 @@ const pages = {
   "manage/plan": () => import("@/app/c/[businessId]/manage/plan/page"),
 };
 
+/**
+ * The query string, rebuilt for the one hop the rollback may take.
+ *
+ * A rolled-back workspace should land on the legacy screen looking at the same
+ * thing it asked for — the same window, the same filter — so the search travels
+ * with it. Repeated keys are preserved: `?kind=a&kind=b` is two values, and
+ * flattening it would change the question.
+ */
+function serializeSearch(
+  raw: Record<string, string | string[] | undefined> | undefined,
+): string {
+  if (!raw) return "";
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, item);
+  }
+  return params.toString();
+}
+
 export default async function SessionScopedPage({ params, searchParams }: PageProps) {
   const session = await getSessionFromCookies();
   if (!session) redirect(`/login?next=${encodeURIComponent("/app/home")}`);
@@ -57,13 +80,53 @@ export default async function SessionScopedPage({ params, searchParams }: PagePr
   const path = segments.join("/") || "home";
   const businessId = session.activeBusinessId;
 
+  /**
+   * The rollback lever, applied where BOTH families pass through.
+   *
+   * `/c/:businessId/**` is rewritten into `/app/**` by
+   * `resolvePublicRouteRedirect` before any page renders, so this dispatcher is
+   * the one place that sees every request to the canonical UI. Deciding here
+   * means `/c` and `/app` cannot disagree about the rollout mode, and it needs
+   * no second router: `resolveCanonicalFallback` inverts the table
+   * `compatibility.ts` already owns.
+   *
+   * Ordered AFTER the session and the active business are resolved, because the
+   * allowlist decision needs a business and because a redirect that ran first
+   * would answer "does this business exist" with a `Location` header. Ordered
+   * BEFORE dispatch, so a rolled-back workspace never renders a canonical body
+   * at all.
+   *
+   * Nothing here grants anything. Every page below still performs its own
+   * authorization, and the legacy destination performs its own.
+   */
+  const rollout = readZeroBaseRolloutConfig();
+  const search = serializeSearch(await searchParams);
+  const rollback = (appTemplatePath: string, routeParams?: Record<string, string>) =>
+    resolveCanonicalFallback({
+      appPath: appTemplatePath,
+      config: rollout,
+      businessId,
+      params: routeParams,
+      search,
+    });
+
   const exact = pages[path as keyof typeof pages];
   if (exact) {
+    const fallback = rollback(path);
+    if (fallback.kind === "legacy") redirect(fallback.destination);
+    if (fallback.kind === "rolled-back") {
+      return <RolledBackSurface appPath={path} reason={fallback.reason} />;
+    }
     const Page = (await exact()).default as unknown as RoutedPage;
     return Page({ params: Promise.resolve({ businessId }), searchParams });
   }
 
   if (segments[0] === "creative" && segments.length === 2) {
+    const fallback = rollback("creative/[creativeId]", { creativeId: segments[1]! });
+    if (fallback.kind === "legacy") redirect(fallback.destination);
+    if (fallback.kind === "rolled-back") {
+      return <RolledBackSurface appPath="creative/[creativeId]" reason={fallback.reason} />;
+    }
     const Page = (await import("@/app/c/[businessId]/creative/[creativeId]/page")).default as RoutedPage;
     return Page({
       params: Promise.resolve({ businessId, creativeId: segments[1]! }),
@@ -73,6 +136,15 @@ export default async function SessionScopedPage({ params, searchParams }: PagePr
 
   if (segments[0] === "reports" && segments[1] && segments.length <= 3) {
     const reportId = segments[1];
+    const template =
+      segments.length === 2
+        ? "reports/[reportId]"
+        : `reports/[reportId]/${segments[2]}`;
+    const fallback = rollback(template, { reportId });
+    if (fallback.kind === "legacy") redirect(fallback.destination);
+    if (fallback.kind === "rolled-back") {
+      return <RolledBackSurface appPath={template} reason={fallback.reason} />;
+    }
     if (segments.length === 2) {
       const Page = (await import("@/app/c/[businessId]/reports/[reportId]/page")).default as RoutedPage;
       return Page({ params: Promise.resolve({ businessId, reportId }), searchParams });
@@ -93,6 +165,18 @@ export default async function SessionScopedPage({ params, searchParams }: PagePr
     segments[2] === "callback" &&
     segments[3]
   ) {
+    const fallback = rollback("manage/integrations/callback/[provider]", {
+      provider: segments[3],
+    });
+    if (fallback.kind === "legacy") redirect(fallback.destination);
+    if (fallback.kind === "rolled-back") {
+      return (
+        <RolledBackSurface
+          appPath="manage/integrations/callback/[provider]"
+          reason={fallback.reason}
+        />
+      );
+    }
     const Page = (await import("@/app/c/[businessId]/manage/integrations/callback/[provider]/page")).default as unknown as RoutedPage;
     return Page({
       params: Promise.resolve({ businessId, provider: segments[3] }),

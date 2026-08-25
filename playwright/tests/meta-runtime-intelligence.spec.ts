@@ -155,22 +155,26 @@ test.describe("a refused source is never counted as one that answered", () => {
     /**
      * Provoked for real against the ephemeral database, not simulated.
      *
-     * `meta_account_daily` is the Account pulse's table. Renaming it makes that
-     * one read fail while every other section's source is untouched, which is
-     * the composition's whole claim: eleven independent reads, one of which can
-     * fail without taking the screen down and without being counted as served.
+     * `meta_campaign_labels` is the Campaign labels section's table and nothing
+     * else's, so renaming it makes exactly one of the eleven reads fail. That
+     * is the composition's whole claim: eleven independent reads, one of which
+     * can fail without taking the screen down and — the part that matters —
+     * without being counted as served.
+     *
+     * The assertion names the section rather than counting states, because a
+     * count would also pass if the failure landed on a DIFFERENT section, which
+     * would be a worse bug than the one under test.
      */
-    const before = await (async () => {
-      await openSurface(page, handle, INTELLIGENCE);
-      return sections(page);
-    })();
-    const servingBefore = before.filter((row) => row.state === "Serving").length;
+    await openSurface(page, handle, INTELLIGENCE);
+    const before = await sections(page);
+    const servingBefore = before.filter((row) => row.state === "Serving").map((row) => row.key);
+    expect(servingBefore, "labels was not serving to begin with").toContain("labels");
 
     let renamed = false;
     try {
       await withDb(async (client) => {
         await client.query(
-          "ALTER TABLE meta_account_daily RENAME TO meta_account_daily_faulted",
+          "ALTER TABLE meta_campaign_labels RENAME TO meta_campaign_labels_faulted",
         );
         renamed = true;
       });
@@ -181,39 +185,40 @@ test.describe("a refused source is never counted as one that answered", () => {
       // The screen is still a screen.
       expect(during.length).toBe(before.length);
 
-      // Fewer sections serve than before — the failure was noticed rather than
-      // absorbed. A composition that answered "Serving" for a read that threw
-      // is the exact defect this provokes.
-      const servingDuring = during.filter((row) => row.state === "Serving").length;
+      // The broken section, and only it, stopped serving.
+      const brokenRow = during.find((row) => row.key === "labels");
+      expect(brokenRow?.state, "a broken source was still counted as serving").not.toBe(
+        "Serving",
+      );
+      const stillServing = during
+        .filter((row) => row.state === "Serving")
+        .map((row) => row.key);
       expect(
-        servingDuring,
-        "a broken source was still counted as serving",
-      ).toBeLessThan(servingBefore);
+        servingBefore.filter((key) => key !== "labels" && !stillServing.includes(key)),
+        "an unrelated section was taken down with it",
+      ).toEqual([]);
 
-      // And the "sources served" line agrees with the rows under it, rather
-      // than with the number of sections that exist.
+      // The header count agrees with the rows under it, rather than with the
+      // number of sections that exist.
       const counter = await page
         .locator("text=/\\d+ sources served/")
         .first()
         .innerText()
         .catch(() => "");
       const claimed = Number(/(\d+) sources served/.exec(counter)?.[1] ?? "-1");
-      expect(claimed, `the header claimed ${claimed}, the rows show ${servingDuring}`).toBe(
-        servingDuring,
-      );
+      expect(
+        claimed,
+        `the header claimed ${claimed}, the rows show ${stillServing.length}`,
+      ).toBe(stillServing.length);
 
-      // Whatever degraded says why, and does not say it in SQL.
-      const broken = during.filter((row) => row.state !== "Serving");
-      expect(broken.length).toBeGreaterThan(0);
-      for (const row of broken) {
-        expect(row.text, `${row.key} withheld silently`).not.toBe(row.state);
-        expect(row.text).not.toMatch(/meta_account_daily/);
-      }
+      // It says why, and does not say it in SQL.
+      expect(brokenRow!.text, "labels withheld silently").not.toBe(brokenRow!.state);
+      expect(brokenRow!.text).not.toMatch(/meta_campaign_labels/);
     } finally {
       if (renamed) {
         await withDb(async (client) => {
           await client.query(
-            "ALTER TABLE meta_account_daily_faulted RENAME TO meta_account_daily",
+            "ALTER TABLE meta_campaign_labels_faulted RENAME TO meta_campaign_labels",
           );
         });
       }

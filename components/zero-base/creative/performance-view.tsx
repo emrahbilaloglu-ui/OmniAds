@@ -114,7 +114,7 @@ export function CreativePerformanceView({
 
   return (
     <div data-creative-performance="" className={legacyStyles.workspace}>
-      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Creative Intelligence</p>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>{copy.creativeIntelligence}</p>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.creativeIntelligence}
@@ -135,7 +135,7 @@ export function CreativePerformanceView({
           {copy.metaScoped}
         </span>
       </div>
-      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Compare creative performance, evidence and served decision context.</p>
+      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.compareCreativePerformanceDetail}</p>
 
       {onPresetChange || onSortChange || onActionStateChange ? (
         <div

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+
 import {
   DateRangePicker,
   getPresetDatesForReferenceDate,
@@ -18,6 +20,7 @@ export function HomeDateRangeControl({
   referenceDate: string;
   timeZone: string;
 }) {
+  const copy = useCopy();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -45,7 +48,7 @@ export function HomeDateRangeControl({
     <DateRangePicker
       value={selected}
       onChange={handleChange}
-      label="Date range"
+      label={copy.dateRange}
       testId="home-date-range"
       referenceDate={referenceDate}
       timeZoneLabel={timeZone}

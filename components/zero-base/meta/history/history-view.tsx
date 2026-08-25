@@ -140,7 +140,7 @@ export function HistoryView({
     >
       <div style={{ minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Decision, workflow and provider-action journal.</p></div>
+        <div><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>{copy.metaWorkspace}</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.decisionWorkflowProviderJournal}</p></div>
         {onClose ? (
           <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
             {copy.close}
@@ -230,7 +230,7 @@ export function HistoryView({
           ) : null}
           {onKindFilterChange ? (
             <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-              Event family
+              {copy.eventFamily}
               <select
                 data-ctl="live:META-HIST-05 kind"
                 data-history-filter="kind"
@@ -248,7 +248,7 @@ export function HistoryView({
           ) : null}
           {onEntityFilterChange ? (
             <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-              Entity
+              {copy.entity}
               <select
                 data-ctl="live:META-HIST-05 entity"
                 data-history-filter="entity"
@@ -363,10 +363,10 @@ export function HistoryView({
                 its engine says so with an em-dash rather than borrowing the
                 current version, which would date a reconstruction wrongly. */}
             {replayRow.replayed ? (
-              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>Engine version</dt><dd data-replay-engine-version={replayRow.id} style={{ margin: 0 }}>{replayRow.replayEngineVersion ?? "—"}</dd></div>
+              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.engineVersion}</dt><dd data-replay-engine-version={replayRow.id} style={{ margin: 0 }}>{replayRow.replayEngineVersion ?? "—"}</dd></div>
             ) : null}
             {replayRow.summary ? (
-              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>Summary</dt><dd data-replay-summary={replayRow.id} style={{ margin: 0 }}>{replayRow.summary}</dd></div>
+              <div><dt style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.summary}</dt><dd data-replay-summary={replayRow.id} style={{ margin: 0 }}>{replayRow.summary}</dd></div>
             ) : null}
             {/* The served money facts, not re-derived ones. A budget change with
                 no amounts is a budget change nobody can check. */}

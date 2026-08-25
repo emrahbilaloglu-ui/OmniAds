@@ -63,7 +63,7 @@ export function SourcePanels({ panels, compact = false }: { panels: readonly Sou
           href="/app/manage/integrations"
           style={{ display: "inline-flex", alignItems: "center", minHeight: 36, marginTop: 8, color: "var(--ledger-accent-action)", fontSize: 12, fontWeight: 600 }}
         >
-          Connect or configure data sources
+          {copy.connectOrConfigureDataSources}
         </Link>
       ) : null}
     </section>

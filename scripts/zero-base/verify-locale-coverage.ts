@@ -35,6 +35,9 @@ export const REVIEWED_EXEMPTIONS: Record<string, string> = {
   "Google Ads": "Provider identifier in NON_TRANSLATABLE_TERMS.",
   "GA4 and Shopify": "Two provider identifiers joined by a conjunction; both are reserved terms.",
   CPA: "Metric identifier in NON_TRANSLATABLE_TERMS.",
+  ROAS: "Metric identifier in NON_TRANSLATABLE_TERMS; an operator types it into a spreadsheet unchanged.",
+  Adsecute:
+    "The product's own name. A brand is not copy — translating it would make the page name a different product.",
 };
 
 /** Files that legitimately hold no operator-facing copy. */
@@ -69,8 +72,19 @@ export function measureFile(file: string): FileCoverage {
   // The negative lookbehind keeps type annotations out: in `=> Promise<T>` the
   // `>` belongs to an arrow, not to a JSX tag, and `Promise` is a type name.
   const texts = source.match(/(?<![=>|])>\s*([A-Z][A-Za-z0-9 ,.'"’\-—/%()]{3,})\s*</g) ?? [];
+  /*
+   * `data-*` markers are not copy, and this is what excludes them.
+   *
+   * The rule was already stated above and the pattern did not implement it:
+   * `data-screen-label="Meta · Account Intelligence"` matched, because the
+   * alternation found `label` in the middle of the attribute name. The
+   * lookbehind anchors the match to the START of an attribute, so `aria-label`
+   * still counts and `data-screen-label`, `data-el` and their kind do not.
+   */
   const props =
-    source.match(/(?:label|title|caption|header|hint|reason|placeholder|aria-label)="([^"]{4,})"/g) ?? [];
+    source.match(
+      /(?<![-\w])(?:aria-)?(?:label|title|caption|header|hint|reason|placeholder)="([^"]{4,})"/g,
+    ) ?? [];
   const strings = [
     ...texts.map((match) => match.replace(/^[^>]*>\s*/, "").replace(/\s*<.*$/, "").trim()),
     ...props.map((match) => match.replace(/^[^"]*"/, "").replace(/"$/, "").trim()),

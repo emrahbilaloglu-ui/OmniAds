@@ -58,7 +58,7 @@ export function LaunchpadView({
 
   return (
     <div data-launchpad-surface="" className={legacyStyles.workspace} style={{ display: "grid", gridTemplateColumns: "minmax(0, 3fr) minmax(280px, 2fr)", gap: 12, alignItems: "start" }}>
-      <header style={{ gridColumn: "1 / -1" }}><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaLaunchpad}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Prepare, validate and review launch-ready drafts.</p></header>
+      <header style={{ gridColumn: "1 / -1" }}><p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>{copy.metaWorkspace}</p><h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaLaunchpad}</h1><p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.prepareValidateReviewDrafts}</p></header>
 
       {error ? (
         <p role="status" data-launchpad-error="" style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>

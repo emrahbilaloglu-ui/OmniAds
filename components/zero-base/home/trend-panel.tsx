@@ -369,7 +369,7 @@ export function TrendPanel({
                   }}
                 >
                   <strong style={{ display: "block" }}>{points[activeIndex].date}</strong>
-                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>Spend</span><strong>{points[activeIndex].spend === null ? "No data" : formatSpend(points[activeIndex].spend, currency)}</strong></span>
+                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>{copy.spend}</span><strong>{points[activeIndex].spend === null ? "No data" : formatSpend(points[activeIndex].spend, currency)}</strong></span>
                   <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>ROAS</span><strong>{points[activeIndex].roas === null ? "No data" : `${points[activeIndex].roas.toFixed(2)}x`}</strong></span>
                 </div>
               ) : null}

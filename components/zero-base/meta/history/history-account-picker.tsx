@@ -21,6 +21,7 @@
  * first thing the operator saw after picking an account would be a journal
  * measured over a different window than the one the shell states.
  */
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
@@ -30,6 +31,7 @@ export function HistoryAccountPicker({
 }: {
   accounts: readonly MetaHistoryAccount[];
 }) {
+  const copy = useCopy();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -48,9 +50,9 @@ export function HistoryAccountPicker({
       data-control="account-picker"
       style={{ fontSize: 12, display: "grid", gap: 4, marginTop: 12, maxWidth: 280 }}
     >
-      Meta ad account
+      {copy.metaAdAccount}
       <select
-        aria-label="Meta ad account for History"
+        aria-label={copy.metaAdAccountForHistory}
         // No pre-selection. Picking the first of several assigned accounts on
         // the operator's behalf is exactly the silent scope this screen must
         // never invent — it is what printed one account's journal under another
@@ -59,7 +61,7 @@ export function HistoryAccountPicker({
         onChange={(event) => select(event.currentTarget.value)}
         style={{ minHeight: 44, padding: "6px 8px" }}
       >
-        <option value="">Select account</option>
+        <option value="">{copy.selectAccount}</option>
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
             {account.name ?? account.id}

@@ -63,7 +63,7 @@ export function AutomationView({
 
   return (
     <div data-automation-surface="" className={legacyStyles.workspace}>
-      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>Meta workspace</p>
+      <p style={{ margin: 0, fontFamily: "var(--font-adc-mono), monospace", fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ledger-ink-tertiary)" }}>{copy.metaWorkspace}</p>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         Automation &amp; Meta Stop
       </h1>

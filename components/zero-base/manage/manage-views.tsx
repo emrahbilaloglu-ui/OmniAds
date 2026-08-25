@@ -324,7 +324,7 @@ export function IntegrationsView({
       ) : (
         <>
           <div data-el="provider-states">
-            <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Connect ad platforms, analytics tools and storefronts, then choose which account Adsecute should use.</p>
+            <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.connectPlatformsThenChooseAccount}</p>
             <div data-integration-summary="" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, marginTop: 14 }}>
               {[{ label: "Connected", value: connectedCount }, { label: "Needs setup", value: needsSetupCount }, { label: "Providers", value: providers.length }].map((item) => <div key={item.label} style={{ padding: 12, border: "1px solid var(--ledger-border-subtle)", borderRadius: 8, background: "var(--ledger-bg-surface)" }}><span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{item.label}</span><strong style={{ display: "block", marginTop: 4, fontSize: 20 }}>{item.value}</strong></div>)}
             </div>
@@ -641,7 +641,7 @@ export function TeamView({
   return (
     <Shell title={copy.teamTitle}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start", flexWrap: "wrap", marginTop: 5 }}>
-        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Manage members, invitations, roles and workspace access.</p>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.manageMembersInvitationsRoles}</p>
         {permissions.invitesWrite.ok ? <span data-team-tabs=""><Button variant="secondary" data-team-open-invite="" onClick={() => setTeamTab("invites")}>{copy.sendInvitations}</Button></span> : null}
       </div>
       {/* One live region for every write on this surface. */}
@@ -660,14 +660,14 @@ export function TeamView({
         </p>
       )}
 
-      <div data-team-tabs="" role="tablist" aria-label="Team views" style={{ display: "flex", gap: 4, marginTop: 14, borderBottom: "1px solid var(--ledger-border-subtle)" }}>
+      <div data-team-tabs="" role="tablist" aria-label={copy.teamViews} style={{ display: "flex", gap: 4, marginTop: 14, borderBottom: "1px solid var(--ledger-border-subtle)" }}>
         {(["members", "invites"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={teamTab === tab} onClick={() => setTeamTab(tab)} style={{ padding: "9px 12px", border: 0, borderBottom: teamTab === tab ? "2px solid var(--ledger-ink-primary)" : "2px solid transparent", background: "transparent", color: teamTab === tab ? "var(--ledger-ink-primary)" : "var(--ledger-ink-secondary)", fontWeight: teamTab === tab ? 600 : 400, textTransform: "capitalize", cursor: "pointer" }}>{tab}</button>)}
       </div>
 
       <div data-team-layout="" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14, alignItems: "start" }}>
       <section data-team-invite="" data-team-pane="invites" aria-label={copy.invitations} style={{ display: teamTab === "invites" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Invite teammates by email and choose their initial role.</p>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.inviteTeammatesByEmail}</p>
         {permissions.invitesWrite.ok ? (
           <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
             <TextInput
@@ -710,7 +710,7 @@ export function TeamView({
 
       <section aria-label={copy.members} data-el="role-permission-state" data-team-pane="members" style={{ display: teamTab === "members" ? "block" : "none", marginTop: 16, padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>People with access to the selected workspace.</p>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.peopleWithAccessToWorkspace}</p>
         <div style={{ marginTop: 8 }}>
           <DataTable
             collection="members"
@@ -797,7 +797,7 @@ export function TeamView({
 
       <section aria-label={copy.invitations} data-team-pane="invites" style={{ display: teamTab === "invites" ? "block" : "none", padding: 16, border: "1px solid var(--ledger-border-subtle)", borderRadius: 10, background: "var(--ledger-bg-surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.pendingInvitations}</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Generated invitations and their current delivery status.</p>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.generatedInvitationsAndStatus}</p>
         <div style={{ marginTop: 12 }}>
           <DataTable
             density="dense"
@@ -1106,12 +1106,12 @@ export function BusinessView({
         {businessId ? (
           <>
             <section data-cost-model-editor="" style={{ marginTop: 12, padding: 14, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)", background: "var(--ledger-bg-surface)" }}>
-              <h3 style={{ margin: 0, fontSize: 14 }}>Overview cost model</h3>
+              <h3 style={{ margin: 0, fontSize: 14 }}>{copy.overviewCostModel}</h3>
               <p style={{ margin: "4px 0 10px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-                Used by overview profit estimates and reports. Percentages are stored as ratios and confirmed by a fresh read.
+                {copy.costModelDetail}
               </p>
               {costModel === null ? (
-                <p data-cost-model-unavailable="" style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>The current cost model could not be read.</p>
+                <p data-cost-model-unavailable="" style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>{copy.costModelUnreadable}</p>
               ) : (
                 <div data-cost-model-grid="" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(120px,1fr))", gap: 10 }}>
                   {([
@@ -1156,7 +1156,7 @@ export function BusinessView({
                     if (costDraftValid) onSaveCostModel?.(parsedCostDraft);
                   }}
                 >
-                  Save cost model
+                  {copy.saveCostModel}
                 </Button>
               ) : null}
             </section>
@@ -1298,11 +1298,11 @@ export function PlanView({
           rel="noreferrer"
           style={{ display: "inline-flex", alignItems: "center", width: "fit-content", minHeight: 44, padding: "0 14px", border: "1px solid var(--ledger-border-control)", borderRadius: "var(--ledger-radius-button)", color: "var(--ledger-accent-action)", textDecoration: "none", fontSize: 13, fontWeight: 600 }}
         >
-          Manage billing in Shopify
+          {copy.manageBillingInShopify}
         </a>
       ) : (
         <p data-el="billing-unavailable" style={{ margin: 0, padding: "14px 18px", border: "1px dashed var(--ledger-border-control)", borderRadius: "var(--ledger-radius-card)", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}>
-          Billing is not attached to a Shopify store for this business.
+          {copy.billingNotAttachedToShopify}
         </p>
       )}
       </div>

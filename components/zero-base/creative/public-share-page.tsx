@@ -54,6 +54,7 @@ function BrandMark() {
 }
 
 export function PublicShareUnavailable() {
+  const copy = useCopy();
   return (
     <main className={styles.unavailablePage} data-public-share="unavailable">
       <div className={styles.unavailableCard}>
@@ -62,7 +63,7 @@ export function PublicShareUnavailable() {
             <path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71M2 2l20 20" />
           </svg>
         </span>
-        <h1>This shared snapshot is no longer available.</h1>
+        <h1>{copy.sharedSnapshotNoLongerAvailable}</h1>
         <p>{PUBLIC_SHARE_GONE}</p>
         <div className={styles.unavailableFooter}>
           <BrandMark />
@@ -82,13 +83,13 @@ function EmptySnapshotPage({ share }: { share: PublicShare }) {
           <div className={styles.headerRow}>
             <BrandMark />
             <span className={styles.brandName}>Adsecute</span>
-            <span className={styles.snapshotTag}>Snapshot</span>
+            <span className={styles.snapshotTag}>{copy.snapshot}</span>
             <span className={styles.flexSpacer} />
             <span className={styles.frozenPill}>
               <svg fill="none" height="11" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="11">
                 <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
-              Frozen snapshot
+              {copy.frozenSnapshot}
             </span>
           </div>
         </header>
@@ -104,6 +105,7 @@ function EmptySnapshotPage({ share }: { share: PublicShare }) {
 }
 
 function CsvButton({ href }: { href: string }) {
+  const copy = useCopy();
   const [state, setState] = useState<"idle" | "busy" | "done" | "fail">("idle");
 
   const handleClick = async () => {
@@ -130,8 +132,8 @@ function CsvButton({ href }: { href: string }) {
   return (
     <div className={styles.csvRow}>
       <div className={styles.csvText}>
-        <p>CSV export</p>
-        <span>Contains exactly the creatives and metrics on this page — nothing more.</span>
+        <p>{copy.csvExport}</p>
+        <span>{copy.csvContainsExactlyThisPage}</span>
       </div>
       {state === "fail" ? (
         <span className={styles.csvMessageFail}>
@@ -162,6 +164,7 @@ function CsvButton({ href }: { href: string }) {
 }
 
 function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]> }) {
+  const copy = useCopy();
   const tone = toneStyle(story.tone);
   const iconPath = story.tone === "unclear" ? null : VERDICT_ICON_PATH[story.tone];
   return (
@@ -200,7 +203,7 @@ function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]>
                 <span
                   className={styles.stageTick}
                   style={{ left: `${stage.benchmarkPercent}%` }}
-                  title="typical creative in this account"
+                  title={copy.typicalCreativeInThisAccount}
                 />
               ) : null}
             </div>
@@ -215,7 +218,7 @@ function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]>
       </div>
       {story.dropOff && story.dropOffCaption ? (
         <div className={styles.dropOff}>
-          <p className={styles.dropOffTitle}>Where viewers stop watching</p>
+          <p className={styles.dropOffTitle}>{copy.whereViewersStopWatching}</p>
           <div className={styles.dropOffBars}>
             {story.dropOff.map((bar, index) => (
               <span className={styles.dropOffBarWrap} key={`${bar.label}-${index}`}>
@@ -252,6 +255,7 @@ function StoryCard({ story }: { story: NonNullable<PublicShareCreative["story"]>
 }
 
 function CreativeCard({ creative }: { creative: PublicShareCreative }) {
+  const copy = useCopy();
   const metrics = creative.metrics ?? [];
   const hasStory = Boolean(creative.story);
   const formatLabel =
@@ -299,7 +303,7 @@ function CreativeCard({ creative }: { creative: PublicShareCreative }) {
           </div>
         ) : (
           <p className={styles.metricsEmpty} data-public-metrics="empty">
-            No metrics were included in this frozen snapshot.
+            {copy.noMetricsInFrozenSnapshot}
           </p>
         )}
       </div>
@@ -308,6 +312,7 @@ function CreativeCard({ creative }: { creative: PublicShareCreative }) {
 }
 
 function ComparisonTable({ share }: { share: PublicShare }) {
+  const copy = useCopy();
   const metricOrder: Array<{ key: string; label: string }> = [];
   const seen = new Set<string>();
   for (const creative of share.creatives) {
@@ -325,14 +330,14 @@ function ComparisonTable({ share }: { share: PublicShare }) {
     <>
       <article className={styles.comparisonTable}>
         <div className={styles.comparisonHead}>
-          <h2>Side-by-side comparison</h2>
+          <h2>{copy.sideBySideComparison}</h2>
           <span>same order as the cards above · frozen values</span>
         </div>
         <div className={styles.tableScroll}>
           <table>
             <thead>
               <tr>
-                <th>Creative</th>
+                <th>{copy.creative}</th>
                 {metricOrder.map((metric) => (
                   <th key={metric.key}>{metric.label}</th>
                 ))}
@@ -378,6 +383,7 @@ function NotesThread({
   share: PublicShare;
   messagesHref: string | null;
 }) {
+  const copy = useCopy();
   const [messages, setMessages] = useState<SharedMessage[]>(share.messages ?? []);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -410,7 +416,7 @@ function NotesThread({
   };
 
   return (
-    <section aria-label="Notes and questions" data-public-notes-href={messagesHref ?? undefined}>
+    <section aria-label={copy.notesAndQuestions} data-public-notes-href={messagesHref ?? undefined}>
       <div className={styles.notesHead}>
         <h2>Notes &amp; questions</h2>
         <span>anyone with this link can reply · the thread stays with this snapshot</span>
@@ -418,7 +424,7 @@ function NotesThread({
       <div className={styles.notesCard}>
         <div className={styles.notesList}>
           {messages.length === 0 ? (
-            <p className={styles.notesEmpty}>No notes yet — start the thread below.</p>
+            <p className={styles.notesEmpty}>{copy.noNotesYetStartThread}</p>
           ) : (
             messages.map((message) => (
               <div className={styles.noteRow} key={message.id}>
@@ -428,7 +434,7 @@ function NotesThread({
                 <div className={styles.noteBody}>
                   <p className={styles.noteMeta}>
                     <span className={styles.noteName}>{message.name}</span>
-                    {message.who === "sender" ? <span className={styles.senderTag}>SENDER</span> : null}
+                    {message.who === "sender" ? <span className={styles.senderTag}>{copy.sender}</span> : null}
                     <span className={styles.noteTime}>{formatDate(message.postedAt)}</span>
                   </p>
                   <p className={styles.noteText}>{message.text}</p>
@@ -441,12 +447,12 @@ function NotesThread({
           <div className={styles.noteComposer}>
             <div className={styles.noteInputRow}>
               <input
-                aria-label="Write a note"
+                aria-label={copy.writeANote}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void send();
                 }}
-                placeholder="Ask a question or leave a note…"
+                placeholder={copy.askAQuestionOrLeaveANote}
                 value={draft}
               />
               <button disabled={sending || !draft.trim()} onClick={() => void send()} type="button">
@@ -505,15 +511,15 @@ export function PublicSharePage({
           <div className={styles.headerRow}>
             <BrandMark />
             <span className={styles.brandName}>Adsecute</span>
-            <span className={styles.snapshotTag}>Snapshot</span>
+            <span className={styles.snapshotTag}>{copy.snapshot}</span>
             <span className={styles.flexSpacer} />
             <span className={styles.frozenPill}>
               <svg fill="none" height="11" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="11">
                 <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
-              Frozen snapshot
+              {copy.frozenSnapshot}
             </span>
-            <span className={styles.readOnlyPill}>Read-only</span>
+            <span className={styles.readOnlyPill}>{copy.readOnly}</span>
           </div>
           <h1 className={styles.title}>{share.title}</h1>
           <p className={styles.metaLine}>
@@ -536,13 +542,13 @@ export function PublicSharePage({
 
         {share.note ? (
           <div className={styles.senderNote}>
-            <p className={styles.senderNoteLabel}>Note from the sender</p>
+            <p className={styles.senderNoteLabel}>{copy.noteFromTheSender}</p>
             <p>{share.note}</p>
           </div>
         ) : null}
 
         {showCsv && csvHref ? <CsvButton href={csvHref} /> : null}
-        {showCsvOffNote ? <p className={styles.csvOffNote}>CSV export was not enabled for this link.</p> : null}
+        {showCsvOffNote ? <p className={styles.csvOffNote}>{copy.csvExportNotEnabledForLink}</p> : null}
 
         <div aria-label={copy.creatives} className={gridClass}>
           {creatives.map((creative) => (
@@ -553,9 +559,9 @@ export function PublicSharePage({
         {share.audience === "buyer" ? <ComparisonTable share={share} /> : null}
 
         {actions.length > 0 ? (
-          <section aria-label="What changed and why" data-public-share-actions="">
+          <section aria-label={copy.whatChangedAndWhy} data-public-share-actions="">
             <div className={styles.actionsHead}>
-              <h2>What changed and why</h2>
+              <h2>{copy.whatChangedAndWhy}</h2>
               <span>actions recorded during this window · frozen with the snapshot</span>
             </div>
             <div className={styles.actionsList}>

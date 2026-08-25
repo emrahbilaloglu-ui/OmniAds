@@ -10,6 +10,7 @@
  * to a quiet `disabled`.
  */
 import Link from "next/link";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -39,6 +40,7 @@ export function CreativePerformanceClient({
   start: string;
   end: string;
 }) {
+  const copy = useCopy();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<ServedCreativeRow[] | null>(null);
@@ -226,8 +228,8 @@ export function CreativePerformanceClient({
         {selectedRow ? (
           <div style={{ display: "grid", gap: 14, marginTop: 12 }}>
             {selectedRow.decision ? (
-              <section aria-label="Canonical Ad decisions" style={{ display: "grid", gap: 8 }}>
-                <h2 style={{ margin: 0, fontSize: 14 }}>Canonical Ad decisions</h2>
+              <section aria-label={copy.canonicalAdDecisions} style={{ display: "grid", gap: 8 }}>
+                <h2 style={{ margin: 0, fontSize: 14 }}>{copy.canonicalAdDecisions}</h2>
                 {selectedRow.decision.items.map((item) => (
                   <div key={item.adId} style={{ padding: 10, border: "1px solid var(--ledger-border-subtle)", borderRadius: "var(--ledger-radius-card)" }}>
                     <strong style={{ display: "block", fontSize: 13 }}>{item.buyerLabel}</strong>
@@ -245,7 +247,7 @@ export function CreativePerformanceClient({
                       })}
                       style={{ display: "inline-block", marginTop: 6, fontSize: 12, color: "var(--ledger-accent-action)" }}
                     >
-                      Open this Ad in Decisions
+                      {copy.openThisAdInDecisions}
                     </Link>
                   </div>
                 ))}

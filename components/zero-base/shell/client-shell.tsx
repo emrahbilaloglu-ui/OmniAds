@@ -13,6 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { WorkspaceContextProvider } from "@/components/workspace/workspace-context-provider";
 import { AppShell } from "@/components/zero-base/shell/app-shell";
 import { UserMenu } from "@/components/zero-base/shell/user-menu";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import type {
   ProviderId,
@@ -57,6 +58,7 @@ export function ClientShell({
   businesses?: Array<{ id: string; name: string }>;
   children: React.ReactNode;
 }) {
+  const copy = useCopy();
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -220,7 +222,7 @@ export function ClientShell({
             <span aria-hidden="true">▣</span>
             <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <strong>{effectiveEnvelope.business?.name ?? "Client"}</strong>
-              <span style={{ color: "var(--ledger-ink-secondary)" }}> · Switch business</span>
+              <span style={{ color: "var(--ledger-ink-secondary)" }}> · {copy.switchBusiness}</span>
             </span>
             <span aria-hidden="true">▾</span>
           </button>
@@ -247,7 +249,7 @@ export function ClientShell({
       <ZeroBaseSheet
         open={picker === "business"}
         onOpenChange={(open) => setPicker(open ? "business" : null)}
-        title="Switch business"
+        title={copy.switchBusiness}
         regionEl="business-picker"
         side="right"
         compact
@@ -272,7 +274,7 @@ export function ClientShell({
       <ZeroBaseSheet
         open={picker === "account"}
         onOpenChange={(open) => setPicker(open ? "account" : null)}
-        title="Choose provider account"
+        title={copy.chooseProviderAccount}
         regionEl="provider-account-picker"
         side="bottom"
       >
@@ -295,7 +297,7 @@ export function ClientShell({
       <ZeroBaseSheet
         open={picker === "window"}
         onOpenChange={(open) => setPicker(open ? "window" : null)}
-        title="Choose evidence window"
+        title={copy.chooseEvidenceWindow}
         regionEl="evidence-window-picker"
         side="bottom"
       >

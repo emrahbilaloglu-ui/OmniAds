@@ -37,6 +37,8 @@ interface Measurement {
   /** The content column at first paint, and once settled. */
   early: string[];
   settled: string[];
+  /** Heights of the chrome above `<main>`, sampled at each shift. */
+  chrome: string[];
   apiCalls: string[];
   requests: number;
 }
@@ -78,17 +80,44 @@ async function measure(page: Page, path: string): Promise<Measurement> {
      * mutation log is the other half — without it, "this div moved up 52px" is
      * a symptom with no suspect.
      */
+    /*
+     * The chrome above `<main>`, sampled ONCE at the end.
+     *
+     * It used to be sampled inside the layout-shift callback, which reads
+     * `getBoundingClientRect` and therefore forces synchronous layout in the
+     * middle of the thing being measured: the same page reported 0.104 without
+     * the probe and 0.031 with it. An instrument that changes the number is not
+     * an instrument. The per-shift rects below come from the entry itself and
+     * cost nothing.
+     */
+    const chromeNow = () => {
+      const box = (selector: string) => {
+        const node = document.querySelector(selector);
+        if (!node) return `${selector}=absent`;
+        return `${selector}=${Math.round(node.getBoundingClientRect().height)}`;
+      };
+      const banner = document.querySelector("[data-meta-surface-state]");
+      const bannerNote = banner
+        ? `banner[${banner.getAttribute("data-read-state")}]=${Math.round(
+            banner.getBoundingClientRect().height,
+          )}`
+        : "banner=absent";
+      return [box(".adv-topbar"), box(".adv-page"), bannerNote].join(" ");
+    };
+
     const churn: string[] = [];
     const describeNode = (node: Node) => {
       if (node.nodeType !== 1) return null;
       const element = node as HTMLElement;
+      // No `getBoundingClientRect` here either: this runs inside a
+      // MutationObserver callback, and a forced layout there perturbs the
+      // shift batching this file exists to measure.
       return (
         element.tagName.toLowerCase() +
         (element.id ? `#${element.id}` : "") +
         (typeof element.className === "string" && element.className
           ? `.${element.className.trim().split(/\s+/).slice(0, 2).join(".")}`
-          : "") +
-        ` ${Math.round(element.getBoundingClientRect().height)}px`
+          : "")
       );
     };
     new MutationObserver((records) => {
@@ -182,7 +211,17 @@ async function measure(page: Page, path: string): Promise<Measurement> {
       .sort((left, right) => right[1] - left[1])
       .slice(0, 6)
       .map(([key, value]) => `${key} ${value.toFixed(4)}`);
-    return { lcp, cls, tbt, shifters, churn: churn.slice(0, 12), early, settled: column() };
+    const chrome = [`settled ${chromeNow()}`];
+    return {
+      lcp,
+      cls,
+      tbt,
+      shifters,
+      churn: churn.slice(0, 12),
+      early,
+      settled: column(),
+      chrome,
+    };
   });
   page.off("request", listener);
   return { ...vitals, apiCalls, requests };
@@ -197,7 +236,17 @@ test.describe("G11 vitals on the mounted Meta surfaces", () => {
       console.log(
         `${route.surfaceId.padEnd(22)} LCP ${measured.lcp.toFixed(0)}ms  ` +
           `CLS ${measured.cls.toFixed(3)}  TBT ${measured.tbt.toFixed(0)}ms  ` +
-          `${measured.apiCalls.length} API of ${measured.requests} requests`,
+          `${measured.apiCalls.length} API of ${measured.requests} requests` +
+          /*
+           * The diagnosis travels with the measurement, not only with the
+           * failure. A surface that shifts at all is worth looking at before it
+           * crosses the budget, and a run that had to be made to fail in order
+           * to say what moved is a run somebody has to make twice.
+           */
+          (measured.cls > 0
+            ? `\n  moved: ${measured.shifters.slice(0, 2).join(" | ")}` +
+              `\n  chrome: ${measured.chrome.join(" || ")}`
+            : ""),
       );
 
       expect(measured.lcp, `${route.surfaceId} LCP`).toBeLessThanOrEqual(LCP_BUDGET_MS);
@@ -210,7 +259,8 @@ test.describe("G11 vitals on the mounted Meta surfaces", () => {
         `${route.surfaceId} CLS — what moved:\n    ${measured.shifters.join("\n    ")}` +
           `\n  what changed around it:\n    ${measured.churn.join("\n    ")}` +
           `\n  content column at first paint:\n    ${measured.early.join("\n    ")}` +
-          `\n  once settled:\n    ${measured.settled.join("\n    ")}`,
+          `\n  once settled:\n    ${measured.settled.join("\n    ")}` +
+          `\n  chrome heights at each shift:\n    ${measured.chrome.join("\n    ")}`,
       ).toBeLessThanOrEqual(clsCeiling);
       expect(measured.tbt, `${route.surfaceId} TBT`).toBeLessThanOrEqual(TBT_BUDGET_MS);
     });

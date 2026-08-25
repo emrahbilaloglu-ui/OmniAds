@@ -172,15 +172,17 @@ test.describe("a dialog traps focus and hands it back", () => {
     page,
   }) => {
     /**
-     * The command palette, because it is the modal this product actually
-     * mounts.
+     * The command palette, because it is the modal the BUSINESS console mounts.
      *
-     * The zero-base shell has a search sheet, a nav drawer and a scope sheet,
-     * all built on a dialog primitive that traps and returns focus for free —
-     * and nothing mounts that shell. Every canonical route renders
-     * `DashboardFrame`, whose one modal is `CommandPalette`: hand-rolled,
-     * `aria-modal="true"`, and until this pass holding neither end of the
-     * contract that attribute claims.
+     * An earlier revision of this comment said nothing mounts the zero-base
+     * shell. That was wrong: `app/me/layout.tsx` mounts `AccountShell` and
+     * `app/a/layout.tsx` mounts `AgencyShell`, both of which wrap `AppShell`
+     * and get its search sheet, nav drawer and scope sheet — each built on a
+     * dialog primitive that traps and returns focus for free. What is true is
+     * narrower and is the actual finding: no `/c/:businessId/**` route renders
+     * that shell. The business console renders `DashboardFrame`, whose one
+     * modal is `CommandPalette` — hand-rolled, `aria-modal="true"`, and until
+     * this pass holding neither end of the contract that attribute claims.
      */
     await openSurface(page, handle, SHELL_ROUTE);
     const trigger = page.getByRole("button", { name: "Jump or act" }).first();
@@ -298,6 +300,84 @@ test.describe("what the product announces", () => {
     await openSurface(page, handle, SHELL_ROUTE);
     await expect(page.locator("[data-workflow-live], [data-mutation-live]")).toHaveCount(0);
   });
+});
+
+test.describe("a notice that will vanish is not in the layout", () => {
+  for (const route of routes) {
+    test(`${route.surfaceId} places its §9 notice by what the state does`, async ({ page }) => {
+      /**
+       * The regression guard for the CLS fix.
+       *
+       * `loading` and `refreshing-with-stale` always end, so their notice is
+       * pinned and cannot drag the page when it goes; `partial`, `degraded` and
+       * `refused` last as long as their condition, so they stay in flow above
+       * the content. The rule is stated in the DOM as `data-notice-placement`,
+       * and this checks the attribute against the CSS that actually decides —
+       * a placement attribute that disagreed with `position` would be a label
+       * rather than a behaviour.
+       */
+      await openSurface(page, handle, route.path);
+
+      const observed = await page.evaluate(() => {
+        const marker = document.querySelector("[data-meta-surface-state]");
+        if (!marker) return null;
+        const notice = marker.querySelector("[data-meta-surface-notice]");
+        return {
+          state: marker.getAttribute("data-read-state"),
+          placement: marker.getAttribute("data-notice-placement"),
+          position: notice ? getComputedStyle(notice).position : null,
+          // A pinned notice must take no space in the column it sits beside.
+          markerHeight: Math.round(marker.getBoundingClientRect().height),
+        };
+      });
+      /*
+       * Not every canonical route carries a §9 marker, and that is a fact about
+       * the product rather than about this check. Nine of the thirteen mount
+       * `MetaSurfaceStateLive`; `manage-integrations` mounts none at all, which
+       * is why `meta-runtime-integrations.spec.ts` can assert "not refused"
+       * without a marker to read it from. The six WP6 names it, so a missing
+       * marker THERE is a failure; elsewhere it is recorded and skipped.
+       */
+      const WP6 = [
+        "meta-decisions",
+        "meta-intelligence",
+        "creative-studio",
+        "meta-history",
+        "meta-launchpad",
+        "meta-automation",
+      ];
+      if (!observed) {
+        expect(
+          WP6,
+          `${route.surfaceId} is a WP6 surface and rendered no §9 marker`,
+        ).not.toContain(route.surfaceId);
+        test.info().annotations.push({
+          type: "no-read-state-marker",
+          description: `${route.surfaceId} renders no [data-meta-surface-state]`,
+        });
+        return;
+      }
+
+      const transient = ["loading", "refreshing-with-stale"].includes(observed.state ?? "");
+      const silent = ["success", "empty-proven"].includes(observed.state ?? "");
+
+      if (silent) {
+        expect(observed.placement, `${observed.state} drew a notice`).toBeNull();
+        expect(observed.markerHeight).toBe(0);
+        return;
+      }
+
+      expect(observed.placement).toBe(transient ? "pinned" : "in-flow");
+      expect(observed.position).toBe(transient ? "fixed" : "static");
+      if (transient) {
+        // The whole point: it occupies none of the column above the surface.
+        expect(
+          observed.markerHeight,
+          `a ${observed.state} notice took ${observed.markerHeight}px of the layout`,
+        ).toBe(0);
+      }
+    });
+  }
 });
 
 test.describe("reduced motion is honoured", () => {

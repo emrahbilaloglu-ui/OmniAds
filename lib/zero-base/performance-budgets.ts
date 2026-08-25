@@ -86,32 +86,20 @@ export const FIRST_LOAD_API_CALL_DEBT: Readonly<Record<string, number>> = {
 };
 
 /**
- * Surfaces measured above `CLS_BUDGET`, with the figure and the mechanism.
+ * Surfaces measured above `CLS_BUDGET`.
  *
- * One entry, and it is a defect rather than a tolerance. `creative-studio`
- * measures **0.1042** against a 0.1 budget, repeatably to the last digit — the
- * same value before and after two attempted fixes, which is how it was traced.
+ * **Empty, and it must stay empty.** It held one entry — `creative-studio` at
+ * 0.1042 — for exactly as long as it took to find the cause: the §9 read-state
+ * notice was a 52 px card in flow above every Meta surface while the state was
+ * `loading`, and 0 px once the read landed, so the whole content column moved
+ * up the moment the data arrived. `MetaSurfaceState` now pins the two states
+ * that always end and leaves the three that persist in flow, and the surface
+ * measures inside the budget with no exemption.
  *
- * The mechanism, as far as the runtime evidence establishes it: the shell is
- * rendered on the client, so a Meta surface's first paint has no `<main>` at
- * all, and the shell's FIRST client render is 52 px taller above `<main>` than
- * its settled one. When that strip collapses, the whole content column moves up
- * 52 px in one shift. It is a shell-level defect, not a Creative Studio one;
- * Creative Studio is simply the surface whose content column is tall enough for
- * a 52 px move to cross the budget.
- *
- * Two candidates were tested and eliminated, both by measurement rather than by
- * reasoning: the plan gate's loading placeholder (replaced with a top-aligned
- * skeleton — CLS unchanged to the digit) and the Creative Studio share nudge
- * (it moves WITH the column rather than causing the move).
- *
- * Recorded rather than waived, the same way `FIRST_LOAD_API_CALL_DEBT` is: the
- * gate fails the moment the figure gets worse, and it is listed as an open
- * defect in `docs/meta-market-ready/RUNTIME_EVIDENCE_AND_STATUS.md` rather than
- * disappearing into a green tick. Fixing it means changing when the shell
- * commits its final height, which is a shell-wide change with its own
- * regression surface — not something to land at the end of a pass on a hunch.
+ * The map stays as the shape a future entry would take, and as the record that
+ * the only one ever written was removed by fixing it rather than by raising the
+ * ceiling. Adding an entry here is a decision to ship a surface that moves under
+ * the operator; it needs the mechanism written down and a reason the fix is not
+ * available, not just a number.
  */
-export const CLS_DEBT: Readonly<Record<string, number>> = {
-  "creative-studio": 0.105,
-};
+export const CLS_DEBT: Readonly<Record<string, number>> = {};

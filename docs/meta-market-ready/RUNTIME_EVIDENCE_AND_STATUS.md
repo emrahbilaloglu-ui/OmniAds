@@ -1,36 +1,39 @@
 # Meta market-ready — runtime evidence and corrected status
 
 Branch: `meta-market-ready`
-HEAD: `7a3d00a1993c4c885f1af350c5bd5b3351d5dffb`
-Date: 2026-08-23
-Supersedes the status table in `EXECUTION_LEDGER.md`, which was written before
-any surface had been exercised at runtime.
+HEAD: `e643f68a89e93fb5aab94936aa37cdfae7fb0890`
+Date: 2026-08-25
+Supersedes the previous revision of this file (written at `7a3d00a19`) and the
+status table in `EXECUTION_LEDGER.md`.
 
 ---
 
-## 1. What changed since `fd66e06ba`
+## 1. What changed in this pass
 
-Eleven commits, 724 files, +11 859 / −983. 595 of those files are captured
-evidence (frame and shell screenshots with per-file SHA-256 and a render
-fingerprint); 129 are source.
+Twelve commits on top of `6e807d54e`: 328 files, +9 627 / −302. 186 of those
+files are captured evidence (frame screenshots with per-file SHA-256 and a
+render fingerprint); 142 are source and tests.
 
 | Commit | Work package | Subject |
 |---|---|---|
-| `86b48e252` | P1 | The Launchpad gate enforces the safety contract at runtime |
-| `27978a9ed` | WP9 | The three Intelligence sections that were never composed |
-| `73536e40b` | WP8 / WP4 | Remove the label writer from Decisions, scope its reads |
-| `43d6d039f` | WP4 | Finish the cache-key sweep, as a gate rather than a pass |
-| `ff9ec7008` | WP16 | Make the design gates run again, then fix what they found |
-| `0f1b8af30` | WP16 | Close the ten artboard gaps anatomy and fidelity found |
-| `3433c129a` | WP16 | Let the frames reconciler tell frame evidence from shell |
-| `ec7895d27` | WP16 / WP17 | Runtime evidence, against the mounted routes |
-| `44b559eed` | WP16 / WP17 | Fix what the runtime gate found on the mounted routes |
-| `330e38b46` | WP6 / WP8 / WP17 | D8 and the landmarks, found on the mounted routes |
-| `d7f9cfeca` | — | Stop `migrations-from-zero` failing on a clock race |
-| `36f0ba2bd` | WP4 / WP15 | The role matrix and the write gates, run for the first time |
-| `7a3d00a19` | WP11 / WP13 | Record which release gates are wired, and which are not |
+| `caed5f0f8` | WP6 | The §9 read state, decided on the server and adopted by every Meta body |
+| `743ff35fd` | WP11 / WP13 / WP4 / WP8 | Wire every release gate to a server that enforces it |
+| `744034d41` | WP11 / WP13 / WP8 / WP4 | The gates, proven on two running servers — and the fixture that was lying |
+| `d2342e5ca` | WP2 | Every spelling of a surface, asked of the server |
+| `0306e4d79` | WP5 | The URL, the request and the caption, proven to name one window |
+| `6c61c03f9` | WP10 / WP12 / WP14 | The Studio's five tabs, History's nine families, Launchpad's whole draft |
+| `2064ba3ea` | WP9 / WP3 | Eleven sections that answer for themselves, and a connection that admits it is broken |
+| `2a0a4f4bf` | — | Finish the locale gate: 70 hardcoded strings, classified and migrated |
+| `398bd4e27` | WP16 | The reference gate was looking in the one place the repo forbids |
+| `f7c835f2a` | WP16 | Recapture the 92 frames from the code that now exists |
+| `07babe405` | WP16 | The three dead bodies now live where their status is legible |
+| `a59a8df09` | WP17 | Audit the telemetry contract, and correct two claims about it |
 
-Plus two evidence-only commits, `371bd9aba` and `8d53b0f67`.
+Twelve runtime spec files now drive the mounted routes; eight are new in this
+pass: `meta-runtime-release-gates`, `-surface-identity`, `-window`, `-studio`,
+`-history`, `-launchpad`, `-intelligence`, `-integrations`, plus
+`-screenshots`. A thirteenth commit (`e643f68a8`) adds the saved responsive
+matrix, and this document is the fourteenth.
 
 ---
 
@@ -38,131 +41,149 @@ Plus two evidence-only commits, `371bd9aba` and `8d53b0f67`.
 
 `npm run meta:runtime-evidence` boots a throwaway PostgreSQL 16 cluster (never
 15432, the production tunnel; never 5432, the local volume), runs the repo's
-real deploy migrations against it, seeds D6's zero / one / many account fixture
-plus a second tenant, starts the production standalone build with
-`DATABASE_URL` force-set, and drives the canonical routes as a signed-in
-operator.
+real deploy migrations against it, seeds the D6 fixture, and serves the
+**production standalone build** — with `DATABASE_URL` force-set so a
+`.env.local` pointing at production cannot win.
 
-It makes **no provider call** and touches **no production system**. What it
-proves is the application's behaviour on a real request against a real
-database. What it cannot prove is anything about a provider response.
+**Two servers, one database.** New in this pass. A release gate has two halves —
+the refusal and the capability — and one process can only ever show one of them.
+The harness now runs two standalone builds against the same cluster and the same
+fixture, differing only in release-gate environment, and each case asks both the
+same question. The difference between the two answers *is* the gate.
 
-Its evidence class is **VERIFIED-RUNTIME (local)**. It is not
-VERIFIED-RUNTIME (production) and it is not VERIFIED-PROVIDER.
+Four gates are opened on the second server: the Meta Stop, the decision
+workflow, the share mint and the account picker. Every one acts on our own
+database and contacts no provider. `META_LAUNCHPAD_EXECUTION` and
+`META_AUTOMATION_LIVE_WRITES` are opened **nowhere** — their next step is a call
+to Meta, and no local evidence may be produced by making one.
+
+### Three fixture defects the two-server run exposed
+
+1. **The "many accounts" business had one account.** `ACCOUNT_MANY_B` was seeded
+   `is_selected = false`, and every reader of an assignment filters on it — so
+   every N-account assertion in this harness had been measuring the 1-account
+   posture under an N-account name. No surface had ever reached
+   `account_required`; no picker had ever had a second option to offer. It now
+   has two assigned plus a third that is discovered and never assigned, and
+   `seed.ts` asserts its own 0/1/N shape.
+2. **The journal sat on a day boundary.** Rows written at `now() - 3 hours`
+   against a window that ends *yesterday* meant History said `success` in the
+   evening and `empty-proven` after midnight. Moved three days back.
+3. **Per-test sign-in tripped the login throttle**, and a 429 mid-sweep reads as
+   a gate failure. The project's existing storage state is used instead.
 
 ---
 
 ## 3. Corrected status by work package
 
-Read against each work package's own acceptance list in the master plan. A
-package is DONE only when every acceptance item has the evidence class it asks
-for. Nothing is marked DONE on the strength of a passing unit test alone.
+A package is DONE only when every acceptance item has the evidence class it asks
+for. Nothing is DONE on a passing unit test alone.
 
 | WP | Status | What holds | What is missing |
 |---|---|---|---|
-| **WP0** Baseline & authority | **DONE** | Exact HEAD and source hash; ADRs numbered and Accepted; `zero-base:contract:verify` reports the package's own verdict honestly as NOT READY; the dirty Share work is untouched (`stash@{0}`, `app/dev-preview-share/`) | — |
-| **WP1** Interim posture | **PARTIAL** | No new provider write; Launchpad validate green and execution refused — proven on the running server; Automation states plainly that no control on it stops Google Ads | Manual assistive-technology confirmation that each disabled reason is announced. axe passes; axe is a scanner |
-| **WP2** Surface registry & nav | **PARTIAL** | Six rail entries, five Creative tabs, all leaves reachable, zero 404, `meta:verify-mounted-bodies` 15/15, 312 authenticated route cases across every Client and Ops leaf | Active-state correctness on the `/app` twin and the legacy alias paths is asserted statically, not driven at runtime |
-| **WP3** Integrations & assignment | **PARTIAL** | Authenticated 0 / 1 / N proven on the mounted route; selection read-back proven against the database the surface read; every Meta surface resolves the same account | Stale-snapshot, reconnect-race, revoked-credential, duplicate-ID and scheduling-failure cases; production read-only schema evidence |
-| **WP4** Shell & account authority | **PARTIAL** | Role matrix 312/312 (admin, collaborator, guest, cross-tenant, inactive membership, orphan, Ops); no cross-account state survives a business switch, in either direction; cache-key sweep is a gate | The full 0/1/N × surface × role cross-product; leaving `account_required` by making a selection; `ZERO_BASE_UI_MODE` off / allowlist / on on `/c` and `/app` |
-| **WP5** Window, as-of, freshness | **PARTIAL** | The windowed surfaces name the window they read; no fixed-day label contradicts the served range | URL → payload → label equality for 7d / 28d / today / custom; a window transition on a real account; timezone-missing behaviour |
-| **WP6** Response/state contract | **PARTIAL** | Contract tests; migrations from zero and the upgrade seam both pass against a real cluster; no surface renders a money, ratio or rate value as zero for an account with no data; no empty collection renders bare | **No production body emits a §9 read state.** The envelope is defined and adopted by nothing. Query-plan, capacity, retention and 30–90 day growth evidence needs production read-only access |
-| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and the `launchpad_create` family conforms 18/18 | The twelve-case guarded sandbox matrix has not run. It needs a Meta sandbox account |
-| **WP8** Decisions | **PARTIAL** | Workflow state machine, blocker priority and Golden Cases hold as unit proofs; the label writer is gone from Decisions; the surface withholds without an account | `acknowledge → defer → resolve` on a real decision with durable read-back; `expectedVersion` conflict as an integration test |
-| **WP9** Account Intelligence | **PARTIAL** | Eleven sections compose; the surface renders against a real database and states Partial where the warehouse is not ready | The nine-section × seven-read-state matrix has not been exercised |
-| **WP10** Creative Studio core | **PARTIAL** | All five tabs render on the mounted route; no scope leak across a business switch | The five-tab account/window/state matrix; the shadow posture's eight combinations; cache/scope leakage across a *tab* switch |
-| **WP11** Briefs, Shares, Public Share | **PARTIAL** | The mint → rotate → revoke lifecycle, token enumeration, sanitised projection and buyer-tier privacy are proven against a real database by `ephemeral-postgres-public-share-seam-child.ts` | The same lifecycle driven through the mounted UI. And `META_PUBLIC_SHARE_MINT` gates nothing — minting is live and ungated (§5) |
-| **WP12** History | **PARTIAL** | Outcome and entity golden tests hold; the surface renders and states its exclusions | Event-family counts read from a real database and matched against the rendered row counts |
-| **WP13** Automation | **PARTIAL** | The role matrix covers the Automation leaf; the surface states the Meta-only scope of the kill switch | Engage → read-back → release → read-back, and reversibility in one session. The control is deliberately absent, so its gate is a placeholder (§5) |
-| **WP14** Launchpad read/draft/validate | **PARTIAL** | Zero provider POSTs; over-limit, missing account/pixel/source and revoked account hold as unit proofs; the execution refusal is proven on the server | Draft create / edit / delete and the validate happy path driven at runtime |
+| **WP0** Baseline & authority | **DONE** | Exact HEAD and source hash; ADRs Accepted; `zero-base:contract:verify` reports the package's own verdict honestly as NOT READY; the untracked Share work is untouched | — |
+| **WP1** Interim posture | **PARTIAL** | No provider write; Launchpad validate answers and execution is refused on the running server; Automation states the Meta-only scope of its stop | Manual assistive-technology confirmation that each disabled reason is announced. axe passes; axe is a scanner |
+| **WP2** Surface registry & nav | **DONE** | 38 runtime checks: every canonical route, every `/app` twin, every `/platforms` legacy spelling. Each resolves, lights exactly one rail row — its own, its hub's, or its workspace row — and keeps the Meta product row lit inside Meta. Twins compared on body identity, not page text | — |
+| **WP3** Integrations & assignment | **PARTIAL** | A connection recorded as refused reads "Action required" AND stops claiming freshness; §7.2 duplicate spellings resolve to the catalog's form while a foreign id stays refused; a missing discovery snapshot does not erase a valid assignment. Reconnect race and snapshot-revision refusals covered by `provider-account-assignments-race.test.ts` | A genuinely revoked Meta credential needs Meta to refuse one. For Meta the stored `token_expires_at` is deliberately not expiry — confirmed on the running server that moving it changes nothing, which is correct. Production read-only schema evidence |
+| **WP4** Shell & account authority | **PARTIAL** | Role matrix 312/312; `account_required` is exited by a real selection on the gates-open server; the picker is locked with a named reason when the gate is shut; an open gate grants no authorization — other tenant, unassigned account and zero-account business all still refused | The rollout lever, see §8. The full 0/1/N × surface × role cross-product is covered for the Studio tabs and the six hubs, not for every leaf |
+| **WP5** Window, as-of, freshness | **DONE** | URL → request → caption asserted as one equality for 7d and 28d; a custom window honoured verbatim; a backwards pair ignored rather than repaired; the transition driven through the real control — open, choose, **Apply** — with URL, caption and the next request moving together; a business with no timezone neither fabricates one nor loses its picker | — |
+| **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven at runtime, including two DB-level fault injections and a genuinely held in-flight request; every Meta hub, all four Studio tabs and both sub-surfaces emit a read state | Query-plan, capacity, retention and 30–90 day growth evidence needs production read-only access |
+| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18 | The twelve-case guarded sandbox matrix. Needs a Meta sandbox account |
+| **WP8** Decisions | **DONE (local)** | acknowledge → defer → resolve → reopen with a durable SELECT after each, and a stale `expectedVersion` losing with a 409 that does not move the record. The workflow route is gated server-side, ordered after the role check and before the assignee lookup so a shut gate is not a membership oracle | Nothing local. The gate ships off by design |
+| **WP9** Account Intelligence | **PARTIAL** | Eleven sections, each answering in the closed vocabulary with a reason whenever it is not serving, and no raw exception anywhere. One source broken for real against the database: only that section stops serving, the header count agrees with the rows beneath it, and the reason is not SQL | The full 9 × 7 matrix cannot be produced from outside — sixty-three distinct failures cannot be injected into a live composition. The laws are checked across every section instead, and the difference is stated rather than hidden |
+| **WP10** Creative Studio core | **PARTIAL** | 30 runtime checks: five tabs × four account postures, the window reaching each tab unchanged, and both leaks — an account carried across a tab switch and a refusal carried across one. The Engine V3 posture is resolved on the server and stated; its eight flag combinations are a 24-row matrix | Per-tab telemetry is unreadable because eight contracted leaves share one runtime surface name (§5) |
+| **WP11** Briefs, Shares, Public Share | **PARTIAL** | `META_PUBLIC_SHARE_MINT` gates the mint on the server; refused → nothing minted; open → the row is really there; withdrawal stays available at the shipped setting | Rotate and revoke driven through the mounted UI rather than the store seam |
+| **WP12** History | **DONE (local)** | `kind` and `entity` now reach the server — on the first paint too — with controls carrying the whole vocabulary. The nine families SUM to the unfiltered journal, and `writes` matches the action log row for row | — |
+| **WP13** Automation | **PARTIAL** | The Stop exists, engages, reads back, releases, reads back and does it again — twice, because a one-way mechanism survives a single round trip. A stop engaged on the open server releases through the shipped one. Both directions land in the activity ledger | Provider-side reversibility. The gate stays shut until a sandbox proves what Meta does |
+| **WP14** Launchpad read/draft/validate | **DONE (local)** | Create → edit → list → validate → delete against the real database, each read back from the table, with the two tables a provider write would mark checked before and after | — |
 | **WP15** Launchpad execution | **BLOCKED** | The shipped refusal is proven end to end: 503, no LaunchIntent row, no action-log row | Every acceptance item needs a Meta sandbox account |
-| **WP16** Harness, contracts, dead modules | **PARTIAL** | Every design gate runs again (they had all been failing at their first import); anatomy 83/83, fidelity 83/83, frames 92/92; the a11y and responsive gates are retargeted at the mounted route DOM | "Harness DOM and route DOM diff zero" cannot be reached by harness changes: D2 fixes the legacy bodies as the visual owners, and the design package describes the zero-base library. Dead modules are enumerated but not moved. Contract verdict READY needs a re-vendor |
-| **WP17** Telemetry, security, a11y, perf | **PARTIAL** | Real mounted-route evidence; axe clean at 1440 light and 390 dark on all thirteen surfaces; landmarks unique; D13 holds at five widths in both themes; LCP 212–280 ms, CLS ≤ 0.010, TBT 0 ms; token secrecy, HttpOnly, cookie-only POST refusal and login throttling all proven | Manual AT pass; a saved responsive screenshot matrix; the other 48 contracted telemetry events; PII-safe logging audit |
-| **WP18** Staged release | **BLOCKED** | — | Needs explicit authorization. Nothing has been merged, pushed, deployed or activated |
+| **WP16** Harness, contracts, dead modules | **PARTIAL** | Anatomy 83/83, fidelity 83/83, frames 92/92 with zero substitutions. The reference gate runs again from the vendored hash-bound bytes. The three dead bodies are under `_reference`, bound to the reachability check in both directions | The shell harness still renders those three, so a11y/visual/responsive still measure them. Re-pointing it at the mounted owners is the rest of WP16 5–6. Contract verdict READY needs a re-vendor |
+| **WP17** Telemetry, security, a11y, perf | **PARTIAL** | axe clean at 1440 light and 390 dark on thirteen surfaces; landmarks unique; D13 at five widths in both themes; the saved responsive matrix is 130/130 with a SHA-256 per file; LCP 228–256 ms, CLS ≤ 0.021, TBT 0 ms; token secrecy, HttpOnly, cookie-only POST refusal and login throttling. The instrumentation contract is now audited, with two of its claims corrected | Manual AT pass; the Creative Studio surface-name collapse; the public share page emits nothing |
+| **WP18** Staged release | **BLOCKED** | — | Explicit authorization. Nothing merged, pushed, deployed or activated |
 
 ---
 
-## 4. Defects found and fixed this session
+## 4. Defects found and fixed in this pass
 
-Each was found by pointing an existing or new gate at the thing it was supposed
-to be measuring.
+Every one was found by pointing a gate at the thing it claimed to measure.
 
 | # | Defect | Where it was found |
 |---|---|---|
-| 1 | `rejectIfLaunchpadExecutionGated` returned no refusal when the gate was open with an incomplete safety contract | P1, reproduced then closed at runtime |
-| 2 | Every zero-base design gate had been failing at its first CSS-module import — a11y, responsive, visual, frames, fidelity | `npm run zero-base:shell:harness` |
-| 3 | Ten artboards did not carry the anatomy the design package declares | anatomy gate, once it could run |
-| 4 | Phone-width Meta and Creative interiors had no navigation and no scope at all | artboard anatomy → real defect |
-| 5 | A stacked table's inline `min-width` dragged the whole surface sideways at 390 and 320 | fidelity gate |
-| 6 | 253 serious colour-contrast failures across all thirteen mounted surfaces | axe on the mounted routes |
-| 7 | Two scrollable regions no keyboard could reach | axe on the mounted routes |
-| 8 | CLS 0.536 — five times the budget — from a status chip whose width is its text | the runtime performance gate |
-| 9 | Every page in the product read the session twice | the runtime duplicate-read gate |
-| 10 | Every Meta surface emitted `screen_view` twice, doubling every adoption number | the runtime duplicate-read gate |
-| 11 | Plan & Billing told operators "No route or control in this product is gated by it" while five live `PlanGate`s refuse three Creative Studio tabs, Reports and Insights | the runtime route sweep |
-| 12 | The Decision Center printed "Spend · today ₺0 — 0 conversions" for an account with no warehouse data | the runtime D8 gate |
-| 13 | Three pages carried two `main` landmarks; Account Intelligence had two unnamed complementary landmarks | the runtime landmark gate |
-| 14 | The role matrix had never run: it read the scope hop as a failure, looked for a shell marker no route emits, and declared a client-side return as a server redirect | first execution |
-| 15 | `migrations-from-zero` failed intermittently on a clock race inside its own fixture | the validation battery |
-| 16 | Four of six release gates are declared and wired to nothing; one of them (`publicShareMint`) names a capability that is live and ungated | gate wiring audit |
+| 1 | Four of six release gates governed nothing, and `META_PUBLIC_SHARE_MINT` named a capability that was live and ungated | the gate wiring contract, rewritten from an audit into an enforcement |
+| 2 | The Automation screen's "Approvals reach Meta" row answered from the guardrail column alone, printing "Yes" while the proposals route independently forced dry-run | wiring the gate to its screen |
+| 3 | The Meta Stop was described on screen and reachable by nothing — "deliberately absent" reads as "this product cannot stop Meta writes" | WP13's acceptance, read literally |
+| 4 | The "many accounts" fixture had ONE assigned account; every N-account assertion in the harness measured the wrong posture | the account-picker runtime checks |
+| 5 | The seeded journal sat on the day boundary: History passed before midnight and failed after | the same run, twice, an hour apart |
+| 6 | The four Creative Studio tabs and both sub-surfaces had no §9 read state at all | the five-tab × account-posture matrix |
+| 7 | `engine-posture.ts` was reachable only from its own test — the five postures were written and mounted nowhere, so shadow and serving looked identical | WP10's "shadow decision authority gibi gösterilmez" |
+| 8 | History's `kind` and `entity` filters were parsed by the read model and passed as `null` by every caller, with no controls at all | WP12's item 9 |
+| 9 | The locale gate's own pattern counted `data-*` markers as copy, contradicting its documented rule | migrating the 70 strings |
+| 10 | The reference gate read the design package from `Downloads/`, which `SOURCE.md` explicitly forbids, while the hash-bound vendored manifest sat unused in the tree | searching for an archive that was never needed |
+| 11 | The product has two instrumentation vocabularies that were never reconciled; eight contracted Creative Studio leaves share one runtime name | the telemetry audit |
+| 12 | The public creative share page emits no `screen_view` — it renders outside the shell, where the emitter lives | the same audit |
 
 ---
 
 ## 5. Validation at this HEAD
 
-Every command below was run at `7a3d00a19`. Results are quoted, not summarised.
+Every command was run at `e643f68a89e93fb5aab94936aa37cdfae7fb0890`. Results are quoted, not summarised.
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
-| `npx vitest run` | **PASS** — 12 647 passed, 144 skipped, 63 todo, 0 failed (1 064 files) |
+| `npx vitest run` | **PASS** — 12 727 passed, 144 skipped, 63 todo, 0 failed (1 068 files) |
 | `npm run build` | **PASS** |
+| `npm run meta:runtime-evidence` | **PASS** — 264 authenticated role-matrix cases (8 principals × 33 leaves) + 397 browser checks, including the 130-cell responsive screenshot matrix |
 | `npm run test:migrations-from-zero` | **PASS** |
-| `npm run test:schema-upgrade-seam` | **PASS** |
+| `npm run test:selection-race-seam` | **PASS** |
+| `npm run test:release-gate-plan-seam` | **PASS** |
+| `npm run test:operator-hardening` | **PASS** |
+| `npm run test:zero-base:contract` | **PASS** |
+| `npm run test:zero-base:compatibility` | **PASS** |
+| `npm run test:zero-base:design` | **PASS** |
+| `npm run test:zero-base:flows` | **PASS** |
+| `npm run test:zero-base:states` | **PASS** |
+| `npm run test:zero-base:routes` | **PASS** |
+| `npm run test:zero-base:locale` | **PASS** — zero unexplained inline operator copy |
+| `npm run test:zero-base:reference` | **PASS** — 99/99 regions, 248/248 controls, 35/35 collections, 83/83 artboards |
+| `npm run test:zero-base:fidelity` | **PASS** |
+| `npm run test:zero-base:frames` | **PASS** — 92/92, 0 substitutions |
+| `npm run test:zero-base:a11y` | **PASS** |
+| `npm run test:zero-base:responsive` | **PASS** |
+| `npm run test:zero-base:visual` | **PASS** |
+| `npm run test:zero-base:theme` | **PASS** |
+| `npm run zero-base:reconcile:frames` | **PASS** |
 | `npm run zero-base:contract:verify` | **PASS** — reports the package's own verdict as NOT READY |
 | `npm run zero-base:contracts:check` | **PASS** |
-| `npm run test:zero-base:routes` | **PASS** |
-| `npm run test:zero-base:compatibility` | **PASS** — 59 tests |
-| `npm run check:workflows` | **PASS** |
-| `npm run meta:verify-mounted-bodies` | **PASS** — 15/15 |
+| `npm run zero-base:fonts:verify` | **PASS** |
 | `npm run zero-base:legibility` | **PASS** |
-| `npm run test:zero-base:states` | **PASS** — G6 38/38, G7 142/142 |
-| `npm run test:zero-base:flows` | **PASS** — 71/71 |
-| `npm run test:zero-base:fidelity` | **PASS** — 83/83 artboards |
-| `npm run test:zero-base:a11y` | **PASS** — 85 checks |
-| `npm run test:zero-base:responsive` | **PASS** — 84 checks |
-| `npm run zero-base:reconcile:frames` | **PASS** — 92/92 frames, 0 substitutions, 83/83 artboards |
-| `npm run test:zero-base:visual` | **PASS** — 78 shell frames captured |
-| `npm run meta:runtime-evidence` | **PASS** — 312 route cases + 130 browser checks |
-| `npm run test:zero-base:locale` | **FAIL** — 70 unexplained inline strings. Pre-existing: every one exists at `fd66e06ba`, and this session added none |
-| `npm run test:zero-base:reference` | **FAIL at its first step** — the extractor needs `Adsecute Zero-Base Design.zip`, which is no longer on this machine. The anatomy comparison it wraps passes 83/83 against the committed, hash-verified manifest |
+| `npm run meta:verify-mounted-bodies` | **PASS** |
+| `npm run test:local-db` | **NOT RUN** — refuses without the external volume at `/Volumes/adsecuteDB`. A hardware precondition, not a code result. The same class of coverage runs on the ephemeral cluster, and `test:migrations-from-zero` passes |
 
 ---
 
 ## 6. Evidence by class
 
-**Mounted route / browser.** 130 Playwright checks against the production build
-over HTTP with a real session: the three D6 account postures, business
-switching in both directions, tenant isolation by route and by API, every
-canonical route refused without a session, axe at 1440 light and 390 dark on
-thirteen surfaces, landmark uniqueness, D13 at 1440/1024/768/390/320 in both
-themes, LCP/CLS/TBT/request counts, D8, empty-collection accounting, evidence
-windows, and the Launchpad execution refusal.
+**Mounted route / browser.** 397 Playwright checks against the production standalone build
+over HTTP with a real session, on two servers differing only in release-gate
+environment. Every §9 state including two DB-level fault injections; the Meta
+Stop's full round trip with a SELECT after each step; the decision workflow's
+four transitions plus a version conflict; a share minted and read back from the
+table; every canonical route, twin and legacy spelling; the window equality; the
+five Studio tabs across four account postures; History's nine families against
+SQL; the whole Launchpad draft lifecycle.
 
-**Database.** A real PostgreSQL 16 cluster with the repo's real migrations:
-`migrations-from-zero` (three runs, including idempotency and the prior-epoch
-upgrade), the schema upgrade seam, the public-share lifecycle seam, and the
-selection-contract read-back — one selected account for the one-account
-business, one of two for the many-account business, none for the zero-account
-business.
+**Database.** A real PostgreSQL 16 cluster with the repo's real migrations. Every
+"it worked" claim above is a `SELECT`, not a reading of a response body — a route
+re-reads its own write and can report a success it did not persist.
 
 **Provider.** None. No Meta call was made by anything in this session.
 
 **Release and rollback.** Nothing merged, pushed, deployed or activated. Every
-commit is independently revertible and scoped to one subject; the harness and
-the fixes it found are separate commits, as the plan asks. Every release gate
-still defaults off, asserted at `lib/meta/release-gate-wiring.test.ts`.
+commit is independently revertible and scoped to one subject. Every release gate
+still defaults off, asserted at `lib/meta/release-gate-wiring.test.ts`, which
+now also fails on a gate reader it cannot account for.
 
 ---
 
@@ -170,9 +191,42 @@ still defaults off, asserted at `lib/meta/release-gate-wiring.test.ts`.
 
 | Blocker | Blocks | What is needed |
 |---|---|---|
-| No Meta sandbox account | WP7 (twelve-case matrix), WP15 (all) | A physical Meta ad account that may receive PAUSED creates, named explicitly |
-| No production read-only access | WP6 query plan / capacity / retention / growth, WP12 event-family counts | Explicit authorization for read-only production queries |
-| Design package not re-vendored | WP16 items 9–10, REQ-27, REQ-28/M11, REQ-41 | The design owner ships an export regenerated at a single fingerprint. The archive is not even on this machine any more |
+| No Meta sandbox account | WP7 (twelve-case matrix), WP15 (all), WP13's provider-side reversibility, WP1's live-refusal confirmation | A physical Meta ad account that may receive PAUSED creates, named explicitly, with the scope it may be used at |
+| No production read-only access | WP6 query plan / capacity / retention / growth | Explicit authorization and the exact business IDs that may be read |
+| Design package not re-vendored | WP16 items 9–10, REQ-27, REQ-28/M11, REQ-41 | The design owner ships an export regenerated at a single fingerprint. The vendored bytes are hash-verified and sufficient for every gate that runs today |
+| No human assistive-technology pass | WP1, WP17 | A person with a screen reader confirming each disabled control's reason is announced. axe and the accessibility tree are checked; neither is a substitute |
 | No release authorization | WP18 (all) | Explicit approval, per step |
 
 None of these can be closed by writing code.
+
+---
+
+## 8. A finding I am not resolving unilaterally
+
+The `off` / `allowlist` / `on` rollback lever does not do what its name says,
+and the reason is worth stating precisely because the obvious fix would take
+the product down.
+
+- The mode parser **defaults to `off`** when the variable is unset.
+- The only route that acts on it is `app/c/[businessId]/layout.tsx`, which
+  `notFound()`s when the predicate is false.
+- But `/c/:businessId/…` is redirected by the proxy to
+  `/switch-business/:id?next=/app/…` **before that layout renders**, and the
+  `/app` family — the canonical mount for every surface — reads the predicate
+  only to report it in an envelope. Nothing there refuses.
+
+So the lever is bypassed on the path an operator actually takes, which is why
+the runtime harness serves every surface with the variable unset. The predicate
+itself is correct and covered (`lib/zero-base/rollout.test.ts`).
+
+The obvious repair — gate `/app` on the same predicate — would 404 the entire
+product in every environment where the variable is not explicitly set to `on`
+or to an allowlist containing the business, **including production**. Whether
+production sets it, and to what, is not something I can see or change from
+here, and taking a rollback lever from "ineffective" to "the product is down"
+without knowing that is not a call to make silently.
+
+It needs one decision from the operator: either `/app` starts honouring the
+predicate (and the deployment sets the variable first), or the lever is
+retired and the rollback story becomes the release gates, which are wired,
+enforced on the server and default off. Recorded rather than chosen.

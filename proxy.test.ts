@@ -157,6 +157,39 @@ describe("proxy internal sync auth", () => {
     }
   });
 
+  it("lets an anonymous recipient post one note, and nothing else", async () => {
+    /*
+     * The public page invites anyone holding the link to reply, and the handler
+     * documents itself as unauthenticated — but this proxy allowed only reads
+     * with no further path segment, so every Send answered 401. Proven at
+     * runtime in meta-runtime-share-lifecycle.spec.ts before it was fixed.
+     */
+    const allowed = proxy(
+      buildRequest({
+        pathname: "/api/creatives/share/share_token/messages",
+        method: "POST",
+      }),
+    );
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("x-middleware-next")).toBe("1");
+
+    // The allowance is the narrowest shape that works: this method, this depth,
+    // this last segment. Everything adjacent still needs a session.
+    for (const request of [
+      buildRequest({ pathname: "/api/creatives/share/share_token/messages", method: "GET" }),
+      buildRequest({ pathname: "/api/creatives/share/share_token/messages", method: "DELETE" }),
+      buildRequest({ pathname: "/api/creatives/share/share_token/csv", method: "POST" }),
+      buildRequest({ pathname: "/api/creatives/share/share_token/messages/x", method: "POST" }),
+      buildRequest({ pathname: "/api/creatives/share//messages", method: "POST" }),
+    ]) {
+      const response = proxy(request);
+      expect(
+        response.status,
+        `${request.method} ${request.nextUrl.pathname} was let through`,
+      ).toBe(401);
+    }
+  });
+
   it("allows authenticated creative-share writes", () => {
     for (const request of [
       buildRequest({

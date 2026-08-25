@@ -34,6 +34,12 @@ export interface RuntimeHandle {
    * every other business in the fixture gets the legacy one.
    */
   allowlistBaseUrl: string;
+  /**
+   * `ZERO_BASE_UI_MODE=off` with the public-share mint gate open — the only
+   * configuration in which a share can be minted through a mounted control,
+   * because the sole mint UI lives in the legacy Creative Studio.
+   */
+  legacyMintBaseUrl: string;
   databaseUrl: string;
   operator: { id: string; email: string; password: string };
   businesses: {

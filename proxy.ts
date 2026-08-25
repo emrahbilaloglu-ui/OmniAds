@@ -51,10 +51,41 @@ function isPublicCreativeShareRead(request: NextRequest): boolean {
   return Boolean(token) && !token.includes("/");
 }
 
+/**
+ * The one public WRITE the share surface has, and the reason it needs an
+ * allowance of its own.
+ *
+ * The public page renders a reply composer to anyone holding a link and tells
+ * them *"anyone with this link can reply"*; the endpoint behind it documents
+ * itself as deliberately unauthenticated. This proxy disagreed with both — the
+ * read allowance above refuses anything with a further path segment — so every
+ * note a recipient tried to leave came back `401 Authentication required`. A
+ * composer that cannot post is worse than no composer: the recipient writes
+ * their question, presses Send and is told to sign in to a product they have no
+ * account for.
+ *
+ * Deliberately the narrowest shape that fixes it: POST, exactly
+ * `/api/creatives/share/<token>/messages`, nothing else. The handler can only
+ * append one short message to a live snapshot's own thread, caps the thread,
+ * and answers the same neutral 404 for a token that is dead as for one that
+ * never existed.
+ */
+function isPublicCreativeShareMessagePost(request: NextRequest): boolean {
+  if (request.method !== "POST") return false;
+  const { pathname } = request.nextUrl;
+  if (!pathname.startsWith(CREATIVE_SHARE_API_PREFIX)) return false;
+  const rest = pathname.slice(CREATIVE_SHARE_API_PREFIX.length).split("/");
+  return rest.length === 2 && Boolean(rest[0]) && rest[1] === "messages";
+}
+
 function isPublicApi(request: NextRequest): boolean {
   const { pathname } = request.nextUrl;
-  return isPublicCreativeShareRead(request) || PUBLIC_API_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  return (
+    isPublicCreativeShareRead(request) ||
+    isPublicCreativeShareMessagePost(request) ||
+    PUBLIC_API_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
   );
 }
 

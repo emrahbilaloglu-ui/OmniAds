@@ -28,7 +28,7 @@
  *         npm run meta:runtime-evidence -- --keep   (leave the server running)
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { findFreeSafePort, startEphemeralCluster } from "@/scripts/meta/runtime-evidence/cluster";
@@ -161,14 +161,45 @@ async function main(): Promise<void> {
             POSTGRES_URL: cluster.databaseUrl,
             POSTGRES_URL_NON_POOLING: cluster.databaseUrl,
             CRON_SECRET: "runtime-evidence-not-a-secret",
+            /*
+             * The four the runtime contract requires to be EXPLICIT in
+             * production, at the values `.env.production.example` documents.
+             *
+             * Omitting them did not stop the servers booting; it made
+             * `/api/meta/status` throw "Runtime contract invalid for web" on
+             * every request, so a surface that reads sync status saw a 500 and
+             * reported a degraded provider — a fault of the harness that would
+             * have been read as a fault of the product.
+             */
+            META_AUTHORITATIVE_FINALIZATION_V2: "1",
+            META_RETENTION_EXECUTION_ENABLED: "0",
+            SYNC_DEPLOY_GATE_MODE: "block",
+            SYNC_RELEASE_GATE_MODE: "block",
             ...gates,
           },
         },
       );
       servers.push(child);
       const serverLog: string[] = [];
-      child.stdout?.on("data", (chunk: Buffer) => serverLog.push(chunk.toString()));
-      child.stderr?.on("data", (chunk: Buffer) => serverLog.push(chunk.toString()));
+      /*
+       * Kept on disk, not only in memory.
+       *
+       * The log was printed on a BOOT failure and discarded otherwise, so a
+       * 500 raised while serving a request — the interesting kind — left the
+       * spec staring at "a server error interrupted the freeze" with no way to
+       * find out which. The file lives beside the handle, in an ignored
+       * directory, and is overwritten each run.
+       */
+      mkdirSync(HANDLE_DIR, { recursive: true });
+      const logFile = path.join(HANDLE_DIR, `server-${label}.log`);
+      writeFileSync(logFile, "");
+      const record = (chunk: Buffer) => {
+        const text = chunk.toString();
+        serverLog.push(text);
+        appendFileSync(logFile, text);
+      };
+      child.stdout?.on("data", record);
+      child.stderr?.on("data", record);
 
       try {
         await waitForServer(baseUrl, 90_000);
@@ -223,6 +254,25 @@ async function main(): Promise<void> {
       ZERO_BASE_UI_BUSINESS_IDS: seed.businesses.oneAccount,
     });
 
+    /*
+     * The share lifecycle's own posture, and the reason it needs one.
+     *
+     * Minting exists in exactly one mounted component — the legacy Creative
+     * Studio's share modal. The canonical console's Shares tab lists, rotates
+     * and revokes but passes `onCreate={undefined}`, because it has no creative
+     * selection to send. So on a `mode=on` server there is no way to mint
+     * through the UI at all, and on the `rolled-back` server the mint gate is
+     * shut. WP11 asks for the lifecycle END TO END through the mounted UI, and
+     * this is the one configuration in which that sentence is satisfiable.
+     *
+     * It is not a contrivance: `ZERO_BASE_UI_MODE` defaults to off, so this is
+     * the posture a deployment is in today.
+     */
+    const legacyMintBaseUrl = await startServer("legacy-mint", {
+      ZERO_BASE_UI_MODE: "off",
+      META_PUBLIC_SHARE_MINT: "true",
+    });
+
     mkdirSync(HANDLE_DIR, { recursive: true });
     writeFileSync(
       HANDLE_FILE,
@@ -232,6 +282,7 @@ async function main(): Promise<void> {
           gatesOpenBaseUrl,
           rolledBackBaseUrl,
           allowlistBaseUrl,
+          legacyMintBaseUrl,
           databaseUrl: cluster.databaseUrl,
           ...seed,
         },

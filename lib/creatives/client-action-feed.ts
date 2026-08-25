@@ -17,9 +17,29 @@ type ActionLogFeedRow = {
   action: string;
   status: string;
   creative_id: string | null;
-  requested_at: string;
+  /**
+   * A `timestamptz`, which the driver hands back as a `Date` — not the string
+   * this said it was. Everything downstream treated it as one: the store called
+   * `action.date.trim()` and threw `TypeError: date.trim is not a function`,
+   * turning every buyer share on a business with a qualifying action row into a
+   * 500. The sort below survived it — `Date.parse` coerces to a string first —
+   * so the trim was the only casualty. The type now says what arrives, and
+   * `isoDate` converts once, here.
+   */
+  requested_at: string | Date;
   payload_request: unknown;
 };
+
+/**
+ * One string for a value the driver may hand back either way.
+ *
+ * `SharedClientAction.date` is stored, trimmed and re-parsed downstream, so the
+ * conversion belongs at the boundary rather than at each of those.
+ */
+function isoDate(value: string | Date): string {
+  if (value instanceof Date) return value.toISOString();
+  return typeof value === "string" ? value : String(value ?? "");
+}
 
 /**
  * The action column of meta_ads_action_log only ever holds these verbs. Bid changes are NOT
@@ -174,7 +194,7 @@ export async function buildBuyerClientActions({
       id: row.id ?? null,
       what: resolveWhat(row, actionClass),
       why: WHY_BY_CLASS[actionClass],
-      date: row.requested_at,
+      date: isoDate(row.requested_at),
       outcome: "Done",
       outcomeTone: "positive",
     });

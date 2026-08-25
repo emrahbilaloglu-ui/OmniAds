@@ -16,6 +16,8 @@
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
 
+import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
+
 /** Stable ids so evidence can name a row and a later run can find it again. */
 export const RUNTIME_OPERATOR_ID = "e0000000-0000-4000-8000-000000000001";
 export const RUNTIME_OPERATOR_EMAIL = "runtime-evidence@adsecute.local";
@@ -70,6 +72,24 @@ export const JOURNAL_ROWS = [
   { action: "resume", status: "failure", errorCode: "provider_rejected" },
   { action: "pause", status: "silent_failure", errorCode: null },
 ] as const;
+
+/**
+ * Two creatives the Creative Studio can actually list, and therefore share.
+ *
+ * WP11's lifecycle starts with a mint, and a mint starts with a selection: the
+ * studio's Share control is disabled until at least one asset row is ticked,
+ * and the server refuses a snapshot holding no creatives. The fixture had ad
+ * DIMENSIONS but no creative rows and no daily metrics at all, so the assets
+ * table was empty on every posture — which made the whole share lifecycle
+ * unreachable through the mounted UI rather than merely untested.
+ *
+ * Two, not one: a snapshot of a single row cannot show that a selection is
+ * respected rather than a whole account being shared.
+ */
+export const STUDIO_CREATIVE_IDS = ["120000000000000101", "120000000000000102"] as const;
+
+/** Longer than the studio's 28-day default window; see `seedCreativeStudioAssets`. */
+export const STUDIO_SEEDED_DAYS = 35;
 
 export interface RuntimeSeed {
   operator: { id: string; email: string; password: string };
@@ -167,9 +187,26 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
   await client.connect();
   try {
     await client.query(
-      `INSERT INTO users (id, name, email, password_hash)
-       VALUES ($1, 'Runtime Evidence Operator', $2, $3)
-       ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+      /*
+       * On the top plan, deliberately.
+       *
+       * The operator was seeded with no `plan_override`, which the billing
+       * endpoint resolves to `starter` — and `PLAN_GATED_MODULES` records that
+       * three Creative Studio tabs, Reports and Insights refuse to render below
+       * Growth and Pro. So every legacy Creative surface in this harness was
+       * answering "Growth plan required" rather than answering at all, and a
+       * market-readiness corpus that never sees a surface is measuring the
+       * paywall.
+       *
+       * The gate itself is proven by `plan-gated-modules.test.ts`, which holds
+       * the list against every `PlanGate` in the tree. This fixture is for
+       * everything BEHIND it.
+       */
+      `INSERT INTO users (id, name, email, password_hash, plan_override)
+       VALUES ($1, 'Runtime Evidence Operator', $2, $3, 'scale')
+       ON CONFLICT (id) DO UPDATE
+         SET password_hash  = EXCLUDED.password_hash,
+             plan_override  = EXCLUDED.plan_override`,
       [RUNTIME_OPERATOR_ID, RUNTIME_OPERATOR_EMAIL, passwordHash],
     );
     await client.query(
@@ -307,6 +344,7 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
     });
 
     await seedHistoryJournal(client);
+    await seedCreativeStudioAssets(client);
     await assertD6Shape(client);
 
     return {
@@ -365,6 +403,187 @@ async function assertD6Shape(client: Client): Promise<void> {
       );
     }
   }
+}
+
+/**
+ * The Creative Studio's assets table, seeded so it has rows to tick.
+ *
+ * `groupBy=creative` reads `meta_creative_daily` joined to
+ * `meta_creative_dimensions`; without both, the studio renders an empty table
+ * and every share control below it is correctly disabled. Fourteen days ending
+ * YESTERDAY for the same reason the journal is dated three days back — a
+ * fixture written at `now()` sits inside the default window before local
+ * midnight and outside it afterwards.
+ *
+ * `metric_schema_version` is the canonical version rather than the column
+ * default: rows at v1 are read as pre-canonical and are excluded from the
+ * metrics the studio prints.
+ */
+async function seedCreativeStudioAssets(client: Client): Promise<void> {
+  // Cleared first, so a rerun against a surviving cluster cannot double a count
+  // that a rendered-versus-stored assertion depends on.
+  await client.query(
+    "DELETE FROM meta_creative_daily WHERE business_id = $1 AND provider_account_id = $2",
+    [BUSINESS_ONE_ACCOUNT, ACCOUNT_ONE],
+  );
+
+  for (const [index, creativeId] of STUDIO_CREATIVE_IDS.entries()) {
+    const ordinal = index + 1;
+    await client.query(
+      `INSERT INTO meta_creative_dimensions
+         (business_id, provider_account_id, campaign_id, adset_id, ad_id, creative_id,
+          creative_name, headline, primary_text, destination_url, asset_type,
+          projection_json, first_seen_at, last_seen_at, source_updated_at)
+       VALUES ($1, $2, 'cmp_runtime_1', 'adset_runtime_1', $3, $4,
+               $5, $6, $7, 'https://example.invalid/runtime-evidence', 'image',
+               $8::jsonb,
+               now() - interval '40 days', now() - interval '1 day', now() - interval '1 day')
+       ON CONFLICT (business_id, provider_account_id, creative_id) DO UPDATE
+         SET creative_name   = EXCLUDED.creative_name,
+             projection_json = EXCLUDED.projection_json,
+             last_seen_at    = EXCLUDED.last_seen_at`,
+      [
+        BUSINESS_ONE_ACCOUNT,
+        ACCOUNT_ONE,
+        `2385000000000010${ordinal}`,
+        creativeId,
+        `Runtime evidence creative ${ordinal}`,
+        `Headline ${ordinal}`,
+        `Primary text ${ordinal}`,
+        JSON.stringify(studioProjection(creativeId, ordinal)),
+      ],
+    );
+
+    for (let dayBack = 1; dayBack <= STUDIO_SEEDED_DAYS; dayBack += 1) {
+      const spend = 40 * ordinal + dayBack;
+      await client.query(
+        `INSERT INTO meta_creative_daily
+           (business_id, provider_account_id, date, campaign_id, adset_id, ad_id, creative_id,
+            creative_name, headline, primary_text, destination_url, asset_type,
+            account_timezone, account_currency,
+            spend, impressions, clicks, conversions, revenue, roas, ctr, cpc, link_clicks,
+            metric_schema_version)
+         VALUES ($1, $2, (current_date - $3::int), 'cmp_runtime_1', 'adset_runtime_1', $4, $5,
+                 $6, $7, $8, 'https://example.invalid/runtime-evidence', 'image',
+                 'Europe/Istanbul', 'TRY',
+                 $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18)
+         ON CONFLICT (business_id, provider_account_id, date, creative_id) DO NOTHING`,
+        [
+          BUSINESS_ONE_ACCOUNT,
+          ACCOUNT_ONE,
+          dayBack,
+          `2385000000000010${ordinal}`,
+          creativeId,
+          `Runtime evidence creative ${ordinal}`,
+          `Headline ${ordinal}`,
+          `Primary text ${ordinal}`,
+          spend,
+          spend * 100,
+          spend * 3,
+          ordinal,
+          spend * 2,
+          2,
+          0.03,
+          spend / Math.max(1, spend * 3),
+          spend * 2,
+          META_CANONICAL_METRIC_SCHEMA_VERSION,
+        ],
+      );
+    }
+  }
+}
+
+/**
+ * The dimension row's `projection_json`, which is not optional.
+ *
+ * `coerceRawCreativeRow` returns null for anything without `id`, `creative_id`
+ * and a `copy_text` key, and the assembler drops every fact row whose
+ * projection is null. A dimension seeded with the column default `{}` therefore
+ * produces a warehouse read that reports `status: ok` with zero rows — coverage
+ * satisfied, observation timestamp present, nothing rendered. That is the exact
+ * shape this fixture hit before the projection was written.
+ *
+ * `currency` is required for a different reason: the warehouse throws
+ * `meta_currency_unavailable` when no row carries one, and a throw here becomes
+ * "Meta creative data could not be read for this scope."
+ */
+function studioProjection(creativeId: string, ordinal: number) {
+  return {
+    id: `2385000000000010${ordinal}`,
+    creative_id: creativeId,
+    object_story_id: null,
+    effective_object_story_id: null,
+    post_id: null,
+    associated_ads_count: 1,
+    account_id: ACCOUNT_ONE,
+    account_name: "One Account Co. — Main",
+    campaign_id: "cmp_runtime_1",
+    campaign_name: "Runtime evidence campaign",
+    adset_id: "adset_runtime_1",
+    adset_name: "Runtime evidence ad set",
+    currency: "TRY",
+    name: `Runtime evidence creative ${ordinal}`,
+    launch_date: null,
+    copy_text: `Primary text ${ordinal}`,
+    copy_variants: [`Primary text ${ordinal}`],
+    headline_variants: [`Headline ${ordinal}`],
+    description_variants: [],
+    copy_source: null,
+    copy_debug_sources: [],
+    unresolved_reason: null,
+    // No remote asset: the harness must not reach the network to render a row.
+    preview_url: null,
+    preview_source: null,
+    thumbnail_url: null,
+    image_url: null,
+    table_thumbnail_url: null,
+    card_preview_url: null,
+    is_catalog: false,
+    preview_state: "unavailable",
+    preview: {
+      render_mode: "unavailable",
+      image_url: null,
+      video_url: null,
+      poster_url: null,
+      source: null,
+      is_catalog: false,
+    },
+    tags: [],
+    ai_tags: {},
+    format: "image",
+    creative_type: "feed",
+    creative_type_label: "Feed",
+    creative_delivery_type: "standard",
+    creative_visual_format: "image",
+    creative_primary_type: "standard",
+    creative_primary_label: "Standard",
+    creative_secondary_type: null,
+    creative_secondary_label: null,
+    spend: 0,
+    purchase_value: 0,
+    roas: 0,
+    cpa: 0,
+    clicks: 0,
+    cpc_link: 0,
+    cpm: 0,
+    ctr_all: 0,
+    purchases: 0,
+    impressions: 0,
+    link_clicks: 0,
+    landing_page_views: 0,
+    add_to_cart: 0,
+    initiate_checkout: 0,
+    thumbstop: 0,
+    click_to_atc: 0,
+    atc_to_purchase: 0,
+    leads: 0,
+    messages: 0,
+    video25: 0,
+    video50: 0,
+    video75: 0,
+    video100: 0,
+  };
 }
 
 /** Deterministic per cluster, so a rerun on the same URL keeps the password. */

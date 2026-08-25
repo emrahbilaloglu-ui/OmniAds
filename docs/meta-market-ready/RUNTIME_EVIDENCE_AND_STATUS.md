@@ -193,7 +193,7 @@ now also fails on a gate reader it cannot account for.
 |---|---|---|
 | No Meta sandbox account | WP7 (twelve-case matrix), WP15 (all), WP13's provider-side reversibility, WP1's live-refusal confirmation | A physical Meta ad account that may receive PAUSED creates, named explicitly, with the scope it may be used at |
 | No production read-only access | WP6 query plan / capacity / retention / growth | Explicit authorization and the exact business IDs that may be read |
-| Design package not re-vendored | WP16 items 9–10, REQ-27, REQ-28/M11, REQ-41 | The design owner ships an export regenerated at a single fingerprint. The vendored bytes are hash-verified and sufficient for every gate that runs today |
+| Design package not re-vendored | WP16 items 9–10, REQ-27, REQ-28/M11, REQ-41 | The design owner ships an export regenerated at a single fingerprint. The archive itself is **not** needed — see §9 — and the vendored bytes are hash-verified and sufficient for every gate that runs today |
 | No human assistive-technology pass | WP1, WP17 | A person with a screen reader confirming each disabled control's reason is announced. axe and the accessibility tree are checked; neither is a substitute |
 | No release authorization | WP18 (all) | Explicit approval, per step |
 
@@ -230,3 +230,38 @@ It needs one decision from the operator: either `/app` starts honouring the
 predicate (and the deployment sets the variable first), or the lever is
 retired and the rollback story becomes the release gates, which are wired,
 enforced on the server and default off. Recorded rather than chosen.
+
+---
+
+## 9. The design archive: what the search actually found
+
+The reference gate failed for weeks with *"Design package not found at
+`/Users/harmelek/Downloads/Adsecute Zero-Base Design.zip`"*, so before changing
+anything I looked for it. The search is recorded here rather than summarised as
+"it is missing", because "I could not find it" and "it is not there" are
+different claims and only the second one licenses a change of approach.
+
+Read-only, four ways:
+
+| Where | Query | Result |
+|---|---|---|
+| `~/Downloads` | listing filtered for `adsecute`, `zero-base`, `design` | Three unrelated files: `Adsecute.pdf`, a 2023 backup-codes text file, `adsecute-mark.svg`. No archive |
+| Home tree, depth 6 | `find ~ -iname "*Zero-Base*Design*" -o -iname "*zero-base-design*"` | One hit: `/Users/harmelek/Adsecute/docs/zero-base-design` — the vendored directory, not an archive |
+| Every `.zip` under `~`, depth 5 | filtered for `adsecute`, `design`, `zero` | Four archives, none of them this one: three belong to the **grandmix** project (`GMX PDP WallArt…`, `Grandmix_PDP_Claude_Design_Revision_Package…`, a GMX email QA pack) and the rest are Playwright `trace.zip` files under `test-results/` |
+| Spotlight | `mdfind -name "Zero-Base Design"`, `mdfind "kMDItemFSName == '*Adsecute*Design*.zip'c"` | The vendored directory only |
+| `~/.Trash` | filtered for `adsecute`, `design`, `zero` | Empty |
+| Repository | `find . -iname "*.dc.html"` | None. The `.dc.html` artboards were deliberately not vendored (`SOURCE.md`) |
+
+**The archive is genuinely absent from this machine, and it is not needed.**
+`docs/zero-base-design/v3/` holds the exact bytes copied from it at vendor
+time, with a per-file SHA-256 manifest and `reference-manifest.json` bound to
+the archive's own digest — 83 artboards, 142 contracts. `SOURCE.md` states the
+rule directly: *"The application must never import the design package from
+`Downloads/` or `/tmp`."* The gate was failing because it looked in the one
+place the design owner's own note forbids.
+
+So this is **not** an item on the external-blocker list. What is still needed
+from the design owner is a **re-vendor** — a new export regenerated at a single
+fingerprint, which is what REQ-27, REQ-28/M11 and REQ-41 are waiting on. That
+is a different request from "please send the zip again", and conflating the two
+would have sent someone hunting for a file that would change nothing.

@@ -296,6 +296,54 @@ test.describe("the mobile drawer is a drawer", () => {
   });
 });
 
+test.describe("scope is readable on a phone", () => {
+  test("the compact bar states scope and opens a sheet with all eight facts", async ({
+    page,
+  }) => {
+    /**
+     * At desktop the topbar states scope with three controls and an operator
+     * reads all three at once. Below 1023px those controls are still there, so
+     * the SELECTORS are reachable — and the rest of what scope means was not.
+     * Currency proof, timezone proof, evidence freshness and the snapshot
+     * instant had no representation anywhere on a narrow screen, and those are
+     * the facts that decide whether a number on the page can be trusted.
+     *
+     * The design draws exactly this, and both halves already existed behind a
+     * shell no route mounts.
+     */
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSurface(page, handle, SHELL_ROUTE);
+
+    const bar = page.locator('[data-el="mobile-scope"]');
+    await expect(bar).toHaveCount(1);
+    const trigger = page.locator('[data-ctl="live:MOBILE-02 scope-sheet"]');
+    await expect(trigger).toHaveCount(1);
+    // The whole summary is the accessible name, so a screen reader gets what
+    // the two-line clamp hides.
+    const label = await trigger.getAttribute("aria-label");
+    expect(label).toMatch(/^Scope — /);
+    for (const fact of ["Business", "Account", "Currency", "Timezone", "Window", "Freshness"]) {
+      expect(label, `the summary omits ${fact}`).toContain(`${fact}:`);
+    }
+
+    await trigger.click();
+    const sheet = page.locator('[role="dialog"]');
+    await expect(sheet).toHaveCount(1);
+    // Eight rows, every one of them, not a subset chosen by what resolved.
+    await expect(page.locator("[data-el^='scope-f-']")).toHaveCount(8);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  });
+
+  test("at desktop there is no second scope bar", async ({ page }) => {
+    // The topbar already answers "what is in scope" there; two answers to one
+    // question is the defect this bar exists to avoid rather than create.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openSurface(page, handle, SHELL_ROUTE);
+    await expect(page.locator('[data-el="mobile-scope"]')).toHaveCount(0);
+  });
+});
+
 test.describe("what the product announces", () => {
   for (const route of routes) {
     test(`${route.surfaceId} announces politely or not at all`, async ({ page }) => {

@@ -11,6 +11,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { useIsNarrow } from "@/components/layout/v2/use-narrow";
+import { MobileScope } from "@/components/layout/v2/mobile-scope";
 import { MetaScreenView } from "@/components/layout/v2/meta-screen-view";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
@@ -30,6 +31,13 @@ interface DashboardFrameProps {
    * selected on the next render.
    */
   providerCatalogs?: readonly ProviderScopeCatalog[];
+  /**
+   * The eight facts the scope sheet states, or null when no envelope resolved.
+   *
+   * Read off the server's workspace envelope by
+   * `scopeFactsFromEnvelope`; this frame states them and derives none of them.
+   */
+  scopeFacts?: import("@/components/zero-base/primitives/scope-sheet").ScopeFacts | null;
   /** Server-read: why changing the ad account is refused, when it is. */
   accountChangeRefusalReason?: string | null;
   children: React.ReactNode;
@@ -204,6 +212,7 @@ export function DashboardFrame({
   userName,
   providerCatalogs = [],
   accountChangeRefusalReason = null,
+  scopeFacts = null,
   children,
 }: DashboardFrameProps) {
   const pathname = usePathname();
@@ -336,6 +345,13 @@ export function DashboardFrame({
           }
           notifications={<NotificationBell />}
         />
+        {/*
+          The design's mobile scope line, between the topbar and the page.
+          Renders nothing at desktop: the topbar's business, account and date
+          controls already state scope there, and a second bar would be a second
+          answer to the same question.
+        */}
+        <MobileScope facts={scopeFacts} />
         <main
           className="adv-main"
           id={DASHBOARD_MAIN_ID}

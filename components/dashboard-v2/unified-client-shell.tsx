@@ -9,6 +9,7 @@ import { WorkspaceContextProvider } from "@/components/workspace/workspace-conte
 import { readDateWindowFromParams } from "@/lib/dashboard/date-window-url";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import { scopeFactsFromEnvelope } from "@/lib/workspace/scope-facts";
 import { QueryProvider } from "@/providers/query-provider";
 import { useAppStore } from "@/store/app-store";
 
@@ -221,6 +222,13 @@ function EnvelopeScopedDashboardFrame({
       userName={envelope.actor.name}
       providerCatalogs={providerCatalogs}
       accountChangeRefusalReason={accountChangeRefusalReason}
+      /*
+       * The scope the server resolved, restated as the eight facts a phone can
+       * show. `DashboardFrame` renders it as a compact bar below the topbar at
+       * narrow widths and nothing at all at desktop, where the topbar's own
+       * three controls already carry scope.
+       */
+      scopeFacts={scopeFactsFromEnvelope(envelope)}
     >
       {children}
     </DashboardFrame>

@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
@@ -306,10 +306,19 @@ export function AppRail({
   userName,
   open = false,
   onNavigate,
+  onClose,
+  narrow = false,
+  returnFocusTo,
 }: {
   userName: string;
   open?: boolean;
   onNavigate?: () => void;
+  /** Asks the owner to close the drawer. Absent on the desktop rail. */
+  onClose?: () => void;
+  /** True when the rail is presenting as a drawer rather than as a rail. */
+  narrow?: boolean;
+  /** The control that opened it, so focus can be handed back. */
+  returnFocusTo?: React.RefObject<HTMLElement | null>;
 }) {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
@@ -369,10 +378,93 @@ export function AppRail({
     );
   const lockedDestination = scopedHref("/settings");
 
+  /**
+   * Keep Tab inside the drawer, close on Escape, and hand focus back.
+   *
+   * The rail is a `position: fixed` panel below 1023px and nothing was holding
+   * either end of that: Tab walked straight out onto the page behind it, and
+   * closing left focus on `<body>` so the next Tab restarted at the top of the
+   * document. This is the same contract `CommandPalette` now honours, for the
+   * same reason — the zero-base shell's drawer gets it from a dialog primitive,
+   * and the shell every route actually renders has to be given it.
+   */
+  const railRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!narrow || !open) return;
+    const first = railRef.current?.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    first?.focus();
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const panel = railRef.current;
+      if (!panel) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose?.();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const stops = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((node) => node.offsetParent !== null || node === document.activeElement);
+      if (stops.length === 0) return;
+      const head = stops[0]!;
+      const tail = stops[stops.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !panel.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? tail : head).focus();
+        return;
+      }
+      if (event.shiftKey && active === head) {
+        event.preventDefault();
+        tail.focus();
+      } else if (!event.shiftKey && active === tail) {
+        event.preventDefault();
+        head.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      // Back to the control that opened it, but only if focus is still inside
+      // the drawer: a navigation that closed it has already moved on.
+      const opener = returnFocusTo?.current;
+      const active = document.activeElement;
+      if (opener && (!active || active === document.body || railRef.current?.contains(active))) {
+        opener.focus();
+      }
+    };
+  }, [narrow, open, onClose, returnFocusTo]);
+
   return (
     // Named: a page body may carry its own complementary aside, and two
     // unnamed ones are indistinguishable in a landmark list.
-    <aside className="adv-rail" aria-label="Workspace navigation" data-open={open} data-shell-sidebar="v2">
+    <aside
+      ref={railRef}
+      className="adv-rail"
+      aria-label="Workspace navigation"
+      data-open={open}
+      data-shell-sidebar="v2"
+      /*
+       * A drawer, when it is one.
+       *
+       * Below 1023px the rail is `position: fixed` and translated off-screen by
+       * `transform` — which hides it from the eye and from nothing else. A
+       * closed drawer stayed in the tab order, so a keyboard user on a phone
+       * tabbed through every product, module and sub-item of an invisible
+       * panel before reaching the page. `inert` takes it out of the tab order,
+       * the accessibility tree and pointer events in one attribute, and only
+       * while it is both narrow and closed.
+       */
+      {...(narrow && !open ? { inert: true } : {})}
+      {...(narrow && open
+        ? { role: "dialog" as const, "aria-modal": true as const }
+        : {})}
+    >
       <div className="adv-rail-head">
         <span className="adv-rail-mark">
           <Image

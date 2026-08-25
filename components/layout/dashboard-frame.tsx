@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BusinessGuard } from "@/components/layout/business-guard";
 import {
   GlobalSearch,
@@ -10,6 +10,7 @@ import {
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
+import { useIsNarrow } from "@/components/layout/v2/use-narrow";
 import { MetaScreenView } from "@/components/layout/v2/meta-screen-view";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
@@ -207,6 +208,15 @@ export function DashboardFrame({
 }: DashboardFrameProps) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
+  /*
+   * Where focus goes when the drawer closes, and whether the rail IS a drawer.
+   *
+   * Both belong to the frame rather than to the rail: the frame owns the
+   * hamburger, and the breakpoint is a property of the shell rather than of the
+   * navigation inside it.
+   */
+  const navTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const narrow = useIsNarrow();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mobileSurface = mobileSurfaceForPath(pathname);
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
@@ -305,13 +315,18 @@ export function DashboardFrame({
       <AppRail
         userName={userName}
         open={navOpen}
+        narrow={narrow}
         onNavigate={() => setNavOpen(false)}
+        onClose={() => setNavOpen(false)}
+        returnFocusTo={navTriggerRef}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar
           userName={userName}
           providerCatalogs={providerCatalogs}
           accountChangeRefusalReason={accountChangeRefusalReason}
+          navOpen={navOpen}
+          navTriggerRef={navTriggerRef}
           onOpenNav={() => setNavOpen(true)}
           search={
             <GlobalSearch

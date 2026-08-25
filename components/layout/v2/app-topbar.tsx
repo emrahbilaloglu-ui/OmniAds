@@ -334,6 +334,8 @@ function BusinessControl() {
 export function AppTopbar({
   userName,
   onOpenNav,
+  navOpen = false,
+  navTriggerRef,
   providerCatalogs = [],
   accountChangeRefusalReason = null,
   search,
@@ -341,6 +343,10 @@ export function AppTopbar({
 }: {
   userName: string;
   onOpenNav: () => void;
+  /** Whether the drawer is open, so the trigger can say so. */
+  navOpen?: boolean;
+  /** So the drawer can hand focus back to the control that opened it. */
+  navTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   /** Server-resolved assigned accounts, for the shared account control. */
   providerCatalogs?: readonly ProviderScopeCatalog[];
   /** Server-read: why changing the ad account is refused, when it is. */
@@ -417,6 +423,15 @@ export function AppTopbar({
         <button
           type="button"
           className="adv-icon-btn lg:hidden"
+          /*
+           * The manifest's key for the drawer, and the state a trigger owes a
+           * screen reader. Neither was here: the control opened a panel that
+           * announced nothing about being open, and the design contract's
+           * `live:nav-drawer` had no implementation to point at.
+           */
+          data-ctl="live:nav-drawer"
+          aria-expanded={navOpen ?? false}
+          ref={navTriggerRef}
           onClick={onOpenNav}
           aria-label="Open navigation"
         >

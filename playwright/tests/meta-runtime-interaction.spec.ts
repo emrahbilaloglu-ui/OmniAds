@@ -231,6 +231,71 @@ test.describe("a dialog traps focus and hands it back", () => {
   });
 });
 
+test.describe("the mobile drawer is a drawer", () => {
+  test("it is inert when closed, traps focus when open, and hands it back", async ({ page }) => {
+    /**
+     * The console's rail becomes a `position: fixed` panel below 1023px,
+     * translated off-screen by `transform` — which hides it from the eye and
+     * from nothing else. Closed, it stayed in the tab order, so a keyboard user
+     * on a phone tabbed through every product, module and sub-item of an
+     * invisible panel before reaching the page. Open, it was not a dialog:
+     * Tab walked out onto the page behind it and closing left focus on
+     * `<body>`.
+     *
+     * The zero-base shell that `/me` and `/a` render has had all of this from a
+     * dialog primitive. The shell every `/c/**` route renders had none of it.
+     */
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSurface(page, handle, SHELL_ROUTE);
+
+    const rail = page.locator(".adv-rail");
+    await expect(rail).toHaveCount(1);
+    // Closed: out of the tab order entirely, not merely out of sight.
+    await expect(rail).toHaveAttribute("inert", "");
+
+    const trigger = page.locator('[data-ctl="live:nav-drawer"]');
+    await expect(trigger).toHaveCount(1);
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.focus();
+    await trigger.click();
+
+    await expect(rail).toHaveAttribute("role", "dialog");
+    await expect(rail).toHaveAttribute("aria-modal", "true");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Twenty presses: a trap that holds for one cycle and leaks on the
+    // wrap-around is the failure this many is here to catch.
+    const escapes: string[] = [];
+    for (let step = 0; step < 20; step += 1) {
+      await page.keyboard.press("Tab");
+      const inside = await page.evaluate(() =>
+        Boolean(document.activeElement?.closest(".adv-rail")),
+      );
+      if (!inside) escapes.push(String(step));
+    }
+    expect(escapes, "focus left the drawer while it was open").toEqual([]);
+
+    await page.keyboard.press("Escape");
+    await expect(rail).toHaveAttribute("inert", "");
+    const returned = await page.evaluate(() =>
+      Boolean((document.activeElement as HTMLElement | null)?.matches('[data-ctl="live:nav-drawer"]')),
+    );
+    expect(returned, "focus did not return to the drawer trigger").toBe(true);
+  });
+
+  test("at desktop the rail is a rail, and never inert", async ({ page }) => {
+    // The same element, and none of the drawer behaviour: a rail that reported
+    // itself as a modal dialog on a 1440px screen would be lying to a screen
+    // reader about a permanently visible landmark.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openSurface(page, handle, SHELL_ROUTE);
+    const rail = page.locator(".adv-rail");
+    await expect(rail).toHaveCount(1);
+    await expect(rail).not.toHaveAttribute("inert", "");
+    await expect(rail).not.toHaveAttribute("role", "dialog");
+  });
+});
+
 test.describe("what the product announces", () => {
   for (const route of routes) {
     test(`${route.surfaceId} announces politely or not at all`, async ({ page }) => {

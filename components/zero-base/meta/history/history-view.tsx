@@ -20,6 +20,10 @@ import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
 import { moneyFactText, type HistoryRow } from "@/lib/zero-base/meta/history-adapter";
 import type { HistoryDateWindow } from "@/lib/meta/history-date-window";
+import {
+  META_HISTORY_ENTITY_TYPES,
+  META_HISTORY_KINDS,
+} from "@/lib/meta/history-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import legacyStyles from "@/components/zero-base/legacy-workspace-interior.module.css";
 
@@ -37,6 +41,10 @@ export function HistoryView({
   onQueryChange,
   outcomeFilter = "all",
   onOutcomeFilterChange,
+  kindFilter = "all",
+  onKindFilterChange,
+  entityFilter = "all",
+  onEntityFilterChange,
   onLoadMore,
   onReplay,
   onClose,
@@ -64,6 +72,19 @@ export function HistoryView({
   onQueryChange?: (query: string) => void;
   outcomeFilter?: string;
   onOutcomeFilterChange?: (value: string) => void;
+  /**
+   * The event family and the entity type, both filtered on the SERVER.
+   *
+   * WP12 item 9 asks for kind and entity to reach the server, and until now
+   * neither had a control at all: the read model parsed both and every caller
+   * passed `null`, so nine event families arrived as one undifferentiated
+   * stream. A page-local filter would have been worse than none — it answers
+   * "no matches" for a row that exists two pages further on.
+   */
+  kindFilter?: string;
+  onKindFilterChange?: (value: string) => void;
+  entityFilter?: string;
+  onEntityFilterChange?: (value: string) => void;
   /** Absent at the end of the projection. */
   onLoadMore?: () => void;
   onReplay?: (id: string) => void;
@@ -176,7 +197,7 @@ export function HistoryView({
         </ul>
       ) : null}
 
-      {onQueryChange || onOutcomeFilterChange ? (
+      {onQueryChange || onOutcomeFilterChange || onKindFilterChange || onEntityFilterChange ? (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16 }}>
           {onQueryChange ? (
             <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
@@ -194,11 +215,48 @@ export function HistoryView({
               {copy.outcome}
               <select
                 data-ctl="live:META-HIST-05 filter"
+                data-history-filter="outcome"
                 value={outcomeFilter}
                 onChange={(event) => onOutcomeFilterChange(event.target.value)}
                 style={{ minHeight: 44, padding: "6px 8px" }}
               >
                 {["all", "confirmed", "failed", "unsettled"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {onKindFilterChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              Event family
+              <select
+                data-ctl="live:META-HIST-05 kind"
+                data-history-filter="kind"
+                value={kindFilter}
+                onChange={(event) => onKindFilterChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {["all", ...META_HISTORY_KINDS].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {onEntityFilterChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              Entity
+              <select
+                data-ctl="live:META-HIST-05 entity"
+                data-history-filter="entity"
+                value={entityFilter}
+                onChange={(event) => onEntityFilterChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {["all", ...META_HISTORY_ENTITY_TYPES].map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>

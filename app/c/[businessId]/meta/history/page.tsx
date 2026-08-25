@@ -13,6 +13,11 @@ import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server";
 import { toHistoryPage } from "@/lib/zero-base/meta/history-adapter";
 import { resolveHistoryDateWindow } from "@/lib/meta/history-date-window";
+import {
+  isMetaHistoryEntityType,
+  isMetaHistoryKind,
+  isMetaHistoryOutcomeFilter,
+} from "@/lib/meta/history-contract";
 import { getTodayIsoForTimeZone } from "@/lib/dashboard/date-window-presets";
 import { HistoryAccountPicker } from "@/components/zero-base/meta/history/history-account-picker";
 import { HistoryClient } from "@/components/zero-base/meta/history/history-client";
@@ -280,14 +285,33 @@ export default async function MetaHistoryPage({
     );
   }
 
+  /*
+   * Narrowed once, here, because a guard called inline inside an object literal
+   * widens back to `string` — TypeScript cannot carry the refinement through a
+   * second call to `first()`.
+   */
+  const rawKind = first(raw?.kind);
+  const rawEntity = first(raw?.entity);
+  const rawOutcome = first(raw?.outcome);
+  const requestedKind = isMetaHistoryKind(rawKind) ? rawKind : null;
+  const requestedEntity = isMetaHistoryEntityType(rawEntity) ? rawEntity : null;
+  const requestedOutcome = isMetaHistoryOutcomeFilter(rawOutcome) ? rawOutcome : null;
+
   const payload = await readMetaHistoryJournal({
     query: {
       businessId,
       providerAccountId: account.id,
-      kind: null,
-      entity: null,
+      /*
+       * WP12 item 9. Both filters travel to the server on the FIRST paint too,
+       * not only on the reads the client issues afterwards. Without this a link
+       * naming an event family rendered the whole journal and then narrowed a
+       * moment later, so the first thing an operator saw was rows the URL had
+       * already excluded.
+       */
+      kind: requestedKind,
+      entity: requestedEntity,
       label: null,
-      outcome: null,
+      outcome: requestedOutcome,
       // The shell's window is History's window — the same two dates the shared
       // authority produced above, not a second resolution of the same URL.
       // Always bounded now: an unresolvable URL resolves to the shell's own

@@ -144,6 +144,30 @@ export function isMetaHistoryOutcomeFilter(
 }
 
 /**
+ * The event-family and entity guards, for a caller holding a control's value.
+ *
+ * The URL parser has always narrowed both through `optionalEnum`, but a client
+ * holding a `<select>` value had no way to do the same, so every caller passed
+ * `null` and nine event families arrived as one stream. "all" is deliberately
+ * NOT a member of either vocabulary: it is the control's word for "no filter",
+ * and it narrows to `null` by failing these guards rather than by being a tenth
+ * kind the read model would have to know about.
+ */
+export function isMetaHistoryKind(
+  value: string | null | undefined,
+): value is MetaHistoryKind {
+  return value != null && (META_HISTORY_KINDS as readonly string[]).includes(value);
+}
+
+export function isMetaHistoryEntityType(
+  value: string | null | undefined,
+): value is MetaHistoryEntityType {
+  return (
+    value != null && (META_HISTORY_ENTITY_TYPES as readonly string[]).includes(value)
+  );
+}
+
+/**
  * Raw column values that normalize into a published status.
  *
  * The read stores what each source wrote and normalizes on the way out

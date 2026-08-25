@@ -12,6 +12,8 @@ import LegacyCreativePerformancePage from "@/app/(dashboard)/platforms/meta/crea
 import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
 import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 import { readMetaGateRefusal } from "@/lib/meta/release-gate-guard";
+import { EnginePostureNotice } from "@/components/meta/EnginePostureNotice";
+import { readServerEnginePosture } from "@/lib/zero-base/creative/engine-posture-server";
 
 export const dynamic = "force-dynamic";
 
@@ -74,9 +76,21 @@ export default async function CreativePerformancePage({
       : undefined,
   });
 
+  /**
+   * WP10: which of the five Engine V3 postures this surface is in.
+   *
+   * Resolved on the server and stated before any decision is shown. The five
+   * postures and their sentences have existed since WP10 was written; nothing
+   * mounted called them, so a Studio in shadow mode and a Studio serving live
+   * decisions looked the same. "Shadow decision authority gibi gösterilmez"
+   * needs the surface to say which one it is.
+   */
+  const enginePosture = await readServerEnginePosture(businessId);
+
   return (
     <>
     <MetaSurfaceStateLive initial={readState} surfaceId="creative-studio" />
+    <EnginePostureNotice posture={enginePosture.posture} surfaceId="creative-studio" />
     <LegacyCreativePerformancePage
       businessId={businessId}
       providerAccountId={providerAccountId}

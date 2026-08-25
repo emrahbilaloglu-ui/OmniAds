@@ -21,13 +21,19 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
 import type { HistoryDateWindow } from "@/lib/meta/history-date-window";
 import { fetchMetaHistoryPage } from "@/lib/meta/history-client";
-import { isMetaHistoryOutcomeFilter } from "@/lib/meta/history-contract";
+import {
+  isMetaHistoryEntityType,
+  isMetaHistoryKind,
+  isMetaHistoryOutcomeFilter,
+} from "@/lib/meta/history-contract";
 import {
   toHistoryPage,
   type HistoryPage,
 } from "@/lib/zero-base/meta/history-adapter";
 
 const OUTCOME_ALL = "all";
+/** The controls' word for "no filter". Never a member of either vocabulary. */
+const FILTER_ALL = "all";
 
 export function HistoryClient({
   businessId,
@@ -71,6 +77,15 @@ export function HistoryClient({
   const [page, setPage] = useState(initialPage);
   const [query, setQuery] = useState("");
   const [outcomeFilter, setOutcomeFilter] = useState(OUTCOME_ALL);
+  /*
+   * WP12 item 9. The read model has always parsed `kind` and `entity`, and
+   * every caller passed `null`, so nine event families and eight entity types
+   * arrived as one undifferentiated stream with no way to ask for one of them.
+   * Both are server filters for the same reason `q` and `outcome` are: a
+   * page-local filter answers "no matches" for a row two pages further on.
+   */
+  const [kindFilter, setKindFilter] = useState(FILTER_ALL);
+  const [entityFilter, setEntityFilter] = useState(FILTER_ALL);
   const [failure, setFailure] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -89,6 +104,8 @@ export function HistoryClient({
     async (input: {
       nextQuery: string;
       nextOutcome: string;
+      nextKind: string;
+      nextEntity: string;
       cursor: string | null;
       append: boolean;
     }) => {
@@ -99,8 +116,10 @@ export function HistoryClient({
           businessId,
           providerAccountId,
           filters: {
-            kind: null,
-            entity: null,
+            kind: isMetaHistoryKind(input.nextKind) ? input.nextKind : null,
+            entity: isMetaHistoryEntityType(input.nextEntity)
+              ? input.nextEntity
+              : null,
             label: null,
             // `outcome`, never `label`: they are different columns, and sending
             // "failed" as a label would silently match nothing.
@@ -146,6 +165,8 @@ export function HistoryClient({
   const lastReadRef = useRef({
     query: "",
     outcome: OUTCOME_ALL,
+    kind: FILTER_ALL,
+    entity: FILTER_ALL,
     window: windowKey,
   });
 
@@ -171,6 +192,8 @@ export function HistoryClient({
     if (
       lastReadRef.current.query === query &&
       lastReadRef.current.outcome === outcomeFilter &&
+      lastReadRef.current.kind === kindFilter &&
+      lastReadRef.current.entity === entityFilter &&
       lastReadRef.current.window === windowKey
     ) {
       return;
@@ -181,11 +204,15 @@ export function HistoryClient({
         lastReadRef.current = {
           query,
           outcome: outcomeFilter,
+          kind: kindFilter,
+          entity: entityFilter,
           window: windowKey,
         };
         void read({
           nextQuery: query,
           nextOutcome: outcomeFilter,
+          nextKind: kindFilter,
+          nextEntity: entityFilter,
           // Page one of the new window. Reusing the cursor would page into the
           // old window's result set.
           cursor: null,
@@ -195,7 +222,7 @@ export function HistoryClient({
       windowChanged ? 0 : 300,
     );
     return () => clearTimeout(timer);
-  }, [outcomeFilter, query, read, windowKey]);
+  }, [entityFilter, kindFilter, outcomeFilter, query, read, windowKey]);
 
   const replayId = searchParams.get("replay");
 
@@ -228,12 +255,21 @@ export function HistoryClient({
       onQueryChange={setQuery}
       outcomeFilter={outcomeFilter}
       onOutcomeFilterChange={setOutcomeFilter}
+      kindFilter={kindFilter}
+      onKindFilterChange={setKindFilter}
+      entityFilter={entityFilter}
+      onEntityFilterChange={setEntityFilter}
       onLoadMore={
         page.nextCursor
           ? () =>
               void read({
                 nextQuery: query,
                 nextOutcome: outcomeFilter,
+                // Every filter travels on the "Load more" read too. A cursor
+                // paged without them appends unfiltered rows onto filtered
+                // ones, and one table then holds two questions' answers.
+                nextKind: kindFilter,
+                nextEntity: entityFilter,
                 cursor: page.nextCursor,
                 append: true,
               })

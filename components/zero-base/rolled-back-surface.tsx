@@ -13,12 +13,11 @@
  * screens that ARE available. It grants nothing and reads nothing; it is
  * reached only after the session and the business have already been resolved.
  */
+"use client";
+
 import Link from "next/link";
 
-const REASON_TEXT = {
-  "mode-off": "This workspace is currently rolled back to the previous console.",
-  "not-enabled": "The new console is not switched on for this workspace yet.",
-} as const;
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function RolledBackSurface({
   appPath,
@@ -27,6 +26,17 @@ export function RolledBackSurface({
   appPath: string;
   reason: "mode-off" | "not-enabled";
 }) {
+  /*
+   * Through `copy.ts`, like every other operator-facing string.
+   *
+   * This screen was written with its sentences inline, which the locale gate
+   * correctly refused: an operator who has set the console to Turkish would
+   * have been told, in English, that their workspace is rolled back — at the
+   * exact moment they are least able to work out what happened. `useCopy`
+   * resolves the language from the provider when there is one and from the
+   * cookie when there is not, which is why this is a client component.
+   */
+  const copy = useCopy();
   return (
     <main
       data-rolled-back-surface={appPath}
@@ -42,18 +52,15 @@ export function RolledBackSurface({
         lineHeight: "20px",
       }}
     >
-      <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-        This screen is not available in the previous console
-      </h1>
+      <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{copy.rolledBackTitle}</h1>
       <p role="status" style={{ margin: 0 }}>
-        {REASON_TEXT[reason]} This particular screen was introduced with the new
-        console, so there is no earlier version of it to show you — rather than
-        send you to a different screen that would answer a different question.
+        {reason === "mode-off" ? copy.rolledBackModeOff : copy.rolledBackNotEnabled}{" "}
+        {copy.rolledBackExplainer}
       </p>
       <p style={{ margin: 0 }}>
-        Everything that existed before is still where it was.{" "}
+        {copy.rolledBackEverythingElse}{" "}
         <Link href="/overview" data-ctl="live:ROLLBACK-01 overview">
-          Go to Overview
+          {copy.rolledBackGoToOverview}
         </Link>
         .
       </p>

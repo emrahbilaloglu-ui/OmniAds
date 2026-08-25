@@ -23,6 +23,14 @@ import { NON_TRANSLATABLE_TERMS, type AppLanguage } from "@/lib/i18n";
 
 export const ZERO_BASE_COPY = {
   en: {
+    /* ----------------------------------------------------------- rollback */
+    rolledBackTitle: "This screen is not available in the previous console",
+    rolledBackModeOff: "This workspace is currently rolled back to the previous console.",
+    rolledBackNotEnabled: "The new console is not switched on for this workspace yet.",
+    rolledBackExplainer:
+      "This particular screen was introduced with the new console, so there is no earlier version of it to show you — rather than send you to a different screen that would answer a different question.",
+    rolledBackEverythingElse: "Everything that existed before is still where it was.",
+    rolledBackGoToOverview: "Go to Overview",
     /* ------------------------------------------------------------- states */
     loading: "Loading…",
     notServed: "Not served",
@@ -558,6 +566,14 @@ export const ZERO_BASE_COPY = {
   },
 
   tr: {
+    /* ----------------------------------------------------------- rollback */
+    rolledBackTitle: "Bu ekran önceki konsolda yok",
+    rolledBackModeOff: "Bu çalışma alanı şu anda önceki konsola geri alınmış durumda.",
+    rolledBackNotEnabled: "Yeni konsol bu çalışma alanı için henüz açılmadı.",
+    rolledBackExplainer:
+      "Bu ekran yeni konsolla birlikte geldi; dolayısıyla gösterilebilecek daha eski bir sürümü yok — sizi başka bir soruyu yanıtlayan farklı bir ekrana göndermek yerine bunu söylüyoruz.",
+    rolledBackEverythingElse: "Önceden var olan her şey yerinde duruyor.",
+    rolledBackGoToOverview: "Genel Bakış'a git",
     loading: "Yükleniyor…",
     notServed: "Sunulmadı",
     notReported: "Bildirilmedi",

@@ -92,7 +92,11 @@ export function instrumentationV2UpgradeStatements(): string[] {
        DROP CONSTRAINT IF EXISTS product_instrumentation_events_surface_check`,
     `ALTER TABLE product_instrumentation_events
        ADD CONSTRAINT product_instrumentation_events_surface_check
-       CHECK (surface IN (${quoteList([...V1_SURFACES, ...ZERO_BASE_SURFACES])}))`,
+       CHECK (surface IN (${quoteList([
+         ...V1_SURFACES,
+         ...ZERO_BASE_SURFACES,
+         ...RATIFIED_EXTRA_SURFACES,
+       ])}))`,
 
     // 5 · v2 rows must carry the server-derived fields; v1 rows must not be
     //     retro-fitted with them. The constraint is written so both hold.
@@ -157,6 +161,23 @@ export const V1_EVENT_NAMES: readonly string[] = [
   "guarded_action_failed", "guarded_action_ambiguous", "guarded_action_reconciled",
   "mobile_tier0_started", "mobile_tier0_completed", "freshness_stale_disclosed",
 ];
+
+/**
+ * One surface the vendored contract does not name, added additively.
+ *
+ * `creative_audiences` is the fifth Creative Studio view. The archived package
+ * predates that exact screen and records `/platforms/meta/audiences` as merged
+ * into Meta Intelligence, which is why it is absent from
+ * `GENERATED_INSTRUMENTATION` and therefore from `ZERO_BASE_SURFACES`. The
+ * divergence is already ratified as `docs/adr-004-meta-audiences-destination.md`
+ * and `lib/zero-base/compatibility.ts` overrides the same record for routing;
+ * this is the telemetry half of the same decision.
+ *
+ * Additive only. `ADD CONSTRAINT ... CHECK` validates existing rows, so this
+ * allowlist may grow and may never shrink — `creative_studio` in particular
+ * stays for ever, because production rows already carry it.
+ */
+export const RATIFIED_EXTRA_SURFACES: readonly string[] = ["creative_audiences"];
 
 export const V1_SURFACES: readonly string[] = [
   "overview", "global_search", "meta_decisions", "meta_decision_inspector",

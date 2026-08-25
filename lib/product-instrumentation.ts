@@ -138,6 +138,28 @@ export const PRODUCT_INSTRUMENTATION_SURFACES = [
   "meta_history",
   "mobile",
   "system",
+  /*
+   * The Creative Studio leaves, each addressable.
+   *
+   * `creative_studio` above stays for ever: production rows carry it and the
+   * database CHECK validates existing rows, so this list may grow and may never
+   * shrink. What it could not do until now is TELL THE TABS APART — eight
+   * contracted leaves emitted one name, so per-tab adoption was unreadable from
+   * the data. Every name below is already accepted by the stored constraint
+   * (`V1_SURFACES ∪ ZERO_BASE_SURFACES ∪ RATIFIED_EXTRA_SURFACES`), which
+   * `product-instrumentation.contract.test.ts` asserts rather than assumes:
+   * emitting a name the database would reject is a 23514 in production and a
+   * green test suite here.
+   */
+  "creative_performance",
+  "creative_copies",
+  "creative_landing_pages",
+  "creative_inbox",
+  "creative_audiences",
+  "creative_briefs",
+  "creative_shares",
+  "creative_detail",
+  "share_creative",
 ] as const;
 
 export type ProductInstrumentationSurface =

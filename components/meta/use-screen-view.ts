@@ -46,14 +46,23 @@ export const INSTRUMENTATION_SURFACE_BY_SURFACE_ID: Readonly<
   "meta-history": "meta_history",
   "meta-launchpad": "launchpad",
   "meta-automation": "automation",
-  "creative-studio": "creative_studio",
-  "creative-copies": "creative_studio",
-  "creative-landing-pages": "creative_studio",
-  "creative-inbox": "creative_studio",
-  "creative-audiences": "creative_studio",
-  "creative-briefs": "creative_studio",
-  "creative-shares": "creative_studio",
-  "creative-detail": "creative_studio",
+  /*
+   * One name per tab, not one name for eight.
+   *
+   * These eight all mapped to `creative_studio`, so every Creative Studio tab
+   * emitted the same surface and per-tab adoption could not be read from the
+   * data at all. Each contracted leaf now carries its own contracted name; the
+   * old collapsed value stays in the vocabulary because production rows hold
+   * it and the stored CHECK validates existing rows.
+   */
+  "creative-studio": "creative_performance",
+  "creative-copies": "creative_copies",
+  "creative-landing-pages": "creative_landing_pages",
+  "creative-inbox": "creative_inbox",
+  "creative-audiences": "creative_audiences",
+  "creative-briefs": "creative_briefs",
+  "creative-shares": "creative_shares",
+  "creative-detail": "creative_detail",
   "manage-integrations": "integrations",
 };
 

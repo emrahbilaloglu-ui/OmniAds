@@ -22,10 +22,14 @@
  * `GENERATED_INSTRUMENTATION` names 74 leaves — `meta_launchpad`,
  * `manage_integrations`, `creative_copies`, `creative_landing_pages` — while
  * `PRODUCT_INSTRUMENTATION_SURFACES`, the allowlist the sink validates against,
- * names 15 coarser ones — `launchpad`, `integrations`, and a single
- * `creative_studio` covering eight contracted leaves. (Fifteen, counted from
- * `lib/product-instrumentation.ts`; an earlier revision of this comment said
- * sixteen and nothing asserted the number, so the count is now a test below.)
+ * named 15 coarser ones — `launchpad`, `integrations`, and a single
+ * `creative_studio` covering eight contracted leaves.
+ *
+ * That collapse is CLOSED as of the Creative-leaf widening: each contracted
+ * leaf now has its own runtime name, and `product-instrumentation.contract.test.ts`
+ * holds the two allowlists to each other so a name the validator accepts can
+ * never be one the stored CHECK would refuse. What remains below is the
+ * classification of the leaves this plan does not own.
  *
  * They were never reconciled, and the consequence is measurable rather than
  * theoretical: per-tab adoption inside Creative Studio cannot be read from this
@@ -129,12 +133,15 @@ describe("the instrumentation contract says what it says", () => {
     ]);
   });
 
-  it("has 15 runtime surface names, counted rather than remembered", () => {
+  it("has 24 runtime surface names, counted rather than remembered", () => {
     /*
-     * The prose above said sixteen for a while and nothing checked it. A count
-     * that appears in a comment and in no assertion is a number that drifts.
+     * Fifteen when this check was written, and the prose before it said sixteen
+     * — a count that appears in a comment and in no assertion is a number that
+     * drifts. Twenty-four now: the nine Creative leaves were added so the tabs
+     * could be told apart, additively, keeping `creative_studio` because
+     * production rows carry it.
      */
-    expect(PRODUCT_INSTRUMENTATION_SURFACES).toHaveLength(15);
+    expect(PRODUCT_INSTRUMENTATION_SURFACES).toHaveLength(24);
   });
 
   it("records that the public share leaf is contracted as NOT anonymous", () => {

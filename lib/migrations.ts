@@ -14394,12 +14394,23 @@ export async function runMigrations(options?: {
                               'mobile_tier0_started', 'mobile_tier0_completed', 'freshness_stale_disclosed',
                               'screen_view'
                             )),
+          -- Kept in step with PRODUCT_INSTRUMENTATION_SURFACES, and cosmetic on
+          -- any database that already has this table: CREATE TABLE IF NOT
+          -- EXISTS is a no-op there, and instrumentationV2UpgradeStatements()
+          -- rebuilds this constraint from
+          -- V1_SURFACES u ZERO_BASE_SURFACES u RATIFIED_EXTRA_SURFACES a few
+          -- statements later. The list stays accurate anyway, so a reader here
+          -- is not told something false about what the column accepts.
           surface           TEXT NOT NULL CHECK (surface IN (
                               'overview', 'global_search', 'meta_decisions',
                               'meta_decision_inspector', 'creative_studio', 'reports',
                               'google_ads', 'integrations', 'settings', 'launchpad',
                               'automation', 'meta_intelligence', 'meta_history',
-                              'mobile', 'system'
+                              'mobile', 'system',
+                              'creative_performance', 'creative_copies',
+                              'creative_landing_pages', 'creative_inbox',
+                              'creative_audiences', 'creative_briefs',
+                              'creative_shares', 'creative_detail', 'share_creative'
                             )),
           outcome           TEXT NOT NULL CHECK (outcome IN ('ok', 'failed', 'withheld')),
           provider          TEXT CHECK (provider IS NULL OR provider IN ('meta', 'google')),

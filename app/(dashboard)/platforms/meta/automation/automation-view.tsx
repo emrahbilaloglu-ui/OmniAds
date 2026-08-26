@@ -1008,6 +1008,14 @@ export function MetaAutomationView({
     null,
   );
   const [stopTyped, setStopTyped] = useState("");
+  /**
+   * Why a confirmation that was open is no longer being sent.
+   *
+   * Not an error and not a refusal of the operator: the state the confirmation
+   * was made against changed after they read it. Said out loud, because a form
+   * that closes silently reads as a click that was lost.
+   */
+  const [stopAborted, setStopAborted] = useState<string | null>(null);
 
   /**
    * The ceremony, resolved from the same reading the screen is drawn from.
@@ -1062,7 +1070,20 @@ export function MetaAutomationView({
         },
       })
     : null;
-  const stopPhrase = stopIntent === "engage" ? "STOP META" : "RESUME META";
+  /**
+   * The phrase, per DIRECTION rather than per payload.
+   *
+   * `stopPhrase` used to be derived from `stopIntent`, which is read from the
+   * payload every render, while the form posted the direction captured when it
+   * was opened. Those are two different facts, and when the payload moved
+   * underneath an open form they disagreed: the label read "Type RESUME META to
+   * stop Meta automation for this business", and typing the phrase on screen
+   * submitted the OTHER direction. Everything the form says and does now comes
+   * from `stopConfirm`.
+   */
+  const stopPhraseFor = (direction: "engage" | "release") =>
+    direction === "engage" ? "STOP META" : "RESUME META";
+  const stopPhrase = stopPhraseFor(stopConfirm ?? stopIntent);
 
   const onStopControl = useCallback(
     (action: "engage_kill_switch" | "release_kill_switch") => {
@@ -1508,6 +1529,7 @@ export function MetaAutomationView({
                   onClick={() => {
                     if (stopCeremony.blocker || !viewer.canMutate || stopPending) return;
                     setStopTyped("");
+                    setStopAborted(null);
                     setStopConfirm("release");
                   }}
                 >
@@ -1565,6 +1587,7 @@ export function MetaAutomationView({
                     )
                       return;
                     setStopTyped("");
+                    setStopAborted(null);
                     setStopConfirm("engage");
                   }}
                 >
@@ -1587,22 +1610,73 @@ export function MetaAutomationView({
                 data-stop-confirm={stopConfirm}
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (stopTyped.trim().toUpperCase() !== stopPhrase) return;
+                  const direction = stopConfirm;
+                  if (stopTyped.trim().toUpperCase() !== stopPhraseFor(direction))
+                    return;
+                  /*
+                   * Re-resolved at SUBMIT, against the payload as it is now and
+                   * the clock as it is now.
+                   *
+                   * The render-time resolution is a statement about the moment
+                   * the form opened. Typing takes time: the preflight can age
+                   * past `STOP_PREFLIGHT_MAX_AGE_MS` while the operator is
+                   * typing, and nothing re-renders when a clock passes a
+                   * boundary — so without this the confirmation would be made
+                   * against a reading the surface itself would now refuse. And
+                   * if the payload moved, the direction the operator opened may
+                   * no longer be the one the system permits; posting it anyway
+                   * would act on a state that changed after they read it.
+                   */
+                  const atSubmit = resolveStopCeremony({
+                    intent: direction,
+                    viewer: {
+                      role: viewer.role,
+                      isReviewer: viewer.reviewerReadOnly,
+                      demo: viewer.demo,
+                    },
+                    currentlyEngaged: sectionIsComplete(payload, "businessControl")
+                      ? stopEngaged
+                      : null,
+                    gateClosedReason: stopEngageRefusalReason ?? null,
+                    preflight: payload?.sections?.businessControl ?? null,
+                    readBack: null,
+                    now: Date.now(),
+                  });
+                  if (atSubmit.blocker) {
+                    setStopConfirm(null);
+                    setStopTyped("");
+                    setStopAborted(atSubmit.blocker.message);
+                    return;
+                  }
+                  // The direction the system currently permits must still be
+                  // the one being confirmed. `stopIntent` is derived from the
+                  // payload, so this is the payload-moved case.
+                  if (stopIntent !== direction) {
+                    setStopConfirm(null);
+                    setStopTyped("");
+                    setStopAborted(
+                      direction === "engage"
+                        ? "Meta automation was already stopped while this confirmation was open, so nothing was sent. Re-read the state and choose again."
+                        : "Meta automation was already running again while this confirmation was open, so nothing was sent. Re-read the state and choose again.",
+                    );
+                    return;
+                  }
+                  setStopAborted(null);
                   setStopConfirm(null);
                   onStopControl(
-                    stopConfirm === "engage"
+                    direction === "engage"
                       ? "engage_kill_switch"
                       : "release_kill_switch",
                   );
                 }}
               >
                 <label>
-                  Type <b>{stopPhrase}</b> to{" "}
+                  Type <b>{stopPhraseFor(stopConfirm)}</b> to{" "}
                   {stopConfirm === "engage"
                     ? "stop Meta automation for this business"
                     : "resume Meta automation for this business"}
                   <input
-                    aria-label={`Type ${stopPhrase} to confirm`}
+                    aria-label={`Type ${stopPhraseFor(stopConfirm)} to confirm`}
                     autoComplete="off"
                     data-stop-confirm-input=""
                     onChange={(event) => setStopTyped(event.target.value)}
@@ -1612,7 +1686,9 @@ export function MetaAutomationView({
                 <span>
                   <button
                     data-stop-confirm-submit=""
-                    disabled={stopTyped.trim().toUpperCase() !== stopPhrase}
+                    disabled={
+                      stopTyped.trim().toUpperCase() !== stopPhraseFor(stopConfirm)
+                    }
                     type="submit"
                   >
                     {stopConfirm === "engage" ? "Stop Meta automation" : "Resume"}
@@ -1646,6 +1722,16 @@ export function MetaAutomationView({
                 role="note"
               >
                 {stopCeremony.blocker.message}
+              </p>
+            ) : null}
+            {/*
+              A confirmation that was abandoned because the state moved.
+              `role="status"`, not `alert`: nothing went wrong and nothing was
+              sent — the operator is being told why the form closed.
+            */}
+            {stopAborted ? (
+              <p className={styles.killNote} data-stop-aborted="" role="status">
+                {stopAborted}
               </p>
             ) : null}
             {stopEngageRefusalReason && !stopEngaged && !stopCeremony.blocker ? (

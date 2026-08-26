@@ -476,3 +476,153 @@ describe("nothing here reaches a provider", () => {
     expect(container.textContent).toContain("dry run only");
   });
 });
+
+/**
+ * The confirmation is made in ONE direction, against ONE reading.
+ *
+ * Both facts could move while the form was open. The phrase was derived from
+ * the payload every render while the submitted action came from the direction
+ * captured when the form opened, so a payload that moved underneath produced a
+ * label reading "Type RESUME META to stop Meta automation for this business" —
+ * and typing the phrase on screen submitted the other direction. The reading's
+ * age could also cross the five-minute window while the operator typed, and
+ * nothing re-renders when a clock passes a boundary, so the confirmation would
+ * have been made against a reading the surface itself would now refuse.
+ */
+describe("a confirmation that was overtaken sends nothing", () => {
+  /** Open the ceremony and type its phrase. Returns the container. */
+  function openAndType(container: HTMLElement, phrase: string) {
+    fireEvent.click(container.querySelector("[data-stop-trigger]")!);
+    fireEvent.change(container.querySelector("[data-stop-confirm-input]")!, {
+      target: { value: phrase },
+    });
+  }
+
+  it("keeps the phrase and the copy in the direction the form was opened in", () => {
+    wire();
+    const { container, rerender } = mount(controlPlane({}));
+    openAndType(container, "STOP META");
+
+    // The payload moves underneath: something else stopped automation.
+    rerender(
+      <MetaAutomationPage
+        businessId="biz_1"
+        initialPayload={controlPlane({ engaged: true })}
+        providerAccountId="act_1"
+        stopEngageRefusalReason={null}
+        viewer={ADMIN}
+      />,
+    );
+
+    const form = container.querySelector("[data-stop-confirm]")!;
+    expect(form.getAttribute("data-stop-confirm")).toBe("engage");
+    // Every word still describes the direction being confirmed.
+    expect(
+      container.querySelector("[data-stop-confirm-input]")!.getAttribute("aria-label"),
+    ).toBe("Type STOP META to confirm");
+    expect(form.textContent).toContain("STOP META");
+    expect(form.textContent).not.toContain("RESUME META");
+    // And the typed phrase still enables the submit, because it is still the
+    // phrase for this direction.
+    expect(
+      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("refuses and sends nothing when the payload flipped direction while open", () => {
+    const server = wire();
+    const { container, rerender } = mount(controlPlane({}));
+    openAndType(container, "STOP META");
+
+    rerender(
+      <MetaAutomationPage
+        businessId="biz_1"
+        initialPayload={controlPlane({ engaged: true })}
+        providerAccountId="act_1"
+        stopEngageRefusalReason={null}
+        viewer={ADMIN}
+      />,
+    );
+    fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
+
+    expect(server.posts, "a request was made for a state that had moved").toEqual([]);
+    // Closed, and said why. A form that closes silently reads as a lost click.
+    expect(container.querySelector("[data-stop-confirm]")).toBeNull();
+    const aborted = container.querySelector("[data-stop-aborted]");
+    expect(aborted).not.toBeNull();
+    expect(aborted!.textContent).toContain("already stopped");
+    expect(aborted!.textContent).toContain("nothing was sent");
+  });
+
+  it("refuses and sends nothing when the reading aged out after typing", () => {
+    const server = wire();
+    /*
+     * A controllable clock, not fake timers: the resolver measures the
+     * reading's age with `Date.now()`, and `waitFor` cannot run under fake
+     * timers. Rendering happens at T0 with a fresh reading; the submit happens
+     * after the window has passed, with no re-render in between — which is
+     * exactly the case the render-time resolution cannot see.
+     */
+    let clock = NOW;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const { container } = mount(
+      controlPlane({ observedAt: new Date(NOW - 30_000).toISOString() }),
+    );
+
+    // Fresh at open: the ceremony is offered and the phrase is accepted.
+    expect(container.querySelector("[data-stop-blocked]")).toBeNull();
+    openAndType(container, "STOP META");
+    expect(
+      (container.querySelector("[data-stop-confirm-submit]") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    clock = NOW + STOP_PREFLIGHT_MAX_AGE_MS + 60_000;
+    fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
+
+    expect(server.posts, "a stale confirmation reached the server").toEqual([]);
+    expect(container.querySelector("[data-stop-confirm]")).toBeNull();
+    const aborted = container.querySelector("[data-stop-aborted]");
+    expect(aborted).not.toBeNull();
+    // The resolver's own sentence, naming the instant and the window.
+    expect(aborted!.textContent).toContain("older than");
+    expect(aborted!.textContent).toContain("Re-read the control plane");
+  });
+
+  it("still sends when nothing moved", () => {
+    const server = wire();
+    const { container } = mount(controlPlane({}));
+    openAndType(container, "STOP META");
+    fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
+
+    expect(server.posts).toHaveLength(1);
+    expect(server.posts[0]!.body).toMatchObject({ action: "engage_kill_switch" });
+    expect(container.querySelector("[data-stop-aborted]")).toBeNull();
+  });
+
+  it("clears a previous abort notice when the ceremony is opened again", () => {
+    wire();
+    const { container, rerender } = mount(controlPlane({}));
+    openAndType(container, "STOP META");
+    rerender(
+      <MetaAutomationPage
+        businessId="biz_1"
+        initialPayload={controlPlane({ engaged: true })}
+        providerAccountId="act_1"
+        stopEngageRefusalReason={null}
+        viewer={ADMIN}
+      />,
+    );
+    fireEvent.submit(container.querySelector("[data-stop-confirm]")!);
+    expect(container.querySelector("[data-stop-aborted]")).not.toBeNull();
+
+    // The trigger now offers RELEASE, which an admin may take.
+    fireEvent.click(container.querySelector("[data-stop-trigger]")!);
+
+    expect(container.querySelector("[data-stop-aborted]")).toBeNull();
+    expect(
+      container.querySelector("[data-stop-confirm]")!.getAttribute("data-stop-confirm"),
+    ).toBe("release");
+  });
+});

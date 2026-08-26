@@ -184,7 +184,7 @@ export function IntelligenceView({
                 </span>
                 {/*
                   The respond control, on the section that owns it.
-                  
+
                   It used to render on EVERY row whenever an `onRespond` prop
                   was passed — which no page ever did — and offered
                   `acknowledged | acted | dismissed`, two of which the backend

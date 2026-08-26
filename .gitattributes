@@ -1,0 +1,12 @@
+# Whitespace rules for `git diff --check` (see scripts/verify-whitespace.sh).
+#
+# Everything gets git's default checks: trailing whitespace, space-before-tab,
+# and a missing newline at end of file.
+#
+# Markdown is the one exception, and only for trailing space. Two spaces at the
+# end of a Markdown line are a hard line break — real syntax, used deliberately
+# in the master plan's header block — and git cannot tell an intentional pair
+# from an accidental one. Flagging them would push a gate toward either
+# reformatting a document somebody wrote on purpose or being switched off.
+# space-before-tab and the missing-final-newline check still apply.
+*.md whitespace=-trailing-space

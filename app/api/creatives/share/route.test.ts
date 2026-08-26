@@ -30,11 +30,24 @@ vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 const access = await import("@/lib/access");
 const shareStore = await import("@/lib/creative-share-store");
 const clientActionFeed = await import("@/lib/creatives/client-action-feed");
 const reviewerGuard = await import("@/lib/meta/reviewer-write-guard");
 const creativeFetchers = await import("@/lib/meta/creatives-fetchers");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const { GET, POST } = await import("@/app/api/creatives/share/route");
 const TOKEN = "a".repeat(32);
 
@@ -314,4 +327,26 @@ describe("POST /api/creatives/share", () => {
     );
     expect(shareStore.createCreativeShareSnapshot).not.toHaveBeenCalled();
   });
+  /*
+   * LAW: WP11's Public Share acceptance names reviewer AND demo refusal, and
+   * this route had only the reviewer half. A share token is the most durable
+   * artifact the product mints — it leaves the workspace, it outlives the
+   * conversation, and a buyer-audience share carries provider-reported money.
+   */
+  for (const [authority, status, code] of [
+    ["demo", 403, "demo_business_read_only"],
+    ["unverified", 503, "demo_status_unverified"],
+    ["not_established", 503, "demo_status_unverified"],
+  ] as const) {
+    it(`refuses ${authority} with no token minted`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await POST(postRequest(baseBody));
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(shareStore.createCreativeShareSnapshot).not.toHaveBeenCalled();
+    });
+  }
+
 });

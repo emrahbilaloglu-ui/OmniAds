@@ -31,11 +31,24 @@ vi.mock("@/lib/reviewer-access", () => ({
   isReviewerEmail: vi.fn(),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 const access = await import("@/lib/access");
 const commercialTruth = await import("@/lib/business-commercial");
 const demoBusiness = await import("@/lib/demo-business");
 const snapshotRefresh = await import("@/lib/meta/snapshot-refresh");
 const reviewerAccess = await import("@/lib/reviewer-access");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const { GET, POST, PUT } =
   await import("@/app/api/business-commercial-settings/route");
 
@@ -105,6 +118,7 @@ describe("business commercial settings route", () => {
     });
     vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reviewerAccess.isReviewerEmail).mockReturnValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
     vi.mocked(
       snapshotRefresh.requestMetaSnapshotRefreshForBusiness,
     ).mockResolvedValue({
@@ -134,8 +148,17 @@ describe("business commercial settings route", () => {
     });
   });
 
-  it("keeps the seeded reviewer read-only on the canonical demo business", async () => {
-    vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(true);
+  /*
+   * The reviewer refusal, widened to what the plan actually asks for.
+   *
+   * It used to fire only when the caller was BOTH the reviewer email AND on
+   * the well-known demo id, so a reviewer could write commercial truth on any
+   * other workspace. §18 puts the reviewer/demo guard on every Meta server
+   * write route, and `rejectIfReviewerReadOnly` is that guard — it refuses the
+   * reviewer wherever they are.
+   */
+  it("keeps the seeded reviewer read-only on ANY business, not only the demo one", async () => {
+    vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reviewerAccess.isReviewerEmail).mockReturnValue(true);
 
     const response = await PUT(
@@ -150,11 +173,66 @@ describe("business commercial settings route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(403);
-    expect(payload.error).toBe("forbidden");
+    expect(payload.error.code).toBe("reviewer_read_only");
     expect(
       commercialTruth.upsertBusinessCommercialTruthSnapshot,
     ).not.toHaveBeenCalled();
   });
+
+  /*
+   * LAW: a demo workspace has zero Meta write authority. The commercial truth
+   * snapshot carries the hard-action anchors INVARIANTS names — target_roas,
+   * break_even_roas, target_cpa, break_even_cpa — so writing it for a demo
+   * workspace changes what the engine is allowed to do.
+   *
+   * The check this replaced was neither: it compared one hard-coded id, and it
+   * fired only for the reviewer email, so a demo ADMIN passed it.
+   */
+  for (const [authority, status, code] of [
+    ["demo", 403, "demo_business_read_only"],
+    ["unverified", 503, "demo_status_unverified"],
+    ["not_established", 503, "demo_status_unverified"],
+  ] as const) {
+    it(`PUT refuses ${authority} with nothing written`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await PUT(
+        new NextRequest("http://localhost/api/business-commercial-settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            businessId: "biz",
+            snapshot: { businessId: "biz" },
+            expectedRevision: "a".repeat(64),
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(
+        commercialTruth.upsertBusinessCommercialTruthSnapshot,
+      ).not.toHaveBeenCalled();
+    });
+
+    it(`POST refuses ${authority} with no reconfirmation`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await POST(
+        new NextRequest("http://localhost/api/business-commercial-settings", {
+          method: "POST",
+          body: JSON.stringify({
+            businessId: "biz",
+            action: "reconfirm_target_pack",
+            expectedUpdatedAt: "2026-05-16T00:00:00.000Z",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(commercialTruth.reconfirmBusinessTargetPack).not.toHaveBeenCalled();
+    });
+  }
 
   it("passes collaborator saves through to the upsert helper", async () => {
     const response = await PUT(

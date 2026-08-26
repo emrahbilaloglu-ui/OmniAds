@@ -8,6 +8,7 @@ import {
   rotateCreativeShareSnapshot,
 } from "@/lib/creative-share-store";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import { normalizeCreativeShareToken } from "@/lib/creative-share-link";
 import { toPublicShare } from "@/lib/zero-base/creative/public-share";
 
@@ -63,6 +64,21 @@ export async function DELETE(
   if ("error" in access) return access.error;
   const reviewerBlocked = rejectIfReviewerReadOnly(access, "creative_share_revoke");
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * Demo authority on the withdrawal paths too.
+   *
+   * Revoking, rotating and deleting are writes against the share ledger, and a
+   * demo workspace has no rows there that a real operator issued. Note the
+   * release gate is deliberately NOT applied to withdrawal — taking a link
+   * back must never depend on a rollout flag — but WRITE AUTHORITY is a
+   * different question, and a workspace with none has none in either
+   * direction. Fail-closed.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "creative_share_revoke",
+  );
+  if (demoBlocked) return demoBlocked;
   const capability = await getCreativeShareLedgerCapability();
   if (!capability.canWrite) {
     return NextResponse.json(
@@ -112,6 +128,12 @@ export async function POST(
     action === "delete" ? "creative_share_delete" : "creative_share_rotate",
   );
   if (reviewerBlocked) return reviewerBlocked;
+  // The same authority for rotate and delete. See DELETE above.
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    action === "delete" ? "creative_share_delete" : "creative_share_rotate",
+  );
+  if (demoBlocked) return demoBlocked;
   const capability = await getCreativeShareLedgerCapability();
   if (!capability.canWrite) {
     return NextResponse.json(

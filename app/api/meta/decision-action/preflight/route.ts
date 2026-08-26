@@ -1,6 +1,7 @@
 import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
@@ -93,6 +94,22 @@ async function decisionBoundPreflight(
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  /*
+   * Demo authority, before the receipt exists.
+   *
+   * This route contacts no provider, and that is not the test. It issues a
+   * RECEIPT and a typed dispatch descriptor — the artifact whose whole purpose
+   * is to say an action is cleared to run — and it writes a durable
+   * instrumentation row. INVARIANTS gives a demo workspace "null authorized
+   * action" and "false action eligibility", so telling one that its action is
+   * prepared is exactly the claim it forbids. Fail-closed.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "decision_action_preflight",
+  );
+  if (demoBlocked) return demoBlocked;
 
   const parsed = parseDecisionKey(decisionKey);
   if (!parsed) return refuse("decision_not_actionable", 422);
@@ -322,6 +339,22 @@ export async function POST(request: NextRequest) {
   // though nothing is written, so a viewer cannot probe write readiness.
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  /*
+   * Demo authority, before the receipt exists.
+   *
+   * This route contacts no provider, and that is not the test. It issues a
+   * RECEIPT and a typed dispatch descriptor — the artifact whose whole purpose
+   * is to say an action is cleared to run — and it writes a durable
+   * instrumentation row. INVARIANTS gives a demo workspace "null authorized
+   * action" and "false action eligibility", so telling one that its action is
+   * prepared is exactly the claim it forbids. Fail-closed.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "decision_action_preflight",
+  );
+  if (demoBlocked) return demoBlocked;
 
   // Refused rather than silently ignored: a caller that believed its expected
   // state was honoured would otherwise get a pass it did not earn.

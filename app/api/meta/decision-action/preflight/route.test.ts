@@ -19,6 +19,18 @@ vi.mock("@/lib/meta/account-context", () => ({
     typeof value === "string" && value.trim() ? value.trim().toUpperCase() : null,
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 import { POST } from "@/app/api/meta/decision-action/preflight/route";
 
 function request(body: unknown) {
@@ -36,7 +48,7 @@ const validBody = {
 describe("preflight route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
+    requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     getDbSchemaReadiness.mockResolvedValue({ ready: true });
     query.mockResolvedValue([
       {
@@ -166,7 +178,7 @@ describe("decision-bound preflight", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
+    requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     getDbSchemaReadiness.mockResolvedValue({ ready: true });
     fetchAssignedAccountIds.mockResolvedValue(["act_1"]);
     getMetaAccountContext.mockResolvedValue({ accountProfiles: { act_1: { currency: "USD" } } });
@@ -364,7 +376,7 @@ describe("decision-bound preflight", () => {
 describe("legacy preflight is untouched by the new modes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
+    requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     getDbSchemaReadiness.mockResolvedValue({ ready: true });
     query.mockResolvedValue([
       {

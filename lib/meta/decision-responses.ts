@@ -170,6 +170,22 @@ export async function runMetaDecisionIgnoredMarker(input?: {
     FROM meta_decision_snapshots_daily snapshot
     WHERE COALESCE(snapshot.kind, 'recommendation') = 'recommendation'
       AND snapshot.created_at < (${now.toISOString()}::timestamptz - interval '7 days')
+      -- Demo workspaces are excluded here rather than at a route, because this
+      -- writer HAS no route: it runs from the sync cron across every business
+      -- in the database. A demo workspace has zero Meta write authority, and an
+      -- automatic ignored stamp is a durable operator-decision row that
+      -- lib/meta/outcome-accrual.ts later reads back.
+      --
+      -- IS NOT TRUE rather than = false, and EXISTS rather than a LEFT JOIN:
+      -- a snapshot row whose business has since disappeared must not be
+      -- stamped either. The column is NOT NULL DEFAULT FALSE today, so this is
+      -- belt and braces on a value that cannot currently be null.
+      AND EXISTS (
+        SELECT 1
+        FROM businesses business
+        WHERE business.id = snapshot.business_id
+          AND business.is_demo_business IS NOT TRUE
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM meta_decision_responses response

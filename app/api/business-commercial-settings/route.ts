@@ -7,19 +7,10 @@ import {
   reconfirmBusinessTargetPack,
   upsertBusinessCommercialTruthSnapshot,
 } from "@/lib/business-commercial";
-import { isDemoBusinessId } from "@/lib/demo-business";
 import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
-import { isReviewerEmail } from "@/lib/reviewer-access";
-
-function readOnlyReasonForRequest(input: {
-  businessId: string;
-  email: string | null | undefined;
-}) {
-  if (isDemoBusinessId(input.businessId) && isReviewerEmail(input.email)) {
-    return "The seeded reviewer remains read-only on the canonical demo business.";
-  }
-  return null;
-}
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 
 const STRICT_ISO_TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/;
@@ -105,10 +96,24 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const snapshot = await getBusinessCommercialTruthSnapshot(businessId);
-  const readOnlyReason = readOnlyReasonForRequest({
-    businessId,
-    email: access.session.user.email,
-  });
+  /*
+   * What the screen may OFFER, restated from the same two authorities the
+   * write path enforces — never a third opinion.
+   *
+   * The reviewer half is `rejectIfReviewerReadOnly`'s own test, and the demo
+   * half is the fail-closed read. A GET must not be refused for either: a
+   * reviewer and a demo operator may both READ commercial truth, and telling
+   * them so before the click is the point of this field.
+   */
+  const reviewerReadOnly = Boolean(rejectIfReviewerReadOnly(access, "commercial_truth_update"));
+  const writeAuthority = await readLaunchpadWriteAuthority(access.membership.businessId);
+  const readOnlyReason = reviewerReadOnly
+    ? "Reviewer access is read-only; commercial truth cannot be edited."
+    : writeAuthority === "demo"
+      ? "Demo workspaces have zero Meta write authority, so commercial truth is read-only here."
+      : writeAuthority !== "live"
+        ? "This workspace could not be confirmed as a live workspace, so commercial truth is held read-only."
+        : null;
 
   return NextResponse.json({
     snapshot,
@@ -143,16 +148,19 @@ export async function PUT(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const readOnlyReason = readOnlyReasonForRequest({
-    businessId,
-    email: access.session.user.email,
-  });
-  if (readOnlyReason) {
-    return NextResponse.json(
-      { error: "forbidden", message: readOnlyReason },
-      { status: 403 },
-    );
-  }
+  /*
+   * The reviewer floor, and the same one every sibling Meta write route uses.
+   *
+   * This was a narrower, hand-rolled check: refuse only when the caller was
+   * BOTH the reviewer email AND on the well-known demo id. It therefore let a
+   * reviewer write commercial truth on any other workspace, and it answered
+   * the demo question with `isDemoBusinessId`, an id comparison that never
+   * reads `businesses.is_demo_business`. The plan's §18 says the reviewer/demo
+   * guard belongs on every Meta server write route; this is that guard, and
+   * the demo half is the fail-closed authority below.
+   */
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, "commercial_truth_update");
+  if (reviewerBlocked) return reviewerBlocked;
 
   if (!isPlainObject(body?.snapshot)) {
     return NextResponse.json(
@@ -188,6 +196,21 @@ export async function PUT(request: NextRequest) {
       { status: 422 },
     );
   }
+
+  /*
+   * Demo authority, before the first durable write.
+   *
+   * The commercial truth snapshot is what `INVARIANTS.md` calls the hard-action
+   * anchor: `target_roas`, `break_even_roas`, `target_cpa`, `break_even_cpa`.
+   * Writing it for a demo workspace changes what the recommendation engine is
+   * allowed to do, and the engine then runs on the next snapshot. Read against
+   * the SERVER's resolved business id, and fail-closed on an unreadable flag.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "commercial_truth_update",
+  );
+  if (demoBlocked) return demoBlocked;
 
   let snapshot;
   try {
@@ -259,16 +282,19 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const readOnlyReason = readOnlyReasonForRequest({
-    businessId,
-    email: access.session.user.email,
-  });
-  if (readOnlyReason) {
-    return NextResponse.json(
-      { error: "forbidden", message: readOnlyReason },
-      { status: 403 },
-    );
-  }
+  /*
+   * The reviewer floor, and the same one every sibling Meta write route uses.
+   *
+   * This was a narrower, hand-rolled check: refuse only when the caller was
+   * BOTH the reviewer email AND on the well-known demo id. It therefore let a
+   * reviewer write commercial truth on any other workspace, and it answered
+   * the demo question with `isDemoBusinessId`, an id comparison that never
+   * reads `businesses.is_demo_business`. The plan's §18 says the reviewer/demo
+   * guard belongs on every Meta server write route; this is that guard, and
+   * the demo half is the fail-closed authority below.
+   */
+  const reviewerBlocked = rejectIfReviewerReadOnly(access, "target_pack_reconfirm");
+  if (reviewerBlocked) return reviewerBlocked;
 
   if (body?.action !== "reconfirm_target_pack") {
     return NextResponse.json(
@@ -306,6 +332,17 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  /*
+   * The same boundary for reconfirmation. It stamps a fresh confirmation on
+   * the target pack, which is what maturity and hard-action gates read as
+   * proof the anchors are current — a durable write by any measure.
+   */
+  const reconfirmDemoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "target_pack_reconfirm",
+  );
+  if (reconfirmDemoBlocked) return reconfirmDemoBlocked;
 
   const reconfirmation = await reconfirmBusinessTargetPack({
     businessId,

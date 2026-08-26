@@ -9,6 +9,7 @@ import {
   listMetaCreativeBriefs,
 } from "@/lib/meta/creative-brief-store";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import {
   META_CREATIVE_BRIEF_NO_STORE_HEADERS,
   creativeBriefDomainError,
@@ -117,6 +118,20 @@ export async function POST(request: NextRequest) {
     "meta_creative_brief_create",
   );
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * Demo authority, before the brief row exists.
+   *
+   * A brief is a durable local artifact carrying a verified source decision —
+   * the record that a decision authorized creative work, which Creative Studio
+   * reads back as lineage. INVARIANTS is explicit that a demo workspace has
+   * null authorized action and false action eligibility, so minting one is the
+   * thing it forbids; reaching no provider is not the test. Fail-closed.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    scope.businessId,
+    "meta_creative_brief_create",
+  );
+  if (demoBlocked) return demoBlocked;
 
   try {
     const capability = await getMetaCreativeBriefCapability();

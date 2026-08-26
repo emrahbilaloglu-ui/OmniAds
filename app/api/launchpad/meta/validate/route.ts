@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import { buildValidationPreflightDisclosure } from "@/lib/launchpad/validation-preflight-disclosure";
 import {
   metaLaunchAccountBlockerHttpStatus,
@@ -49,6 +50,27 @@ export async function POST(request: NextRequest) {
   const businessId = body?.businessId?.trim() ?? "";
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) return access.response;
+  /*
+   * Demo authority on a route that writes nothing.
+   *
+   * Deliberate, and the reasoning matters. This is a PREFLIGHT: it persists
+   * nothing and contacts no provider on this branch. What it does do is answer
+   * "is this launch cleared" — it returns the account's billing status, its
+   * pixel list and a preflight disclosure of which provider reads were
+   * consulted. INVARIANTS gives a demo workspace "false exact-Ad execution
+   * eligibility", so telling one that its launch validates is the claim
+   * itself, not a step toward it; and the pixel/billing detail is real
+   * workspace state that a demo session has no business reading.
+   *
+   * Fail-closed, like every other authority in this family. Reviewers are NOT
+   * refused here: reading a validation is a read, and the reviewer floor is
+   * about writes.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.businessId,
+    "launchpad_validate",
+  );
+  if (demoBlocked) return demoBlocked;
   const account = await resolveAssignedMetaLaunchAccount({
     businessId: access.businessId,
     providerAccountId: body?.providerAccountId,

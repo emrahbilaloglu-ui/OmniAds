@@ -7,6 +7,7 @@ import {
   type MetaCampaignLabelInput,
 } from "@/lib/meta/campaign-labels";
 import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,22 @@ export async function PUT(request: NextRequest) {
   if ("error" in access) return access.error;
   const reviewerBlocked = rejectIfReviewerReadOnly(access, "campaign_labels_update");
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * Demo authority, before the FIRST durable write — the label rows, not the
+   * snapshot refresh that follows them.
+   *
+   * Main/Test/Mixed labels are not cosmetic: `INVARIANTS.md` makes them a
+   * precondition for hard action semantics, and this route then runs the
+   * recommendation engine inline. A demo workspace has zero Meta write
+   * authority, and the refusal has to sit above both.
+   *
+   * Role, then reviewer, then demo, against the SERVER's resolved business id.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "campaign_labels_update",
+  );
+  if (demoBlocked) return demoBlocked;
 
   try {
     const written = await writeMetaCampaignLabels({

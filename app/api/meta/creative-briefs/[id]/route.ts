@@ -8,6 +8,7 @@ import {
   readMetaCreativeBrief,
 } from "@/lib/meta/creative-brief-store";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import {
   META_CREATIVE_BRIEF_NO_STORE_HEADERS,
   creativeBriefDomainError,
@@ -112,6 +113,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     "meta_creative_brief_update",
   );
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * The same boundary on the update path. A patched brief is the same durable
+   * artifact with different contents; a demo workspace may not write either.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    scope.businessId,
+    "meta_creative_brief_update",
+  );
+  if (demoBlocked) return demoBlocked;
 
   try {
     const capability = await getMetaCreativeBriefCapability();

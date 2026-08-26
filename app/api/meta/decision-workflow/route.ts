@@ -4,7 +4,7 @@ import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { findMembership, requireBusinessAccess } from "@/lib/access";
 import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import {
   applyWorkflowTransition,
   newWorkflowRecord,
@@ -191,16 +191,26 @@ export async function POST(request: NextRequest) {
   );
   if (reviewerBlocked) return reviewerBlocked;
 
-  if (await isDemoBusiness(businessId).catch(() => false)) {
-    return NextResponse.json(
-      {
-        error: "demo_business_read_only",
-        message:
-          "The demo workspace has no workflow authority; nothing was recorded.",
-      },
-      { status: 403 },
-    );
-  }
+  /*
+   * FAIL-CLOSED, which this was not.
+   *
+   * It read `isDemoBusiness(businessId).catch(() => false)`, and
+   * `lib/business-mode.server.isDemoBusiness` already swallows its own errors
+   * into `false` — so the `.catch` was the second of two fail-open steps. An
+   * unreadable flag, an unmigrated `businesses` table or a database outage all
+   * answered "not a demo workspace" and the write proceeded. It also read the
+   * BODY's `businessId` rather than the one the membership was resolved
+   * against.
+   *
+   * `rejectIfMetaOperatorDemoWrite` reads `businesses.is_demo_business` and
+   * refuses on anything short of a proven live workspace, using the server's
+   * own id.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    `decision_workflow_${action}`,
+  );
+  if (demoBlocked) return demoBlocked;
 
   /**
    * The workflow gate, on the server as well as on the screen.

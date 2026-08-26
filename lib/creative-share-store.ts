@@ -690,6 +690,22 @@ export async function appendCreativeShareMessage(input: {
       AND revoked_at IS NULL
       AND expires_at > NOW()
       AND jsonb_array_length(messages) < ${SHARE_MESSAGE_LIMIT}
+      -- A demo workspace has zero Meta write authority, and that holds for a
+      -- row an anonymous recipient appends as much as for one an operator
+      -- writes. Enforced in the predicate rather than at the route because
+      -- this endpoint is deliberately unauthenticated -- it has no session and
+      -- no businessId to gate on, and returning a 403 would turn it into a
+      -- token oracle in a surface whose every response is deliberately the
+      -- same neutral shape.
+      --
+      -- IS NOT TRUE, and the EXISTS requires the business row: a snapshot whose
+      -- business cannot be joined is not appended to either.
+      AND EXISTS (
+        SELECT 1
+        FROM businesses business
+        WHERE business.id::text = creative_share_snapshots.business_id::text
+          AND business.is_demo_business IS NOT TRUE
+      )
     RETURNING messages
   `) as Array<{ messages: unknown }>;
   const updated = updatedRows[0];

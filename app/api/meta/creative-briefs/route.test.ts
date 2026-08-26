@@ -17,6 +17,18 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 vi.mock("@/lib/meta/creative-brief-store", async () => {
   const actual = await vi.importActual<
     typeof import("@/lib/meta/creative-brief-store")
@@ -33,6 +45,7 @@ const assignments = await import("@/lib/provider-account-assignments");
 const reviewerGuard = await import("@/lib/meta/reviewer-write-guard");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const store = await import("@/lib/meta/creative-brief-store");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const route = await import("@/app/api/meta/creative-briefs/route");
 
 const businessId = "00000000-0000-4000-8000-000000000001";
@@ -265,4 +278,27 @@ describe("/api/meta/creative-briefs", () => {
     expect(response.status).toBe(403);
     expect(store.createMetaCreativeBrief).not.toHaveBeenCalled();
   });
+
+  /*
+   * LAW: a brief is a durable local artifact carrying a verified source
+   * decision — the record that a decision authorized creative work. INVARIANTS
+   * gives a demo workspace null authorized action, so minting one is the thing
+   * it forbids; reaching no provider is not the test.
+   */
+  for (const [authority, status, code] of [
+    ["demo", 403, "demo_business_read_only"],
+    ["unverified", 503, "demo_status_unverified"],
+    ["not_established", 503, "demo_status_unverified"],
+  ] as const) {
+    it(`refuses ${authority} with no brief written`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await route.POST(postRequest(createBody()));
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(store.createMetaCreativeBrief).not.toHaveBeenCalled();
+    });
+  }
+
 });

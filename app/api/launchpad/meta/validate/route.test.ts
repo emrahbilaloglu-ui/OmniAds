@@ -17,6 +17,18 @@ vi.mock("@/lib/provider-account-assignments", () => ({
   getProviderAccountAssignments: vi.fn(),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const db = await import("@/lib/db");

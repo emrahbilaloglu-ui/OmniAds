@@ -23,16 +23,27 @@ const findMembership = vi.hoisted(() =>
   })),
 );
 
-const isDemoBusiness = vi.hoisted(() => vi.fn(async () => false));
-
 vi.mock("@/lib/access", () => ({ requireBusinessAccess, findMembership }));
-vi.mock("@/lib/business-mode.server", () => ({ isDemoBusiness }));
 vi.mock("@/lib/decision-workflow-store", () => ({
   readWorkflowRecord,
   persistWorkflowTransition,
   readWorkflowRecords,
   readWorkflowEvents,
 }));
+
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 
 import { SHOPIFY_REVIEWER_EMAIL } from "@/lib/reviewer-access";
 
@@ -62,7 +73,7 @@ const openRecord = {
 describe("GET decision workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
+    requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     readWorkflowRecord.mockResolvedValue(openRecord);
   });
 
@@ -94,10 +105,10 @@ describe("POST decision workflow", () => {
      * the default — off — is asserted in `lib/meta/release-gates.test.ts`.
      */
     vi.stubEnv("META_DECISION_WORKFLOW_UI", "true");
-    requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
+    requireBusinessAccess.mockResolvedValue({ membership: { businessId: "biz-1" }, session: { user: { id: "user-1" } } });
     readWorkflowRecord.mockResolvedValue(openRecord);
     persistWorkflowTransition.mockResolvedValue({ ok: true });
-    isDemoBusiness.mockResolvedValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
   });
 
   afterEach(() => {
@@ -118,6 +129,7 @@ describe("POST decision workflow", () => {
    */
   it("refuses a reviewer, whose membership passes the role check", async () => {
     requireBusinessAccess.mockResolvedValue({
+      membership: { businessId: "biz-1" },
       session: { user: { id: "user-1", email: SHOPIFY_REVIEWER_EMAIL } },
     });
 
@@ -135,8 +147,8 @@ describe("POST decision workflow", () => {
     expect(persistWorkflowTransition).not.toHaveBeenCalled();
   });
 
-  it("refuses a demo workspace", async () => {
-    isDemoBusiness.mockResolvedValue(true);
+  it("refuses a confirmed demo workspace", async () => {
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
 
     const response = await POST(
       postRequest({
@@ -148,8 +160,49 @@ describe("POST decision workflow", () => {
     );
 
     expect(response.status).toBe(403);
-    expect((await response.json()).error).toBe("demo_business_read_only");
+    expect((await response.json()).error.code).toBe("demo_business_read_only");
     expect(persistWorkflowTransition).not.toHaveBeenCalled();
+  });
+
+  /*
+   * FAIL-CLOSED, which this route was not.
+   *
+   * It read `isDemoBusiness(businessId).catch(() => false)`, and
+   * `lib/business-mode.server.isDemoBusiness` already degrades an unreadable
+   * flag to an id comparison — so for any demo business that is not the
+   * hard-coded fallback id, a `businesses` read failure answered "live" and
+   * the transition was persisted.
+   */
+  for (const authority of ["unverified", "not_established"] as const) {
+    it(`refuses when demo status reads back as ${authority}, and persists nothing`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await POST(
+        postRequest({
+          businessId: "biz-1",
+          decisionKey: "dec-1",
+          action: "acknowledge",
+          expectedVersion: 1,
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe("demo_status_unverified");
+      expect(persistWorkflowTransition).not.toHaveBeenCalled();
+    });
+  }
+
+  it("reads the demo flag for the SERVER's business, not the body's", async () => {
+    await POST(
+      postRequest({
+        businessId: "biz-claimed",
+        decisionKey: "dec-1",
+        action: "acknowledge",
+        expectedVersion: 1,
+      }),
+    );
+
+    expect(demoAuthority.readLaunchpadWriteAuthority).toHaveBeenCalledWith("biz-1");
   });
 
   it("refuses every transition while the workflow gate is shut", async () => {

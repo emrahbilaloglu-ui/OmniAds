@@ -16,6 +16,7 @@ import {
 import { buildBuyerClientActions } from "@/lib/creatives/client-action-feed";
 import { requireBusinessAccess } from "@/lib/access";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { resolveMetaCreativesAccountScope } from "@/lib/meta/creatives-warehouse";
 import { creativeSharePath } from "@/lib/creative-share-link";
@@ -152,6 +153,25 @@ export async function POST(request: NextRequest) {
   if ("error" in access) return access.error;
   const reviewerBlocked = rejectIfReviewerReadOnly(access, "creative_share_create");
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * Demo authority, before a public token exists.
+   *
+   * WP11's acceptance names reviewer AND demo refusal for the Public Share
+   * lifecycle, and this had only the reviewer half. A share token is the most
+   * durable artifact this product mints: it leaves the workspace, it outlives
+   * the conversation, and a buyer-audience share carries provider-reported
+   * money. A demo workspace has zero authority to issue one. Fail-closed —
+   * an unreadable flag refuses too.
+   *
+   * Placed with the other facts about the CALLER, above the release gate, so
+   * someone who may not mint here is not told instead that minting is off
+   * everywhere.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "creative_share_create",
+  );
+  if (demoBlocked) return demoBlocked;
   const capability = await getCreativeShareLedgerCapability();
   if (!capability.canWrite) {
     return NextResponse.json(

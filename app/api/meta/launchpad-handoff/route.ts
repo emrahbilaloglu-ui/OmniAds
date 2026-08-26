@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireBusinessAccess } from "@/lib/access";
+import { readLaunchpadWriteAuthority } from "@/app/api/launchpad/meta/demo-write-authority";
 import {
   describeLaunchpadHandoffRefusal,
   mintLaunchpadHandoff,
@@ -80,6 +81,38 @@ export async function POST(request: NextRequest) {
           "Reviewer access is read-only, so no launch handoff can be created.",
       },
       { status: 403 },
+    );
+  }
+
+  /*
+   * The demo boundary its own `/copy` sibling has had, and this did not.
+   *
+   * A handoff is an ACTION-AUTHORIZING artifact: `mintLaunchpadHandoff`
+   * persists an envelope carrying `authorizedAction`, and Launchpad reads it
+   * back as proof that a decision authorized a launch. INVARIANTS is explicit
+   * that a demo workspace has "null authorized action" and "false action
+   * eligibility", so minting one is precisely the thing it forbids — reaching
+   * no provider is not the test.
+   *
+   * Fail-closed: an unreadable flag refuses too. Same read, same codes and same
+   * statuses as `/copy`, so the two cannot drift.
+   */
+  const writeAuthority = await readLaunchpadWriteAuthority(
+    access.membership.businessId,
+  );
+  if (writeAuthority !== "live") {
+    return NextResponse.json(
+      {
+        error:
+          writeAuthority === "demo"
+            ? "demo_business_read_only"
+            : "demo_status_unverified",
+        message:
+          writeAuthority === "demo"
+            ? "Demo workspaces have zero Meta write authority, so no launch handoff can be created."
+            : "This workspace could not be confirmed as a live workspace, so no launch handoff was created.",
+      },
+      { status: writeAuthority === "demo" ? 403 : 503 },
     );
   }
 

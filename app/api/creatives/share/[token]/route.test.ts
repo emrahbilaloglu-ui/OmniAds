@@ -17,9 +17,22 @@ vi.mock("@/lib/meta/reviewer-write-guard", () => ({
   rejectIfReviewerReadOnly: vi.fn(() => null),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 const access = await import("@/lib/access");
 const shareStore = await import("@/lib/creative-share-store");
 const reviewerGuard = await import("@/lib/meta/reviewer-write-guard");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const { DELETE, GET, POST } = await import("@/app/api/creatives/share/[token]/route");
 
 const TOKEN = "a".repeat(32);
@@ -244,4 +257,53 @@ describe("/api/creatives/share/[token]", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
   });
+  /*
+   * The withdrawal paths carry the same authority.
+   *
+   * The release gate is deliberately NOT applied to revoke/rotate/delete —
+   * taking a link back must never depend on a rollout flag — but WRITE
+   * AUTHORITY is a different question, and a workspace with none has none in
+   * either direction.
+   */
+  for (const [authority, status, code] of [
+    ["demo", 403, "demo_business_read_only"],
+    ["unverified", 503, "demo_status_unverified"],
+    ["not_established", 503, "demo_status_unverified"],
+  ] as const) {
+    it(`DELETE refuses ${authority} with no revoke`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await DELETE(
+        new NextRequest(
+          "http://localhost/api/creatives/share/share_token?businessId=request_business",
+          { method: "DELETE" },
+        ),
+        context,
+      );
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(shareStore.revokeCreativeShareSnapshot).not.toHaveBeenCalled();
+    });
+
+    for (const action of ["rotate", "delete"] as const) {
+      it(`POST ${action} refuses ${authority} with no store call`, async () => {
+        vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+        const response = await POST(
+          new NextRequest("http://localhost/api/creatives/share/share_token", {
+            method: "POST",
+            body: JSON.stringify({ businessId: "request_business", action }),
+          }),
+          context,
+        );
+
+        expect(response.status).toBe(status);
+        expect((await response.json()).error.code).toBe(code);
+        expect(shareStore.rotateCreativeShareSnapshot).not.toHaveBeenCalled();
+        expect(shareStore.deleteCreativeShareSnapshot).not.toHaveBeenCalled();
+      });
+    }
+  }
+
 });

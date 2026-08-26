@@ -20,14 +20,28 @@ vi.mock("@/lib/meta/snapshot-refresh", () => ({
   requestMetaSnapshotRefreshForBusiness: vi.fn(),
 }));
 
+/*
+ * The fail-closed demo authority's DB read, stubbed.
+ *
+ * The GUARD is the code under test — its statuses, its codes and its position
+ * in the precedence — so only the read it delegates to is replaced. `getDb()`
+ * throws with no DATABASE_URL under vitest, which is why the read has to be
+ * mocked rather than the guard.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 const access = await import("@/lib/access");
 const labels = await import("@/lib/meta/campaign-labels");
 const snapshotRefresh = await import("@/lib/meta/snapshot-refresh");
 const { GET, PUT } = await import("@/app/api/meta/campaign-labels/route");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 
 describe("/api/meta/campaign-labels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "biz_1" } as never,
@@ -179,4 +193,50 @@ describe("/api/meta/campaign-labels", () => {
     expect(labels.writeMetaCampaignLabels).not.toHaveBeenCalled();
     expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).not.toHaveBeenCalled();
   });
+
+  /*
+   * LAW: a demo workspace has zero Meta write authority. Main/Test/Mixed labels
+   * are not cosmetic — INVARIANTS makes them a precondition for hard-action
+   * semantics — and this route then runs the recommendation engine inline. The
+   * refusal must therefore land above BOTH, and this asserts both.
+   */
+  for (const [authority, status, code] of [
+    ["demo", 403, "demo_business_read_only"],
+    ["unverified", 503, "demo_status_unverified"],
+    ["not_established", 503, "demo_status_unverified"],
+  ] as const) {
+    it(`refuses ${authority} with no label write and no snapshot work`, async () => {
+      vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(authority);
+
+      const response = await PUT(
+        new NextRequest("http://localhost/api/meta/campaign-labels", {
+          method: "PUT",
+          body: JSON.stringify({
+            businessId: "biz_1",
+            labels: [{ campaignId: "cmp_2", kind: "test" }],
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      expect((await response.json()).error.code).toBe(code);
+      expect(labels.writeMetaCampaignLabels).not.toHaveBeenCalled();
+      expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).not.toHaveBeenCalled();
+    });
+  }
+
+  it("reads the demo flag for the SERVER's business, not the body's", async () => {
+    await PUT(
+      new NextRequest("http://localhost/api/meta/campaign-labels", {
+        method: "PUT",
+        body: JSON.stringify({
+          businessId: "biz_claimed",
+          labels: [{ campaignId: "cmp_2", kind: "test" }],
+        }),
+      }),
+    );
+
+    expect(demoAuthority.readLaunchpadWriteAuthority).toHaveBeenCalledWith("biz_1");
+  });
+
 });

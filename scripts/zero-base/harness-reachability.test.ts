@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { reachableFrom, reachableFromRoutes } from "@/scripts/meta/verify-mounted-bodies";
@@ -87,26 +87,25 @@ const UNREACHABLE_HARNESS_BODIES = [
  * is deliberately still on disk.
  *
  * The list is "bodies the HARNESS renders that no route can reach". H19 and H20
- * now render `MetaAutomationView`, the body the route mounts, so the archived
+ * render `MetaAutomationView`, the body the route mounts, so the archived
  * presenter is no longer harness-rendered and the list is two.
  *
- * The file stays because deleting it is a product decision rather than a
- * cleanup. It is the only implementation of the stop CEREMONY the design's H20
- * calls a "release preflight" — type-to-confirm, success announced only once a
- * read-back agrees, an explicitly unknown outcome when the confirming read
- * fails — and the mounted body has a direct engage/release pair with a server
- * refusal and no preflight. Deleting it deletes that ceremony and the flow-I
- * suite that encodes its laws; whether the mounted stop should GAIN the
- * ceremony is a call the master plan does not make, and building one to justify
- * a deletion would be inventing a feature.
+ * It stays on disk under WP16's migration rule, which is to MOVE rather than
+ * delete and never to remove compatibility before the stable-release gate. What
+ * changed is that its reason is no longer "it is the only implementation of the
+ * stop ceremony": the ceremony is ported. The mounted Automation owner now
+ * resolves `resolveStopCeremony` against `sections.businessControl` — a fresh
+ * persisted reading with the instant it was attempted — requires a typed phrase
+ * in BOTH directions, and announces an outcome only from a server read-back
+ * that agreed. `app/(dashboard)/platforms/meta/automation/stop-ceremony.test.tsx`
+ * and `playwright/tests/meta-runtime-automation-stop.spec.ts` prove that on the
+ * mounted body.
  *
- * Every unreachable body lives under `_reference`, and nothing else does.
- *
- * The list above is accurate and easy to miss: three paths in a test array do
- * not stop somebody importing one of these into a route next week under the
- * impression it is product code. The directory name says it, and this keeps
- * the two in agreement in both directions — a body that becomes reachable must
- * leave `_reference`, and one that becomes unreachable must enter it.
+ * What it still holds is the flow-I suite's own subject. Deleting the presenter
+ * deletes those laws before anything has replaced them at that level, and the
+ * assertions at the bottom of this file are what keep it out of release
+ * evidence, out of route reachability, and out of every import path that is not
+ * `_reference` in the meantime.
  */
 const REFERENCE_DIR = "components/zero-base/_reference/";
 
@@ -296,5 +295,50 @@ describe("release evidence measures the mounted bodies", () => {
       { followTests: true },
     )].map((file) => path.relative(process.cwd(), file));
     expect(reached).not.toContain("components/zero-base/_reference/meta-automation-view.tsx");
+
+    /*
+     * Nor does any ROUTE reach it, which is the stronger of the two claims.
+     *
+     * Release evidence is what the gates render; routes are what an operator
+     * opens. Both are asserted because either could be true while the other is
+     * false — a body no gate renders can still be shipped, and a body no route
+     * mounts can still be graded.
+     */
+    expect([...reachableFromRoutes()].map((file) => path.relative(process.cwd(), file))).not.toContain(
+      "components/zero-base/_reference/meta-automation-view.tsx",
+    );
+
+    /*
+     * And nothing outside `_reference` imports it any more.
+     *
+     * Its only non-test importer was
+     * `components/zero-base/meta/automation/automation-client.tsx`, which was
+     * itself imported by one test — an archived body reached through a
+     * live-looking path. WP16's migration rule is to MOVE rather than delete,
+     * so the client moved to `_reference` beside the presenter it drives. The
+     * pair stays on disk because the flow-I suite encodes the ceremony's laws
+     * and deleting compatibility before the stable-release gate is what that
+     * rule forbids.
+     */
+    const importers = readdirSync(path.join(process.cwd(), "components", "zero-base"), {
+      recursive: true,
+      withFileTypes: true,
+    })
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          /\.tsx?$/.test(entry.name) &&
+          !entry.parentPath.includes("_reference"),
+      )
+      .map((entry) => path.join(entry.parentPath, entry.name))
+      .filter((file) =>
+        readFileSync(file, "utf8").includes("_reference/meta-automation-view"),
+      )
+      .map((file) => path.relative(process.cwd(), file))
+      // The flow-I suite is the ceremony's own law file and is allowed to name it.
+      .filter((file) => !file.endsWith("flow-i.test.tsx"));
+    expect(importers, "a module outside _reference imports the archived presenter").toEqual(
+      [],
+    );
   });
 });

@@ -11,6 +11,10 @@ import type {
   MetaAutomationDecisionType,
   MetaAutomationReadinessControlTier,
 } from "@/lib/meta/automation-control-plane";
+import {
+  resolveStopCeremony,
+  STOP_PREFLIGHT_MAX_AGE_MS,
+} from "@/lib/zero-base/meta/automation-posture";
 import type {
   MetaAutomationProposal,
   MetaAutomationProposalHoldCounts,
@@ -981,6 +985,84 @@ export function MetaAutomationView({
   const [stopPending, setStopPending] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const stopEngaged = payload?.businessControl.killSwitchEngaged === true;
+  /**
+   * The confirming read, kept apart from the payload the page holds.
+   *
+   * `resolveStopCeremony` may only announce a status once a read-back has been
+   * taken and has agreed. Holding it here rather than deriving it from
+   * `payload` is what makes that possible: the payload changes for many
+   * reasons, and a banner keyed off it would eventually congratulate an
+   * operator for a change somebody else made.
+   *
+   * `engaged: null` is the read-back that itself failed — neither success nor
+   * failure, and reported as unknown rather than resolved either way.
+   */
+  const [stopReadBack, setStopReadBack] = useState<{
+    intent: "engage" | "release";
+    engaged: boolean | null;
+    readAt: string;
+    error?: string | null;
+  } | null>(null);
+  /** The direction the operator has opened the typed confirmation for. */
+  const [stopConfirm, setStopConfirm] = useState<"engage" | "release" | null>(
+    null,
+  );
+  const [stopTyped, setStopTyped] = useState("");
+
+  /**
+   * The ceremony, resolved from the same reading the screen is drawn from.
+   *
+   * `preflight` is `sections.businessControl` — the server's own per-section
+   * provenance, carrying the instant the read was ATTEMPTED and the error code
+   * when it failed. Confirming against anything else would be confirming a
+   * screen rather than a system, which is the whole reason the ceremony exists.
+   */
+  const stopIntent: "engage" | "release" = stopEngaged ? "release" : "engage";
+  const stopCeremony = resolveStopCeremony({
+    intent: stopIntent,
+    viewer: {
+      role: viewer.role,
+      isReviewer: viewer.reviewerReadOnly,
+      demo: viewer.demo,
+    },
+    currentlyEngaged: sectionIsComplete(payload, "businessControl")
+      ? stopEngaged
+      : null,
+    gateClosedReason: stopEngageRefusalReason ?? null,
+    preflight: payload?.sections?.businessControl ?? null,
+    // Deliberately no read-back here. This resolution answers "what may this
+    // operator do NOW"; the outcome of what they just did is the resolution
+    // below, and conflating the two is what made the banner vanish.
+    readBack: null,
+  });
+  /**
+   * What happened to the change the operator just made.
+   *
+   * Resolved for the intent the READ-BACK was taken for, not for the direction
+   * the surface currently offers — because a successful engage flips that
+   * direction to "release" the moment the payload updates, and a banner keyed
+   * off the current direction would disappear at exactly the moment it became
+   * true. The two questions are separate and are asked separately.
+   */
+  const stopOutcome = stopReadBack
+    ? resolveStopCeremony({
+        intent: stopReadBack.intent,
+        viewer: {
+          role: viewer.role,
+          isReviewer: viewer.reviewerReadOnly,
+          demo: viewer.demo,
+        },
+        // The change already happened; this resolution is about its result, so
+        // the pre-change gates are not re-applied to it.
+        currentlyEngaged: false,
+        readBack: {
+          engaged: stopReadBack.engaged,
+          readAt: stopReadBack.readAt,
+          error: stopReadBack.error ?? null,
+        },
+      })
+    : null;
+  const stopPhrase = stopIntent === "engage" ? "STOP META" : "RESUME META";
 
   const onStopControl = useCallback(
     (action: "engage_kill_switch" | "release_kill_switch") => {
@@ -992,6 +1074,7 @@ export function MetaAutomationView({
       if (!viewer.canMutate) return;
       setStopPending(true);
       setStopError(null);
+      setStopReadBack(null);
       const query = new URLSearchParams({ businessId, providerAccountId });
       void fetch(`/api/meta/automation?${query.toString()}`, {
         method: "POST",
@@ -1026,6 +1109,23 @@ export function MetaAutomationView({
           // to publish one, so the page owns the state and this body still owns
           // none of it.
           if (next) onRulesChanged?.(next);
+          /*
+           * The read-back, recorded as evidence rather than as optimism.
+           *
+           * A failed re-read is `engaged: null` — the write was submitted and
+           * the confirming read did not answer, which is neither outcome. A
+           * re-read that answers something other than the intent is recorded
+           * verbatim and the ceremony reports it as unconfirmed; nothing here
+           * decides that it "probably worked".
+           */
+          setStopReadBack({
+            intent: action === "engage_kill_switch" ? "engage" : "release",
+            engaged: next
+              ? next.businessControl.killSwitchEngaged === true
+              : null,
+            readAt: new Date().toISOString(),
+            error: next ? null : "the control plane could not be re-read",
+          });
         })
         .catch(() => {
           setStopError("The automation control plane could not be reached.");
@@ -1350,15 +1450,51 @@ export function MetaAutomationView({
               setting — a stop that cannot be lifted is the trap the gate was
               written to avoid.
             */}
+            {/*
+              The reading this confirmation is made against, and its age.
+
+              `sections.businessControl` is the server's own per-section
+              provenance: the instant the read was ATTEMPTED, and the error code
+              when it failed. Stated on screen because a typed confirmation is a
+              confirmation of a READING — an operator who types the phrase
+              against a reading from half an hour ago has confirmed a screen.
+            */}
+            <p
+              className={styles.killNote}
+              data-field="stop-preflight"
+              data-stop-preflight={
+                payload?.sections?.businessControl?.status ?? "unproven"
+              }
+              data-stop-preflight-at={
+                payload?.sections?.businessControl?.observedAt ?? undefined
+              }
+            >
+              Control-plane reading{" "}
+              {payload?.sections?.businessControl
+                ? `${payload.sections.businessControl.status} at ${payload.sections.businessControl.observedAt}`
+                : "not served by this payload"}
+              . A confirmation older than{" "}
+              {Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes is refused.
+            </p>
             <div className={styles.killRow} data-field="business-writes-control">
               {stopEngaged ? (
                 <button
                   type="button"
                   className={styles.killAction}
                   data-ctl="gated:AUTO-02 release"
-                  disabled={!viewer.canMutate || stopPending}
-                  title={viewer.canMutate ? undefined : (viewer.reason ?? undefined)}
-                  onClick={() => onStopControl("release_kill_switch")}
+                  data-stop-trigger=""
+                  disabled={
+                    Boolean(stopCeremony.blocker) || !viewer.canMutate || stopPending
+                  }
+                  title={
+                    stopCeremony.blocker?.message ??
+                    (viewer.canMutate ? undefined : (viewer.reason ?? undefined))
+                  }
+                  onClick={() => {
+                    if (stopCeremony.blocker) return;
+                    setStopTyped("");
+                    setStopConfirm("release");
+                  }}
                 >
                   {stopPending ? "Releasing…" : "Release the stop"}
                 </button>
@@ -1380,20 +1516,126 @@ export function MetaAutomationView({
                    * a state belongs.
                    */
                   data-ctl="gated:AUTO-01A engage"
+                  data-stop-trigger=""
                   data-stop-engage-refused={stopEngageRefusalReason ? "" : undefined}
                   disabled={
-                    Boolean(stopEngageRefusalReason) || !viewer.canMutate || stopPending
+                    Boolean(stopCeremony.blocker) ||
+                    Boolean(stopEngageRefusalReason) ||
+                    !viewer.canMutate ||
+                    stopPending
                   }
-                  title={stopEngageRefusalReason ?? viewer.reason ?? undefined}
-                  onClick={() => onStopControl("engage_kill_switch")}
+                  title={
+                    stopCeremony.blocker?.message ??
+                    stopEngageRefusalReason ??
+                    viewer.reason ??
+                    undefined
+                  }
+                  onClick={() => {
+                    if (stopCeremony.blocker) return;
+                    setStopTyped("");
+                    setStopConfirm("engage");
+                  }}
                 >
                   {stopPending ? "Stopping…" : "Stop Meta writes"}
                 </button>
               )}
             </div>
-            {stopEngageRefusalReason && !stopEngaged ? (
+            {/*
+              The typed confirmation, for BOTH directions.
+
+              Releasing re-enables spend, so it is exactly as worth typing as
+              stopping. The phrase is checked against the direction the operator
+              opened, not against whatever the payload says now — a payload that
+              changed underneath would otherwise accept a phrase for the other
+              direction.
+            */}
+            {stopConfirm ? (
+              <form
+                className={styles.killNote}
+                data-stop-confirm={stopConfirm}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (stopTyped.trim().toUpperCase() !== stopPhrase) return;
+                  setStopConfirm(null);
+                  onStopControl(
+                    stopConfirm === "engage"
+                      ? "engage_kill_switch"
+                      : "release_kill_switch",
+                  );
+                }}
+              >
+                <label>
+                  Type <b>{stopPhrase}</b> to{" "}
+                  {stopConfirm === "engage"
+                    ? "stop Meta automation for this business"
+                    : "resume Meta automation for this business"}
+                  <input
+                    aria-label={`Type ${stopPhrase} to confirm`}
+                    autoComplete="off"
+                    data-stop-confirm-input=""
+                    onChange={(event) => setStopTyped(event.target.value)}
+                    value={stopTyped}
+                  />
+                </label>
+                <span>
+                  <button
+                    data-stop-confirm-submit=""
+                    disabled={stopTyped.trim().toUpperCase() !== stopPhrase}
+                    type="submit"
+                  >
+                    {stopConfirm === "engage" ? "Stop Meta automation" : "Resume"}
+                  </button>
+                  <button
+                    data-stop-confirm-cancel=""
+                    onClick={() => setStopConfirm(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </span>
+              </form>
+            ) : null}
+            {/*
+              The refusal, addressable and beside the control rather than
+              instead of it.
+
+              The control stays on screen because a control that vanishes
+              teaches an operator there is nothing here to reach for — the same
+              law this card already applies to the gate. What the refusal
+              removes is the ABILITY, not the affordance: the trigger is
+              disabled, carries the reason as its title, and its handler
+              returns before opening the confirmation.
+            */}
+            {stopCeremony.blocker ? (
+              <p
+                className={styles.killNote}
+                data-stop-blocked={stopCeremony.blocker.code}
+                role="note"
+              >
+                {stopCeremony.blocker.message}
+              </p>
+            ) : null}
+            {stopEngageRefusalReason && !stopEngaged && !stopCeremony.blocker ? (
               <p className={styles.killNote} data-field="stop-engage-refusal" role="note">
                 {stopEngageRefusalReason}
+              </p>
+            ) : null}
+            {/*
+              The only two things that may announce an outcome.
+
+              `showStatusBanner` is true exactly when a read-back was taken and
+              AGREED with the intent. Anything else — a failed re-read, a
+              re-read that answered the other way — is the unconfirmed banner,
+              because claiming either outcome there is a guess about whether
+              spend is still running.
+            */}
+            {stopOutcome?.showStatusBanner ? (
+              <p className={styles.killNote} data-stop-status="" role="status">
+                {stopOutcome.statusMessage}
+              </p>
+            ) : stopOutcome?.statusMessage ? (
+              <p className={styles.killNote} data-stop-unconfirmed="" role="status">
+                {stopOutcome.statusMessage}
               </p>
             ) : null}
             {stopError ? (

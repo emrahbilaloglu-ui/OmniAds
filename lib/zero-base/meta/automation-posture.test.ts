@@ -13,6 +13,7 @@ import {
   buildProviderPostures,
   overclaimsStopReach,
   resolveStopCeremony,
+  STOP_PREFLIGHT_MAX_AGE_MS,
   type StopCeremonyInput,
 } from "@/lib/zero-base/meta/automation-posture";
 
@@ -92,15 +93,112 @@ describe("stop ceremony refuses before it confirms", () => {
     expect(resolveStopCeremony(stop({ viewer: { ...admin, demo: true } })).blocker?.code).toBe("demo");
   });
 
-  it("blocks a non-admin in both directions", () => {
+  /**
+   * The role floor is direction-aware, and it matches the route.
+   *
+   * `app/api/meta/automation/route.ts` takes `collaborator` for
+   * `engage_kill_switch` and `admin` for `release_kill_switch`. This used to
+   * refuse a collaborator in BOTH directions — stricter than the server, which
+   * sounds safe and is not: it hid the emergency control from exactly the
+   * operator the route would have accepted.
+   */
+  it("lets a collaborator engage, because the route does", () => {
+    expect(
+      resolveStopCeremony(stop({ intent: "engage", viewer: { ...admin, role: "collaborator" } }))
+        .blocker,
+    ).toBeNull();
+  });
+
+  it("still holds RELEASE to an admin, because releasing re-enables spend", () => {
+    expect(
+      resolveStopCeremony(stop({ intent: "release", viewer: { ...admin, role: "collaborator" } }))
+        .blocker?.code,
+    ).toBe("insufficient_role");
+  });
+
+  it("blocks a guest in either direction", () => {
     for (const intent of ["engage", "release"] as const) {
-      // Releasing re-enables spend, so it is admin-only too — not just the
-      // direction that looks dangerous.
       expect(
-        resolveStopCeremony(stop({ intent, viewer: { ...admin, role: "collaborator" } })).blocker
-          ?.code,
+        resolveStopCeremony(stop({ intent, viewer: { ...admin, role: "guest" } })).blocker?.code,
       ).toBe("insufficient_role");
     }
+  });
+
+  /**
+   * The gate holds ENGAGE and never holds RELEASE.
+   *
+   * The route says why: a stop that cannot be released is worse than no stop,
+   * so whatever the rollout state, an existing stop must always be liftable.
+   */
+  it("refuses engage while the stop gate is shut, and never refuses release", () => {
+    const reason = "The Meta Stop is not enabled on this workspace yet.";
+    expect(
+      resolveStopCeremony(stop({ intent: "engage", gateClosedReason: reason })).blocker?.code,
+    ).toBe("gate_closed");
+    expect(
+      resolveStopCeremony(
+        stop({ intent: "release", currentlyEngaged: true, gateClosedReason: reason }),
+      ).blocker,
+    ).toBeNull();
+  });
+
+  /**
+   * A typed confirmation is a confirmation of a READING.
+   *
+   * An absent `preflight` key keeps the previous behaviour for a caller with no
+   * per-section provenance to offer. An explicit `null` is a caller that HAS the
+   * envelope and found no reading in it, which is a refusal rather than an
+   * omission.
+   */
+  it("refuses when the caller has the envelope and it carried no reading", () => {
+    expect(resolveStopCeremony(stop({ preflight: null })).blocker?.code).toBe(
+      "preflight_unavailable",
+    );
+  });
+
+  it("refuses a reading that did not complete, and names the error code", () => {
+    const state = resolveStopCeremony(
+      stop({
+        preflight: {
+          status: "unavailable",
+          errorCode: "control_plane_read_failed",
+          observedAt: "2026-08-26T12:00:00.000Z",
+        },
+        now: Date.parse("2026-08-26T12:00:10.000Z"),
+      }),
+    );
+    expect(state.blocker?.code).toBe("preflight_unavailable");
+    expect(state.blocker?.message).toContain("control_plane_read_failed");
+  });
+
+  it("refuses a reading older than the ceremony's own window", () => {
+    const state = resolveStopCeremony(
+      stop({
+        preflight: {
+          status: "complete",
+          errorCode: null,
+          observedAt: "2026-08-26T12:00:00.000Z",
+        },
+        now: Date.parse("2026-08-26T12:00:00.000Z") + STOP_PREFLIGHT_MAX_AGE_MS + 1,
+      }),
+    );
+    expect(state.blocker?.code).toBe("preflight_stale");
+    expect(state.blocker?.message).toContain("2026-08-26T12:00:00.000Z");
+  });
+
+  it("accepts a fresh, complete reading", () => {
+    expect(
+      resolveStopCeremony(
+        stop({
+          preflight: {
+            status: "complete",
+            errorCode: null,
+            observedAt: "2026-08-26T12:00:00.000Z",
+          },
+          now: Date.parse("2026-08-26T12:00:00.000Z") + 1_000,
+        }),
+      ).blocker,
+    ).toBeNull();
   });
 
   it("refuses to change a state it could not read", () => {

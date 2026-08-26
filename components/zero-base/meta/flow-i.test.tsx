@@ -26,7 +26,7 @@ import {
   type GoogleConnectionRead,
   type StopCeremonyInput,
 } from "@/lib/zero-base/meta/automation-posture";
-import { AutomationClient } from "@/components/zero-base/meta/automation/automation-client";
+import { AutomationClient } from "@/components/zero-base/_reference/meta-automation-client";
 
 afterEach(cleanup);
 
@@ -186,8 +186,32 @@ describe("the stop refuses before it acts", () => {
     expect(document.querySelector("[data-stop-trigger]")).toBeNull();
   });
 
-  it("blocks a non-admin", () => {
+  /**
+   * A collaborator may ENGAGE, and may not RELEASE.
+   *
+   * That is the route's own split — `app/api/meta/automation/route.ts` takes
+   * `collaborator` for `engage_kill_switch` and `admin` for
+   * `release_kill_switch` — and the surface used to be stricter than it in both
+   * directions, which hid the emergency control from an operator the server
+   * would have accepted.
+   */
+  it("lets a collaborator engage", () => {
     renderAutomation({ viewer: { role: "collaborator", isReviewer: false, demo: false } });
+    expect(document.querySelector('[data-stop-blocked="insufficient_role"]')).toBeNull();
+    expect(document.querySelector("[data-stop-trigger]")).not.toBeNull();
+  });
+
+  it("blocks a collaborator from releasing", () => {
+    renderAutomation({
+      intent: "release",
+      currentlyEngaged: true,
+      viewer: { role: "collaborator", isReviewer: false, demo: false },
+    });
+    expect(document.querySelector('[data-stop-blocked="insufficient_role"]')).not.toBeNull();
+  });
+
+  it("blocks a guest in either direction", () => {
+    renderAutomation({ viewer: { role: "guest", isReviewer: false, demo: false } });
     expect(document.querySelector('[data-stop-blocked="insufficient_role"]')).not.toBeNull();
   });
 

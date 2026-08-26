@@ -140,8 +140,43 @@ export type StopCeremonyStep =
   | "settled";
 
 export interface StopCeremonyBlocker {
-  code: "reviewer" | "demo" | "insufficient_role" | "state_unavailable";
+  code:
+    | "reviewer"
+    | "demo"
+    | "insufficient_role"
+    | "state_unavailable"
+    | "gate_closed"
+    | "preflight_unavailable"
+    | "preflight_stale";
   message: string;
+}
+
+/**
+ * How old the control-plane read may be before the ceremony refuses.
+ *
+ * Five minutes. The stop is a safety control and the question it answers is
+ * "what is the state RIGHT NOW" — a confirmation typed against a reading from
+ * half an hour ago is a confirmation of a screen, not of a system. The number
+ * is deliberately shorter than the workspace's own cache windows so that a
+ * cached page cannot carry a stale reading into a typed confirmation.
+ */
+export const STOP_PREFLIGHT_MAX_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * The persisted read this ceremony is confirmed against.
+ *
+ * Not a second control plane and not a new endpoint: it is
+ * `MetaAutomationControlPlane.sections.businessControl`, which the server
+ * already stamps with the instant the read was ATTEMPTED and the error code
+ * when it failed. Using it means the operator confirms against the same read
+ * the screen is drawn from, and that the age of that read is a fact rather
+ * than an assumption.
+ */
+export interface StopCeremonyPreflight {
+  status: "complete" | "unavailable" | "migration_required";
+  errorCode: string | null;
+  /** The instant the read was attempted, ISO-8601. */
+  observedAt: string;
 }
 
 export interface StopCeremonyInput {
@@ -149,6 +184,26 @@ export interface StopCeremonyInput {
   viewer: { role: "admin" | "collaborator" | "guest" | null; isReviewer: boolean; demo: boolean };
   /** Null when the control-plane state could not be read. */
   currentlyEngaged: boolean | null;
+  /**
+   * The server's own refusal for ENGAGE when `META_AUTOMATION_STOP_UI` is shut.
+   *
+   * Passed in rather than read here, because a client cannot read a server gate
+   * and a client that guessed one would eventually disagree with the route.
+   * Null means the gate is open — or, on a caller that does not know, that this
+   * ceremony makes no claim about it and the route remains the authority.
+   */
+  gateClosedReason?: string | null;
+  /**
+   * The control-plane read this confirmation is made against, and its age.
+   *
+   * `undefined` from a caller that does not supply one keeps the previous
+   * behaviour, so the ceremony can still be resolved by a surface that has no
+   * per-section provenance to offer. `null` means the caller HAS the envelope
+   * and it carried no reading — which is a refusal, not an omission.
+   */
+  preflight?: StopCeremonyPreflight | null;
+  /** Clock for the preflight age. Injected so this stays pure. */
+  now?: number;
   /**
    * Independent server re-read after the write. Null until it has happened.
    *
@@ -195,21 +250,102 @@ export function resolveStopCeremony(input: StopCeremonyInput): StopCeremonyState
       message: "The demo business has no automation control.",
     });
   }
-  // Engaging a stop is a safety action, but releasing one re-enables spend, so
-  // both are admin-only rather than only the dangerous-looking direction.
-  if (input.viewer.role !== "admin") {
+  /*
+   * The role floor is DIRECTION-AWARE, and matches the route exactly.
+   *
+   * `app/api/meta/automation/route.ts` takes `collaborator` for
+   * `engage_kill_switch` and `admin` for `release_kill_switch`, and the reason
+   * is stated there: engaging a stop is a safety action anyone trusted with the
+   * account should be able to take in the moment they need it, while releasing
+   * one re-enables spend.
+   *
+   * This used to refuse a collaborator in BOTH directions. That is stricter
+   * than the server, which sounds safe and is not: it hid the emergency control
+   * from exactly the operator the route would have accepted, and a surface that
+   * refuses what the server permits teaches its operators that the product is
+   * unreliable in the one moment they cannot afford to doubt it.
+   */
+  const floor = input.intent === "release" ? "admin" : "collaborator";
+  const permitted =
+    floor === "admin"
+      ? input.viewer.role === "admin"
+      : input.viewer.role === "admin" || input.viewer.role === "collaborator";
+  if (!permitted) {
     return deny({
       code: "insufficient_role",
-      message: "Only a business admin can change Meta automation state.",
+      message:
+        floor === "admin"
+          ? "Only a business admin can release the Meta automation stop."
+          : "Only a collaborator or admin can stop Meta automation for this business.",
     });
   }
+  /*
+   * The gate holds ENGAGE and never holds RELEASE.
+   *
+   * The route says why in as many words: a stop that cannot be released is
+   * worse than no stop, so whatever the rollout state, an existing stop must
+   * always be liftable. Refused after the caller facts above, in the same
+   * precedence the route uses, so an operator is told the refusal that is about
+   * THEM before the one that is about the deployment.
+   */
+  if (input.intent === "engage" && input.gateClosedReason) {
+    return deny({ code: "gate_closed", message: input.gateClosedReason });
+  }
+  /*
+   * The persisted preflight, when the caller has one.
+   *
+   * A typed confirmation is a confirmation of a READING. If the reading failed,
+   * there is nothing to confirm against; if it is old, the operator is
+   * confirming a screen rather than a system. Both refuse, and both say which.
+   */
+  if (input.preflight !== undefined) {
+    if (!input.preflight) {
+      return deny({
+        code: "preflight_unavailable",
+        message:
+          "No control-plane reading is available for this account, so there is nothing to confirm the change against.",
+      });
+    }
+    if (input.preflight.status !== "complete") {
+      return deny({
+        code: "preflight_unavailable",
+        message:
+          "The control-plane reading did not complete" +
+          (input.preflight.errorCode ? ` (${input.preflight.errorCode})` : "") +
+          ", so the current state is unproven and must not be changed blind.",
+      });
+    }
+    const observed = Date.parse(input.preflight.observedAt);
+    const now = input.now ?? Date.now();
+    if (!Number.isFinite(observed)) {
+      return deny({
+        code: "preflight_unavailable",
+        message:
+          "The control-plane reading carries no usable observation time, so its age cannot be established.",
+      });
+    }
+    if (now - observed > STOP_PREFLIGHT_MAX_AGE_MS) {
+      return deny({
+        code: "preflight_stale",
+        message: `The control-plane reading is from ${input.preflight.observedAt} and is older than ${Math.round(STOP_PREFLIGHT_MAX_AGE_MS / 60000)} minutes. Re-read the control plane before changing the stop.`,
+      });
+    }
+  }
+
+  /*
+   * Last of the refusals, and deliberately after the preflight.
+   *
+   * Both say "the current state is unknown". The preflight says WHY — the read
+   * failed with this code, or it is this many minutes old — and the more
+   * specific sentence is the one an operator can act on. This one remains for
+   * a caller that supplies no preflight at all.
+   */
   if (input.currentlyEngaged === null) {
     return deny({
       code: "state_unavailable",
       message: "The current automation state could not be read, so it must not be changed blind.",
     });
   }
-
   if (!input.readBack) {
     return { step: "confirm", blocker: null, showStatusBanner: false, statusMessage: null };
   }

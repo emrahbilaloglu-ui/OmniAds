@@ -21,24 +21,70 @@
  * as "this actor genuinely cannot do this", and the row then shows no picker at
  * all rather than a disabled one — so a handler is passed only where the
  * console really can act, and the rest of the rows are readings.
+ *
+ * The three that CAN act — business, provider account, evidence window — are
+ * the topbar's, and they stay the topbar's. Each publishes a handle through
+ * `ScopeControlsProvider` and this sheet invokes it: the sheet closes, the real
+ * control takes focus and opens, and the same handler writes the same cookie,
+ * the same URL and the same store it always did. A picker built here would be a
+ * second writer of all three and a second opinion about every refusal, which is
+ * the defect this arrangement exists to avoid.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   ScopeSheet,
   type ScopeFacts,
+  type ScopePickerRefusals,
+  type ScopePickers,
 } from "@/components/zero-base/primitives/scope-sheet";
 import { scopeFactRows } from "@/components/zero-base/primitives/scope-sheet";
 import { useIsNarrow } from "@/components/layout/v2/use-narrow";
+import {
+  useScopeControl,
+  type ScopeControlHandle,
+} from "@/components/layout/v2/scope-controls";
 
 export function MobileScope({ facts }: { facts: ScopeFacts | null }) {
   const narrow = useIsNarrow();
   const [open, setOpen] = useState(false);
+  const returnFocusTo = useRef<HTMLElement | null>(null);
+  const business = useScopeControl("business");
+  const account = useScopeControl("account");
+  const evidenceWindow = useScopeControl("window");
 
   // Nothing to say without an envelope, and nowhere to say it at desktop —
   // where the topbar already carries scope and a second bar would be a second
   // answer to the same question.
   if (!narrow || !facts) return null;
+
+  /*
+   * Close, then hand over. The sheet is a modal layer: leaving it open while a
+   * dropdown opens underneath would trap focus in the wrong place, and closing
+   * it without moving focus would drop the operator back at the document. The
+   * handle focuses the real trigger before it opens it, so focus lands on the
+   * control the operator asked for.
+   */
+  const handOverTo = (handle: ScopeControlHandle | null) => () => {
+    if (!handle) return;
+    // The sheet returns focus HERE rather than to its own opener, so the
+    // control the operator asked for is the one they land on.
+    returnFocusTo.current = handle.trigger.current;
+    setOpen(false);
+    handle.open();
+  };
+  const pickers: ScopePickers = {
+    ...(business ? { onSwitchBusiness: handOverTo(business) } : {}),
+    ...(account ? { onPickAccount: handOverTo(account) } : {}),
+    ...(evidenceWindow ? { onPickWindow: handOverTo(evidenceWindow) } : {}),
+  };
+  // The refusals travel with the handles, so the sheet says what the topbar
+  // says. Nothing is decided here.
+  const pickerRefusals: ScopePickerRefusals = {
+    business: business?.refusalReason ?? null,
+    account: account?.refusalReason ?? null,
+    window: evidenceWindow?.refusalReason ?? null,
+  };
 
   const rows = scopeFactRows(facts);
   const summary = rows.map((row) => `${row.label}: ${row.value}`).join(" · ");
@@ -107,7 +153,14 @@ export function MobileScope({ facts }: { facts: ScopeFacts | null }) {
         Scope is shortened at this width. Open it to read every fact in full.
       </p>
       <style>{`@media (max-width: 360px){[data-el="win-320"]{display:block!important}}`}</style>
-      <ScopeSheet open={open} onOpenChange={setOpen} facts={facts} />
+      <ScopeSheet
+        open={open}
+        onOpenChange={setOpen}
+        facts={facts}
+        pickers={pickers}
+        pickerRefusals={pickerRefusals}
+        returnFocusTo={returnFocusTo}
+      />
     </div>
   );
 }

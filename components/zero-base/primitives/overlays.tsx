@@ -21,7 +21,14 @@ import {
   DropdownMenu as RadixDropdownMenu,
   Popover as RadixPopover,
 } from "radix-ui";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { useZeroBasePortalContainer } from "@/components/zero-base/portal/portal-host";
 import { Button } from "@/components/zero-base/primitives/button";
@@ -49,7 +56,21 @@ const scrimStyle: React.CSSProperties = {
  * strands keyboard users at the top of the document every time they press
  * Escape. This records the opener itself and puts focus back.
  */
-function useFocusReturn(open: boolean) {
+function useFocusReturn(
+  open: boolean,
+  /**
+   * Where focus belongs INSTEAD of the opener, when the caller knows.
+   *
+   * A sheet is usually closed to go back where you were, and the opener is the
+   * right answer. It is the wrong answer when the sheet closed because the
+   * reader chose something inside it that hands over to another control — the
+   * scope sheet's pickers open the topbar's own controls — and returning focus
+   * to the opener would take it straight back off the thing they just asked
+   * for. The ref is read at close time, so one sheet can hand over to a
+   * different control each time.
+   */
+  returnFocusTo?: RefObject<HTMLElement | null>,
+) {
   const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -59,12 +80,15 @@ function useFocusReturn(open: boolean) {
     }
   }, [open]);
 
-  return useCallback((event: Event) => {
-    const opener = openerRef.current;
-    if (!opener || !opener.isConnected) return;
-    event.preventDefault();
-    opener.focus();
-  }, []);
+  return useCallback(
+    (event: Event) => {
+      const target = returnFocusTo?.current ?? openerRef.current;
+      if (!target || !target.isConnected) return;
+      event.preventDefault();
+      target.focus();
+    },
+    [returnFocusTo],
+  );
 }
 
 /* ------------------------------------------------------------------ dialog */
@@ -330,11 +354,14 @@ export function ZeroBaseSheet({
   description,
   compact = false,
   closeCtl = "live:cancel",
+  returnFocusTo,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** Where focus belongs on close, when it is not the element that opened it. */
+  returnFocusTo?: RefObject<HTMLElement | null>;
   /**
    * Region marker for the sheet itself.
    *
@@ -368,7 +395,7 @@ export function ZeroBaseSheet({
 }) {
   const copy = useCopy();
   const container = useZeroBasePortalContainer();
-  const onCloseAutoFocus = useFocusReturn(open);
+  const onCloseAutoFocus = useFocusReturn(open, returnFocusTo);
   const fromRight = side === "right";
   const fromLeft = side === "left";
   const fromSide = fromRight || fromLeft;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronsUpDown, Menu } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@/lib/dashboard/date-window-url";
 import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 import { AccountScopeControl } from "@/components/layout/v2/account-scope-control";
+import { useRegisterScopeControl } from "@/components/layout/v2/scope-controls";
 import { reportingWindowApplicability } from "@/lib/meta/surface-registry";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
@@ -197,6 +198,20 @@ function BusinessControl() {
     businesses.find((item) => item.id === effectiveSelectedBusinessId) ??
     null;
 
+  /*
+   * Published for the mobile scope sheet, which opens THIS control rather than
+   * mounting a second business switcher. Registered before the early returns
+   * below, because the two states that return early — the hydration skeleton
+   * and the create-business prompt — are states in which there is no switcher
+   * to open, and `mounted: false` is how the sheet is told so.
+   */
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const hydrated = Boolean(scopedBusiness) || (hasHydrated && authBootstrapStatus === "ready");
+  useRegisterScopeControl("business", {
+    trigger: triggerRef,
+    mounted: hydrated && (businesses.length > 0 || Boolean(scopedBusiness)),
+  });
+
   async function handleSelect(businessId: string) {
     if (businessId === effectiveSelectedBusinessId || pendingId) return;
     setPendingId(businessId);
@@ -284,7 +299,7 @@ function BusinessControl() {
       <DropdownMenuTrigger asChild>
         {/* The design's business switcher runs a half-point larger than the
             other topbar controls. */}
-        <button type="button" className="adv-btn text-[13.5px]">
+        <button ref={triggerRef} type="button" className="adv-btn text-[13.5px]">
           <BuildingIcon />
           <span className="text-[13.5px]">{selected?.name ?? t.selectBusiness}</span>
           <ChevronsUpDown className="h-[13px] w-[13px] shrink-0 text-[var(--adv-ink-3)]" aria-hidden="true" />
@@ -376,6 +391,21 @@ export function AppTopbar({
   const [dateRange, setDateRange] = usePersistentDateRange(
     workspaceReferenceDate,
   );
+
+  /*
+   * The window control, published for the mobile scope sheet.
+   *
+   * `reportingWindow.note` is the surface registry's own sentence for a screen
+   * that shows current state rather than a period. It travels with the handle
+   * so the sheet refuses in the same words the topbar does, instead of
+   * offering a picker that silently declines to open.
+   */
+  const windowTriggerRef = useRef<HTMLButtonElement>(null);
+  useRegisterScopeControl("window", {
+    trigger: windowTriggerRef,
+    mounted: true,
+    refusalReason: reportingWindow.note,
+  });
 
   /**
    * ITEM 10 — the shell states the window before anything reads it.
@@ -473,6 +503,7 @@ export function AppTopbar({
           value={dateRange}
           onChange={applyDateRange}
           testId="shell-date-range-picker"
+          triggerRef={windowTriggerRef}
           label="Date range"
           referenceDate={workspaceReferenceDate}
           timeZoneLabel={workspaceTimeZone}

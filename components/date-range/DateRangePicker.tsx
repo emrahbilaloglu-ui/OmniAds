@@ -1120,6 +1120,15 @@ export const DATE_RANGE_PICKER_INTERNALS = {
 export interface DateRangePickerProps {
   value: DateRangeValue;
   onChange: (value: DateRangeValue) => void;
+  /**
+   * The trigger element, exposed so another affordance can OPEN this picker
+   * rather than mount a second one.
+   *
+   * The mobile scope sheet uses it: the window has one owner, and a sheet that
+   * built its own calendar would be a second writer of `window`/`startDate`/
+   * `endDate` and a second opinion about `inactiveReason`.
+   */
+  triggerRef?: React.Ref<HTMLButtonElement>;
   className?: string;
   label?: string;
   /**
@@ -1178,6 +1187,7 @@ export function DateRangePicker({
   disabled = false,
   inactiveReason = null,
   align = "start",
+  triggerRef,
 }: DateRangePickerProps) {
   const isV2 = variant === "v2";
   const inactiveNoteId = `${testId}-inactive-note`;
@@ -1318,6 +1328,7 @@ export function DateRangePicker({
         <Popover.Trigger asChild>
           {isV2 ? (
             <button
+              ref={triggerRef}
               type="button"
               disabled={disabled}
               aria-disabled={inactiveReason ? true : undefined}

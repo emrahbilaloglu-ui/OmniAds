@@ -12,6 +12,7 @@ import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { AppRail } from "@/components/layout/v2/app-rail";
 import { useIsNarrow } from "@/components/layout/v2/use-narrow";
 import { MobileScope } from "@/components/layout/v2/mobile-scope";
+import { ScopeControlsProvider } from "@/components/layout/v2/scope-controls";
 import { MetaScreenView } from "@/components/layout/v2/meta-screen-view";
 import type { ProviderScopeCatalog } from "@/lib/zero-base/provider-scope-server";
 import {
@@ -329,55 +330,64 @@ export function DashboardFrame({
         onClose={() => setNavOpen(false)}
         returnFocusTo={navTriggerRef}
       />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <AppTopbar
-          userName={userName}
-          providerCatalogs={providerCatalogs}
-          accountChangeRefusalReason={accountChangeRefusalReason}
-          navOpen={navOpen}
-          navTriggerRef={navTriggerRef}
-          onOpenNav={() => setNavOpen(true)}
-          search={
-            <GlobalSearch
-              open={commandPaletteOpen}
-              onOpen={() => setCommandPaletteOpen(true)}
-            />
-          }
-          notifications={<NotificationBell />}
-        />
-        {/*
+      {/*
+        The topbar owns the three scope controls; the mobile scope sheet opens
+        them. This provider is the only thing between them — a registry of
+        handles, not a second store — so the sheet can invoke the real control
+        instead of mounting a parallel picker with its own idea of what is
+        permitted.
+      */}
+      <ScopeControlsProvider>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <AppTopbar
+            userName={userName}
+            providerCatalogs={providerCatalogs}
+            accountChangeRefusalReason={accountChangeRefusalReason}
+            navOpen={navOpen}
+            navTriggerRef={navTriggerRef}
+            onOpenNav={() => setNavOpen(true)}
+            search={
+              <GlobalSearch
+                open={commandPaletteOpen}
+                onOpen={() => setCommandPaletteOpen(true)}
+              />
+            }
+            notifications={<NotificationBell />}
+          />
+          {/*
           The design's mobile scope line, between the topbar and the page.
           Renders nothing at desktop: the topbar's business, account and date
           controls already state scope there, and a second bar would be a second
           answer to the same question.
         */}
-        <MobileScope facts={scopeFacts} />
-        <main
-          className="adv-main"
-          id={DASHBOARD_MAIN_ID}
-          tabIndex={-1}
-          data-mobile-surface={mobileSurface ?? "none"}
-        >
-          {claimsMobileReadOnly && !routeOwnsMobileSurface ? (
-            <div className="ad-console-mobile-readonly" role="note">
-              <span data-mono>Adsecute · mobile read-only</span>
-              <span>{mobileReadonlyMessage}</span>
+          <MobileScope facts={scopeFacts} />
+          <main
+            className="adv-main"
+            id={DASHBOARD_MAIN_ID}
+            tabIndex={-1}
+            data-mobile-surface={mobileSurface ?? "none"}
+          >
+            {claimsMobileReadOnly && !routeOwnsMobileSurface ? (
+              <div className="ad-console-mobile-readonly" role="note">
+                <span data-mono>Adsecute · mobile read-only</span>
+                <span>{mobileReadonlyMessage}</span>
+              </div>
+            ) : null}
+            {mobileSurface ? (
+              <div className="ad-console-mobile-stage">
+                <MobileMetaReadOnlySurface
+                  kind={mobileSurface}
+                  businessName={selectedBusiness?.name ?? "Selected business"}
+                  currency={selectedBusiness?.currency ?? null}
+                />
+              </div>
+            ) : null}
+            <div className="ad-console-desktop-content adv-page">
+              <BusinessGuard>{children}</BusinessGuard>
             </div>
-          ) : null}
-          {mobileSurface ? (
-            <div className="ad-console-mobile-stage">
-              <MobileMetaReadOnlySurface
-                kind={mobileSurface}
-                businessName={selectedBusiness?.name ?? "Selected business"}
-                currency={selectedBusiness?.currency ?? null}
-              />
-            </div>
-          ) : null}
-          <div className="ad-console-desktop-content adv-page">
-            <BusinessGuard>{children}</BusinessGuard>
-          </div>
-        </main>
-      </div>
+          </main>
+        </div>
+      </ScopeControlsProvider>
       <CommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}

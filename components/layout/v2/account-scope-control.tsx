@@ -34,7 +34,9 @@
  */
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { ChevronsUpDown, CircleSlash } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
+
+import { useRegisterScopeControl } from "@/components/layout/v2/scope-controls";
 
 import {
   DropdownMenu,
@@ -99,17 +101,35 @@ export function AccountScopeControl({
     [pathname, router, searchParams],
   );
 
+  const catalog = provider
+    ? (providerCatalogs.find((item) => item.provider === provider.id) ?? null)
+    : null;
+  const accounts = catalog?.accounts ?? [];
+  const label = provider ? (PROVIDER_LABEL[provider.id] ?? "Ad account") : "Ad account";
+  const selectedId = provider?.selectedAccountIds[0] ?? null;
+  const selected = accounts.find((account) => account.id === selectedId) ?? null;
+
+  /*
+   * Published for the mobile scope sheet, which opens THIS control.
+   *
+   * `mounted` only where there is a choice to make: with no assigned account
+   * the row is a link to Integrations, and with exactly one the account is
+   * named rather than offered. A picker in either state would say a decision is
+   * owed when none is. With the change gate shut the picker IS offered and
+   * refused, in the gate's own words — hiding it would read as "this workspace
+   * has one account".
+   */
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useRegisterScopeControl("account", {
+    trigger: triggerRef,
+    mounted: Boolean(provider) && accounts.length > 1,
+    refusalReason: changeRefusalReason,
+  });
+
   // Surfaces with no provider family — Overview, Reports, Settings — get no
   // control at all rather than a disabled one. There is no account question to
   // answer there, and a disabled control implies there is.
   if (!provider) return null;
-
-  const catalog =
-    providerCatalogs.find((item) => item.provider === provider.id) ?? null;
-  const accounts = catalog?.accounts ?? [];
-  const label = PROVIDER_LABEL[provider.id] ?? "Ad account";
-  const selectedId = provider.selectedAccountIds[0] ?? null;
-  const selected = accounts.find((account) => account.id === selectedId) ?? null;
 
   if (accounts.length === 0) {
     return (
@@ -182,6 +202,7 @@ export function AccountScopeControl({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           className="adv-btn"
           data-testid="shell-account-scope"

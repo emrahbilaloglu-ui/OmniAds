@@ -436,6 +436,10 @@ describe("G7 — intelligence, history, automation", () => {
      * affordance nothing mounted. The control now appears where the composer
      * said there is one, and its availability comes from the same `control`
      * the server authored.
+     *
+     * It also used to hand the handler a SECTION key, which the respond route
+     * has no use for: it writes one row per `rec_id`. The served targets are
+     * on the control now, and the first is what an untouched picker aims at.
      */
     const user = userEvent.setup();
     const onRespond = vi.fn();
@@ -449,7 +453,13 @@ describe("G7 — intelligence, history, automation", () => {
               state: "serving",
               reason: null,
               observedAt: null,
-              control: { kind: "respond", enabled: true, refusalCode: null, refusalMessage: null },
+              control: {
+                kind: "respond",
+                enabled: true,
+                refusalCode: null,
+                refusalMessage: null,
+                targets: [{ recId: "rec_1", label: "Scale the winning ad set" }],
+              },
             },
           ]}
           onRespond={onRespond}
@@ -460,7 +470,7 @@ describe("G7 — intelligence, history, automation", () => {
       expectOperable(ctl("live:META-INTEL-07 respond"), "respond") as HTMLSelectElement,
       "acted",
     );
-    expect(onRespond).toHaveBeenCalledWith("recommendations", "acted");
+    expect(onRespond).toHaveBeenCalledWith("rec_1", "acted");
   });
 
   it("refuses the respond control with the server's §9.1 reason", () => {

@@ -18,6 +18,8 @@
  * scope segment at all rather than a disabled teaser, and the same rule applies
  * to the rest. Absence over theatre.
  */
+import type { RefObject } from "react";
+
 import { ZeroBaseSheet } from "@/components/zero-base/primitives/overlays";
 import type {
   CurrencyProof,
@@ -139,16 +141,37 @@ export interface ScopePickers {
   onPickWindow?: () => void;
 }
 
+/**
+ * Why a picker that IS offered may not be used, in the words of whoever
+ * decided it.
+ *
+ * Distinct from omitting the handler: an omitted handler means the actor has no
+ * such affordance at all, and this means the affordance exists and is held —
+ * the account picker with its release gate shut, the window on a screen that
+ * shows current state. A held control that says nothing reads as broken, so the
+ * reason is rendered rather than only titled.
+ */
+export type ScopePickerRefusals = Partial<Record<ScopeFactId, string | null>>;
+
 export function ScopeSheet({
   open,
   onOpenChange,
   facts,
   pickers,
+  pickerRefusals,
+  returnFocusTo,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   facts: ScopeFacts;
   pickers?: ScopePickers;
+  pickerRefusals?: ScopePickerRefusals;
+  /**
+   * Where focus belongs on close, when a picker handed over to another
+   * control. Without it the sheet returns focus to whatever opened it, which
+   * takes the reader straight off the control they just asked for.
+   */
+  returnFocusTo?: RefObject<HTMLElement | null>;
 }) {
   const copy = useCopy();
 
@@ -174,6 +197,7 @@ export function ScopeSheet({
       title={copy.scope}
       regionEl="scope-sheet-open"
       side="bottom"
+      returnFocusTo={returnFocusTo}
     >
       <div>
         <dl style={{ margin: "12px 0 0", display: "grid", gap: 2 }}>
@@ -188,6 +212,9 @@ export function ScopeSheet({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  // A held picker's reason wraps to its own line rather than
+                  // squeezing the fact it belongs to.
+                  flexWrap: "wrap",
                   gap: 12,
                   // 44px rows: these are tap targets on the surface where the
                   // scope sheet exists at all.
@@ -224,7 +251,13 @@ export function ScopeSheet({
                     type="button"
                     data-ctl={picker.ctl}
                     aria-label={`${picker.label} — ${row.value}`}
-                    onClick={handler}
+                    // `aria-disabled` rather than `disabled`: the control keeps
+                    // its place in the tab order so the reason beside it can be
+                    // reached and read.
+                    aria-disabled={pickerRefusals?.[row.id] ? true : undefined}
+                    data-picker-refused={pickerRefusals?.[row.id] ? "" : undefined}
+                    title={pickerRefusals?.[row.id] ?? undefined}
+                    onClick={pickerRefusals?.[row.id] ? undefined : handler}
                     style={{
                       flex: "0 0 auto",
                       minWidth: 44,
@@ -239,6 +272,19 @@ export function ScopeSheet({
                   >
                     ▾
                   </button>
+                ) : null}
+                {picker && handler && pickerRefusals?.[row.id] ? (
+                  <span
+                    data-picker-refusal={row.id}
+                    style={{
+                      flex: "1 1 100%",
+                      fontSize: 12,
+                      lineHeight: "16px",
+                      color: "var(--ledger-ink-tertiary)",
+                    }}
+                  >
+                    {pickerRefusals[row.id]}
+                  </span>
                 ) : null}
               </div>
             );

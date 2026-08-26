@@ -9,6 +9,14 @@ import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { compareModeForPreset } from "@/lib/comparison-preset-contract";
 import { AiBriefCard } from "@/components/overview/v2/ai-brief-card";
+import { SourceHealthPanel } from "@/components/zero-base/home/source-health";
+import { TrendPanel } from "@/components/zero-base/home/trend-panel";
+import { EconomicsContext } from "@/components/zero-base/home/economics-context";
+import {
+  buildOverviewSourceHealth,
+  overviewTrendPoints,
+} from "@/lib/zero-base/home/overview-source-health";
+import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import { AttributionCard } from "@/components/overview/v2/attribution-card";
 import { HeroMetricCard, HeroTile, StatTile } from "@/components/overview/v2/metric-band";
 import { PlatformMiniDashboard } from "@/components/overview/v2/platform-card";
@@ -53,6 +61,58 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
     );
   }
   return payload as MetaStatusResponse;
+}
+
+/**
+ * Which sources this business has connected.
+ *
+ * The same read `/api/integrations/status` has always served; this page simply
+ * never asked. Without it the readiness panel would have to infer connectedness
+ * from whether a metric happened to be non-zero, which is the inference the
+ * whole panel exists to remove.
+ */
+async function fetchIntegrationStatus(
+  businessId: string,
+): Promise<Record<string, boolean>> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/integrations/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { error?: string } | null)?.error ??
+        `Integration status request failed (${response.status})`,
+    );
+  }
+  return (payload ?? {}) as Record<string, boolean>;
+}
+
+/**
+ * The Commercial Truth target pack, for the economics context.
+ *
+ * Break-even and target ROAS are READ, never derived. They could be computed
+ * from the cost model this page already holds — break-even is a function of
+ * COGS, shipping and fees — and computing them here would put a second
+ * economic boundary in the product beside the one the decision engine
+ * consumes. INVARIANTS is explicit that a break-even must be the explicit one.
+ */
+async function fetchCommercialSnapshot(businessId: string): Promise<{
+  targetPack?: { breakEvenRoas?: number | null; targetRoas?: number | null } | null;
+} | null> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(
+    `/api/business-commercial-settings?${params.toString()}`,
+    { cache: "no-store", headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => null)) as {
+    snapshot?: {
+      targetPack?: { breakEvenRoas?: number | null; targetRoas?: number | null } | null;
+    } | null;
+  } | null;
+  return payload?.snapshot ?? null;
 }
 
 async function fetchGoogleAdsStatus(businessId: string): Promise<GoogleAdsStatusResponse> {
@@ -322,6 +382,26 @@ export default function OverviewPage() {
     refetchInterval: (query) => getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
+  /*
+   * The two reads the readiness panel and the economics context need.
+   *
+   * Both are cheap, both are already-authorized routes, and both are cached
+   * long enough that they cost one request per page rather than one per render.
+   * Neither blocks the queue: an integrations read that fails leaves the panel
+   * saying the READ failed, which is a different sentence from "not connected".
+   */
+  const integrationStatusQuery = useQuery({
+    queryKey: ["overview-integration-status", businessId],
+    enabled: Boolean(selectedBusinessId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchIntegrationStatus(businessId),
+  });
+  const commercialSnapshotQuery = useQuery({
+    queryKey: ["overview-commercial-snapshot", businessId],
+    enabled: Boolean(selectedBusinessId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchCommercialSnapshot(businessId),
+  });
   const googleAdsStatusQuery = useQuery({
     queryKey: ["google-ads-status", businessId],
     enabled: Boolean(selectedBusinessId) && dateRangeReady,
@@ -428,6 +508,67 @@ export default function OverviewPage() {
   const snapshotRangePreset: "7" | "30" | "90" =
     windowDayCount === null || windowDayCount <= 14 ? "7" : windowDayCount <= 60 ? "30" : "90";
 
+  /*
+   * Source readiness, the trend series and the economics context.
+   *
+   * All three are built from reads this page performs; none is derived from a
+   * metric's value. `useMemo` because the panel re-renders on every query tick
+   * and rebuilding five source rows per tick would churn the list for nothing.
+   */
+  const sourceHealth = useMemo(
+    () =>
+      buildOverviewSourceHealth({
+        integrations: integrationStatusQuery.data ?? null,
+        latestSync: {
+          meta: metaStatusQuery.data?.latestSync?.finishedAt ?? null,
+          google: googleAdsStatusQuery.data?.latestSync?.finishedAt ?? null,
+        },
+        now: Date.now(),
+      }),
+    [
+      integrationStatusQuery.data,
+      metaStatusQuery.data?.latestSync?.finishedAt,
+      googleAdsStatusQuery.data?.latestSync?.finishedAt,
+    ],
+  );
+  const trendPoints = useMemo(
+    () => overviewTrendPoints(sparklineQuery.data?.combined ?? []),
+    [sparklineQuery.data],
+  );
+  /*
+   * Null when the target pack was not read.
+   *
+   * An unread pack is not "break-even 0" and not "no economics" — the panel is
+   * simply absent rather than stating a boundary nobody served. `diverges` is
+   * false because this page has no comparison to make: it reads the pack and
+   * the cost model separately and states both, which is what the panel is for.
+   */
+  const economics: EconomicsContextModel | null = commercialSnapshotQuery.data
+    ? {
+        breakEvenRoas:
+          commercialSnapshotQuery.data.targetPack?.breakEvenRoas ?? null,
+        targetRoas: commercialSnapshotQuery.data.targetPack?.targetRoas ?? null,
+        sources: [
+          {
+            key: "target-pack",
+            label: "Commercial Truth target pack",
+            consumers: ["Meta decisions"],
+          },
+          {
+            key: "cost-model",
+            label: "Overview cost model",
+            consumers: ["Overview", "Google Ads"],
+          },
+        ],
+        diverges: false,
+      }
+    : null;
+  const integrationsHref = dashboardHrefForRouteFamily(
+    "/manage/integrations",
+    pathname,
+  );
+
+
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   if (query.isError) {
@@ -467,6 +608,7 @@ export default function OverviewPage() {
       </div>
 
       <div
+        data-el="home-kpis"
         data-overview-section="headline"
         className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
       >
@@ -475,6 +617,64 @@ export default function OverviewPage() {
           <HeroTile key={metric.id} metric={metric} currencySymbol={symbol} index={index} />
         ))}
       </div>
+
+      {/*
+        Where these numbers come from, and how current they are.
+
+        Above the attribution and the brief on purpose: an operator who is about
+        to read a conclusion needs to know first whether the sources behind it
+        are serving. The panel renders whatever the reads returned — including
+        a read that failed, which says so rather than reporting "not connected".
+      */}
+      <div data-overview-section="source-readiness" data-el="source-readiness">
+        <SourceHealthPanel
+          compact
+          connectHref={integrationsHref}
+          sources={sourceHealth}
+        />
+      </div>
+
+      {/*
+        The trend, with the table the contract requires.
+
+        `live:chart-table-toggle` is specific: the toggle swaps the chart for
+        REAL table markup in place, announces the mode, and persists the choice
+        per surface. `TrendPanel` is the component that already does exactly
+        that; this page had a chart and no way to read the numbers behind it.
+      */}
+      <div data-overview-section="trend">
+        <TrendPanel
+          currency={currency ?? null}
+          points={trendPoints}
+          surface="overview"
+          targetRoas={economics?.targetRoas ?? null}
+          title="Spend & ROAS"
+        />
+      </div>
+
+      {economics ? (
+        <div data-overview-section="economics">
+          <EconomicsContext businessId={businessId} model={economics} />
+        </div>
+      ) : null}
+
+      {/*
+        The narrow-width way into the day's work.
+
+        `live:MOBILE-01` opens Meta Decisions in Tier-0 triage order. Rendered
+        only below the tablet breakpoint: at desktop the rail already carries
+        the same destination, and two routes to one place on one screen is the
+        duplication this product removes elsewhere.
+      */}
+      <a
+        className="adv-btn md:hidden"
+        data-ctl="live:MOBILE-01"
+        data-overview-section="mobile-triage"
+        href={`${dashboardHrefForRouteFamily("/platforms/meta/decisions", pathname)}?order=tier0`}
+        style={{ minHeight: 44, display: "inline-flex", alignItems: "center" }}
+      >
+        Start Meta triage
+      </a>
 
       <div
         data-overview-section="attribution-and-brief"

@@ -337,12 +337,53 @@ describe("OverviewPage timezone date selection", () => {
     const { default: OverviewPage } = await import("@/app/(dashboard)/overview/legacy-page");
     const html = renderToStaticMarkup(React.createElement(OverviewPage));
 
+    /*
+     * The fixed section order, now with the four the design names.
+     *
+     * Readiness comes FIRST after the headline on purpose: an operator about to
+     * read a conclusion needs to know whether the sources behind it are
+     * serving, and a panel below the brief would be read after the conclusion
+     * it qualifies. `economics` is absent here because the fixture serves no
+     * target pack — an unread pack is not "break-even 0", so the panel is
+     * simply not drawn rather than stating a boundary nobody served.
+     */
     expect(Array.from(html.matchAll(/data-overview-section="([^"]+)"/g), (match) => match[1])).toEqual([
       "headline",
+      "source-readiness",
+      "trend",
+      "mobile-triage",
       "attribution-and-brief",
       "platforms",
       "store-and-web",
     ]);
+    /*
+     * The design-contract markers H03, H04 and B01 name, on the body a route
+     * actually mounts.
+     *
+     * They are asserted here rather than only in the frame harness because the
+     * harness renders a body no route mounts: a green anatomy gate over that
+     * body says the leaf compiles, not that the product carries the anatomy.
+     */
+    expect(html).toContain('data-el="home-kpis"');
+    expect(html).toContain('data-el="source-readiness"');
+    expect(html).toContain('data-collection="sources"');
+    expect(html).toContain('data-ctl="live:chart-table-toggle"');
+    expect(html).toContain('data-ctl="live:MOBILE-01"');
+    /*
+     * `live:INTEGRATION-03 connect` is deliberately NOT asserted here.
+     *
+     * This fixture never answers the integrations read, so every source is
+     * "the read did not complete" — and offering "Connect this source" on that
+     * would be advice given without knowing whether it is already connected.
+     * The row states the unread posture instead, which is the honest one, and
+     * the connect control is proven where a source is genuinely disconnected:
+     * `components/zero-base/interactions/interactions-core.test.tsx` and the
+     * H04 frame.
+     */
+    expect(html).toContain('data-source-state="unavailable"');
+    expect(html).toContain("did not complete");
+    expect(html).not.toContain('data-ctl="live:INTEGRATION-03 connect"');
+
     expect(Array.from(html.matchAll(/data-overview-metric-id="([^"]+)"/g), (match) => match[1])).toEqual([
       "pins-revenue",
       "pins-spend",

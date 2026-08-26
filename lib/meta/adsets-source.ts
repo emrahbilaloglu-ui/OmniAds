@@ -1,4 +1,7 @@
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import {
+  META_POSTURE_UNVERIFIED_REASON,
+  readMetaBusinessDataPosture,
+} from "@/lib/meta/business-data-posture";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
@@ -60,13 +63,37 @@ export async function getMetaAdSetsForRange(input: {
     return accountScopedRows.filter((row) => requested.has(row.campaignId));
   };
 
-  if (await isDemoBusiness(input.businessId)) {
+  /*
+   * Tri-state posture, not a boolean — and account-scoped.
+   *
+   * `filterAdSetRows` narrows by `targetAccountIds`, which is still null at
+   * this point (it is assigned below, after the assignment read), so the demo
+   * branch returned every account's ad sets whatever account was requested.
+   * The requested account is applied here directly.
+   */
+  const posture = await readMetaBusinessDataPosture(input.businessId);
+  if (posture === "unverified") {
+    return {
+      status: "not_connected",
+      rows: [],
+      isPartial: false,
+      notReadyReason: META_POSTURE_UNVERIFIED_REASON,
+      evidenceSource: "unknown",
+    };
+  }
+  if (posture === "demo") {
+    const demoRows =
+      requestedCampaignIds.length === 1
+        ? getDemoMetaAdSets(requestedCampaignIds[0])
+        : getDemoMetaAdSets(null);
+    const requestedAccountId =
+      input.accountId && input.accountId !== "all" ? input.accountId : null;
     return {
       status: "ok",
       rows: filterAdSetRows(
-        requestedCampaignIds.length === 1
-          ? getDemoMetaAdSets(requestedCampaignIds[0])
-          : getDemoMetaAdSets(null),
+        requestedAccountId
+          ? demoRows.filter((row) => row.accountId === requestedAccountId)
+          : demoRows,
       ),
       isPartial: false,
       notReadyReason: null,

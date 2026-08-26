@@ -1,4 +1,7 @@
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import {
+  META_POSTURE_UNVERIFIED_REASON,
+  readMetaBusinessDataPosture,
+} from "@/lib/meta/business-data-posture";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaBreakdowns, getDemoMetaStatus } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
@@ -97,7 +100,19 @@ export async function getMetaBreakdownsForRange(input: {
   const resolvedEnd = input.endDate ?? toISODate(new Date());
   const requestedAccountId = input.providerAccountId?.trim() || null;
 
-  if (await isDemoBusiness(input.businessId)) {
+  const posture = await readMetaBusinessDataPosture(input.businessId);
+  if (posture === "unverified") {
+    /*
+     * Tri-state, not a boolean. `isDemoBusiness` answers `false` — live — for
+     * an unreadable flag, so a workspace the database could not vouch for was
+     * sent to the live reader. Withheld instead.
+     */
+    // `no_connection` is this module's own word for "there is nothing to read
+    // from here" — the closest existing member, and reusing it keeps the status
+    // union closed rather than widening a contract for one branch.
+    return emptyBreakdowns("no_connection", META_POSTURE_UNVERIFIED_REASON, false);
+  }
+  if (posture === "demo") {
     /**
      * ITEM 17 — the demo branch answers for the account it HOLDS, or refuses.
      *
@@ -305,7 +320,7 @@ export async function getMetaCountryBreakdownsForRange(input: {
   const resolvedStart = input.startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = input.endDate ?? toISODate(new Date());
 
-  if (await isDemoBusiness(input.businessId)) {
+  if ((await readMetaBusinessDataPosture(input.businessId)) === "demo") {
     const demo = getDemoMetaBreakdowns();
     return {
       status: "ok",

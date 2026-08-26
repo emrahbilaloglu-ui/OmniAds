@@ -1,5 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/*
+ * The posture read, stubbed at its own DB read.
+ *
+ * The source moved off the boolean `isDemoBusiness` onto the tri-state
+ * `readMetaBusinessDataPosture`, which fails CLOSED: an unreadable flag
+ * withholds rather than falling through to the live reader. The module under
+ * test is the source, so only the read it delegates to is replaced.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
 }));

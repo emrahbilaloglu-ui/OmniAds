@@ -3,6 +3,17 @@ import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/campaigns/route";
 import { assertMetaCampaignRowPageContract } from "@/lib/meta/page-route-contract.test-helpers";
 
+/*
+ * The posture read, stubbed at its own DB read.
+ *
+ * The source moved off the boolean `isDemoBusiness` onto the tri-state
+ * `readMetaBusinessDataPosture`, which fails CLOSED: an unreadable flag
+ * withholds rather than falling through to the live reader.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
 }));

@@ -1,4 +1,3 @@
-import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
@@ -16,6 +15,10 @@ import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
+import {
+  META_POSTURE_UNVERIFIED_REASON,
+  readMetaBusinessDataPosture,
+} from "@/lib/meta/business-data-posture";
 
 export interface MetaCampaignsSourceResult {
   status?:
@@ -62,10 +65,38 @@ export async function getMetaCampaignsForRange(input: {
   includePrev?: boolean;
   includePrevBudget?: boolean;
 }): Promise<MetaCampaignsSourceResult> {
-  if (await isDemoBusiness(input.businessId)) {
+  /*
+   * Tri-state posture, not a boolean.
+   *
+   * This branch used to be `if (await isDemoBusiness(...))`, which answers
+   * `false` — live — for an unreadable flag, so a database that could not say
+   * whether the workspace was real sent the request on to the live reader.
+   * `unverified` now withholds instead.
+   *
+   * The demo branch is ALSO account-scoped now. It returned the fixture whole,
+   * before the assignment intersection below ever ran, so a per-account
+   * generation for the demo business got every account's campaigns pooled — the
+   * exact defect the account narrowing exists to remove.
+   */
+  const posture = await readMetaBusinessDataPosture(input.businessId);
+  if (posture === "unverified") {
+    return {
+      status: "not_connected",
+      rows: [],
+      isPartial: false,
+      notReadyReason: META_POSTURE_UNVERIFIED_REASON,
+      evidenceSource: "unknown",
+    };
+  }
+  if (posture === "demo") {
+    const demoRows = getDemoMetaCampaigns().rows as MetaCampaignRow[];
+    const requestedAccountId =
+      input.accountId && input.accountId !== "all" ? input.accountId : null;
     return {
       status: "ok",
-      rows: getDemoMetaCampaigns().rows as MetaCampaignRow[],
+      rows: requestedAccountId
+        ? demoRows.filter((row) => row.accountId === requestedAccountId)
+        : demoRows,
       isPartial: false,
       notReadyReason: null,
       evidenceSource: "demo",

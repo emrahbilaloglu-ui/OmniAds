@@ -8,6 +8,17 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+/*
+ * The posture read, stubbed at its own DB read.
+ *
+ * The source moved off the boolean `isDemoBusiness` onto the tri-state
+ * `readMetaBusinessDataPosture`, which fails CLOSED: an unreadable flag
+ * withholds rather than falling through to the live reader.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
+
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(() => false),
 }));
@@ -51,6 +62,7 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
@@ -433,7 +445,8 @@ describe("GET /api/meta/breakdowns — demo workspace account scoping", () => {
       session: {} as never,
       membership: {} as never,
     });
-    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true as never);
+    // The posture is what the source reads now, not the boolean.
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
   });
 
   it("is a single-account fixture, so one shared set of rows is not a pooled one", () => {

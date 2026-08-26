@@ -95,6 +95,10 @@ describe("the respond control acts on a served recommendation", () => {
     expect(JSON.parse(String(init.body))).toEqual({
       recId: "rec_a",
       businessId: BUSINESS,
+      // The physical account travels with the response: the write boundary
+      // checks the rec against THIS account's current snapshot, and a response
+      // sent without one is refused.
+      providerAccountId: null,
       action: "acted",
     });
   });
@@ -284,4 +288,24 @@ describe("a refused control posts nothing", () => {
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it("sends the account this surface is scoped to", async () => {
+    render(
+      <IntelligenceControlsClient
+        businessId={BUSINESS}
+        providerAccountId="act_1"
+        sources={[respondSource()]}
+      />,
+    );
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Record a response — Recommendations"),
+      "acted",
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)),
+    ).toMatchObject({ providerAccountId: "act_1" });
+  });
+
 });

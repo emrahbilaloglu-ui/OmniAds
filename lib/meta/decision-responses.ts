@@ -113,6 +113,96 @@ export function emitMetaDecisionResponseTelemetry(input: {
   });
 }
 
+/**
+ * Authorize and record in ONE statement.
+ *
+ * The route used to ask `readServedMetaRecommendation` and then INSERT. Between
+ * those two the snapshot can rotate — `upsertSnapshotRows` DELETEs the day's
+ * recommendation rows and re-inserts them — and a competing response can land,
+ * so a permissive read could authorize a write the check would refuse a
+ * millisecond later. Here the predicate IS the INSERT's `WHERE`, so the row
+ * either satisfies it at write time or does not exist.
+ *
+ * Zero rows returned means "not authorized". A thrown error means the source
+ * could not be read, and the caller must refuse rather than treat it as
+ * absence — the two are different sentences to an operator.
+ */
+export async function recordMetaDecisionResponseIfAuthorized(input: {
+  recId: string;
+  businessId: string;
+  providerAccountId: string | null;
+  action: MetaDecisionResponseAction;
+  actionSubtype?: string | null;
+  reappearAt?: string | null;
+}): Promise<MetaDecisionResponseRow | null> {
+  const sql = getDb();
+  const account = input.providerAccountId?.trim() || null;
+  const isUndefer = input.action === "undeferred";
+  const rows = (await sql`
+    INSERT INTO meta_decision_responses (
+      rec_id,
+      business_id,
+      action,
+      action_subtype,
+      reappear_at
+    )
+    SELECT
+      ${input.recId},
+      ${input.businessId},
+      ${input.action},
+      ${input.actionSubtype ?? null},
+      ${normalizeTimestamp(input.reappearAt)}::timestamptz
+    WHERE
+      CASE WHEN ${isUndefer}::boolean THEN
+        -- undeferred: the latest response for this rec must itself be an
+        -- unexpired deferral. Expiry has already lifted anything older, so
+        -- there would be nothing to undefer.
+        EXISTS (
+          SELECT 1
+          FROM (
+            SELECT action, reappear_at
+            FROM meta_decision_responses
+            WHERE business_id = ${input.businessId}
+              AND rec_id = ${input.recId}
+            ORDER BY timestamp DESC
+            LIMIT 1
+          ) latest
+          WHERE latest.action = 'deferred'
+            AND (latest.reappear_at IS NULL OR latest.reappear_at > NOW())
+        )
+      ELSE
+        -- acted / deferred / ignored: the rec must be in the CURRENT served
+        -- snapshot for THIS physical account. A null account cannot authorize
+        -- one, because "the current snapshot" is a per-account fact.
+        ${account}::text IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM meta_decision_snapshots_daily snapshot
+          WHERE snapshot.business_id = ${input.businessId}
+            AND snapshot.provider_account_id = ${account}
+            AND snapshot.rec_id = ${input.recId}
+            AND COALESCE(snapshot.kind, 'recommendation') = 'recommendation'
+            AND snapshot.snapshot_date = (
+              SELECT MAX(snapshot_date)
+              FROM meta_decision_snapshots_daily
+              WHERE business_id = ${input.businessId}
+                AND provider_account_id = ${account}
+                AND COALESCE(kind, 'recommendation') = 'recommendation'
+            )
+        )
+      END
+    RETURNING
+      rec_id,
+      business_id,
+      action,
+      action_subtype,
+      timestamp::text AS timestamp,
+      reappear_at::text AS reappear_at
+  `) as MetaDecisionResponseDbRow[];
+  const row = rows[0];
+  return row ? mapResponseRow(row) : null;
+}
+
 export async function recordMetaDecisionResponse(input: {
   recId: string;
   businessId: string;

@@ -1118,10 +1118,39 @@ export async function readMetaIntelligence(input: {
        * this module's clock.
        */
       (async () => {
+        /*
+         * D6: one physical provider account.
+         *
+         * This section used to read the snapshot business-wide while the
+         * surface named a single account above it, so a recommendation about
+         * another assigned account was offered here as if it belonged to the
+         * selected one — and the respond control then acted on it. The read is
+         * account-scoped now, and rows whose lineage cannot be proven are
+         * withheld by the reader rather than shown.
+         *
+         * With no account selected there is nothing to scope to, and this
+         * section withholds exactly as every other account-scoped section on
+         * this surface does.
+         */
+        if (!providerAccountId) {
+          return {
+            facts: [],
+            unavailableReason: noAccountReason("served recommendations"),
+            observedAt: null,
+            control: {
+              kind: "respond" as const,
+              enabled: false,
+              refusalCode: null,
+              refusalMessage: noAccountReason("served recommendations"),
+              targets: [],
+            },
+          } satisfies SectionOutcome;
+        }
         const model = await readLatestMetaDecisionSnapshot({
           businessId,
           startDate,
           endDate,
+          providerAccountId,
         }).catch(() => null);
         const nothingToRespondTo = (reason: string) =>
           /*
@@ -1208,11 +1237,16 @@ export async function readMetaIntelligence(input: {
        * opening a page a write.
        */
       (async () => {
-        const model = await readLatestMetaDecisionSnapshot({
-          businessId,
-          startDate,
-          endDate,
-        }).catch(() => null);
+        // Scoped for the same reason as the section above: "when did the engine
+        // last write for THIS account" is the question the surface is asking.
+        const model = providerAccountId
+          ? await readLatestMetaDecisionSnapshot({
+              businessId,
+              startDate,
+              endDate,
+              providerAccountId,
+            }).catch(() => null)
+          : null;
         return {
           facts: [
             {

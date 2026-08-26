@@ -6,13 +6,23 @@ import { readServedMetaRecommendation } from "@/lib/meta/served-recommendation";
 import {
   emitMetaDecisionResponseTelemetry,
   META_DECISION_RESPONSE_ACTIONS,
-  recordMetaDecisionResponse,
+  recordMetaDecisionResponseIfAuthorized,
   type MetaDecisionResponseAction,
 } from "@/lib/meta/decision-responses";
 
 type ResponseBody = {
   recId?: unknown;
   businessId?: unknown;
+  /**
+   * The physical Meta account the caller is scoped to.
+   *
+   * Account Intelligence is an account-scoped surface and already names one
+   * account on screen; this is that account, and the write boundary requires
+   * it for the three current-snapshot actions. It is a REQUEST, not authority:
+   * the check below matches it against `provider_account_id` on rows this
+   * business owns, so naming another workspace's account proves nothing.
+   */
+  providerAccountId?: unknown;
   action?: unknown;
   actionSubtype?: unknown;
   reappearAt?: unknown;
@@ -43,6 +53,7 @@ export async function POST(request: NextRequest) {
 
   const recId = stringValue(body.recId);
   const businessId = stringValue(body.businessId);
+  const providerAccountId = stringValue(body.providerAccountId) || null;
   const action = stringValue(body.action);
   const actionSubtype = stringValue(body.actionSubtype) || null;
   const reappearAt = stringValue(body.reappearAt) || null;
@@ -80,43 +91,68 @@ export async function POST(request: NextRequest) {
   if (demoBlocked) return demoBlocked;
 
   /*
-   * The id must name a recommendation this business was actually served.
+   * Authority and write in ONE statement.
    *
-   * Last of the refusals and still before the INSERT. `rec_id` has no foreign
-   * key — `lib/triage-events.ts` writes synthetic ids into the same table — so
-   * the check belongs here, at the boundary that accepts an id from a caller,
-   * rather than as a table constraint that would break the other writer.
+   * The id must name a recommendation this business was actually served, in
+   * this physical account, and the rule is per ACTION:
    *
-   * Three answers, and the third is why this is not a boolean: a snapshot
-   * source that could not be READ must not be reported as a recommendation
-   * that does not EXIST, and must not fall through to the write either.
+   *   acted / deferred / ignored -> it must be in the CURRENT snapshot for this
+   *     account. A rec that has fallen out of the snapshot is no longer a
+   *     decision the engine is making.
+   *   undeferred -> it must have a currently ACTIVE prior deferral to lift,
+   *     which is the one action whose purpose is to reach backwards.
+   *
+   * `rec_id` has no foreign key — `lib/triage-events.ts` writes synthetic ids
+   * into the same table — so the check belongs here, at the boundary that
+   * accepts an id from a caller, rather than as a table constraint that would
+   * break the other writer.
+   *
+   * `recordMetaDecisionResponseIfAuthorized` makes the predicate the INSERT's
+   * own WHERE, so a snapshot rotation between a check and a write cannot
+   * produce a row the check would have refused. `readServedMetaRecommendation`
+   * is consulted only when that INSERT wrote nothing, to say WHICH refusal it
+   * was — and it is the same predicate, so the two cannot disagree.
    */
-  const served = await readServedMetaRecommendation({
-    businessId: access.membership.businessId,
-    recId,
-  });
-  if (served.status === "source_unavailable") {
+  let response: Awaited<ReturnType<typeof recordMetaDecisionResponseIfAuthorized>>;
+  try {
+    response = await recordMetaDecisionResponseIfAuthorized({
+      recId,
+      businessId: access.membership.businessId,
+      providerAccountId,
+      action,
+      actionSubtype,
+      reappearAt,
+    });
+  } catch {
     return jsonError(
       503,
       "recommendation_source_unavailable",
       "The decision snapshot could not be read, so this response was not recorded. Nothing was written.",
     );
   }
-  if (served.status !== "served") {
+  if (!response) {
+    const served = await readServedMetaRecommendation({
+      businessId: access.membership.businessId,
+      recId,
+      action,
+      providerAccountId,
+    });
+    if (served.status === "source_unavailable") {
+      return jsonError(
+        503,
+        "recommendation_source_unavailable",
+        "The decision snapshot could not be read, so this response was not recorded. Nothing was written.",
+      );
+    }
     return jsonError(
       404,
       "recommendation_not_served",
-      "That recommendation is not in the served universe for this workspace, so no response was recorded.",
+      action === "undeferred"
+        ? "That recommendation has no active deferral to lift, so no response was recorded."
+        : "That recommendation is not in the current served snapshot for this account, so no response was recorded.",
     );
   }
 
-  const response = await recordMetaDecisionResponse({
-    recId,
-    businessId: access.membership.businessId,
-    action,
-    actionSubtype,
-    reappearAt,
-  });
   const telemetry = emitMetaDecisionResponseTelemetry({
     recId,
     businessId: access.membership.businessId,

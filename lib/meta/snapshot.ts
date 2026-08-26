@@ -1,4 +1,5 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
@@ -124,6 +125,14 @@ interface SnapshotPayloadRow {
   scope_type: "account" | "campaign" | "adset";
   scope_id: string;
   business_id: string;
+  /**
+   * The PHYSICAL provider account this recommendation is about, when it can be
+   * proven — never inferred from `scope_id`, which holds the business id for
+   * account-level rows. Null when the lineage genuinely cannot be established,
+   * and an account-scoped read WITHHOLDS those rows rather than showing them
+   * for every account.
+   */
+  provider_account_id: string | null;
   snapshot_date: string;
   rec_id: string;
   rec_type: string;
@@ -267,11 +276,52 @@ function snapshotEvidencePayload(recommendation: MetaRecommendation) {
   };
 }
 
+/**
+ * Which physical provider account a recommendation belongs to.
+ *
+ * Resolved from the rows the engine already read: every `MetaCampaignRow` and
+ * every ad-set row carries `accountId`, and the recommendation names its
+ * campaign or ad set. Nothing is inferred from `scope_id`.
+ *
+ * Null is a real answer and the important one. An account-LEVEL recommendation
+ * for a business with more than one assigned account is genuinely about all of
+ * them, and a campaign whose dimension row was not read cannot be placed. Both
+ * stay null, and an account-scoped read withholds them — there is deliberately
+ * no "belongs to every account" fallback, which is the shape that would make
+ * one account's screen show another's decisions.
+ */
+export interface SnapshotAccountLineage {
+  accountByCampaignId: Map<string, string>;
+  accountByAdsetId: Map<string, string>;
+  /** The one assigned account, when the business has exactly one. */
+  soleAssignedAccountId: string | null;
+}
+
+function accountForRecommendation(
+  recommendation: MetaRecommendation,
+  lineage: SnapshotAccountLineage | null,
+): string | null {
+  if (!lineage) return null;
+  if (recommendation.adsetId) {
+    const viaAdset = lineage.accountByAdsetId.get(recommendation.adsetId);
+    if (viaAdset) return viaAdset;
+  }
+  if (recommendation.campaignId) {
+    const viaCampaign = lineage.accountByCampaignId.get(recommendation.campaignId);
+    if (viaCampaign) return viaCampaign;
+  }
+  // Account-level, or an entity whose row was not read. The sole assigned
+  // account is the only case where "the business" and "one account" are the
+  // same fact; with two or more, this stays null.
+  return lineage.soleAssignedAccountId;
+}
+
 function recommendationToSnapshotRow(
   recommendation: MetaRecommendation,
   businessId: string,
   snapshotDate: string,
   evidenceTrail: MetaEvidenceTrail | null,
+  lineage: SnapshotAccountLineage | null = null,
 ): SnapshotPayloadRow {
   const scope = scopeForRecommendation(recommendation, businessId);
   const recommendationWithTrail = evidenceTrail
@@ -281,6 +331,7 @@ function recommendationToSnapshotRow(
     scope_type: scope.scopeType,
     scope_id: scope.scopeId,
     business_id: businessId,
+    provider_account_id: accountForRecommendation(recommendation, lineage),
     snapshot_date: snapshotDate,
     rec_id: recommendation.id,
     rec_type: recommendation.type,
@@ -325,11 +376,24 @@ function anomalyToSnapshotRow(
   anomaly: MetaAnomaly,
   businessId: string,
   snapshotDate: string,
+  lineage: SnapshotAccountLineage | null = null,
 ): SnapshotPayloadRow {
   return {
     scope_type: anomaly.scopeType,
     scope_id: anomaly.scopeId,
     business_id: businessId,
+    /*
+     * Anomalies carry the same lineage question, resolved the same way. An
+     * anomaly names its scope id directly, so a campaign or ad-set anomaly can
+     * be placed from the maps the engine already built.
+     */
+    provider_account_id: lineage
+      ? (anomaly.scopeType === "adset"
+          ? (lineage.accountByAdsetId.get(anomaly.scopeId) ?? null)
+          : anomaly.scopeType === "campaign"
+            ? (lineage.accountByCampaignId.get(anomaly.scopeId) ?? null)
+            : null) ?? lineage.soleAssignedAccountId
+      : null,
     snapshot_date: snapshotDate,
     rec_id: anomaly.id,
     rec_type: anomaly.type,
@@ -382,6 +446,7 @@ async function upsertSnapshotRows(input: {
             scope_type text,
             scope_id text,
             business_id text,
+            provider_account_id text,
             snapshot_date date,
             rec_id text,
             rec_type text,
@@ -409,6 +474,7 @@ async function upsertSnapshotRows(input: {
           scope_type,
           scope_id,
           business_id,
+          provider_account_id,
           snapshot_date,
           rec_id,
           rec_type,
@@ -435,6 +501,7 @@ async function upsertSnapshotRows(input: {
           scope_type,
           scope_id,
           business_id,
+          provider_account_id,
           snapshot_date,
           rec_id,
           rec_type,
@@ -509,6 +576,7 @@ async function upsertSnapshotRows(input: {
           scope_type text,
           scope_id text,
           business_id text,
+          provider_account_id text,
           snapshot_date date,
           rec_id text,
           rec_type text,
@@ -556,6 +624,7 @@ async function upsertSnapshotRows(input: {
         scope_type,
         scope_id,
         business_id,
+        provider_account_id,
         snapshot_date,
         rec_id,
         rec_type,
@@ -586,6 +655,7 @@ async function upsertSnapshotRows(input: {
         scope_type,
         scope_id,
         business_id,
+        provider_account_id,
         snapshot_date,
         rec_id,
         rec_type,
@@ -719,7 +789,10 @@ async function buildAdsetCalibrationContexts(input: {
 async function buildSnapshotRecommendations(input: {
   businessId: string;
   snapshotDate: string;
-}): Promise<MetaRecommendation[]> {
+}): Promise<{
+  recommendations: MetaRecommendation[];
+  lineage: SnapshotAccountLineage;
+}> {
   const endDate = normalizeDate(input.snapshotDate);
   const startDate = addDaysToISO(endDate, -29);
   const selectedSpanDays = dayDiffInclusive(startDate, endDate);
@@ -876,10 +949,61 @@ async function buildSnapshotRecommendations(input: {
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
-  return attachMetaEmpiricalOutcomeSummariesFromLogs({
-    businessId: input.businessId,
-    recommendations: guardedRecommendations,
-  });
+  /*
+   * The account lineage, built from the rows this run already read.
+   *
+   * Every campaign and ad-set row carries `accountId`; the engine simply never
+   * carried it forward. Collected here rather than re-queried, so the lineage
+   * is exactly the one the recommendations were computed from.
+   *
+   * `soleAssignedAccountId` is the only case in which an account-LEVEL
+   * recommendation can be placed: with one assigned account, "this business"
+   * and "this account" are the same fact. With two or more it stays null and
+   * the row is withheld from an account-scoped read.
+   */
+  const accountByCampaignId = new Map<string, string>();
+  for (const campaign of campaigns) {
+    if (campaign.id && campaign.accountId) {
+      accountByCampaignId.set(campaign.id, campaign.accountId);
+    }
+  }
+  const accountByAdsetId = new Map<string, string>();
+  for (const adset of adsetRows.rows ?? []) {
+    const adsetId = (adset as { id?: unknown }).id;
+    const accountId = (adset as { accountId?: unknown }).accountId;
+    if (typeof adsetId === "string" && typeof accountId === "string" && accountId) {
+      accountByAdsetId.set(adsetId, accountId);
+    }
+  }
+  const assignedAccountIds = await readAssignedMetaAccountIds(input.businessId);
+
+  return {
+    recommendations: await attachMetaEmpiricalOutcomeSummariesFromLogs({
+      businessId: input.businessId,
+      recommendations: guardedRecommendations,
+    }),
+    lineage: {
+      accountByCampaignId,
+      accountByAdsetId,
+      soleAssignedAccountId:
+        assignedAccountIds.length === 1 ? assignedAccountIds[0]! : null,
+    },
+  };
+}
+
+/**
+ * The accounts currently assigned to this business, or an empty list.
+ *
+ * Deliberately tolerant: a failed read means the lineage cannot claim a sole
+ * account, which leaves account-level rows null — the fail-closed direction.
+ */
+async function readAssignedMetaAccountIds(businessId: string): Promise<string[]> {
+  try {
+    const assignments = await getProviderAccountAssignments(businessId, "meta");
+    return assignments?.account_ids ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function runMetaSnapshotForBusiness(
@@ -902,10 +1026,11 @@ export async function runMetaSnapshotForBusiness(
     });
     return null;
   });
-  const rawRecommendations = await buildSnapshotRecommendations({
-    businessId,
-    snapshotDate: normalizedSnapshotDate,
-  });
+  const { recommendations: rawRecommendations, lineage: accountLineage } =
+    await buildSnapshotRecommendations({
+      businessId,
+      snapshotDate: normalizedSnapshotDate,
+    });
   // CDC discipline: act-boundary state flips must hold two consecutive
   // snapshots before publishing. Memory-read failure degrades to
   // no-hysteresis (publish raw) instead of failing the snapshot run.
@@ -953,10 +1078,11 @@ export async function runMetaSnapshotForBusiness(
         businessId,
         normalizedSnapshotDate,
         evidenceTrails[recommendation.id] ?? null,
+        accountLineage,
       ),
     ),
     ...anomalies.map((anomaly) =>
-      anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate),
+      anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, accountLineage),
     ),
   ];
   await upsertSnapshotRows({
@@ -1210,6 +1336,22 @@ export async function readLatestMetaDecisionSnapshot(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  /**
+   * The ONE physical provider account this read is scoped to.
+   *
+   * When given, rows are restricted to it and rows whose lineage cannot be
+   * proven — legacy rows written before `provider_account_id` existed, and
+   * account-level rows for a business with more than one assigned account —
+   * are WITHHELD rather than shown. D6 says one physical provider account;
+   * showing a row that might belong to another account is the failure mode
+   * this exists to remove, and a synthetic "belongs to all accounts" fallback
+   * would be exactly that failure wearing a default.
+   *
+   * Omitted keeps the pre-lineage behaviour: business-wide, every row. The
+   * business-scoped callers (History, lane classification, the cron marker)
+   * are not account surfaces and are unchanged.
+   */
+  providerAccountId?: string | null;
 }): Promise<MetaRecommendationsResponse | null> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_decision_snapshots_daily"],
@@ -1217,12 +1359,25 @@ export async function readLatestMetaDecisionSnapshot(input: {
   if (!readiness?.ready) return null;
 
   const sql = getDb();
+  /*
+   * Account scope, applied to BOTH halves.
+   *
+   * The `latest` CTE has to carry it too: without that, a business whose newest
+   * snapshot happens to contain only another account's rows would resolve a
+   * date this account has nothing on, and the surface would report an empty
+   * current snapshot rather than this account's real one.
+   *
+   * `IS NOT DISTINCT FROM` is deliberately NOT used. A null lineage must not
+   * match a requested account — that is the withholding this exists for.
+   */
+  const account = input.providerAccountId?.trim() || null;
   const rows = (await sql`
     WITH latest AS (
       SELECT MAX(snapshot_date) AS snapshot_date
       FROM meta_decision_snapshots_daily
       WHERE business_id = ${input.businessId}
         AND kind = 'recommendation'
+        AND (${account}::text IS NULL OR provider_account_id = ${account})
     )
     SELECT
       scope_type,
@@ -1253,6 +1408,7 @@ export async function readLatestMetaDecisionSnapshot(input: {
     WHERE business_id = ${input.businessId}
       AND snapshot_date = (SELECT snapshot_date FROM latest)
       AND kind = 'recommendation'
+      AND (${account}::text IS NULL OR provider_account_id = ${account})
     ORDER BY
       CASE decision_state
         WHEN 'act' THEN 3

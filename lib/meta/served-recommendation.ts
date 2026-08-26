@@ -1,122 +1,187 @@
 /**
- * Is this `rec_id` one the engine actually served to this business?
+ * May this operator record THIS response against THIS recommendation, now?
  *
  * `POST /api/meta/recommendations/respond` took any non-empty string. The
- * column has no foreign key — deliberately, because
- * `lib/triage-events.ts` is a second writer of `meta_decision_responses` whose
- * rec ids are synthetic and never have a snapshot row — so nothing between the
- * request body and the INSERT established that the id named a real
- * recommendation. A caller could record an operator decision against an id of
- * their choosing, or against another workspace's recommendation, and
- * `lib/meta/outcome-accrual.ts` would later read that row back as evidence
- * that an operator acted.
+ * column has no foreign key — deliberately, because `lib/triage-events.ts` is a
+ * second writer of `meta_decision_responses` whose rec ids are synthetic and
+ * never have a snapshot row — so nothing between the request body and the
+ * INSERT established that the id named a real recommendation. A caller could
+ * record an operator decision against an id of their choosing, or another
+ * workspace's, and `lib/meta/outcome-accrual.ts` would later read that row back
+ * as evidence that an operator acted.
  *
- * The composer posting a server-served id is not a protection: it is the
- * client's good behaviour, and the write boundary cannot depend on it.
+ * ## Three scopes, and none of them guessed
  *
- * ## What "served" can and cannot mean here
+ * **Business.** `meta_decision_snapshots_daily.business_id`, which the caller
+ * has already been authorized against.
  *
- * **Business scope: enforced.** `meta_decision_snapshots_daily.business_id` is
- * the authority, and the caller has already been authorized against it.
+ * **Physical provider account.** `provider_account_id`, the D6 lineage column.
+ * Rows whose lineage cannot be proven — written before the column existed, or
+ * account-level rows for a business with more than one assigned account — do
+ * NOT match a requested account. That is the point: a recommendation that might
+ * belong to another account must not be actionable from this one. Nothing is
+ * inferred from `scope_id`, which holds the BUSINESS id for account-level rows
+ * and would therefore mean two different things by row level.
  *
- * **Account scope: NOT EXPRESSIBLE, and not invented.** The table has no
- * provider-account column — the DDL is
- * `(scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type, ...)`
- * and for `scope_type = 'account'` rows `scope_id` is the BUSINESS id, not an
- * ad-account id (`lib/meta/snapshot.ts`: `return { scopeType: "account", scopeId: businessId }`).
- * A predicate written against `scope_id` would therefore mean different things
- * for account rows and campaign rows, and account-level recommendations — the
- * bulk of them — would be rejected. Provider-account scope for a recommendation
- * is reachable only by joining the dimension tables, which drops every
- * account-level row by construction. So this check is business- and
- * recency-scoped, and says so rather than pretending to an account scope the
- * schema cannot carry.
+ * **Freshness, per ACTION.** The previous version accepted any row inside a
+ * 30-day window, which is not what the surface serves: the mounted control is
+ * drawn from the LATEST snapshot only. An id that was served yesterday and is
+ * absent today therefore passed a check the screen would never have offered.
  *
- * **Recency: bounded, not "latest".** The obvious rule — "is it in the current
- * snapshot" — is wrong. `undeferred` exists precisely to lift a deferral taken
- * days ago, and an `acted` recorded after the operator finally did the thing is
- * legitimate; both would be refused by a latest-only test, and
- * `readLatestMetaDecisionSnapshot` reads `MAX(snapshot_date)` only. The window
- * below is the same shape History uses to resolve a response against the
- * snapshot that produced it.
+ * ## Why the rule is per action rather than one window
  *
- * The window is also what keeps this read cheap. `rec_id` is in no index; the
- * only index is `(business_id, snapshot_date)`, so the date bound is what stops
- * this scanning every snapshot row the business has ever written. This
- * codebase has already lost a surface to exactly that shape.
+ *   `acted` / `deferred` / `ignored` — a response to a recommendation the
+ *   operator is looking at. It must be in the CURRENT served snapshot for this
+ *   account. An id that has fallen out of the snapshot is no longer a decision
+ *   the engine is making, and recording against it writes an operator opinion
+ *   about something the system has stopped saying.
  *
- * ## Three answers, never two
+ *   `undeferred` — the one action whose whole purpose is to reach BACKWARDS. It
+ *   lifts a deferral taken days ago, and by then the rec may legitimately have
+ *   left the current snapshot. So it is allowed only against a recommendation
+ *   this business has a currently ACTIVE prior deferral for. An arbitrary older
+ *   served rec is not undefer authority — that was the hole in "any row in 30
+ *   days".
  *
- * An unreadable snapshot source is NOT "not served". Answering 404 for a
- * database outage would tell the operator their recommendation does not exist;
- * answering "served" would be fail-open. It gets its own state and its own
- * refusal, exactly as `readServedMetaDecision` does for the native decision
- * universe.
+ * "Currently active" means the LATEST response for that rec is `deferred`, not
+ * merely that a `deferred` row exists: otherwise defer → undefer → undefer
+ * passes forever. Automatic expiry is preserved — a deferral whose `reappear_at`
+ * has passed has already come back on its own, so there is nothing left to lift
+ * and it is not active.
+ *
+ * ## One statement, not a read and then a write
+ *
+ * `authorizeAndRecord` performs the authority check and the INSERT in a single
+ * `INSERT ... SELECT`, so a snapshot rotation or a competing response landing
+ * between the two cannot produce a row the check would have refused. The
+ * separate `readServedMetaRecommendation` remains for callers that want the
+ * verdict WITHOUT writing — it is the same predicate, and it is what the route
+ * uses to choose which refusal to state.
  */
 import { getDb } from "@/lib/db";
-
-/**
- * How far back a response may reach.
- *
- * Long enough to cover a deferral and its `reappearAt`, short enough that the
- * indexed date bound still does the work. A recommendation older than this is
- * not part of any live decision loop, and recording an operator response
- * against it would be recording against history.
- */
-export const SERVED_RECOMMENDATION_WINDOW_DAYS = 30;
+import type { MetaDecisionResponseAction } from "@/lib/meta/decision-response-actions";
 
 export type ServedMetaRecommendationStatus =
-  /** The engine served this rec id to this business inside the window. */
+  /** This action may be recorded against this rec, in this scope, now. */
   | "served"
-  /** The snapshot source answered, and this id is not in it. */
+  /**
+   * The source answered and this action is not authorized against this id:
+   * unknown, another workspace's, another account's, no longer in the current
+   * snapshot, or — for `undeferred` — with no active deferral to lift.
+   */
   | "not_served"
-  /** The snapshot source could not be read. Refuses; never reads as served. */
+  /** The source could not be read. Refuses; never reads as served. */
   | "source_unavailable";
 
 export interface ServedMetaRecommendationResult {
   status: ServedMetaRecommendationStatus;
-  /** The snapshot date the id was found on, when it was. */
+  /** Present when the id was authorized through the current snapshot. */
   snapshotDate?: string;
 }
 
-export async function readServedMetaRecommendation(input: {
+interface ServedInput {
   businessId: string;
   recId: string;
-  /** Overridable so a test can pin the window; production uses the default. */
-  windowDays?: number;
-}): Promise<ServedMetaRecommendationResult> {
-  const businessId = input.businessId?.trim() ?? "";
-  const recId = input.recId?.trim() ?? "";
-  // Neither can be established, so nothing can be served against them. This is
-  // "not served" rather than "unavailable": the source was never asked, and
-  // the caller supplied nothing to ask about.
-  if (!businessId || !recId) return { status: "not_served" };
+  action: MetaDecisionResponseAction;
+  /**
+   * The physical account the caller is scoped to. Required for the three
+   * current-snapshot actions; an absent account cannot authorize one, because
+   * "the current snapshot" is a per-account fact.
+   */
+  providerAccountId?: string | null;
+}
 
-  const windowDays = Math.max(
-    1,
-    Math.min(input.windowDays ?? SERVED_RECOMMENDATION_WINDOW_DAYS, 365),
-  );
+/** The three actions that answer a recommendation the operator can see now. */
+const CURRENT_SNAPSHOT_ACTIONS: ReadonlyArray<MetaDecisionResponseAction> = [
+  "acted",
+  "deferred",
+  "ignored",
+];
 
+function normalize(input: ServedInput) {
+  return {
+    businessId: input.businessId?.trim() ?? "",
+    recId: input.recId?.trim() ?? "",
+    account: input.providerAccountId?.trim() || null,
+    action: input.action,
+  };
+}
+
+/**
+ * The predicate, as one boolean-returning query.
+ *
+ * Written once and reused by both the read-only check and the atomic write, so
+ * the two can never disagree about what "served" means.
+ */
+async function authorizes(input: ServedInput): Promise<boolean | "unreadable"> {
+  const { businessId, recId, account, action } = normalize(input);
+  const sql = getDb();
   try {
-    const sql = getDb();
+    if (action === "undeferred") {
+      /*
+       * The LATEST response must itself be an unexpired deferral.
+       *
+       * Not "a deferred row exists": defer -> undefer -> undefer would then
+       * pass forever. And not "the latest unexpired row": a deferral that has
+       * already reappeared has been lifted by expiry, so there is nothing left
+       * for an operator to lift, and that is the automatic-expiry semantics
+       * being preserved rather than worked around.
+       */
+      const rows = (await sql`
+        SELECT 1
+        FROM (
+          SELECT action, reappear_at
+          FROM meta_decision_responses
+          WHERE business_id = ${businessId}
+            AND rec_id = ${recId}
+          ORDER BY timestamp DESC
+          LIMIT 1
+        ) latest
+        WHERE latest.action = 'deferred'
+          AND (latest.reappear_at IS NULL OR latest.reappear_at > NOW())
+      `) as Array<Record<string, unknown>>;
+      return rows.length > 0;
+    }
+    // The current-snapshot actions. Without an account there is no "current
+    // snapshot" to be in — the latest date is a per-account fact — so this
+    // refuses rather than falling back to a business-wide answer.
+    if (!account) return false;
     const rows = (await sql`
-      SELECT snapshot_date::text AS snapshot_date
-      FROM meta_decision_snapshots_daily
-      WHERE business_id = ${businessId}
-        AND snapshot_date >= (CURRENT_DATE - (${windowDays}::int * INTERVAL '1 day'))
-        AND rec_id = ${recId}
-        AND kind = 'recommendation'
-      ORDER BY snapshot_date DESC
+      WITH current_snapshot AS (
+        SELECT MAX(snapshot_date) AS snapshot_date
+        FROM meta_decision_snapshots_daily
+        WHERE business_id = ${businessId}
+          AND provider_account_id = ${account}
+          AND COALESCE(kind, 'recommendation') = 'recommendation'
+      )
+      SELECT snapshot.snapshot_date::text AS snapshot_date
+      FROM meta_decision_snapshots_daily snapshot, current_snapshot
+      WHERE snapshot.business_id = ${businessId}
+        AND snapshot.provider_account_id = ${account}
+        AND snapshot.rec_id = ${recId}
+        AND snapshot.snapshot_date = current_snapshot.snapshot_date
+        AND COALESCE(snapshot.kind, 'recommendation') = 'recommendation'
       LIMIT 1
     `) as Array<{ snapshot_date?: unknown }>;
-    const row = rows[0];
-    if (!row) return { status: "not_served" };
-    return {
-      status: "served",
-      snapshotDate:
-        typeof row.snapshot_date === "string" ? row.snapshot_date : undefined,
-    };
+    return rows.length > 0;
   } catch {
+    return "unreadable";
+  }
+}
+
+export async function readServedMetaRecommendation(
+  input: ServedInput,
+): Promise<ServedMetaRecommendationResult> {
+  const { businessId, recId } = normalize(input);
+  // Neither can be established, so nothing can be served against them. Not
+  // "unavailable": the source was never asked, and the caller supplied nothing
+  // to ask about.
+  if (!businessId || !recId) return { status: "not_served" };
+  if (!CURRENT_SNAPSHOT_ACTIONS.includes(input.action) && input.action !== "undeferred") {
+    return { status: "not_served" };
+  }
+  const verdict = await authorizes(input);
+  if (verdict === "unreadable") {
     /*
      * Includes the unmigrated case. A missing table is a source that cannot
      * answer, not a source that answered "no" — and the difference decides
@@ -125,4 +190,5 @@ export async function readServedMetaRecommendation(input: {
      */
     return { status: "source_unavailable" };
   }
+  return { status: verdict ? "served" : "not_served" };
 }

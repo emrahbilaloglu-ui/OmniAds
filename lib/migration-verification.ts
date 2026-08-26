@@ -297,6 +297,10 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "meta_automation_business_controls", column: "quiet_hours_end", dataType: "time without time zone", isNullable: true },
   { table: "meta_automation_business_controls", column: "quiet_hours_timezone", dataType: "text", isNullable: true },
   { table: "meta_automation_decision_type_modes", column: "clean_approval_threshold", dataType: "integer", isNullable: true },
+  // D6 lineage. Nullable on purpose: legacy rows and account-level rows for a
+  // multi-account business cannot prove a physical account, and an
+  // account-scoped read withholds them rather than showing them everywhere.
+  { table: "meta_decision_snapshots_daily", column: "provider_account_id", dataType: "text", isNullable: true },
 ];
 
 /**

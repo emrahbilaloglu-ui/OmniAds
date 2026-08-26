@@ -7229,6 +7229,35 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS signal_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
           () => {},
         ),
+        /*
+         * D6 lineage: which PHYSICAL provider account a recommendation is
+         * about.
+         *
+         * Account Intelligence is an account-scoped surface — it receives a
+         * `providerAccountId` and names one account on screen — but this table
+         * could not say which account a row belonged to. `scope_id` is not that
+         * answer: for `scope_type = 'account'` rows it holds the BUSINESS id
+         * (see `scopeForRecommendation` in lib/meta/snapshot.ts), so a
+         * predicate on it would mean two different things by row level and
+         * would reject every account-level recommendation. The column is the
+         * only honest way to carry it.
+         *
+         * NULLABLE, and deliberately OUTSIDE the primary key. Rows written
+         * before this column existed genuinely cannot prove an account, and
+         * account-level rows for a multi-account business have none to prove —
+         * both stay NULL and are WITHHELD by an account-scoped read rather than
+         * shown for every account. There is no backfill here for the same
+         * reason: inventing lineage for legacy rows would be exactly the
+         * synthetic "all accounts" fallback this is meant to prevent. The
+         * primary key stays `(scope_type, scope_id, snapshot_date, rec_type)`,
+         * which both writers depend on.
+         */
+        sql`ALTER TABLE meta_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS provider_account_id TEXT`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_account_date
+          ON meta_decision_snapshots_daily (business_id, provider_account_id, snapshot_date)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ALTER COLUMN confidence_score DROP NOT NULL`.catch(() => {}),
         sql`UPDATE meta_decision_snapshots_daily

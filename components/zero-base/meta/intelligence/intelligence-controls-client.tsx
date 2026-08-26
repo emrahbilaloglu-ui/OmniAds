@@ -25,11 +25,21 @@ import { interpretMetaSnapshotRunResponse } from "@/components/meta/redesign/Met
 
 export function IntelligenceControlsClient({
   businessId,
+  providerAccountId = null,
   sources,
   unavailableReason,
   window: windowProp,
 }: {
   businessId: string;
+  /**
+   * The physical Meta account this surface is scoped to.
+   *
+   * Sent with a response so the server can check the recommendation against
+   * THIS account's current snapshot. It is not authority — the route matches it
+   * against `provider_account_id` on rows this business owns — but the boundary
+   * needs it, and a response sent without one is refused.
+   */
+  providerAccountId?: string | null;
   sources: readonly IntelligenceSource[];
   unavailableReason?: string | null;
   window?: { startDate: string; endDate: string };
@@ -97,7 +107,7 @@ export function IntelligenceControlsClient({
           cache: "no-store",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recId, businessId, action }),
+          body: JSON.stringify({ recId, businessId, providerAccountId, action }),
         });
         const payload = (await response.json().catch(() => null)) as {
           ok?: unknown;
@@ -151,7 +161,7 @@ export function IntelligenceControlsClient({
         setBusy(false);
       }
     },
-    [businessId, busy, respondControl],
+    [businessId, busy, providerAccountId, respondControl],
   );
 
   return (

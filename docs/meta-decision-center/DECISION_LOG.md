@@ -119,3 +119,76 @@ unbounded automation claims.
 Scope note: Phase G completion does not mean all future scenario families are
 done. It means implemented behavior is documented, verified, deployed, and
 explicit about its post-closeout limitations.
+
+## D-M009 - Snapshot Rows Carry A Physical Provider Account
+
+Decision: `meta_decision_snapshots_daily` gains a nullable
+`provider_account_id` column, populated at snapshot-generation time from the
+campaign and ad-set rows the engine already reads. Account-scoped readers pass
+the selected account and WITHHOLD rows whose lineage cannot be proven.
+
+Reason: Account Intelligence is an account-scoped surface — it receives a
+`providerAccountId` and names one account on screen — but the snapshot could not
+say which account a recommendation was about, so `readLatestMetaDecisionSnapshot`
+answered business-wide and the surface offered one account's recommendations
+under another account's heading. The respond control then acted on them. That
+contradicts D6 ("one physical provider account") and the plan's exact-account
+write order.
+
+`scope_id` is not the answer and must never be used as one: for
+`scope_type = 'account'` rows it holds the BUSINESS id
+(`scopeForRecommendation` in `lib/meta/snapshot.ts`), so a predicate on it would
+mean two different things by row level and would reject every account-level
+recommendation.
+
+Scope and compatibility:
+
+- The column is NULLABLE and outside the primary key, which stays
+  `(scope_type, scope_id, snapshot_date, rec_type)`. Both writers depend on it.
+- Rows written before the column existed stay NULL. There is deliberately no
+  backfill: inventing lineage for a legacy row is the synthetic "all accounts"
+  fallback this decision exists to prevent.
+- Account-LEVEL rows for a business with more than one assigned account also
+  stay NULL — they are genuinely about all of them. With exactly one assigned
+  account, "this business" and "this account" are the same fact and the row
+  carries it.
+- Business-scoped readers that are not account surfaces — History, lane
+  classification, the ignored-marker sweep — pass no account and are unchanged.
+- An account-scoped read that finds no proven row reports an empty current
+  snapshot for that account. It does not fall back to business-wide.
+
+Deferred, and named so it is not mistaken for done: an account-level
+recommendation for a multi-account business remains unattributable. Making those
+per-account requires the engine to run per account, which is a Phase H change to
+`runMetaSnapshotForBusiness`, not a column.
+
+## D-M010 - Operator Responses Are Authorized Per Action, At Write Time
+
+Decision: `POST /api/meta/recommendations/respond` authorizes the `recId` in the
+same statement that inserts it, and the rule depends on the action:
+
+- `acted`, `deferred`, `ignored` require the recommendation to be in the CURRENT
+  served snapshot for the authorized physical account;
+- `undeferred` requires a currently ACTIVE prior deferral for that exact rec,
+  where "active" means the latest response is `deferred` and its `reappear_at`
+  has not passed.
+
+Reason: the column has no foreign key — `lib/triage-events.ts` is a second
+writer whose rec ids are synthetic and never have a snapshot row — so nothing
+below the route established that an id named a real recommendation, while
+`lib/meta/outcome-accrual.ts` reads those rows back as evidence that an operator
+acted.
+
+A fixed recency window was tried first and was wrong: the mounted control is
+drawn from the LATEST snapshot only, so an id served yesterday and absent today
+passed a check the screen would never have offered. Per-action is what makes
+`undeferred` work without opening that hole, because undeferral is the one
+action whose purpose is to reach backwards.
+
+The check is the INSERT's own `WHERE` rather than a read followed by a write:
+`upsertSnapshotRows` DELETEs and re-inserts a day's rows, so a snapshot rotation
+between a permissive read and an unrelated INSERT could produce a row the check
+would refuse.
+
+An unreadable source refuses with its own code and never reads as absence — a
+404 for a database outage would tell an operator their recommendation is gone.

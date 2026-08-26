@@ -27,6 +27,7 @@ vi.mock("@/lib/meta/decision-responses", async (importOriginal) => {
   return {
     ...actual,
     recordMetaDecisionResponse: vi.fn(),
+    recordMetaDecisionResponseIfAuthorized: vi.fn(),
     emitMetaDecisionResponseTelemetry: vi.fn(),
   };
 });
@@ -45,6 +46,20 @@ function respondRequest(body: Record<string, unknown>) {
 }
 
 /** Neither authority may be reached without the other refusing first. */
+/** Refused BEFORE the write was even attempted: no statement, no telemetry. */
+function expectNothingAttempted() {
+  expect(responses.recordMetaDecisionResponse).not.toHaveBeenCalled();
+  expect(responses.recordMetaDecisionResponseIfAuthorized).not.toHaveBeenCalled();
+  expect(responses.emitMetaDecisionResponseTelemetry).not.toHaveBeenCalled();
+}
+
+/**
+ * Refused BY the write itself.
+ *
+ * The authority IS the INSERT's `WHERE`, so the statement runs and inserts
+ * nothing — that is what makes it race-safe. What must never happen is a row,
+ * a telemetry event, or the legacy unguarded writer being reached.
+ */
 function expectNothingWritten() {
   expect(responses.recordMetaDecisionResponse).not.toHaveBeenCalled();
   expect(responses.emitMetaDecisionResponseTelemetry).not.toHaveBeenCalled();
@@ -56,6 +71,14 @@ describe("POST /api/meta/recommendations/respond", () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "biz_1" } as never,
+    });
+    vi.mocked(responses.recordMetaDecisionResponseIfAuthorized).mockResolvedValue({
+      recId: "rec_1",
+      businessId: "biz_1",
+      action: "deferred",
+      actionSubtype: "let_cook_24h",
+      timestamp: "2026-05-06T10:00:00.000Z",
+      reappearAt: "2026-05-07T10:00:00.000Z",
     });
     vi.mocked(responses.recordMetaDecisionResponse).mockResolvedValue({
       recId: "rec_1",
@@ -118,9 +141,10 @@ describe("POST /api/meta/recommendations/respond", () => {
       businessId: "biz_1",
       minRole: "collaborator",
     });
-    expect(responses.recordMetaDecisionResponse).toHaveBeenCalledWith({
+    expect(responses.recordMetaDecisionResponseIfAuthorized).toHaveBeenCalledWith({
       recId: "rec_1",
       businessId: "biz_1",
+      providerAccountId: null,
       action: "deferred",
       actionSubtype: "let_cook_24h",
       reappearAt: "2026-05-07T10:00:00.000Z",
@@ -169,7 +193,7 @@ describe("POST /api/meta/recommendations/respond", () => {
     expect(response.status).toBe(403);
     expect(payload.error.code).toBe("demo_business_read_only");
     expect(payload.error.action).toBe("operator_response");
-    expectNothingWritten();
+    expectNothingAttempted();
     // The served check is not even reached: the refusal is about the
     // workspace, and asking the snapshot source would be work done for a
     // request that was always going to be refused.
@@ -189,7 +213,7 @@ describe("POST /api/meta/recommendations/respond", () => {
       // a database outage must never read as authority to write.
       expect(response.status).toBe(503);
       expect(payload.error.code).toBe("demo_status_unverified");
-      expectNothingWritten();
+      expectNothingAttempted();
     });
   }
 
@@ -204,10 +228,9 @@ describe("POST /api/meta/recommendations/respond", () => {
     );
 
     expect(demoAuthority.readLaunchpadWriteAuthority).toHaveBeenCalledWith("biz_resolved");
-    expect(served.readServedMetaRecommendation).toHaveBeenCalledWith({
-      businessId: "biz_resolved",
-      recId: "rec_1",
-    });
+    expect(responses.recordMetaDecisionResponseIfAuthorized).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "biz_resolved", recId: "rec_1" }),
+    );
   });
 
   /*
@@ -218,6 +241,8 @@ describe("POST /api/meta/recommendations/respond", () => {
    * evidence that an operator acted.
    */
   it("refuses an id the engine never served, with nothing written", async () => {
+    // The atomic INSERT ... SELECT wrote no row: its predicate did not hold.
+    vi.mocked(responses.recordMetaDecisionResponseIfAuthorized).mockResolvedValue(null);
     vi.mocked(served.readServedMetaRecommendation).mockResolvedValue({
       status: "not_served",
     });
@@ -233,6 +258,7 @@ describe("POST /api/meta/recommendations/respond", () => {
   });
 
   it("refuses when the snapshot source cannot be read, rather than calling it absent", async () => {
+    vi.mocked(responses.recordMetaDecisionResponseIfAuthorized).mockResolvedValue(null);
     vi.mocked(served.readServedMetaRecommendation).mockResolvedValue({
       status: "source_unavailable",
     });

@@ -191,6 +191,14 @@ export default async function MetaIntelligencePage({
     <MetaSurfaceState envelope={readState} surfaceId="meta-intelligence" />
     <IntelligenceControlsClient
       businessId={businessId}
+      /*
+       * The physical account this screen is about, forwarded so the respond
+       * control can name it. The server re-resolves it against the row's own
+       * `provider_account_id`, so this is a REQUEST rather than authority — but
+       * without it the write boundary has no account to check the current
+       * snapshot against and refuses.
+       */
+      providerAccountId={providerAccountId}
       sources={intelligence.sections.map((item) => ({
         key: item.key,
         label: item.label,

@@ -6,6 +6,7 @@ import type {
   MetaDecisionCenterExactCreativeGroupViewModel,
   MetaDecisionCenterExactHealthyGroupViewModel,
   MetaDecisionCenterExactInspectorViewModel,
+  MetaDecisionCenterExactNeedsResolutionRowViewModel,
   MetaDecisionCenterExactNonSalesViewModel,
   MetaDecisionCenterExactSourceFactViewModel,
   MetaDecisionCenterExactSourceProvenanceViewModel,
@@ -685,6 +686,17 @@ function actionRows(input: {
       ),
       actionLabel: nonBlank(action?.label) ?? EM_DASH,
       actionTone: actionTone(action),
+      /*
+       * The server's confidence cap, stated on the row.
+       *
+       * `low` here is the engine's own published confidence — stale source
+       * evidence caps it, and INVARIANTS requires the capped verdict to stay
+       * visible rather than be hidden. The reason is the server's
+       * `confidenceReason` when it wrote one; nothing is derived from label
+       * text.
+       */
+      staleDemoted: (node?.confidence ?? recommendation.confidence) === "low",
+      staleDemotedReason: nonBlank(recommendation.confidenceReason),
       ...(node && input.callbacks.onStructurePrimary
         ? {
             onPrimary: () =>
@@ -699,6 +711,134 @@ function actionRows(input: {
             onOpen: () => input.callbacks.onStructureMenu?.(recommendation),
             onMenu: () => input.callbacks.onStructureMenu?.(recommendation),
           }
+        : {}),
+    };
+  });
+}
+
+/**
+ * Whether the SERVER classified this row `blocked`.
+ *
+ * One field, read once. `MetaOsDecisionLane` is `act | blocked | monitor` and
+ * `lib/meta/decisions-os-presentation.ts` sets `blocked` for a `diagnose` label
+ * or a target-authority blocker. Nothing is inferred here: INVARIANTS forbids
+ * recovering a blocked resolution from label text, badges or metrics, and a
+ * row whose OS node was not served is NOT blocked — it is a row with no
+ * projection, which the notice states rather than this function guessing.
+ */
+function isServerBlocked(node: MetaOsStructureNode | null | undefined): boolean {
+  return node?.lane === "blocked";
+}
+
+/**
+ * A lane's recommendations, split by the server's own classification.
+ *
+ * Blocked rows used to stay in whichever legacy lane they arrived in, so a
+ * decision the engine had explicitly refused authority for was drawn under
+ * "Action Now" beside decisions that could actually be executed. The split is
+ * presentation only — every row is still served, still counted, and still
+ * carries the same verdict bytes.
+ */
+function splitByServerLane(
+  recommendations: readonly MetaRecommendation[],
+  nodes: ReadonlyMap<string, MetaOsStructureNode>,
+): { open: MetaRecommendation[]; blocked: MetaRecommendation[] } {
+  const open: MetaRecommendation[] = [];
+  const blocked: MetaRecommendation[] = [];
+  for (const recommendation of recommendations) {
+    (isServerBlocked(nodes.get(recommendation.id)) ? blocked : open).push(
+      recommendation,
+    );
+  }
+  return { open, blocked };
+}
+
+/**
+ * Why the Needs Resolution lane is empty, when the emptiness is not a fact.
+ *
+ * An account whose payload carries no OS projection has no `lane` on any row,
+ * so every row falls to `open` and this lane renders zero — which is not the
+ * same statement as "the engine blocked nothing". Zero-with-no-projection is an
+ * unread lane and says so; zero-with-a-projection is a measured zero and says
+ * nothing, because the lane's own empty state already covers it.
+ */
+function needsResolutionNotice(
+  workspace: MetaDecisionsWorkspacePayload,
+): string | null {
+  const groups = workspace.os?.structure?.groups;
+  if (groups && groups.length > 0) return null;
+  const readModelStatus = workspace.decisionReadModel?.status;
+  const reason =
+    readModelStatus && readModelStatus !== "available"
+      ? nonBlank(workspace.decisionReadModel?.source?.fallbackReason)
+      : null;
+  return (
+    "No decision projection was served for this account and snapshot, so this " +
+    "lane cannot say whether any decision is blocked." +
+    (reason ? ` ${reason}` : "")
+  );
+}
+
+/**
+ * The blocked lane's rows.
+ *
+ * Every string is the server's: the blocker is the readiness vocabulary the
+ * inspector already prints, the resolution is the node's own scope note, and
+ * the verdict is copied through unchanged. There is deliberately no action
+ * callback — `authority_blocker IS NOT NULL` implies `authorized_action IS
+ * NULL`, so a control here would be offering something that does not exist.
+ */
+function needsResolutionRows(input: {
+  recommendations: readonly MetaRecommendation[];
+  nodes: ReadonlyMap<string, MetaOsStructureNode>;
+  fallbackCurrency: string | null;
+  selectedRecommendationId: string | null;
+  callbacks: MetaDecisionCenterExactAdapterCallbacks;
+}): MetaDecisionCenterExactNeedsResolutionRowViewModel[] {
+  const lineage = laneLineage(input.recommendations);
+  return input.recommendations.map((recommendation) => {
+    const node = input.nodes.get(recommendation.id) ?? null;
+    const readiness = recommendation.automationReadiness;
+    const blockerParts = dedupeReadinessBlockers(
+      readiness?.blockers,
+      readiness?.missingEvidence,
+    );
+    const relation = lineage.get(recommendation.id) ?? null;
+    const confidence = node?.confidence ?? recommendation.confidence;
+    return {
+      id: recommendation.id,
+      name: entityName(recommendation),
+      level: structureLevel(recommendation.level),
+      selected: recommendation.id === input.selectedRecommendationId,
+      ...(relation
+        ? { lineage: relation.label, lineageRole: relation.role }
+        : {}),
+      decisionLabel:
+        recommendation.decisionLabel != null
+          ? titleToken(recommendation.decisionLabel)
+          : (nonBlank(node?.assessment) ??
+            nonBlank(recommendation.decision) ??
+            EM_DASH),
+      decisionTone: decisionTone(recommendation.decisionLabel),
+      blocker:
+        blockerParts.length > 0
+          ? blockerParts.map(operatorFactLabel).join(" · ")
+          : // The node's own assessment is the server's short form of the same
+            // fact ("Decision Blocked"); `whyNow` carries the long one.
+            (nonBlank(node?.assessment) ?? "Authority withheld"),
+      blockerTone: "warning",
+      resolution:
+        nonBlank(node?.action?.scopeNote) ??
+        nonBlank(node?.whyNow) ??
+        nonBlank(recommendation.why) ??
+        null,
+      money: recommendationMoney(recommendation, node, input.fallbackCurrency),
+      confidence: titleToken(confidence),
+      confidenceTone: confidenceTone(confidence),
+      staleDemoted: confidence === "low",
+      staleDemotedReason: nonBlank(recommendation.confidenceReason),
+      ...(input.callbacks.onStructureMenu
+        ? { onOpen: () => input.callbacks.onStructureMenu?.(recommendation) }
         : {}),
     };
   });
@@ -2795,9 +2935,9 @@ export function buildMetaDecisionCenterExactViewModel(
   const fallbackCurrency =
     currencyCode(scopedAccount?.currency) ??
     currencyCode(workspace.system.currency);
-  const actionRecommendations =
+  const servedActionRecommendations =
     overrides.actionNow ?? workspace.lanes.actionNow;
-  const watchingRecommendations =
+  const servedWatchingRecommendations =
     overrides.watching ?? workspace.lanes.watching;
   const healthy = overrides.healthy ?? workspace.lanes.healthy;
   const nonSales = overrides.nonSales ?? workspace.lanes.nonSales;
@@ -2807,6 +2947,33 @@ export function buildMetaDecisionCenterExactViewModel(
   const canonicalDecisions =
     overrides.canonicalDecisions ?? defaultCanonicalDecisions(workspace);
   const nodes = structureNodesByRecommendationId(workspace);
+  /*
+   * The three server lanes, applied to the two legacy arrays that can carry a
+   * blocked row.
+   *
+   * `healthy`, `nonSales` and `archive` are not split: healthy rows carry no
+   * decision, non-sales is an out-of-scope statement rather than a queue lane,
+   * and the archive is inactive assets. Only Action Now and Watching promise
+   * something about a decision the engine made, and only they can therefore
+   * mis-promise it.
+   */
+  const actionSplit = splitByServerLane(servedActionRecommendations, nodes);
+  const watchingSplit = splitByServerLane(servedWatchingRecommendations, nodes);
+  const actionRecommendations = actionSplit.open;
+  const watchingRecommendations = watchingSplit.open;
+  const blockedRecommendations = [...actionSplit.blocked, ...watchingSplit.blocked];
+  /*
+   * The same split over the UNFILTERED served arrays, for the counters only.
+   *
+   * The rows above may be a filtered override — the page narrows them by search
+   * and level — and a lane counter that moved with a search term would report
+   * that the account shrank. `counts.actionNow` is `actionNow.length` at the
+   * producer (`lib/meta/decisions-os-presentation.ts:266`), so splitting the
+   * served array is the same arithmetic the server would do, on the same
+   * population, with nothing filtered out of it.
+   */
+  const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);
+  const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);
   const canonical = canonicalDecisionsByKey(canonicalDecisions);
   const snapshotAsOf =
     nonBlank(workspace.decisionReadModel.source.snapshotAsOf) ??
@@ -2884,8 +3051,35 @@ export function buildMetaDecisionCenterExactViewModel(
        * action, a lane or a classification by being counted.
        */
       creatives: finite(workspace.os?.ads?.items?.length) ?? EM_DASH,
-      action: workspace.lanes.counts.actionNow,
-      watching: workspace.lanes.counts.watching,
+      /*
+       * The three counters the server's own lane split moves rows between.
+       *
+       * Still the SERVER's totals: each starts from `workspace.lanes.counts.*`
+       * and only the rows this queue actually moved are subtracted from it. Two
+       * properties follow, and both matter.
+       *
+       * The sum is unchanged, so no row is counted twice or lost. And the
+       * numbers stay filter-independent — the split is taken over the served
+       * arrays on the payload, never over the filtered overrides the page
+       * passes, so a search term narrows the table without appearing to shrink
+       * the account. That was the existing law here and it still holds; what
+       * changed is only WHERE a blocked row is counted, because a pill reading
+       * 12 above a lane drawing 9 is the mismatch this closes.
+       *
+       * If a payload ever caps a lane array below its own count, a blocked row
+       * past the cap is neither moved nor drawn — which is correct: it was not
+       * visible in either lane to begin with.
+       */
+      action: Math.max(
+        0,
+        workspace.lanes.counts.actionNow - servedActionSplit.blocked.length,
+      ),
+      needsres:
+        servedActionSplit.blocked.length + servedWatchingSplit.blocked.length,
+      watching: Math.max(
+        0,
+        workspace.lanes.counts.watching - servedWatchingSplit.blocked.length,
+      ),
       healthy: workspace.lanes.counts.healthy,
       nonsales: workspace.lanes.counts.nonSales,
       // The lane total, over BOTH grains the lane now holds. Deliberately read
@@ -2984,6 +3178,14 @@ export function buildMetaDecisionCenterExactViewModel(
       selectedRecommendationId,
       callbacks,
     }),
+    needsResolutionRows: needsResolutionRows({
+      recommendations: blockedRecommendations,
+      nodes,
+      fallbackCurrency,
+      selectedRecommendationId,
+      callbacks,
+    }),
+    needsResolutionNotice: needsResolutionNotice(workspace),
     watchSegments: watchSegments(
       overrides.watchSegments ?? workspace.lanes.watchingSegments ?? [],
     ),
@@ -3023,6 +3225,10 @@ export function buildMetaDecisionCenterExactViewModel(
       selection,
       selectableRecommendations: [
         ...actionRecommendations,
+        // A blocked row is the one an operator most needs the evidence for.
+        // Omitting it here would open its card onto an inspector that could not
+        // find it and drew em dashes.
+        ...blockedRecommendations,
         ...watchingRecommendations,
         ...nonSales,
       ],

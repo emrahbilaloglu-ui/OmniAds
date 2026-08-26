@@ -22,7 +22,7 @@ const ADAPTER = readFileSync(
 describe("the scope counters count their scope", () => {
   const block = ADAPTER.slice(
     ADAPTER.indexOf("counts: {"),
-    ADAPTER.indexOf("action: workspace.lanes.counts.actionNow"),
+    ADAPTER.indexOf("      action: Math.max("),
   );
 
   it("counts creatives from the served population, not the act lane", () => {
@@ -39,10 +39,31 @@ describe("the scope counters count their scope", () => {
     expect(block.match(/\?\? EM_DASH/g) ?? []).toHaveLength(2);
   });
 
-  it("leaves the lane counters reading their own lanes", () => {
-    // The lane pills are correct as they are; this law is about the SCOPE pills
-    // and must not be read as licence to change what a lane reports.
-    expect(ADAPTER).toContain("action: workspace.lanes.counts.actionNow");
-    expect(ADAPTER).toContain("watching: workspace.lanes.counts.watching");
+  /**
+   * The lane counters still start from the server's own totals.
+   *
+   * This law is about the SCOPE pills and is not licence to recount a lane from
+   * whatever the table happens to be drawing. What the Needs Resolution lane
+   * changed is only WHERE a row is counted: each counter is still
+   * `workspace.lanes.counts.*`, with the blocked rows the queue actually moved
+   * subtracted from it and added to the new lane. The sum is unchanged, and —
+   * the property that matters — the split is taken over the payload's served
+   * arrays rather than the filtered overrides, so a search term still cannot
+   * make a lane counter fall.
+   */
+  it("leaves the lane counters starting from the server's own totals", () => {
+    expect(ADAPTER).toContain("workspace.lanes.counts.actionNow - servedActionSplit.blocked.length");
+    expect(ADAPTER).toContain("workspace.lanes.counts.watching - servedWatchingSplit.blocked.length");
+  });
+
+  it("splits the counters over the served arrays, never the filtered overrides", () => {
+    // `overrides.actionNow` is the page's search/level-filtered array. If the
+    // counters were split over it, every keystroke would shrink the account.
+    expect(ADAPTER).toContain(
+      "const servedActionSplit = splitByServerLane(workspace.lanes.actionNow, nodes);",
+    );
+    expect(ADAPTER).toContain(
+      "const servedWatchingSplit = splitByServerLane(workspace.lanes.watching, nodes);",
+    );
   });
 });

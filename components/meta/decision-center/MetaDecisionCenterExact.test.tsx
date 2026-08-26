@@ -261,7 +261,7 @@ function root(): HTMLElement {
 }
 
 describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
-  it("renders the header, five KPI cards, scope, five lanes, queue and inspector in exact order", () => {
+  it("renders the header, five KPI cards, scope, six lanes, queue and inspector in exact order", () => {
     renderExact();
 
     expect(root().children).toHaveLength(5);
@@ -287,7 +287,16 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       Array.from(document.querySelectorAll("[data-meta-exact-lane]")).map(
         (node) => node.getAttribute("data-meta-exact-lane"),
       ),
-    ).toEqual(["action", "watching", "healthy", "nonsales", "archive"]);
+    ).toEqual([
+      "action",
+      // The server's own `blocked` state, between the lane that promises an
+      // action and the one that promises none.
+      "needsres",
+      "watching",
+      "healthy",
+      "nonsales",
+      "archive",
+    ]);
     expect(
       Array.from(document.querySelectorAll("[data-meta-exact-action-row]")).map(
         (node) => node.textContent,
@@ -1135,10 +1144,13 @@ describe("the Structures scope states the envelope its actions answer to", () =>
     expect(panel?.getAttribute("data-meta-exact-source-scope")).toBe(
       "structure",
     );
-    // The rows are still the primary content and still render underneath.
-    expect(queue?.children[1]?.getAttribute("data-meta-exact-action-row")).toBe(
-      "action-a",
-    );
+    // The rows are still the primary content and still render underneath, now
+    // inside the lane body that carries the collection the design names.
+    const laneBody = queue?.children[1];
+    expect(laneBody?.getAttribute("data-collection")).toBe("decisions");
+    expect(
+      laneBody?.firstElementChild?.getAttribute("data-meta-exact-action-row"),
+    ).toBe("action-a");
 
     /*
      * Folded, not hidden. Every load-bearing fact is in the summary line, which
@@ -1269,8 +1281,13 @@ describe("the Structures scope states the envelope its actions answer to", () =>
     const queue = document.querySelector(
       "[data-meta-exact-workspace]",
     )?.firstElementChild;
-    expect(queue?.children[0]?.getAttribute("data-meta-exact-action-row")).toBe(
-      "action-a",
+    expect(queue?.children[0]?.getAttribute("data-collection")).toBe(
+      "decisions",
     );
+    expect(
+      queue?.children[0]?.firstElementChild?.getAttribute(
+        "data-meta-exact-action-row",
+      ),
+    ).toBe("action-a");
   });
 });

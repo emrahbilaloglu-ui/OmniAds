@@ -948,19 +948,25 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(noticeText(dom)).toBe("");
   });
 
-  // `lane=test` is the one retired lane with no counterpart: this queue serves
-  // Action now / Watching / Healthy / Non-sales / Inactive, and test decisions
-  // live inside Action now. Collapsing it silently is exactly the failure this
-  // matrix exists to prevent.
-  it("states that lane=test collapsed into Action now instead of silently defaulting", () => {
+  // `lane=test` was the one retired lane with no counterpart, and it is the one
+  // this pass gave a home. It is the older contract's name for the server's
+  // `blocked` state; the Needs Resolution lane IS that state, so the link now
+  // resolves rather than collapsing into Action now — and, because it resolves,
+  // the compatibility notice has nothing to report about it.
+  it("restores lane=test onto Needs Resolution rather than collapsing it", () => {
     state.workspaceData = workspacePayload();
     state.search = "lane=test";
     const dom = render();
-    expect(state.exactProps.lane).toBe("action");
-    const text = noticeText(dom);
-    expect(text).toContain("could not be restored");
-    expect(text).toContain("lane=test");
-    expect(text).toContain("no separate Test lane");
+    expect(state.exactProps.lane).toBe("needsres");
+    expect(noticeText(dom)).toBe("");
+  });
+
+  it("restores the lane's own name too", () => {
+    state.workspaceData = workspacePayload();
+    state.search = "lane=needsres";
+    const dom = render();
+    expect(state.exactProps.lane).toBe("needsres");
+    expect(noticeText(dom)).toBe("");
   });
 
   it("states that an unrecognised lane was not honoured", () => {

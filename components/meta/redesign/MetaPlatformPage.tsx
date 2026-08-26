@@ -221,23 +221,33 @@ function metaNoticeToneClass(tone: MetaDecisionNotice["tone"]): string {
   return "info";
 }
 
-type MetaLaneView = "action" | "watching" | "healthy" | "nonSales" | "archive";
+type MetaLaneView =
+  | "action"
+  | "needsres"
+  | "watching"
+  | "healthy"
+  | "nonSales"
+  | "archive";
 
 /**
- * Two lane vocabularies reach this screen and only one is current.
+ * Two lane vocabularies reach this screen and both now resolve.
  *
- * The live one is `watching|healthy|nonSales|archive` (plus the implicit
- * `action`). The retired one is `act|test|watch`, from the decommissioned
- * decisions URL contract in `lib/zero-base/meta/decisions-url-state.ts`; links
- * carrying it still exist in pasted URLs and bookmarks. Those used to fall
- * through the default and render Action Now — a link that says `lane=watch`
- * silently showing a different lane is a lie about what the recipient is
- * looking at. `watch` maps; `act` is Action Now; `test` had no lane in this
- * taxonomy at all (it was a campaign label, not a queue lane), so it resolves
- * to the default by an explicit decision rather than by omission.
+ * The live one is `needsres|watching|healthy|nonSales|archive` (plus the
+ * implicit `action`). The older one is `act|test|watch`, from the decisions URL
+ * contract in `lib/zero-base/meta/decisions-url-state.ts`; links carrying it
+ * still exist in pasted URLs and bookmarks. Those used to fall through the
+ * default and render Action Now — a link that says `lane=watch` silently
+ * showing a different lane is a lie about what the recipient is looking at.
+ *
+ * `test` was the one that could not be honoured: it is that contract's name for
+ * the server's `blocked` state, and this queue had no lane for a blocked
+ * decision, so the link resolved to Action Now and the recipient saw a
+ * different set of rows. The Needs Resolution lane is that state, so `test`
+ * lands where it always meant to.
  */
 function parseMetaLaneView(value: string | null): MetaLaneView {
   if (
+    value === "needsres" ||
     value === "watching" ||
     value === "healthy" ||
     value === "nonSales" ||
@@ -245,7 +255,8 @@ function parseMetaLaneView(value: string | null): MetaLaneView {
   )
     return value;
   if (value === "watch") return "watching";
-  if (value === "act" || value === "test") return "action";
+  if (value === "test") return "needsres";
+  if (value === "act") return "action";
   return "action";
 }
 
@@ -354,20 +365,19 @@ export function describeMetaDeepLinkCompatibility(params: {
     const restorable = new Set([
       "act",
       "action",
+      // `test` is the older contract's name for the server's `blocked` state.
+      // It used to have no lane here and collapsed into Action now, which is
+      // why it was reported. The Needs Resolution lane IS that state, so the
+      // link now lands where it always meant to and there is nothing to report.
+      "test",
+      "needsres",
       "watch",
       "watching",
       "healthy",
       "nonsales",
       "archive",
     ]);
-    if (lane === "test") {
-      entries.push({
-        param: "lane",
-        value: rawLane,
-        behaviour:
-          "opened Action now — this queue has no separate Test lane, and test decisions are served inside Action now",
-      });
-    } else if (!restorable.has(lane)) {
+    if (!restorable.has(lane)) {
       entries.push({
         param: "lane",
         value: rawLane,
@@ -1269,6 +1279,30 @@ function mobileQueueRows(
       onOpen: row.onOpen,
     }));
   }
+  if (lane === "needsres") {
+    /*
+     * The blocked lane, on a phone.
+     *
+     * `actionLabel` is deliberately the read affordance rather than a verb: a
+     * blocked decision has no authorized action, and the mobile surface is
+     * read-only anyway. The blocker rides in `blockedNote`, which this row
+     * model already draws for the creatives scope.
+     */
+    return (viewModel.needsResolutionRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      meta: row.lineage,
+      decisionLabel: row.decisionLabel,
+      decisionTone: row.decisionTone,
+      stateLabel: "Blocked",
+      stateTone: "warning" as const,
+      blockedNote: row.blocker,
+      money: row.money,
+      moneySub: row.resolution,
+      actionLabel: "Read evidence",
+      onOpen: row.onOpen,
+    }));
+  }
   if (lane === "watching") {
     return (viewModel.watchingRows ?? []).map((row) => ({
       id: row.id,
@@ -1971,6 +2005,10 @@ function MetaMobileDecisionsScreen({
               {(
                 [
                   ["action", "Action", counts.action],
+                  // The same six lanes the desktop draws. A phone that offered
+                  // five would put the blocked rows nowhere: they are no longer
+                  // inside Action, so omitting the lane would hide them.
+                  ["needsres", "Needs Resolution", counts.needsres],
                   ["watching", "Watching", counts.watching],
                   ["healthy", "Healthy", counts.healthy],
                   ["nonSales", "Non-sales", counts.nonsales],

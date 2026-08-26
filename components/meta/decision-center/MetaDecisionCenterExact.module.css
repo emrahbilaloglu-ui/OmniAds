@@ -1739,3 +1739,121 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+/* ------------------------------------------------- lane group and paging -- */
+
+/*
+ * The lane radiogroup.
+ *
+ * A wrapper, not a restyle: the options keep their own pill styling and this
+ * only groups them so `role="radiogroup"` has something to sit on and the
+ * arrow-key handler has one place to live.
+ */
+.laneGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * Showing X of Y, under every lane that has rows.
+ *
+ * Reads as a statement rather than a control strip: the count is the important
+ * half and the button is only there while there is more to show.
+ */
+.lanePaging {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.lanePagingMore {
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid #c9d2e0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #2a5fe2;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.lanePagingMore:hover {
+  border-color: #2a5fe2;
+}
+
+/*
+ * A lane that served nothing.
+ *
+ * Four of the five lanes used to render an empty fragment, so a filter that
+ * matched nothing produced a blank column and no explanation at all.
+ */
+.laneEmpty {
+  margin: 0;
+  padding: 18px 16px;
+  border: 1px dashed #c9d2e0;
+  border-radius: 12px;
+  background: #fbfcfe;
+  color: #555d6d;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* ------------------------------------------------------ needs resolution -- */
+
+/*
+ * The blocked lane's card.
+ *
+ * Same geometry as an action card, with the primary button's column given to
+ * the blocker instead — the row's terminal fact is why it cannot move, not what
+ * to press.
+ */
+.needsResolutionCard {
+  flex-wrap: wrap;
+}
+
+.blockerChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--tone-border, #e4e8f0);
+  border-radius: 9999px;
+  background: var(--tone-bg, #fbf3e1);
+  color: var(--tone-fg, #8a3d05);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.needsResolutionStep {
+  flex-basis: 100%;
+  margin: 0;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/*
+ * The server's confidence cap, said on the row.
+ *
+ * Warned rather than dimmed: a demoted verdict is still served, and greying it
+ * out would read as "ignore this", which is the opposite of what a capped
+ * severe stop-loss means.
+ */
+.staleDemoted {
+  display: block;
+  margin-top: 4px;
+  color: #8a3d05;
+  font-size: 12px;
+  line-height: 16px;
+}

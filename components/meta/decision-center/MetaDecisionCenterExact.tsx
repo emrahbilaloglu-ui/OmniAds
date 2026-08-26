@@ -9,8 +9,18 @@ const EM_DASH = "—";
 export type MetaDecisionCenterExactDisplayValue =
   string | number | null | undefined;
 export type MetaDecisionCenterExactScope = "structure" | "creatives";
+/**
+ * The queue's lanes.
+ *
+ * `needsres` is the server's own `blocked` state given a lane of its own. It is
+ * not a sixth opinion about these rows: `MetaOsDecisionLane` is `act | blocked
+ * | monitor`, the server has always classified every structure row into one of
+ * the three, and until now a `blocked` row was still drawn under "Action Now"
+ * — a lane that promises an action for a decision whose authority the server
+ * withheld. Nothing here decides blockedness; it reads `node.lane`.
+ */
 export type MetaDecisionCenterExactLane =
-  "action" | "watching" | "healthy" | "nonsales" | "archive";
+  "action" | "needsres" | "watching" | "healthy" | "nonsales" | "archive";
 export type MetaDecisionCenterExactWindow = "7d" | "14d" | "28d" | "90d";
 export type MetaDecisionCenterExactTone =
   "positive" | "negative" | "warning" | "info" | "automation" | "neutral";
@@ -65,6 +75,8 @@ export interface MetaDecisionCenterExactCountsViewModel {
   structure?: MetaDecisionCenterExactDisplayValue;
   creatives?: MetaDecisionCenterExactDisplayValue;
   action?: MetaDecisionCenterExactDisplayValue;
+  /** Served count of rows the server classified `blocked`. */
+  needsres?: MetaDecisionCenterExactDisplayValue;
   watching?: MetaDecisionCenterExactDisplayValue;
   healthy?: MetaDecisionCenterExactDisplayValue;
   nonsales?: MetaDecisionCenterExactDisplayValue;
@@ -97,10 +109,51 @@ export interface MetaDecisionCenterExactActionRowViewModel {
   confidenceTone?: MetaDecisionCenterExactTone;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   actionTone?: MetaDecisionCenterExactTone;
+  /** True when the server capped this row's confidence. @see QueueStaleDemoted */
+  staleDemoted?: boolean;
+  staleDemotedReason?: MetaDecisionCenterExactDisplayValue;
+  /** Ownership, from the workflow overlay read. Absent when it was not read. */
+  workflowChip?: MetaDecisionCenterExactRowWorkflowChip | null;
   onPrimary?: () => void;
   /** Opens this row in the evidence inspector from anywhere on the card. */
   onOpen?: () => void;
   onMenu?: () => void;
+}
+
+/**
+ * A row the server classified `blocked`, with what is holding it.
+ *
+ * The extra fields over an action row are all server text: `blocker` is the
+ * readiness blocker vocabulary the inspector already prints, `resolution` is
+ * the server's own next step, and neither is composed here. There is no
+ * `actionLabel` and no `onPrimary` by design — a blocked decision has no
+ * authorized action, and offering one would be the UI deciding something the
+ * server refused.
+ */
+export interface MetaDecisionCenterExactNeedsResolutionRowViewModel {
+  id: string;
+  name?: MetaDecisionCenterExactDisplayValue;
+  level?: MetaDecisionCenterExactDisplayValue;
+  lineage?: MetaDecisionCenterExactDisplayValue;
+  lineageRole?: "parent" | "child";
+  selected?: boolean;
+  /** The served verdict, still printed: blocked is about authority, not truth. */
+  decisionLabel?: MetaDecisionCenterExactDisplayValue;
+  decisionTone?: MetaDecisionCenterExactTone;
+  /** Why this row cannot move, in the server's words. */
+  blocker?: MetaDecisionCenterExactDisplayValue;
+  blockerTone?: MetaDecisionCenterExactTone;
+  /** The server's next step, when it stated one. */
+  resolution?: MetaDecisionCenterExactDisplayValue;
+  money?: MetaDecisionCenterExactDisplayValue;
+  confidence?: MetaDecisionCenterExactDisplayValue;
+  confidenceTone?: MetaDecisionCenterExactTone;
+  /** True when the server capped this row's confidence for stale evidence. */
+  staleDemoted?: boolean;
+  staleDemotedReason?: MetaDecisionCenterExactDisplayValue;
+  /** Ownership, from the workflow overlay read. Absent when it was not read. */
+  workflowChip?: MetaDecisionCenterExactRowWorkflowChip | null;
+  onOpen?: () => void;
 }
 
 export interface MetaDecisionCenterExactWatchSegmentViewModel {
@@ -289,6 +342,28 @@ export interface MetaDecisionCenterExactSourceProvenanceViewModel {
   capabilityGaps?: readonly MetaDecisionCenterExactCapabilityGapViewModel[];
 }
 
+/**
+ * The per-row ownership chip (H09 `wf-chip`).
+ *
+ * Carries only what the overlay read returned. `state` is the record's own
+ * state or `unknown` for a read that failed; there is no default, because
+ * printing "Open" for an unread overlay claims nobody owns the decision.
+ */
+export interface MetaDecisionCenterExactRowWorkflowChip {
+  readonly state:
+    | "open"
+    | "acknowledged"
+    | "deferred"
+    | "snoozed"
+    | "rejected"
+    | "resolved"
+    | "unknown";
+  readonly label: MetaDecisionCenterExactDisplayValue;
+  readonly tone?: MetaDecisionCenterExactTone;
+  /** Assignee or hold, when the record carried one. */
+  readonly detail?: MetaDecisionCenterExactDisplayValue;
+}
+
 /** One of the seven transitions, plus what the surface may do with it. */
 export interface MetaDecisionCenterExactWorkflowAction {
   readonly id:
@@ -385,6 +460,17 @@ export interface MetaDecisionCenterExactViewModel {
   counts?: MetaDecisionCenterExactCountsViewModel;
   kpis?: MetaDecisionCenterExactKpisViewModel;
   actionRows?: readonly MetaDecisionCenterExactActionRowViewModel[];
+  /** Rows the server classified `blocked`. @see MetaDecisionCenterExactLane */
+  needsResolutionRows?: readonly MetaDecisionCenterExactNeedsResolutionRowViewModel[];
+  /**
+   * Why the Needs Resolution lane has nothing to show, when that is knowable.
+   *
+   * An account whose payload carries no decision projection at all cannot be
+   * said to have zero blocked decisions — that is an unread lane, not an empty
+   * one, and the two must not look the same. Server-authored; absent when the
+   * projection was read and genuinely held no blocked row.
+   */
+  needsResolutionNotice?: MetaDecisionCenterExactDisplayValue;
   watchSegments?: readonly MetaDecisionCenterExactWatchSegmentViewModel[];
   watchingRows?: readonly MetaDecisionCenterExactWatchingRowViewModel[];
   healthyGroups?: readonly MetaDecisionCenterExactHealthyGroupViewModel[];
@@ -470,6 +556,9 @@ export type MetaDecisionCenterExactSort = "money" | "priority" | "age";
 
 const LANES: readonly { id: MetaDecisionCenterExactLane; label: string }[] = [
   { id: "action", label: "Action Now" },
+  // Between the lane that promises an action and the one that promises none:
+  // these rows have a verdict and no authority for it.
+  { id: "needsres", label: "Needs Resolution" },
   { id: "watching", label: "Watching" },
   { id: "healthy", label: "Healthy" },
   { id: "nonsales", label: "Non-sales" },
@@ -593,10 +682,63 @@ function QueueCardOpen({
     <button
       aria-label={label}
       className={styles.cardOpen}
+      data-ctl="live:META-DEC-05 open-inspector"
       data-meta-exact-card-open
       onClick={onOpen}
       type="button"
     />
+  );
+}
+
+/**
+ * The ownership chip the design draws on every queue row.
+ *
+ * The workflow overlay's state was reachable only by opening the inspector, so
+ * a queue of forty rows could not be scanned for "which of these has somebody
+ * already taken". `unknown` is a read that failed and says so; the chip is
+ * absent entirely when the overlay was never read, because "Open" would be a
+ * claim that nobody owns these decisions made on no evidence.
+ */
+function QueueWorkflowChip({
+  chip,
+}: {
+  chip?: MetaDecisionCenterExactRowWorkflowChip | null;
+}) {
+  if (!chip) return null;
+  return (
+    <span
+      className={`${styles.rowChip} ${toneClass(chip.tone)}`}
+      data-el="wf-chip"
+      data-workflow-state={chip.state}
+      title={chip.detail ? display(chip.detail) : undefined}
+    >
+      {display(chip.label)}
+    </span>
+  );
+}
+
+/**
+ * The server's own statement that this row's confidence was capped.
+ *
+ * Demoted, not dropped: the verdict is still served and still printed. The
+ * reason comes from the server — `INVARIANTS.md` forbids deriving it from
+ * label text — and the row keeps its ordinary styling so a low-confidence row
+ * cannot be mistaken for a high-confidence one by shape alone.
+ */
+function QueueStaleDemoted({
+  demoted,
+  reason,
+}: {
+  demoted?: boolean;
+  reason?: MetaDecisionCenterExactDisplayValue;
+}) {
+  if (!demoted) return null;
+  return (
+    <span className={styles.staleDemoted} data-el="stale-demoted">
+      {meaningfulDisplay(reason)
+        ? display(reason)
+        : "Confidence was capped for this row; the verdict is still served."}
+    </span>
   );
 }
 
@@ -755,14 +897,97 @@ function ExactKpiBand({
   );
 }
 
-function ActionLane({
-  rows,
+/**
+ * How many rows a lane draws before the operator asks for more.
+ *
+ * The queue used to render every served row at once and state neither how many
+ * were drawn nor how many were served, so an account with 600 blocked ads
+ * produced 600 cards and no count. Paging locally is the honest shape here: the
+ * server already sent this lane's rows, so "load more" appends the next SERVED
+ * page rather than issuing a read, and the strip restates showing-X-of-Y after
+ * every press — which is exactly what `live:META-DEC-05 load-more` contracts.
+ */
+const LANE_PAGE_SIZE = 25;
+
+/**
+ * The showing-X-of-Y strip, and the control that extends it.
+ *
+ * Rendered whenever a lane has rows, not only when it has more than one page:
+ * "Showing 6 of 6" is a fact an operator needs in order to trust that the lane
+ * is complete, and a strip that appears only when something is hidden teaches
+ * them that its absence means nothing.
+ */
+function LanePaging({
+  shown,
+  served,
+  onLoadMore,
+  label,
 }: {
-  rows: readonly MetaDecisionCenterExactActionRowViewModel[];
+  shown: number;
+  served: number;
+  onLoadMore?: () => void;
+  label: string;
+}) {
+  const complete = shown >= served;
+  return (
+    <p className={styles.lanePaging} data-meta-exact-lane-paging={label}>
+      <span data-lane-count="">
+        Showing {shown} of {served} served {served === 1 ? "row" : "rows"}
+      </span>
+      {complete ? (
+        <span data-lane-paging-complete="">
+          {" · "}All {served} served {served === 1 ? "row is" : "rows are"} shown
+        </span>
+      ) : (
+        <button
+          className={styles.lanePagingMore}
+          data-ctl="live:META-DEC-05 load-more"
+          onClick={onLoadMore}
+          type="button"
+        >
+          Show more
+        </button>
+      )}
+    </p>
+  );
+}
+
+/** A lane that served no rows, said rather than drawn as blankness. */
+function LaneEmpty({
+  reason,
+  lane,
+}: {
+  reason: string;
+  lane: string;
 }) {
   return (
-    <>
-      {rows.map((row) => (
+    <p className={styles.laneEmpty} data-meta-exact-lane-empty={lane} role="status">
+      {reason}
+    </p>
+  );
+}
+
+function ActionLane({
+  rows,
+  shown,
+  onLoadMore,
+}: {
+  rows: readonly MetaDecisionCenterExactActionRowViewModel[];
+  shown: number;
+  onLoadMore?: () => void;
+}) {
+  const page = rows.slice(0, shown);
+  if (rows.length === 0) {
+    return (
+      <LaneEmpty
+        lane="action"
+        reason="No rows were served in this lane for this account and snapshot."
+      />
+    );
+  }
+  return (
+    <div data-collection="decisions" data-meta-exact-lane-body="action">
+      {page.map((row) => (
         <article
           aria-current={row.selected ? "true" : undefined}
           className={`${styles.actionCard} ${toneClass(row.edgeTone)} ${
@@ -792,10 +1017,16 @@ function ActionLane({
                   {display(chip)}
                 </span>
               ))}
+              <QueueWorkflowChip chip={row.workflowChip} />
             </div>
+            <QueueStaleDemoted
+              demoted={row.staleDemoted}
+              reason={row.staleDemotedReason}
+            />
           </div>
           <span
             className={`${styles.decisionLabel} ${toneClass(row.decisionTone)}`}
+            data-el="verdict-chip"
           >
             {display(row.decisionLabel)}
           </span>
@@ -831,7 +1062,122 @@ function ActionLane({
           </span>
         </article>
       ))}
-    </>
+      <LanePaging
+        label="action"
+        onLoadMore={onLoadMore}
+        served={rows.length}
+        shown={page.length}
+      />
+    </div>
+  );
+}
+
+/**
+ * The lane for rows whose authority the server withheld.
+ *
+ * Deliberately actionless. Every other lane's card ends in a primary button;
+ * this one ends in the blocker and the server's next step, because a blocked
+ * decision has no authorized action and drawing a disabled one would suggest
+ * the operator is one permission away from something the engine has not
+ * decided.
+ */
+function NeedsResolutionLane({
+  rows,
+  shown,
+  notice,
+  onLoadMore,
+}: {
+  rows: readonly MetaDecisionCenterExactNeedsResolutionRowViewModel[];
+  shown: number;
+  notice?: MetaDecisionCenterExactDisplayValue;
+  onLoadMore?: () => void;
+}) {
+  const page = rows.slice(0, shown);
+  if (rows.length === 0) {
+    return (
+      <LaneEmpty
+        lane="needsres"
+        reason={
+          meaningfulDisplay(notice)
+            ? display(notice)
+            : "No rows were served in this lane for this account and snapshot."
+        }
+      />
+    );
+  }
+  return (
+    <div data-collection="needsres" data-meta-exact-lane-body="needsres">
+      {page.map((row) => (
+        <article
+          aria-current={row.selected ? "true" : undefined}
+          className={`${styles.actionCard} ${styles.needsResolutionCard} ${
+            row.selected ? styles.queueCardSelected : ""
+          }`}
+          data-meta-exact-needsres-row={row.id}
+          data-meta-exact-selected={row.selected ? "true" : undefined}
+          key={row.id}
+        >
+          <QueueCardOpen
+            label={`Open evidence for ${display(row.name)}`}
+            onOpen={row.onOpen}
+          />
+          <div className={styles.actionIdentity}>
+            <div className={styles.entityHeading}>
+              <span className={styles.entityName}>{display(row.name)}</span>
+              <span className={styles.entityLevel}>{display(row.level)}</span>
+              <QueueSelectedMarker selected={row.selected} />
+            </div>
+            <QueueLineage lineage={row.lineage} role={row.lineageRole} />
+            <div className={styles.rowChips}>
+              <QueueWorkflowChip chip={row.workflowChip} />
+            </div>
+            <QueueStaleDemoted
+              demoted={row.staleDemoted}
+              reason={row.staleDemotedReason}
+            />
+          </div>
+          <span
+            className={`${styles.decisionLabel} ${toneClass(row.decisionTone)}`}
+            data-el="verdict-chip"
+          >
+            {display(row.decisionLabel)}
+          </span>
+          <div className={styles.moneyBlock}>
+            <p className={styles.moneyValue}>{display(row.money)}</p>
+          </div>
+          <span
+            className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}
+          >
+            {display(row.confidence)} confidence
+          </span>
+          {/*
+            The blocker, in the server's words. This is the whole point of the
+            lane: the row is here because `node.lane === "blocked"`, and the
+            operator's next question is what is holding it.
+          */}
+          <span
+            className={`${styles.blockerChip} ${toneClass(row.blockerTone ?? "warning")}`}
+            data-el="blocker-chip"
+          >
+            {display(row.blocker)}
+          </span>
+          {meaningfulDisplay(row.resolution) ? (
+            <p
+              className={styles.needsResolutionStep}
+              data-meta-exact-needsres-step={row.id}
+            >
+              {display(row.resolution)}
+            </p>
+          ) : null}
+        </article>
+      ))}
+      <LanePaging
+        label="needsres"
+        onLoadMore={onLoadMore}
+        served={rows.length}
+        shown={page.length}
+      />
+    </div>
   );
 }
 
@@ -1671,6 +2017,24 @@ export function MetaDecisionCenterExact({
     useState<MetaDecisionCenterExactLane>(defaultLane);
   const [sort, setSort] = useState<MetaDecisionCenterExactSort>("money");
   const [query, setQuery] = useState(initialQuery);
+  /**
+   * How many rows each lane is currently drawing.
+   *
+   * Per lane rather than one number, so paging into a long Needs Resolution
+   * lane and switching to Action Now does not leave Action Now scrolled open at
+   * 200 rows — and coming back does not silently collapse the page the operator
+   * had already extended.
+   */
+  const [shownByLane, setShownByLane] = useState<
+    Partial<Record<MetaDecisionCenterExactLane, number>>
+  >({});
+  const shownFor = (laneId: MetaDecisionCenterExactLane) =>
+    shownByLane[laneId] ?? LANE_PAGE_SIZE;
+  const loadMoreFor = (laneId: MetaDecisionCenterExactLane) => () =>
+    setShownByLane((previous) => ({
+      ...previous,
+      [laneId]: (previous[laneId] ?? LANE_PAGE_SIZE) + LANE_PAGE_SIZE,
+    }));
 
   const activeScope = scope ?? internalScope;
   const activeLane = lane ?? internalLane;
@@ -1686,7 +2050,12 @@ export function MetaDecisionCenterExact({
     inspectorOpen &&
     activeScope === "structure" &&
     (activeLane === "action" ||
-      (activeLane === "watching" && viewModel.inspector != null));
+      // Needs Resolution rows open the same inspector — the evidence is the
+      // whole reason to open a blocked row — but only once one has been chosen,
+      // for the same reason Watching waits: an empty two-column grid on a lane
+      // nobody has clicked is a panel of em dashes.
+      ((activeLane === "watching" || activeLane === "needsres") &&
+        viewModel.inspector != null));
 
   function selectScope(nextScope: MetaDecisionCenterExactScope) {
     if (scope === undefined) setInternalScope(nextScope);
@@ -1779,20 +2148,59 @@ export function MetaDecisionCenterExact({
 
       {activeScope === "structure" ? (
         <div className={styles.laneToolbar} data-meta-exact-lane-toolbar>
-          {LANES.map((item) => (
-            <span
-              aria-pressed={activeLane === item.id}
-              className={`${styles.laneOption} ${
-                activeLane === item.id ? styles.laneOptionActive : ""
-              }`}
-              data-meta-exact-lane={item.id}
-              key={item.id}
-              {...controlProps(() => selectLane(item.id))}
-            >
-              {item.label}
-              <span>{display(counts?.[item.id])}</span>
-            </span>
-          ))}
+          {/*
+            One radiogroup, because these are one choice. The lane options were
+            individually `aria-pressed` spans with no group and no arrow keys,
+            so a screen-reader operator met six unrelated toggles instead of a
+            six-way selector, and the design's own arrow-key contract
+            (`live:lane`) had nothing to bind to.
+          */}
+          <span
+            aria-label="Decision lanes"
+            className={styles.laneGroup}
+            data-ctl="live:lane"
+            onKeyDown={(event) => {
+              const index = LANES.findIndex((item) => item.id === activeLane);
+              if (index < 0) return;
+              const step =
+                event.key === "ArrowRight" || event.key === "ArrowDown"
+                  ? 1
+                  : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                    ? -1
+                    : 0;
+              if (step === 0) return;
+              event.preventDefault();
+              selectLane(
+                LANES[(index + step + LANES.length) % LANES.length]!.id,
+              );
+            }}
+            role="radiogroup"
+          >
+            {LANES.map((item) => (
+              <span
+                key={item.id}
+                {...controlProps(() => selectLane(item.id))}
+                /*
+                  Spread first, overridden after: `controlProps` supplies the
+                  click and Enter/Space handling every control on this surface
+                  shares, but its `role="button"` and always-0 tabIndex are
+                  wrong for a radio inside a group — only the checked option is
+                  tabbable, and the arrows on the group move between them.
+                */
+                aria-checked={activeLane === item.id}
+                className={`${styles.laneOption} ${
+                  activeLane === item.id ? styles.laneOptionActive : ""
+                }`}
+                data-ctl="live:META-DEC-01 lane"
+                data-meta-exact-lane={item.id}
+                role="radio"
+                tabIndex={activeLane === item.id ? 0 : -1}
+              >
+                {item.label}
+                <span>{display(counts?.[item.id])}</span>
+              </span>
+            ))}
+          </span>
           <span className={styles.deferredPill}>
             Deferred {display(counts?.deferred)}
           </span>
@@ -1878,7 +2286,19 @@ export function MetaDecisionCenterExact({
             />
           ) : null}
           {activeScope === "structure" && activeLane === "action" ? (
-            <ActionLane rows={viewModel.actionRows ?? []} />
+            <ActionLane
+              onLoadMore={loadMoreFor("action")}
+              rows={viewModel.actionRows ?? []}
+              shown={shownFor("action")}
+            />
+          ) : null}
+          {activeScope === "structure" && activeLane === "needsres" ? (
+            <NeedsResolutionLane
+              notice={viewModel.needsResolutionNotice}
+              onLoadMore={loadMoreFor("needsres")}
+              rows={viewModel.needsResolutionRows ?? []}
+              shown={shownFor("needsres")}
+            />
           ) : null}
           {activeScope === "structure" && activeLane === "watching" ? (
             <WatchingLane

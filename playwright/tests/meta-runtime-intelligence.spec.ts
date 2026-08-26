@@ -694,6 +694,34 @@ test.describe("recommendations are scoped to one physical account", () => {
     }, body);
   }
 
+  /** Which accounts actually carry a stored response for this id. */
+  async function responseAccounts(recId: string, business: string) {
+    return withDb(async (client) =>
+      (
+        await client.query(
+          `SELECT provider_account_id FROM meta_decision_responses
+           WHERE business_id = $1 AND rec_id = $2
+           ORDER BY provider_account_id`,
+          [business, recId],
+        )
+      ).rows.map((row: { provider_account_id: string | null }) => row.provider_account_id),
+    );
+  }
+
+  /** How many snapshot rows carry this id — 2 is what a collision looks like. */
+  async function snapshotRowCount(recId: string, business: string) {
+    return withDb(async (client) =>
+      Number(
+        (
+          await client.query(
+            "SELECT count(*)::int AS n FROM meta_decision_snapshots_daily WHERE business_id = $1 AND rec_id = $2",
+            [business, recId],
+          )
+        ).rows[0].n,
+      ),
+    );
+  }
+
   async function responseCount(recId: string, business: string) {
     return withDb(async (client) =>
       Number(
@@ -731,12 +759,27 @@ test.describe("recommendations are scoped to one physical account", () => {
 
   test("the same rec id under two accounts stays separated", async ({ page }) => {
     const business = handle.businesses.manyAccounts;
-    await seedRow({
-      recId: COLLIDING,
-      account: handle.accounts.manyA,
-      business,
-      recType: "rt_collide_a",
-    });
+    /*
+     * A REAL collision: the same rec id, the same rec type and the same day
+     * under BOTH accounts.
+     *
+     * This case used to seed the id under account A only, so account B was
+     * refused for having no row at all — which the four-column primary key
+     * would also have produced, and which proves nothing about isolation. Two
+     * rows of one identity can only coexist because the identity index now
+     * includes the account (D-M011), and only then does refusing B mean the
+     * boundary chose the right one of two candidates rather than finding none.
+     */
+    for (const account of [handle.accounts.manyA, handle.accounts.manyB]) {
+      await seedRow({
+        recId: COLLIDING,
+        account,
+        business,
+        recType: "rt_collide",
+      });
+    }
+    expect(await snapshotRowCount(COLLIDING, business)).toBe(2);
+
     await openSurface(
       page,
       handle,
@@ -753,16 +796,81 @@ test.describe("recommendations are scoped to one physical account", () => {
     expect(accepted.status).toBe(200);
     expect(await responseCount(COLLIDING, business)).toBe(1);
 
-    // The identical id claimed under account B is refused: the row that carries
-    // it belongs to A, and an id is not authority.
-    const refused = await respond(page, {
+    // The response landed under A, and ONLY under A. Both rows exist, so a
+    // count alone cannot show that — the lineage on the stored row is what
+    // proves which of the two the boundary answered.
+    expect(await responseAccounts(COLLIDING, business)).toEqual([
+      handle.accounts.manyA,
+    ]);
+
+    // Account B holds its own row for the same id, so it is served there too,
+    // and its response is a SEPARATE row rather than a duplicate or an
+    // overwrite of A's.
+    const acceptedUnderB = await respond(page, {
       businessId: business,
       providerAccountId: handle.accounts.manyB,
       recId: COLLIDING,
       action: "acted",
     });
+    expect(acceptedUnderB.status).toBe(200);
+    expect(await responseCount(COLLIDING, business)).toBe(2);
+    expect(await responseAccounts(COLLIDING, business)).toEqual(
+      [handle.accounts.manyA, handle.accounts.manyB].sort(),
+    );
+
+    // ...and an account this workspace does not hold is still refused, so the
+    // rule is "the row that belongs to THIS account", not "any row".
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: "act_not_assigned_to_this_workspace",
+      recId: COLLIDING,
+      action: "acted",
+    });
     expect(refused.status).toBe(404);
-    expect(await responseCount(COLLIDING, business)).toBe(1);
+    expect(await responseCount(COLLIDING, business)).toBe(2);
+  });
+
+  /*
+   * A deferral is per account too, and the chain proves it: A defers, B cannot
+   * lift A's deferral, and A can. Before D-M012 the undefer predicate matched
+   * on business + rec id, so B's undefer would have lifted A's.
+   */
+  test("a defer/undefer chain in one account cannot be driven from the other", async ({
+    page,
+  }) => {
+    const business = handle.businesses.manyAccounts;
+    for (const account of [handle.accounts.manyA, handle.accounts.manyB]) {
+      await seedRow({ recId: COLLIDING, account, business, recType: "rt_collide" });
+    }
+    await openSurface(
+      page,
+      handle,
+      `/c/${business}/meta/intelligence?providerAccountId=${handle.accounts.manyA}`,
+    );
+
+    const deferred = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyA,
+      recId: COLLIDING,
+      action: "deferred",
+    });
+    expect(deferred.status).toBe(200);
+
+    const undeferFromB = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyB,
+      recId: COLLIDING,
+      action: "undeferred",
+    });
+    expect(undeferFromB.status).toBe(404);
+
+    const undeferFromA = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyA,
+      recId: COLLIDING,
+      action: "undeferred",
+    });
+    expect(undeferFromA.status).toBe(200);
   });
 
   /*

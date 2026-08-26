@@ -631,6 +631,370 @@ async function main() {
       `${LABEL} I8 PASS legacy withheld: a row whose lineage cannot be proven is not actionable from any account`,
     );
 
+    /*
+     * ----------------------------------------------------------------- I9-I12
+     *
+     * Everything above proved the WRITE boundary. These prove the two readers
+     * that consume what it wrote — History and outcome accrual — which is where
+     * an account-ambiguous correlation actually reaches an operator.
+     *
+     * The schema is currently at the pre-change shape's upgrade, so a fresh
+     * fixture is built here rather than reusing I2-I6's rows.
+     */
+    await client.query(`DELETE FROM meta_decision_responses WHERE business_id = $1`, [
+      businessId,
+    ]);
+    await client.query(
+      `DELETE FROM meta_decision_snapshots_daily WHERE business_id = $1`,
+      [businessId],
+    );
+    await client.query(
+      `DELETE FROM meta_decision_action_outcome_logs WHERE business_id = $1`,
+      [businessId],
+    );
+    // B was deselected by I6; both accounts are assigned again for the reader
+    // cases, because History is only ever read for an assigned account.
+    await client.query(
+      `UPDATE business_provider_accounts SET is_selected = TRUE, updated_at = now()
+       WHERE business_id = $1 AND provider = 'meta'`,
+      [businessId],
+    );
+
+    const HISTORY_DATE = "2026-08-20";
+    const COLLIDING_REC = "rec_history_collide";
+    // The same CAMPAIGN id under two accounts is impossible at Meta, so each
+    // account gets its own campaign — but the same REC ID and rec type, which
+    // is the collision the readers have to survive.
+    const CAMPAIGN_A = "camp_hist_a";
+    const CAMPAIGN_B = "camp_hist_b";
+
+    for (const [account, campaign, hour] of [
+      [ACCOUNT_A, CAMPAIGN_A, 1],
+      [ACCOUNT_B, CAMPAIGN_B, 2],
+    ] as const) {
+      await client.query(
+        `INSERT INTO meta_campaign_dimensions
+           (business_id, provider_account_id, campaign_id, campaign_name_current, campaign_status)
+         VALUES ($1, $2, $3, $4, 'ACTIVE')
+         ON CONFLICT DO NOTHING`,
+        [businessId, account, campaign, `Campaign ${campaign}`],
+      );
+      await client.query(
+        `INSERT INTO meta_decision_snapshots_daily
+           (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+            rec_id, rec_type, level, decision_state, confidence_score,
+            recommended_action, reasoning, engine_version, kind)
+         VALUES ('campaign', $3, $1, $2, $5::date, $4, 'collide_type',
+            'campaign', 'act', 0.9, $6, 'Seeded by the identity seam.',
+            'identity-seam', 'recommendation')`,
+        [
+          businessId,
+          account,
+          campaign,
+          COLLIDING_REC,
+          HISTORY_DATE,
+          `Act on ${account}`,
+        ],
+      );
+      /*
+       * Distinct instants, because the primary key is
+       * (rec_id, action, timestamp) and D-M012 deliberately did NOT add the
+       * account to it: two operators answering are two moments, so the key
+       * already separates them. Seeding one instant would collide, which is a
+       * property of the fixture rather than of the accounts.
+       */
+      await client.query(
+        `INSERT INTO meta_decision_responses
+           (rec_id, business_id, provider_account_id, action, timestamp)
+         VALUES ($1, $2, $3, 'acted', ($4::date + ($5::int * interval '1 hour')))`,
+        [COLLIDING_REC, businessId, account, HISTORY_DATE, hour],
+      );
+      await client.query(
+        `INSERT INTO meta_decision_action_outcome_logs
+           (business_id, provider_account_id, recommendation_fingerprint, rec_id,
+            rec_type, action_type, outcome_status, summary, occurred_at)
+         VALUES ($1, $2, $3, $4, 'collide_type', 'outcome', 'improved',
+            $5, ($6::date + ($7::int * interval '1 hour') + interval '3 hours'))`,
+        [
+          businessId,
+          account,
+          `meta_v1|${businessId}|campaign|${account === ACCOUNT_A ? CAMPAIGN_A : CAMPAIGN_B}|collide_type|${HISTORY_DATE}|${account}`,
+          COLLIDING_REC,
+          `outcome for ${account}`,
+          HISTORY_DATE,
+          hour,
+        ],
+      );
+    }
+
+    // A legacy row: no lineage anywhere, about account A's campaign. It must
+    // be preserved and attributable to A by exact unique-entity inference, and
+    // must never appear under B.
+    const LEGACY_REC = "rec_history_legacy";
+    await client.query(
+      `INSERT INTO meta_decision_snapshots_daily
+         (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+          rec_id, rec_type, level, decision_state, confidence_score,
+          recommended_action, reasoning, engine_version, kind)
+       VALUES ('campaign', $2, $1, NULL, $4::date, $3, 'legacy_type',
+          'campaign', 'act', 0.9, 'Legacy act.', 'Written before lineage existed.',
+          'identity-seam', 'recommendation')`,
+      [businessId, CAMPAIGN_A, LEGACY_REC, HISTORY_DATE],
+    );
+
+    const { readMetaHistoryJournal } = await import("@/lib/meta/history-read-model");
+
+    async function historyFor(account: string) {
+      return readMetaHistoryJournal({
+        query: {
+          businessId,
+          providerAccountId: account,
+          kind: null,
+          entity: null,
+          label: null,
+          outcome: null,
+          from: null,
+          to: null,
+          q: null,
+          cursor: null,
+          limit: 100,
+        },
+        account: { id: account, name: null, currency: "USD", timezone: "UTC" },
+      });
+    }
+
+    const historyA = await historyFor(ACCOUNT_A);
+    const historyB = await historyFor(ACCOUNT_B);
+
+    const textA = JSON.stringify(historyA.entries);
+    const textB = JSON.stringify(historyB.entries);
+    assert(
+      textA.includes(CAMPAIGN_A) && !textA.includes(CAMPAIGN_B),
+      `I9: account A's history exposed account B's entity. A=${textA.slice(0, 1200)}`,
+    );
+    assert(
+      textB.includes(CAMPAIGN_B) && !textB.includes(CAMPAIGN_A),
+      `I9: account B's history exposed account A's entity. B=${textB.slice(0, 1200)}`,
+    );
+    assert(
+      textA.includes(`outcome for ${ACCOUNT_A}`) &&
+        !textA.includes(`outcome for ${ACCOUNT_B}`),
+      "I9: account A's history carried account B's outcome row.",
+    );
+    assert(
+      textB.includes(`outcome for ${ACCOUNT_B}`) &&
+        !textB.includes(`outcome for ${ACCOUNT_A}`),
+      "I9: account B's history carried account A's outcome row.",
+    );
+    // The colliding rec id appears in BOTH, once each — not twice in one and
+    // none in the other, and not collapsed into a single shared entry.
+    for (const [label, history] of [
+      ["A", historyA],
+      ["B", historyB],
+    ] as const) {
+      const responses = history.entries.filter(
+        (entry) => entry.provenance.source === "meta_decision_responses",
+      );
+      assert(
+        responses.length === 1,
+        `I9: account ${label} saw ${responses.length} operator responses for one colliding rec id; each account has exactly one.`,
+      );
+    }
+    // ...and the two accounts' snapshot entries have DIFFERENT ids, which the
+    // four-column persisted_id could not express.
+    const idsA = new Set(historyA.entries.map((entry) => entry.id));
+    const collision = historyB.entries.filter((entry) => idsA.has(entry.id));
+    assert(
+      collision.length === 0,
+      `I9: ${collision.length} journal entries carried the SAME id in both accounts (${collision
+        .map((entry) => entry.id)
+        .join(", ")}); the identity omits the physical account.`,
+    );
+    console.log(
+      `${LABEL} I9 PASS History isolation: neither account's journal shows the other's snapshot, response or outcome, and one colliding rec id yields one entry per account with distinct ids`,
+    );
+
+    // ------------------------------------------ I10: legacy, preserved not stolen
+    const legacyInA = historyA.entries.filter((entry) =>
+      JSON.stringify(entry).includes(LEGACY_REC),
+    );
+    const legacyInB = historyB.entries.filter((entry) =>
+      JSON.stringify(entry).includes(LEGACY_REC),
+    );
+    assert(
+      legacyInA.length === 1,
+      `I10: the legacy row was lost from the account its entity provably belongs to (${legacyInA.length} entries).`,
+    );
+    assert(
+      legacyInA[0]!.provenance.accountScopeBasis === "unique_entity_key",
+      `I10: the legacy row was reported as directly attributed (${legacyInA[0]!.provenance.accountScopeBasis}); an inference must say it is one.`,
+    );
+    assert(
+      legacyInB.length === 0,
+      "I10: a row with no lineage appeared under an account its entity does not belong to.",
+    );
+    console.log(
+      `${LABEL} I10 PASS legacy lineage: an unattributed row is preserved under the account its entity uniquely proves, is labelled as an inference, and is absent from the other`,
+    );
+
+    // -------------------------- I11: KPI windows and accrued outcomes per account
+    //
+    // The SAME campaign id under both accounts, which is what makes a KPI map
+    // keyed by scope id alone pool two accounts' spend into one row.
+    const ACCRUAL_DATE = "2026-08-01";
+    const SHARED_CAMPAIGN = "camp_shared_id";
+    const ACCRUAL_REC = "rec_accrual_collide";
+    await client.query(
+      `DELETE FROM meta_decision_snapshots_daily WHERE business_id = $1`,
+      [businessId],
+    );
+    await client.query(
+      `DELETE FROM meta_decision_action_outcome_logs WHERE business_id = $1`,
+      [businessId],
+    );
+    const { META_RECOMMENDATION_ENGINE_VERSION } = await import(
+      "@/lib/meta/recommendations"
+    );
+    for (const [account, revenueAfter] of [
+      [ACCOUNT_A, 4000],
+      [ACCOUNT_B, 200],
+    ] as const) {
+      await client.query(
+        `INSERT INTO meta_decision_snapshots_daily
+           (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+            rec_id, rec_type, level, decision_state, confidence_score,
+            recommended_action, reasoning, engine_version, kind)
+         VALUES ('campaign', $3, $1, $2, $4::date, $5, 'accrual_type',
+            'campaign', 'act', 0.9, 'Act.', 'Seeded by the identity seam.',
+            $6, 'recommendation')`,
+        [
+          businessId,
+          account,
+          SHARED_CAMPAIGN,
+          ACCRUAL_DATE,
+          ACCRUAL_REC,
+          META_RECOMMENDATION_ENGINE_VERSION,
+        ],
+      );
+      // Before: 1000 spend / 1000 revenue (ROAS 1.0). After: 1000 spend and
+      // an account-specific revenue, so A improves and B regresses. A pooled
+      // read would give BOTH accounts the same middling answer.
+      for (let day = -6; day <= 7; day += 1) {
+        const isBefore = day <= 0;
+        await client.query(
+          `INSERT INTO meta_campaign_daily
+             (business_id, provider_account_id, campaign_id, date, account_timezone,
+              account_currency, spend, revenue)
+           VALUES ($1, $2, $3, ($4::date + ($5::int)), 'UTC', 'USD', $6, $7)
+           ON CONFLICT DO NOTHING`,
+          [
+            businessId,
+            account,
+            SHARED_CAMPAIGN,
+            ACCRUAL_DATE,
+            day,
+            1000 / 7,
+            isBefore ? 1000 / 7 : revenueAfter / 7,
+          ],
+        );
+      }
+    }
+
+    const { runMetaOutcomeAccrualForBusiness } = await import(
+      "@/lib/meta/outcome-accrual"
+    );
+    // The accrual runs for `now - 8 days`, so `now` is chosen to make
+    // ACCRUAL_DATE the candidate date.
+    const accrualNow = new Date("2026-08-09T05:00:00.000Z");
+    const firstRun = await runMetaOutcomeAccrualForBusiness(businessId, accrualNow);
+    assert(
+      firstRun.candidates === 2 && firstRun.written === 2,
+      `I11: expected one candidate and one outcome PER ACCOUNT, got ${firstRun.candidates}/${firstRun.written}. A business-wide fingerprint collapses them to one.`,
+    );
+
+    const accrued = await client.query<{
+      provider_account_id: string | null;
+      outcome_status: string;
+      recommendation_fingerprint: string;
+    }>(
+      `SELECT provider_account_id, outcome_status, recommendation_fingerprint
+       FROM meta_decision_action_outcome_logs
+       WHERE business_id = $1 AND action_type = 'outcome'
+       ORDER BY provider_account_id`,
+      [businessId],
+    );
+    assert(
+      accrued.rows.length === 2,
+      `I11: ${accrued.rows.length} outcome rows for two accounts.`,
+    );
+    // Attributed at all, before anything is asserted about the numbers. Under
+    // the business-wide accrual both rows landed with a null account, and every
+    // check below would then fail for the wrong stated reason.
+    assert(
+      accrued.rows.every((row) => row.provider_account_id !== null),
+      `I11: an accrued outcome carries no physical account: ${JSON.stringify(accrued.rows.map((row) => row.provider_account_id))}. It cannot be told apart from the sibling account's.`,
+    );
+    const accruedByAccount = new Map(
+      accrued.rows.map((row) => [row.provider_account_id, row]),
+    );
+    assert(
+      accruedByAccount.get(ACCOUNT_A)?.outcome_status === "improved",
+      `I11: account A's outcome was ${accruedByAccount.get(ACCOUNT_A)?.outcome_status}, not improved — its KPI window was pooled with the sibling account's.`,
+    );
+    assert(
+      accruedByAccount.get(ACCOUNT_B)?.outcome_status === "regressed",
+      `I11: account B's outcome was ${accruedByAccount.get(ACCOUNT_B)?.outcome_status}, not regressed — its KPI window was pooled with the sibling account's.`,
+    );
+    assert(
+      accruedByAccount.get(ACCOUNT_A)!.recommendation_fingerprint !==
+        accruedByAccount.get(ACCOUNT_B)!.recommendation_fingerprint,
+      "I11: both accounts were written under ONE fingerprint; the second would have been suppressed as a duplicate.",
+    );
+    console.log(
+      `${LABEL} I11 PASS KPI isolation: one campaign id under two accounts accrues two outcomes with opposite verdicts (improved / regressed) and two distinct fingerprints`,
+    );
+
+    // ------------------------------- I12: idempotency is per account, not per business
+    const secondRun = await runMetaOutcomeAccrualForBusiness(businessId, accrualNow);
+    assert(
+      secondRun.candidates === 0 && secondRun.written === 0,
+      `I12: a rerun wrote ${secondRun.written} more outcomes; accrual is not idempotent.`,
+    );
+    const afterRerun = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM meta_decision_action_outcome_logs
+       WHERE business_id = $1 AND action_type = 'outcome'`,
+      [businessId],
+    );
+    assert(
+      afterRerun.rows[0]!.count === "2",
+      `I12: ${afterRerun.rows[0]!.count} outcome rows after a rerun; expected the same two.`,
+    );
+
+    // ...and deleting ONE account's outcome re-opens exactly that account.
+    await client.query(
+      `DELETE FROM meta_decision_action_outcome_logs
+       WHERE business_id = $1 AND provider_account_id = $2`,
+      [businessId, ACCOUNT_B],
+    );
+    const reopened = await runMetaOutcomeAccrualForBusiness(businessId, accrualNow);
+    assert(
+      reopened.candidates === 1 && reopened.written === 1,
+      `I12: after removing only account B's outcome, ${reopened.candidates} candidates re-opened; account A's surviving row must not answer for B, and B's absence must not re-open A.`,
+    );
+    const reopenedRow = await client.query<{ provider_account_id: string | null }>(
+      `SELECT provider_account_id FROM meta_decision_action_outcome_logs
+       WHERE business_id = $1 AND action_type = 'outcome'
+       ORDER BY occurred_at DESC LIMIT 1`,
+      [businessId],
+    );
+    assert(
+      reopenedRow.rows[0]!.provider_account_id === ACCOUNT_B,
+      `I12: the re-opened candidate wrote for ${String(reopenedRow.rows[0]!.provider_account_id)} rather than account B.`,
+    );
+    console.log(
+      `${LABEL} I12 PASS idempotency: one outcome per ACCOUNT — a rerun writes nothing, and removing one account's outcome re-opens that account alone`,
+    );
+
     console.log(`${LABEL} PASS`);
   } catch (error) {
     if (fs.existsSync(logFile)) {

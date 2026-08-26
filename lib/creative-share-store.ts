@@ -4,6 +4,7 @@ import {
   SHARE_AUDIENCES,
   type CreativeShareLedgerEntry,
   type CreativeShareLedgerCapability,
+  type CreativeShareBenchmarks,
   type ShareAudience,
   type ShareMetricKey,
   type SharePayload,
@@ -216,6 +217,20 @@ function projectCreatorSafeCreative(creative: SharePayloadCreative): SharePayloa
   };
 }
 
+function projectCreatorSafeBenchmarks(
+  benchmarks: CreativeShareBenchmarks | undefined,
+): CreativeShareBenchmarks | undefined {
+  if (!benchmarks) return undefined;
+  const finiteOrNull = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  return {
+    thumbstop: finiteOrNull(benchmarks.thumbstop),
+    videoCompletion50: finiteOrNull(benchmarks.videoCompletion50),
+    ctrAll: finiteOrNull(benchmarks.ctrAll),
+    linkCtr: finiteOrNull(benchmarks.linkCtr),
+  };
+}
+
 function projectCreatorSafePayloadFields(
   payload: CreateCreativeSharePayload | SharePayload,
   audience: Exclude<ShareAudience, "buyer">,
@@ -243,6 +258,11 @@ function projectCreatorSafePayloadFields(
     allowCsv: false,
     snapshotOnly: true,
     creatives: payload.creatives.map(projectCreatorSafeCreative),
+    // These four account-typical values are themselves creator-tier metrics.
+    // Preserve only the closed, finite shape so the creative-team story can
+    // make its promised benchmark-backed claims without carrying arbitrary
+    // legacy JSON through the public boundary.
+    benchmarks: projectCreatorSafeBenchmarks(payload.benchmarks),
   };
 }
 

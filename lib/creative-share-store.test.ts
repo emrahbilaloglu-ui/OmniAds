@@ -257,6 +257,31 @@ describe("creative share store", () => {
     expect(serialized).toContain('"video100"');
   });
 
+  it("preserves only finite creator-safe benchmark fields for the public story", () => {
+    const snapshot = sanitizeCreativeSharePayloadForStorage(
+      {
+        ...basePayload,
+        audience: "creative_team",
+        benchmarks: {
+          thumbstop: 28,
+          videoCompletion50: 30,
+          ctrAll: 1.34,
+          linkCtr: Number.NaN,
+          internalSpendBenchmark: 999,
+        } as NonNullable<SharePayload["benchmarks"]>,
+      },
+      new Date("2026-05-18T09:30:00.000Z"),
+    );
+
+    expect(snapshot.benchmarks).toEqual({
+      thumbstop: 28,
+      videoCompletion50: 30,
+      ctrAll: 1.34,
+      linkCtr: null,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("internalSpendBenchmark");
+  });
+
   it("keeps buyer financials and plain client actions for explicit and legacy-missing audiences", () => {
     for (const audience of ["buyer", undefined] as const) {
       const snapshot = sanitizeCreativeSharePayloadForStorage(

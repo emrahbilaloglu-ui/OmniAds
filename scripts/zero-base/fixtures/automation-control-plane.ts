@@ -43,9 +43,27 @@ const MODES: {
 ];
 
 export function automationControlPlaneFixture(
-  options: { killSwitchEngaged?: boolean } = {},
+  options: {
+    killSwitchEngaged?: boolean;
+    /**
+     * When the businessControl reading was taken.
+     *
+     * Frozen by default, because the frame harness screenshots this instant and
+     * a moving clock would make 92 captures non-deterministic. A caller that
+     * needs the Stop ceremony OPERABLE must pass a fresh one: the mounted body
+     * refuses a confirmation made against a reading older than
+     * `STOP_PREFLIGHT_MAX_AGE_MS`, and a frozen instant is older than that by
+     * design.
+     */
+    businessControlObservedAt?: string;
+  } = {},
 ): MetaAutomationControlPlane {
   const killSwitchEngaged = options.killSwitchEngaged ?? false;
+  const businessControlObserved = {
+    status: "complete",
+    errorCode: null,
+    observedAt: options.businessControlObservedAt ?? OBSERVED_AT,
+  } as const;
   return {
     contractVersion: "meta-automation-control-plane.v1",
     businessId: "biz",
@@ -82,8 +100,26 @@ export function automationControlPlaneFixture(
       blockedReasons: killSwitchEngaged ? ["business_kill_switch"] : [],
     },
     promotionRecords: [],
+    /*
+     * BOTH envelopes, because the server serves both.
+     *
+     * `readCompleteness` is the flat legacy map of `"complete" | "unavailable"`
+     * strings; `sections` is the richer one that carries the error code and the
+     * instant each read was taken. This fixture used to put the SECTIONS shape
+     * under the `readCompleteness` key and omit `sections` entirely — so every
+     * consumer that reads the observation instant, which is what the Stop
+     * ceremony's preflight is, saw nothing and refused. A fixture that does not
+     * describe what the route returns grades the wrong product.
+     */
     readCompleteness: {
-      businessControl: PROVEN,
+      businessControl: "complete",
+      rules: "complete",
+      activityLedger: "complete",
+      promotionRecords: "complete",
+      cleanApprovalStreaks: "complete",
+    },
+    sections: {
+      businessControl: businessControlObserved,
       rules: PROVEN,
       activity: PROVEN,
       promotionRecords: PROVEN,

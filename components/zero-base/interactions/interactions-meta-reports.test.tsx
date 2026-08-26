@@ -582,6 +582,13 @@ describe("G7 — intelligence, history, automation", () => {
    *
    * `killSwitchEngaged` is the only fact separating the two stop cases, exactly
    * as it separates H19 from H20.
+   *
+   * The reading is stamped NOW rather than at the fixture's frozen instant.
+   * The mounted body refuses a confirmation made against a reading older than
+   * five minutes — the operator would be acting on a state that may have moved
+   * — and the fixture's instant is frozen so the frame harness can screenshot
+   * it deterministically. These cases grade the control an operator can reach
+   * when nothing refuses it, so they supply a reading that is not stale.
    */
   const automation = (
     intent: "engage" | "release",
@@ -590,7 +597,10 @@ describe("G7 — intelligence, history, automation", () => {
     render(
       <Host>
         <MetaAutomationView
-          payload={automationControlPlaneFixture({ killSwitchEngaged: intent === "release" })}
+          payload={automationControlPlaneFixture({
+            killSwitchEngaged: intent === "release",
+            businessControlObservedAt: new Date().toISOString(),
+          })}
           businessId="biz"
           providerAccountId="act_1"
           viewer={AUTOMATION_HARNESS_VIEWER}

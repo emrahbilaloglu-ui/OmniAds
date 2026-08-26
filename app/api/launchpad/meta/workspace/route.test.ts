@@ -169,7 +169,10 @@ describe("GET /api/launchpad/meta/workspace", () => {
     ]) {
       expect(body.sections[key]).toMatchObject({
         status: "unavailable",
-        errorCode: "capability_read_denied",
+        // `insufficient_role`, not `capability_read_denied`: the §9.1
+        // dictionary declares the latter a PROVIDER permission failure whose
+        // remedy is reconnecting Meta, which is false about a guest.
+        errorCode: "insufficient_role",
       });
     }
     // Refused means not read. Nothing account-scoped may be touched.
@@ -215,7 +218,90 @@ describe("GET /api/launchpad/meta/workspace", () => {
     expect(body.templates).toEqual([{ id: "t_1" }]);
   });
 
-  it("reports an unmigrated store as unreadable rather than empty", async () => {
+  /*
+   * LAW: missing or unreadable data must never become 0 or success.
+   *
+   * This case used to assert only that `capability.canRead` was false and the
+   * array was empty — both of which were true while the SECTION said
+   * `complete`, which is the one thing that decides what the surface draws.
+   * The client reads `sections[key].status`, not `capability`, so an
+   * unmigrated store arrived as "this workspace has no drafts".
+   */
+  for (const [label, unmigrated] of [
+    [
+      "templates",
+      () =>
+        vi.mocked(storeCapability.getMetaLaunchStoreCapability).mockImplementation(
+          async (kind) =>
+            kind === "templates"
+              ? {
+                  status: "migration_required",
+                  canRead: false,
+                  canWrite: false,
+                  missingColumns: ["provider_account_id"],
+                }
+              : { status: "ready", canRead: true, canWrite: true, missingColumns: [] },
+        ),
+    ],
+    [
+      "drafts",
+      () =>
+        vi.mocked(storeCapability.getMetaLaunchStoreCapability).mockImplementation(
+          async (kind) =>
+            kind === "drafts"
+              ? {
+                  status: "migration_required",
+                  canRead: false,
+                  canWrite: false,
+                  missingColumns: ["provider_account_id"],
+                }
+              : { status: "ready", canRead: true, canWrite: true, missingColumns: [] },
+        ),
+    ],
+    [
+      "intents",
+      () =>
+        vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+          status: "migration_required",
+          canRead: false,
+          canWrite: false,
+          missingTables: ["meta_launch_intents"],
+          checkedAt: "2026-08-26T00:00:00.000Z",
+        } as never),
+    ],
+  ] as const) {
+    it(`reports an unmigrated ${label} store as unavailable, not complete`, async () => {
+      grantAccess();
+      unmigrated();
+
+      const body = await (await GET(request())).json();
+
+      const affected =
+        label === "templates"
+          ? ["templates", "recentTemplates"]
+          : label === "drafts"
+            ? ["drafts"]
+            : ["intents"];
+      for (const key of affected) {
+        expect(body.sections[key], key).toMatchObject({
+          status: "unavailable",
+          errorCode: "schema_not_ready",
+        });
+      }
+      // And the sections whose store IS readable are untouched.
+      const untouched = [
+        "templates",
+        "recentTemplates",
+        "drafts",
+        "intents",
+      ].filter((key) => !affected.includes(key));
+      for (const key of untouched) {
+        expect(body.sections[key].status, key).toBe("complete");
+      }
+    });
+  }
+
+  it("does not call a repository the capability says cannot be read", async () => {
     grantAccess();
     vi.mocked(storeCapability.getMetaLaunchStoreCapability).mockResolvedValue({
       status: "migration_required",
@@ -223,12 +309,43 @@ describe("GET /api/launchpad/meta/workspace", () => {
       canWrite: false,
       missingColumns: ["provider_account_id"],
     });
+    vi.mocked(intentCapability.getMetaLaunchIntentCapability).mockResolvedValue({
+      status: "migration_required",
+      canRead: false,
+      canWrite: false,
+      missingTables: ["meta_launch_intents"],
+      checkedAt: "2026-08-26T00:00:00.000Z",
+    } as never);
 
     const body = await (await GET(request())).json();
 
-    expect(body.capability.templates.canRead).toBe(false);
     expect(store.listManualMetaLaunchTemplates).not.toHaveBeenCalled();
+    expect(store.listRecentMetaLaunchTemplates).not.toHaveBeenCalled();
+    expect(store.listMetaLaunchDrafts).not.toHaveBeenCalled();
+    expect(intentStore.listMetaLaunchIntents).not.toHaveBeenCalled();
+    // The capability still travels, because the surface uses it to decide
+    // whether to offer a SAVE — a different question from whether this read
+    // answered.
+    expect(body.capability.templates.canRead).toBe(false);
     expect(body.templates).toEqual([]);
+  });
+
+  /*
+   * A capability read that itself FAILED is not a capability that said "no".
+   * Not knowing whether a store is readable must not stop the read: the
+   * repository's own failure is the honest answer, and `settled()` reports it.
+   */
+  it("still attempts the read when the capability check itself failed", async () => {
+    grantAccess();
+    vi.mocked(storeCapability.getMetaLaunchStoreCapability).mockRejectedValue(
+      new Error("capability probe failed"),
+    );
+
+    const body = await (await GET(request())).json();
+
+    expect(store.listManualMetaLaunchTemplates).toHaveBeenCalled();
+    expect(body.sections.templates.status).toBe("complete");
+    expect(body.capability.templates).toBeNull();
   });
 
   it("reads the target CPA and never derives one", async () => {

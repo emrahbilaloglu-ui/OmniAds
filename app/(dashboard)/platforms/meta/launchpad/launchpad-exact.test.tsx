@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  LAUNCHPAD_LIBRARY_REFUSED_MESSAGE,
   LaunchpadExactLanding,
   loadLaunchpadWorkspace,
   readLaunchpadDraftValidation,
@@ -463,6 +464,103 @@ describe("loadLaunchpadWorkspace", () => {
     expect(read.readOutcomes.every((source) => source.outcome === "empty")).toBe(
       true,
     );
+  });
+
+  /*
+   * LAW: missing or unreadable data must never become 0 or success.
+   *
+   * The composite route substituted an empty array for a store its capability
+   * said could not be read, then stamped the section `complete` — so an
+   * unmigrated schema reached the surface as "this workspace has no drafts".
+   * §9 has a distinct outcome for exactly this: `not-ready`, whose §9.1 code
+   * `schema_not_ready` says "It is unavailable, not empty."
+   */
+  it("reports an unmigrated store as not-ready, never as empty", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: {
+        accounts: COMPLETE,
+        templates: {
+          status: "unavailable",
+          errorCode: "schema_not_ready",
+          observedAt: "t",
+        },
+        recentTemplates: {
+          status: "unavailable",
+          errorCode: "schema_not_ready",
+          observedAt: "t",
+        },
+        drafts: COMPLETE,
+        intents: COMPLETE,
+      },
+      templates: [],
+      recentTemplates: [],
+      drafts: [],
+      intents: [],
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(
+      read.readOutcomes.map((source) => [
+        source.id,
+        source.outcome,
+        source.failureCode,
+      ]),
+    ).toEqual([
+      ["templates", "not-ready", "schema_not_ready"],
+      ["recent-templates", "not-ready", "schema_not_ready"],
+      ["drafts", "empty", undefined],
+      ["receipts", "empty", undefined],
+    ]);
+    // And the sentence is the migration's, not "could not be read" — an
+    // operator told that would go looking for an outage.
+    expect(read.unavailableMessage).toContain("pending database migration");
+  });
+
+  it("calls a guest's refusal a refusal, and names the role", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: {
+        accounts: COMPLETE,
+        templates: {
+          status: "unavailable",
+          errorCode: "insufficient_role",
+          observedAt: "t",
+        },
+      },
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(read.readOutcomes[0]).toMatchObject({
+      id: "templates",
+      outcome: "failed",
+      failureCode: "insufficient_role",
+    });
+    expect(read.unavailableMessage).toBe(LAUNCHPAD_LIBRARY_REFUSED_MESSAGE);
+  });
+
+  it("ignores a section code the closed vocabulary does not declare", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: {
+        templates: {
+          status: "unavailable",
+          errorCode: "something_invented",
+          observedAt: "t",
+        },
+      },
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    // Falls back to the transport-derived code rather than carrying a string
+    // §9.1 never declared and no surface has a sentence for.
+    expect(read.readOutcomes[0]!.failureCode).toBe("source_read_failed");
   });
 
   it("calls a refusal a refusal, not an empty workspace", async () => {

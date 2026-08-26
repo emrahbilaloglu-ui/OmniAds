@@ -102,6 +102,7 @@ import {
   resolveMetaSurfaceReadState,
   type MetaSurfaceSource,
 } from "@/lib/meta/surface-read-state";
+import type { MetaFailureCode } from "@/lib/meta/read-state-contract";
 import { publishMetaSurfaceState } from "@/components/meta/meta-surface-state-live";
 
 type LaunchpadMode = "new_campaign" | "add_to_existing" | "manage_existing";
@@ -393,6 +394,17 @@ export const LAUNCHPAD_LIBRARY_REFUSED_MESSAGE =
 export const LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE =
   "Saved drafts, templates and receipts could not be read, so none are listed here.";
 
+/**
+ * The store exists in the product and not yet in this database.
+ *
+ * Distinct from both sentences above: nothing was refused and nothing failed —
+ * a pending migration means the table cannot be read at all, and an operator
+ * told "could not be read" would go looking for an outage. §9.1's own words
+ * for `schema_not_ready` are "It is unavailable, not empty."
+ */
+export const LAUNCHPAD_LIBRARY_MIGRATION_MESSAGE =
+  "Saved drafts, templates and receipts are not readable until a pending database migration is applied. They are unavailable here, not empty.";
+
 function launchpadReadPayload(read: LaunchpadRead): unknown {
   return read.ok ? read.payload : null;
 }
@@ -502,14 +514,36 @@ export async function loadLaunchpadWorkspace(
    * account list is `guest`-readable while the library is not — the server's
    * own per-section code on a 200 that carries both answers at once.
    */
-  const transportFailureCode =
+  const transportFailureCode: MetaFailureCode =
     httpStatus === 401 || httpStatus === 403
-      ? ("capability_read_denied" as const)
-      : ("source_read_failed" as const);
-  const sectionFailureCode = (key: string) =>
-    sections[key]?.errorCode === "capability_read_denied"
-      ? ("capability_read_denied" as const)
-      : transportFailureCode;
+      ? "capability_read_denied"
+      : "source_read_failed";
+  /*
+   * The server's own §9.1 code wins, and only a code the closed vocabulary
+   * declares is carried. `schema_not_ready` means the store could not be read
+   * at all — its own sentence is "It is unavailable, not empty" — and
+   * `insufficient_role` means this membership may read the account list and
+   * not the library.
+   */
+  const SERVED_SECTION_CODES = [
+    "schema_not_ready",
+    "insufficient_role",
+    "capability_read_denied",
+  ] as const satisfies ReadonlyArray<MetaFailureCode>;
+  const sectionFailureCode = (key: string): MetaFailureCode => {
+    const served = sections[key]?.errorCode;
+    const declared = SERVED_SECTION_CODES.find((code) => code === served);
+    return declared ?? transportFailureCode;
+  };
+  /*
+   * `not-ready` and `failed` are different §9 outcomes and mean different
+   * things: `not-ready` is "this cannot be read yet — schema, capability or
+   * migration", which is exactly what an unmigrated Launchpad store is. It was
+   * reported as `empty`, because the composite route substituted an empty
+   * array for the read it never made and then stamped the section complete.
+   */
+  const sectionNotReady = (key: string) =>
+    sections[key]?.errorCode === "schema_not_ready";
 
   const scoped = <T,>(key: string): T[] => {
     const value = body?.[key];
@@ -549,7 +583,9 @@ export async function loadLaunchpadWorkspace(
       ? rows > 0
         ? ("served" as const)
         : ("empty" as const)
-      : ("failed" as const),
+      : sectionNotReady(section)
+        ? ("not-ready" as const)
+        : ("failed" as const),
     rowCount: rows,
     failureCode: sectionRead(section) ? undefined : sectionFailureCode(section),
   }));
@@ -584,13 +620,30 @@ export async function loadLaunchpadWorkspace(
     // Non-null exactly when at least one of the four sections was not read.
     // Carried beside the rows rather than folded into them, because an empty
     // array is the one thing this state must not be mistaken for.
-    unavailableMessage: readOutcomes.every((source) => source.outcome !== "failed")
-      ? null
-      : readOutcomes.some(
-            (source) => source.failureCode === "capability_read_denied",
-          )
+    /*
+     * Non-null exactly when at least one of the four sections was not read.
+     * Carried beside the rows rather than folded into them, because an empty
+     * array is the one thing this state must not be mistaken for.
+     *
+     * The sentence follows the §9.1 code the SERVER sent, so a migration, a
+     * refusal and a failed read are three different sentences rather than one.
+     */
+    unavailableMessage: (() => {
+      const unread = readOutcomes.filter(
+        (source) => source.outcome === "failed" || source.outcome === "not-ready",
+      );
+      if (unread.length === 0) return null;
+      if (unread.some((source) => source.failureCode === "schema_not_ready")) {
+        return LAUNCHPAD_LIBRARY_MIGRATION_MESSAGE;
+      }
+      return unread.some(
+        (source) =>
+          source.failureCode === "capability_read_denied" ||
+          source.failureCode === "insufficient_role",
+      )
         ? LAUNCHPAD_LIBRARY_REFUSED_MESSAGE
-        : LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE,
+        : LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE;
+    })(),
     templates: [...recentTemplates, ...manualTemplates],
     drafts: draftRows,
     intents: intentRows,

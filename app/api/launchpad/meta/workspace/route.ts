@@ -176,10 +176,16 @@ export async function GET(request: NextRequest) {
    * The Launchpad floor, separately. A viewer below `collaborator` gets the
    * account list and a named refusal for the six library sections — never an
    * empty library, which is the same fact §9 keeps apart everywhere else.
+   *
+   * `insufficient_role`, not `capability_read_denied`. The §9.1 dictionary
+   * declares the latter a PROVIDER permission failure whose remedy is
+   * reconnecting Meta — telling an under-privileged operator to go reconnect a
+   * credential that is fine — and it declares `insufficient_role` for exactly
+   * this: "Your role on this workspace can read this but cannot act on it."
    */
   const access = await requireLaunchpadBusinessAccess({ request, businessId });
   if (!access.ok) {
-    for (const key of LIBRARY_SECTIONS) unavailable(key, "capability_read_denied");
+    for (const key of LIBRARY_SECTIONS) unavailable(key, "insufficient_role");
     return NextResponse.json(
       { ok: true, accounts, sections },
       { headers: { "Cache-Control": "private, no-store" } },
@@ -230,36 +236,65 @@ export async function GET(request: NextRequest) {
     getMetaLaunchIntentCapability().catch(() => null),
   ]);
 
+  /*
+   * A store the capability says cannot be read is NOT READ, and is not
+   * reported as empty.
+   *
+   * This substituted `Promise.resolve([])` for an unreadable store, and
+   * `settled()` then stamped the section `complete` because the promise
+   * fulfilled — so an unmigrated schema arrived at the surface as "this
+   * workspace has no drafts". That is the §9 collapse the whole contract
+   * exists to stop, and the route's own header said it was preserving the
+   * distinction while the code below was erasing it.
+   *
+   * `unreadable` is truthy exactly when the capability ANSWERED and said no.
+   * A capability read that itself failed (`null`, from the `.catch` above)
+   * leaves the section to be attempted: not knowing whether a store is
+   * readable is not the same as knowing it is not, and the repository's own
+   * failure is then reported by `settled()`.
+   */
+  const unreadable = (capability: { canRead?: boolean } | null) =>
+    capability?.canRead === false;
+  const notReadable = Symbol("not-readable");
+  const skipUnreadable = <T,>(
+    capability: { canRead?: boolean } | null,
+    read: () => Promise<T>,
+  ): Promise<T | typeof notReadable> =>
+    unreadable(capability) ? Promise.resolve(notReadable) : read();
+
   const [templates, recentTemplates, drafts, intents, recentAdActions, commercial] =
     await Promise.allSettled([
-      templateCapability?.canRead === false
-        ? Promise.resolve([])
-        : listManualMetaLaunchTemplates(scope),
-      templateCapability?.canRead === false
-        ? Promise.resolve([])
-        : listRecentMetaLaunchTemplates(scope),
-      draftCapability?.canRead === false
-        ? Promise.resolve([])
-        : listMetaLaunchDrafts(scope),
-      intentCapability?.canRead === false
-        ? Promise.resolve([])
-        : listMetaLaunchIntents({
-            ...scope,
-            limit: Number(request.nextUrl.searchParams.get("limit") ?? 12),
-          }),
+      skipUnreadable(templateCapability, () => listManualMetaLaunchTemplates(scope)),
+      skipUnreadable(templateCapability, () => listRecentMetaLaunchTemplates(scope)),
+      skipUnreadable(draftCapability, () => listMetaLaunchDrafts(scope)),
+      skipUnreadable(intentCapability, () =>
+        listMetaLaunchIntents({
+          ...scope,
+          limit: Number(request.nextUrl.searchParams.get("limit") ?? 12),
+        }),
+      ),
       readRecentLaunchpadAdActions(scope),
       getBusinessCommercialTruthSnapshot(access.businessId),
     ]);
 
   const settled = <T,>(
     key: SectionKey,
-    result: PromiseSettledResult<T>,
+    result: PromiseSettledResult<T | typeof notReadable>,
     errorCode: string,
     fallback: T,
   ): T => {
     if (result.status === "fulfilled") {
+      if (result.value === notReadable) {
+        /*
+         * `schema_not_ready` is the §9.1 code whose own sentence is this
+         * fact: "A pending database migration has not been applied, so this
+         * data cannot be read yet. It is unavailable, not empty."
+         */
+        unavailable(key, "schema_not_ready");
+        return fallback;
+      }
       complete(key);
-      return result.value;
+      return result.value as T;
     }
     unavailable(key, errorCode);
     return fallback;

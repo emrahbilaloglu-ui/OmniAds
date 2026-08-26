@@ -96,10 +96,21 @@ export interface MetaIntelligence {
  *
  * One decision, made once, in the order the routes make it:
  * `/api/meta/recommendations/respond` and `/api/meta/snapshot/run-now` both
- * refuse a reviewer, both refuse a demo workspace, and both require at least a
- * collaborator. This RESTATES those refusals so they are visible before the
+ * require at least a collaborator, both refuse a reviewer, and both refuse a
+ * demo workspace. This RESTATES those refusals so they are visible before the
  * click; it does not create them, and the routes re-check on their own
  * authority.
+ *
+ * The demo half of that sentence was ASPIRATIONAL until
+ * `app/api/meta/demo-write-authority.ts` existed. Both routes enforced role and
+ * reviewer and neither read the demo flag, so this composer disabled two
+ * controls on a rule the server did not have — and `/api/auth/demo-login`
+ * opens a session as an ADMIN under a non-reviewer email, so a hand-rolled
+ * POST cleared both floors and wrote. `actor.demo` here is also the weaker
+ * test: `lib/access/require-business-page-context.ts` sets it by comparing the
+ * well-known demo id, while the routes read `businesses.is_demo_business` and
+ * fail closed when they cannot. The screen may be the more permissive of the
+ * two; it may never be the only one.
  *
  * The actor is required rather than optional: see `readMetaIntelligence`'s own
  * note for why "no actor" is not a state this composer should be able to be in.

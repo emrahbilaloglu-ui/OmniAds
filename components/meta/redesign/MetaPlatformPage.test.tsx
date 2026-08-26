@@ -180,6 +180,59 @@ describe("interpretMetaSnapshotRunResponse", () => {
       }),
     ).toEqual({ ok: false, message: "Provider scope is unavailable." });
   });
+
+  /*
+   * The route answers in TWO shapes. Its own validation failure is flat, but
+   * every guard it delegates to — the reviewer guard, and now the demo
+   * authority — answers `{ok:false, error:{code, message}}`. Reading only the
+   * top level meant the reviewer's own sentence reached the operator as the
+   * generic "Snapshot refresh failed.", and a refusal nobody can read is a
+   * refusal they will retry.
+   */
+  it("reads a nested guard refusal rather than falling back to the generic sentence", () => {
+    expect(
+      interpretMetaSnapshotRunResponse(false, {
+        ok: false,
+        error: {
+          code: "demo_business_read_only",
+          message: "Demo workspaces have zero Meta write authority.",
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      message: "Demo workspaces have zero Meta write authority.",
+    });
+
+    expect(
+      interpretMetaSnapshotRunResponse(false, {
+        ok: false,
+        error: {
+          code: "reviewer_read_only",
+          message: "Reviewer access is read-only; write actions are unavailable for this workspace.",
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      message:
+        "Reviewer access is read-only; write actions are unavailable for this workspace.",
+    });
+  });
+
+  it("prefers the top-level sentence when a payload carries both", () => {
+    expect(
+      interpretMetaSnapshotRunResponse(false, {
+        ok: false,
+        message: "Top level.",
+        error: { code: "x", message: "Nested." },
+      }),
+    ).toEqual({ ok: false, message: "Top level." });
+  });
+
+  it("still falls back when neither shape carries a sentence", () => {
+    expect(
+      interpretMetaSnapshotRunResponse(false, { ok: false, error: "missing_business_id" }),
+    ).toEqual({ ok: false, message: "Snapshot refresh failed." });
+  });
 });
 
 function workspacePayload() {

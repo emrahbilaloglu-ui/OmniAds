@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { rejectIfMetaOperatorDemoWrite } from "@/app/api/meta/demo-write-authority";
 import { requestMetaSnapshotRefreshForBusiness } from "@/lib/meta/snapshot-refresh";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,19 @@ export async function POST(request: NextRequest) {
   if ("error" in access) return access.error;
   const reviewerBlocked = rejectIfReviewerReadOnly(access, "snapshot_refresh");
   if (reviewerBlocked) return reviewerBlocked;
+  /*
+   * Demo authority, before the first side effect of any kind.
+   *
+   * `requestMetaSnapshotRefreshForBusiness` stamps a five-minute in-process
+   * cooldown BEFORE it runs anything, and what it then runs opens a
+   * calibration transaction and upserts snapshot rows. So the refusal has to
+   * sit here, above the call, not inside it.
+   */
+  const demoBlocked = await rejectIfMetaOperatorDemoWrite(
+    access.membership.businessId,
+    "snapshot_refresh",
+  );
+  if (demoBlocked) return demoBlocked;
 
   const refresh = await requestMetaSnapshotRefreshForBusiness({
     businessId: access.membership.businessId,

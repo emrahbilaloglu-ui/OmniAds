@@ -214,12 +214,34 @@ export function interpretMetaSnapshotRunResponse(
   if (responseOk && record?.ok === true && validStatus) {
     return { ok: true, status };
   }
-  const message =
+  /*
+   * The route answers in TWO envelope shapes, and this reads both.
+   *
+   * Its own validation failure is flat — `{ok:false, error:"missing_business_id",
+   * message}` — while every guard it delegates to answers nested:
+   * `rejectIfReviewerReadOnly` and the demo-authority guard both return
+   * `{ok:false, error:{code, message}}`. Reading only the top level meant the
+   * reviewer's own sentence, and now the demo refusal, reached the operator as
+   * the generic "Snapshot refresh failed." — a refusal nobody can read is a
+   * refusal they will retry.
+   *
+   * Neither sentence is composed here. This picks the one the server wrote.
+   */
+  const nested =
+    record && typeof record.error === "object" && record.error !== null
+      ? (record.error as { message?: unknown }).message
+      : null;
+  const served =
     typeof record?.message === "string" && record.message.trim()
       ? record.message
-      : responseOk
-        ? "Snapshot refresh returned an invalid response."
-        : "Snapshot refresh failed.";
+      : typeof nested === "string" && nested.trim()
+        ? nested
+        : null;
+  const message =
+    served ??
+    (responseOk
+      ? "Snapshot refresh returned an invalid response."
+      : "Snapshot refresh failed.");
   return { ok: false, message };
 }
 

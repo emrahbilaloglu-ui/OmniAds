@@ -985,6 +985,44 @@ describe("the two control sections carry a server-authored gate", () => {
     });
   }
 
+  it("refuses the respond control when no snapshot has been written at all", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce(null as never);
+
+    const result = await read({ actor: ADMIN_ACTOR });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    /*
+     * This branch used to leave the control ENABLED with no targets, so the
+     * wrapper reported itself available while the action select was disabled
+     * for want of a subject — a control that looks usable and is not.
+     */
+    expect(section!.control?.enabled).toBe(false);
+    expect(section!.control?.targets).toEqual([]);
+    expect(section!.control?.refusalMessage).toBe(
+      "No decision snapshot has been written for this window, so there is nothing to respond to yet.",
+    );
+  });
+
+  it("keeps the ACTOR's refusal when there is also nothing to respond to", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce({
+      status: "ok" as const,
+      summary: {},
+      recommendations: [],
+      snapshotDate: "2026-08-11",
+      snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+    } as never);
+
+    const result = await read({
+      actor: { role: "admin" as const, reviewerReadOnly: true, demo: false },
+    });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    // A reviewer may not respond to anything, ever. Telling them the snapshot
+    // is empty would be answering a question they did not ask.
+    expect(section!.control?.refusalCode).toBe("reviewer_read_only");
+    expect(section!.control?.targets).toEqual([]);
+  });
+
   it("offers both controls to an actor who may act", async () => {
     for (const { key, section } of await controlsFor(ADMIN_ACTOR)) {
       expect(section, `${key} was not composed`).toBeDefined();

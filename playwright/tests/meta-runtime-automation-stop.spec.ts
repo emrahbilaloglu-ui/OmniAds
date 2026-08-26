@@ -46,14 +46,19 @@ async function storedKillSwitch(): Promise<boolean | null> {
   await client.connect();
   try {
     const rows = await client.query(
-      `SELECT kill_switch_engaged FROM meta_automation_business_control WHERE business_id = $1 LIMIT 1`,
+      `SELECT kill_switch_engaged FROM meta_automation_business_controls WHERE business_id = $1 LIMIT 1`,
       [handle.businesses.oneAccount],
     );
     if (rows.rowCount === 0) return null;
     return rows.rows[0].kill_switch_engaged === true;
-  } catch {
-    // A schema without the table is a real answer to "what is stored", and it
-    // is not `false`.
+  } catch (error) {
+    /*
+     * A schema without the table is a real answer to "what is stored", and it
+     * is not `false`. Anything else is this test being wrong, and it must say
+     * so: a bare `catch { return null }` here swallowed a misspelt table name
+     * and reported "the database holds nothing" for a row that existed.
+     */
+    if ((error as { code?: string }).code !== "42P01") throw error;
     return null;
   } finally {
     await client.end();
@@ -143,7 +148,8 @@ test.describe("the ceremony refuses before it acts", () => {
     );
 
     expect(shipped.status).toBe(503);
-    expect(shipped.body).toContain("release_gate_closed");
+    // The §9.1 code for this gate, which is what the guard actually answers.
+    expect(shipped.body).toContain("automation_stop_disabled");
     // The refusal never names the variable to an operator.
     expect(shipped.body).not.toMatch(/META_[A-Z0-9_]{4,}/);
   });
@@ -178,7 +184,7 @@ test.describe("the ceremony refuses before it acts", () => {
       },
     );
 
-    expect(result.body).not.toContain("release_gate_closed");
+    expect(result.body).not.toContain("automation_stop_disabled");
     expect(result.status).not.toBe(503);
   });
 });
@@ -309,8 +315,20 @@ test.describe("only a read-back may announce an outcome", () => {
         page.locator("[data-stop-status], [data-stop-unconfirmed]"),
       ).toHaveCount(1, { timeout: 15_000 });
 
+      /*
+       * Compared as STATE, not as rows.
+       *
+       * A business that has never been stopped has no control row at all, and
+       * the first engage creates one — so `null` before and `false` after is
+       * the same fact twice: automation is not stopped. Comparing the raw
+       * readings would call that a difference, and reversibility is a claim
+       * about the state, not about whether a row exists.
+       */
       const after = await storedKillSwitch();
-      expect(after, "the session did not end where it started").toBe(before);
+      expect(after !== null, "the engage never reached the control table").toBe(true);
+      expect(after === true, "the session did not end where it started").toBe(
+        before === true,
+      );
     }
   });
 

@@ -1112,13 +1112,39 @@ export async function readMetaIntelligence(input: {
           startDate,
           endDate,
         }).catch(() => null);
+        const nothingToRespondTo = (reason: string) =>
+          /*
+           * The actor's refusal outranks this one.
+           *
+           * A reviewer told "there is nothing to respond to" would be told the
+           * wrong thing: they may not respond to anything, ever, and that is
+           * the sentence the route would answer with. Only when the actor MAY
+           * act does the absence of a subject become the reason.
+           */
+          control.enabled
+            ? {
+                kind: "respond" as const,
+                enabled: false,
+                refusalCode: null,
+                refusalMessage: reason,
+                targets: [],
+              }
+            : { kind: "respond" as const, ...control, targets: [] };
+
         if (!model) {
+          const reason =
+            "No decision snapshot has been written for this window, so there is nothing to respond to yet.";
           return {
             facts: [],
-            unavailableReason:
-              "No decision snapshot has been written for this window, so there is nothing to respond to yet.",
+            unavailableReason: reason,
             observedAt: null,
-            control: { kind: "respond" as const, ...control },
+            /*
+             * Refused, not offered. This branch used to leave the control
+             * ENABLED with no subject: the wrapper reported itself available
+             * while the action select was disabled because there was nothing
+             * to aim it at, which is a control that looks usable and is not.
+             */
+            control: nothingToRespondTo(reason),
           } satisfies SectionOutcome;
         }
         /*
@@ -1155,14 +1181,9 @@ export async function readMetaIntelligence(input: {
           control:
             targets.length > 0
               ? { kind: "respond" as const, ...control, targets }
-              : {
-                  kind: "respond" as const,
-                  enabled: false,
-                  refusalCode: null,
-                  refusalMessage:
-                    "This snapshot served no recommendations, so there is nothing to respond to.",
-                  targets: [],
-                },
+              : nothingToRespondTo(
+                  "This snapshot served no recommendations, so there is nothing to respond to.",
+                ),
         } satisfies SectionOutcome;
       })(),
 

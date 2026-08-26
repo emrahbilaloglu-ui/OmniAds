@@ -371,7 +371,51 @@ test.describe("the two control sections carry their gate to the screen", () => {
  * that anything was written, and `meta_decision_responses` is where the answer
  * actually lives.
  */
+/**
+ * One recommendation, seeded so the control has a real subject.
+ *
+ * The D6 fixture writes no decision snapshot — the engine's output is not part
+ * of what it describes — so without this the respond control is correctly
+ * refused and the write path is never exercised against the database. The row
+ * is the surface's own contract: `readLatestMetaDecisionSnapshot` takes
+ * `MAX(snapshot_date)` where `kind = 'recommendation'`, so one row is a served
+ * recommendation.
+ */
+const SEEDED_REC_ID = "runtime_evidence_rec_1";
+
+async function seedRecommendation() {
+  await withDb(async (client) => {
+    await client.query(
+      `INSERT INTO meta_decision_snapshots_daily
+         (scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
+          level, decision_state, confidence_score, recommended_action,
+          reasoning, engine_version, kind)
+       VALUES ('account', $1, $2, CURRENT_DATE, $3, 'runtime_evidence',
+          'account', 'act', 0.9, 'Hold spend while the evidence settles.',
+          'Seeded by the runtime evidence harness.', 'runtime-evidence', 'recommendation')
+       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+      [handle.accounts.one, handle.businesses.oneAccount, SEEDED_REC_ID],
+    );
+  });
+}
+
+async function clearSeededRecommendation() {
+  await withDb(async (client) => {
+    await client.query(
+      "DELETE FROM meta_decision_responses WHERE rec_id = $1",
+      [SEEDED_REC_ID],
+    );
+    await client.query(
+      "DELETE FROM meta_decision_snapshots_daily WHERE rec_id = $1",
+      [SEEDED_REC_ID],
+    );
+  });
+}
+
 test.describe("responding to a recommendation records a row", () => {
+  test.beforeEach(seedRecommendation);
+  test.afterEach(clearSeededRecommendation);
+
   test("the served id reaches meta_decision_responses, and nothing else does", async ({
     page,
   }) => {
@@ -446,7 +490,16 @@ test.describe("responding to a recommendation records a row", () => {
 
     await openSurface(page, handle, INTELLIGENCE);
     const respond = page.locator('[data-section-control="respond"]');
-    if ((await respond.getAttribute("data-section-control-enabled")) !== null) {
+    /*
+     * Driven only when there is something to drive. The target count is the
+     * honest gate: a control with no served recommendation is refused, and
+     * clicking at it would be waiting on a select that is disabled for a
+     * reason the server already stated.
+     */
+    const targetCount = Number(
+      (await respond.getAttribute("data-respond-target-count")) ?? "0",
+    );
+    if (targetCount > 0) {
       await page
         .locator('[data-ctl="live:META-INTEL-07 respond"]')
         .selectOption("acted");

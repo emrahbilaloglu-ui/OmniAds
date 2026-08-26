@@ -264,7 +264,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
   it("renders the header, five KPI cards, scope, six lanes, queue and inspector in exact order", () => {
     renderExact();
 
-    expect(root().children).toHaveLength(5);
+    // Header, KPI band, scope row, lane toolbar, the advisory inactive-assets
+    // strip, then the workspace.
+    expect(root().children).toHaveLength(6);
     expect(root().children[0]?.textContent).toContain("Decision Center");
     expect(root().children[1]?.getAttribute("data-meta-exact-section")).toBe(
       "kpis",
@@ -274,7 +276,10 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(
       root().children[3]?.hasAttribute("data-meta-exact-lane-toolbar"),
     ).toBe(true);
-    expect(root().children[4]?.hasAttribute("data-meta-exact-workspace")).toBe(
+    expect(
+      root().children[4]?.hasAttribute("data-meta-exact-inactive-strip"),
+    ).toBe(true);
+    expect(root().children[5]?.hasAttribute("data-meta-exact-workspace")).toBe(
       true,
     );
 

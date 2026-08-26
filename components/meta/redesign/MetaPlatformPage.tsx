@@ -2609,6 +2609,25 @@ function creativeEvidenceStudioHref(input: {
 }
 
 /**
+ * The provider's own campaign manager, for this exact account.
+ *
+ * A read-only way OUT, and nothing more. It is not an action: the operator
+ * leaves this product and does whatever they do at Meta, and this page will
+ * learn about it on the next sync like any other external change. It carries
+ * no `data-ctl` because the design's control contract has no key for it —
+ * `live:META-DEC-13 open` is the inactive-assets strip, and borrowing that key
+ * would name this control as something it is not.
+ *
+ * Null when the account id is not the `act_<digits>` shape Meta's own URL takes.
+ * A guessed id would open somebody else's account.
+ */
+function metaAdsManagerHref(providerAccountId: string | null): string | null {
+  const match = providerAccountId?.trim().match(/^act_(\d+)$/);
+  if (!match) return null;
+  return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${match[1]}`;
+}
+
+/**
  * Where a brief is created from a decision (`live:CREATIVE-07 brief`).
  *
  * The Briefs surface already reads `creativeId`, `snapshotId` and `trigger`
@@ -5400,6 +5419,7 @@ export function MetaPlatformPage({
                 ? () => setLabelModalOpen(true)
                 : undefined
             }
+            adsManagerHref={metaAdsManagerHref(providerAccountId)}
             onCloseInspector={() => {
               setInspectorDismissed(true);
               setDrillItem(null);

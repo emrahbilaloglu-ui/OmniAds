@@ -1961,3 +1961,87 @@
 .rowAction [data-refused] {
   color: #555d6d;
 }
+
+/* --------------------------------------------------- share, strip, out-link */
+
+.shareView {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.shareViewButton {
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid #c9d2e0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #2a5fe2;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.shareViewButton:hover {
+  border-color: #2a5fe2;
+}
+
+.shareView input {
+  min-width: 180px;
+  min-height: 24px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid #c9d2e0;
+  border-radius: 6px;
+  font: inherit;
+}
+
+/*
+ * The advisory strip.
+ *
+ * Between the lanes and the queue because that is what it is about: everything
+ * this account holds that no lane decides on. Kept visually quiet — it is a
+ * disclosure, and it must not compete with the rows.
+ */
+.inactiveStrip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px dashed #c9d2e0;
+  border-radius: 10px;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.inactiveStripOpen {
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid #c9d2e0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #2a5fe2;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.adsManagerLink {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 24px;
+  color: #2a5fe2;
+  font-weight: 600;
+}
+
+.adsManagerNote {
+  color: #555d6d;
+  font-weight: 400;
+}

@@ -583,6 +583,15 @@ export interface MetaDecisionCenterExactProps {
    * one, and the control is then not drawn — rather than drawn and inert.
    */
   onCloseInspector?: () => void;
+  /**
+   * The provider's own campaign manager for this account.
+   *
+   * A link out, never an executed action, and labelled as one. It has no key in
+   * the design's control contract — the contract's `live:META-DEC-13 open` is
+   * the inactive-assets strip, not this — so it carries no `data-ctl` rather
+   * than borrowing one that means something else.
+   */
+  adsManagerHref?: string | null;
   onScopeChange?: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange?: (lane: MetaDecisionCenterExactLane) => void;
   onRunSnapshot?: () => void;
@@ -1090,6 +1099,71 @@ function LevelFilter({
         ) : null}
       </select>
     </label>
+  );
+}
+
+/**
+ * Copy a link that reproduces this view (`live:INV-18 share-view`).
+ *
+ * The URL already carries everything the contract names — account, lane, level,
+ * window — because every one of those controls writes to it. So the control is
+ * a copy, not a link: there is nowhere to navigate to that is not where the
+ * operator already is.
+ *
+ * Three states, because the clipboard can refuse. Idle offers the copy; copied
+ * announces through `role="status"`, which is what "'copied' announced
+ * (role=status)" in the contract asks for; refused falls back to a selectable
+ * field holding the URL, so a denied clipboard costs the operator a keystroke
+ * rather than the link.
+ */
+function ShareViewControl() {
+  const [state, setState] = useState<
+    { kind: "idle" } | { kind: "copied" } | { kind: "manual"; url: string }
+  >({ kind: "idle" });
+
+  const share = async () => {
+    const url =
+      typeof window === "undefined" ? "" : window.location.href;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setState({ kind: "copied" });
+    } catch {
+      // Denied, unavailable, or an insecure context. All three are the same
+      // fact for the operator: the browser will not copy for them.
+      setState({ kind: "manual", url });
+    }
+  };
+
+  return (
+    <span className={styles.shareView} data-meta-exact-share-view={state.kind}>
+      <button
+        className={styles.shareViewButton}
+        data-ctl="live:INV-18 share-view"
+        onClick={() => void share()}
+        type="button"
+      >
+        Copy link to this view
+      </button>
+      {state.kind === "copied" ? (
+        <span data-meta-exact-share-copied="" role="status">
+          Link copied. It reproduces this account, lane, level and window.
+        </span>
+      ) : null}
+      {state.kind === "manual" ? (
+        <span role="status">
+          <label>
+            Copy this link
+            <input
+              data-meta-exact-share-manual=""
+              onFocus={(event) => event.currentTarget.select()}
+              readOnly
+              value={state.url}
+            />
+          </label>
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -2221,6 +2295,7 @@ export function MetaDecisionCenterExact({
   defaultLane = "action",
   inspectorOpen = true,
   onCloseInspector,
+  adsManagerHref = null,
   onScopeChange,
   onLaneChange,
   onRunSnapshot,
@@ -2259,6 +2334,14 @@ export function MetaDecisionCenterExact({
    * payload, and a map keyed by id would hold stale nodes across a re-read.
    */
   const rootRef = useRef<HTMLElement | null>(null);
+  /*
+   * The search box, so `/` can reach it.
+   *
+   * `live:META-DEC-17 search` contracts "click or / key". The key is bound on
+   * the surface rather than the document: this component does not own the page,
+   * and a global listener would steal `/` from anything else on it.
+   */
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const shownFor = (laneId: MetaDecisionCenterExactLane) =>
     shownByLane[laneId] ?? LANE_PAGE_SIZE;
   const loadMoreFor = (laneId: MetaDecisionCenterExactLane) => () =>
@@ -2319,6 +2402,22 @@ export function MetaDecisionCenterExact({
     <section
       className={styles.root}
       data-screen-label="Meta Decision Center"
+      onKeyDown={(event) => {
+        if (event.key !== "/" || event.defaultPrevented) return;
+        const target = event.target as HTMLElement | null;
+        // Never while the operator is typing: `/` is a character in a search
+        // term, an entity name and a reason code.
+        const tag = target?.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target?.isContentEditable
+        )
+          return;
+        event.preventDefault();
+        searchRef.current?.focus();
+      }}
       ref={rootRef}
     >
       <div className={styles.pageHeader}>
@@ -2396,6 +2495,11 @@ export function MetaDecisionCenterExact({
           queue reflects {display(identity?.snapshotLabel)} — the date range
           scopes metrics, not decisions
         </p>
+        {/*
+          Beside the controls that scope the list, not after every row: the link
+          reproduces the VIEW, so it belongs where the view is chosen.
+        */}
+        <ShareViewControl />
       </div>
 
       {activeScope === "structure" ? (
@@ -2477,11 +2581,13 @@ export function MetaDecisionCenterExact({
           </select>
           <input
             aria-label="Search entities"
+            data-ctl="live:META-DEC-17 search"
             onChange={(event) => {
               setQuery(event.target.value);
               onSearchChange?.(event.target.value);
             }}
             placeholder="Search entities…"
+            ref={searchRef}
             value={query}
           />
         </div>
@@ -2517,15 +2623,57 @@ export function MetaDecisionCenterExact({
           />
           <input
             aria-label="Search creatives"
+            data-ctl="live:META-DEC-17 search"
             onChange={(event) => {
               setQuery(event.target.value);
               onSearchChange?.(event.target.value);
             }}
             placeholder="Search creatives…"
+            ref={searchRef}
             value={query}
           />
         </div>
       )}
+
+      {/*
+        The advisory strip: what this account holds that no lane decides about.
+        
+        `live:META-DEC-13 open` contracts an inactive-assets strip whose detail
+        is read-only, and the Archive lane IS that detail — every row in it is
+        an inactive campaign, ad set or withheld Ad decision, and none of them
+        carries an action. The control opens the lane rather than a second
+        panel that would say the same thing twice.
+      */}
+      {activeScope === "structure" ? (
+        <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
+          <span>
+            Inactive assets {display(counts?.archive)} — outside the decision
+            lanes, and advisory only.
+          </span>
+          <button
+            className={styles.inactiveStripOpen}
+            data-ctl="live:META-DEC-13 open"
+            onClick={() => selectLane("archive")}
+            type="button"
+          >
+            Open the inactive-assets detail
+          </button>
+          {adsManagerHref ? (
+            <a
+              className={styles.adsManagerLink}
+              data-meta-exact-ads-manager-link
+              href={adsManagerHref}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              Open Meta Ads Manager
+              <span className={styles.adsManagerNote}>
+                Opens Meta in a new tab. Nothing here is executed.
+              </span>
+            </a>
+          ) : null}
+        </p>
+      ) : null}
 
       <div
         className={`${styles.workspace} ${showInspector ? styles.workspaceWithInspector : ""}`}

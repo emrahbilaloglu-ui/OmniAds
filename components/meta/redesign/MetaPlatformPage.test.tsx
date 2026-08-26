@@ -1719,7 +1719,13 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Note");
     expect(html).toContain("Paused ASC");
     expect(html).toContain("Archived Adset");
-    expect(html).not.toContain("Inactive assets");
+    /*
+     * "Inactive assets" is now a phrase with exactly one home: the advisory
+     * strip that OPENS this lane. What must stay gone is the quiet inline row
+     * — a closed structure smuggled back into a live lane as a dimmed line.
+     */
+    expect(html).toContain('data-meta-exact-inactive-strip="true"');
+    expect(html).toContain('data-ctl="live:META-DEC-13 open"');
     expect(html).not.toContain('data-quiet-row="inactive-structure"');
   });
 

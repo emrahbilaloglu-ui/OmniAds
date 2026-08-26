@@ -1,99 +1,124 @@
 # Meta market-ready — runtime evidence and corrected status
 
 Branch: `meta-market-ready`
-Code HEAD: `db50bea17` — every figure below was measured there unless §5 says
-otherwise. This document is the only thing committed after it.
 Date: 2026-08-26
-Supersedes the revision written at `392c92e37`.
+Supersedes the revision written at `db50bea17`.
 
-**How to read this document.** §1–§5 are MEASURED: every number has a command
-behind it and the command is named. §7 separates what is closed from what is
-open, and says which measurement closed it. §8 is EXTERNAL — things no amount
-of code can close. Where something is an inference rather than a measurement,
-it says so in the sentence.
+**Which commit each figure was measured at.** The previous revision said "Code
+HEAD: db50bea17 — every figure below was measured there", and then reported a
+rewrite-range count of 24 that was only true at `f06d923f3`; at `db50bea17` it
+was 28. A status document cannot be measured at a commit that includes itself,
+so this one names the measurement commit per class instead of claiming one HEAD
+for everything:
+
+| Class | Measured at |
+|---|---|
+| unit suite, typecheck, lint, whitespace, build, zero-base gates | `b964cd9b1` — the last code commit |
+| runtime harness (388 checks) | `b964cd9b1` |
+| frame evidence (92/92) | `b749db52f`, which is what the manifest records |
+| screenshot set (131 checks) | `b749db52f` |
+| the history-plan facts in §7.8 / §7.9 | re-measured at `daac86815` |
+
+The commit that carries THIS document is later than all of them, and nothing
+here claims to have measured it.
+
+**Four classes, kept apart.**
+
+- **Verified local facts** — §1–§5. A command produced the number, and the
+  command is named.
+- **Architecture gaps** — §6.1. Local, real, and NOT closed by this pass. They
+  are not external and are not listed in §8.
+- **External blockers** — §8. Nothing in this repository closes them.
+- **Inferences** — said as inferences, in the sentence, wherever they appear.
 
 ---
 
 ## 1. What this pass built
 
-An independent audit found five safe local defects the green suite did not
-cover, plus an incoherent remediation document. All five are fixed here, with
-regressions, and the document is rewritten.
-
-The previous revision's claim that "all four local items closed" was true of
-the four items it named and is NOT a claim about these five. They are different
-findings, and this revision does not inherit that sentence.
+An independent review found that the previous revision had left a safe local
+security defect open in §7.10, that the new served-id boundary did not reject
+the stale ids the document claimed it did, that Account Intelligence had no
+physical-account lineage at all, and that the history plan was operationally
+unsafe. All of it is closed here except one named architecture gap (§6.1).
 
 | # | Was | Now |
 |---|---|---|
-| 1 | Two operator POST routes enforced role and reviewer and never read the demo flag, while the composer disabled their controls on the claim that they did | **Enforced on the server**, fail-closed: 403 for a confirmed demo workspace, 503 for a flag that could not be read, before any durable write |
-| 2 | `respond` took any non-empty `recId` straight to an INSERT — no FK, no existence check | **Server-authoritative**: the id must name a recommendation this business was served, inside a bounded window. Foreign-business, invented and stale ids are refused with nothing written |
-| 3 | The Launchpad composite substituted an empty array for a store its capability said was unreadable, then stamped the section `complete` | **`unavailable` / `schema_not_ready`**, and the repositories are not called. The client outcome is `not-ready`, never `empty` |
-| 4 | The Stop ceremony's phrase followed the payload while its action followed the direction the form was opened in | **Both follow the captured direction**, and submit re-resolves against the payload and clock as they are. Zero requests when either moved |
-| 5 | The history plan created a backup ref and then required checks that the backup makes impossible | **Two phases**, each verifying only what it can be true about — and a measured fact that reshapes it (§7.9) |
+| 1 | §7.10 left two routes with no demo gate, and the inventory had never been done | **14 boundaries closed**, each before its first durable side effect, and a contract test that walks the route tree |
+| 2 | `getMetaWriteBlockState` assumed sound for the shared handlers | **Verified fail-closed** — and it needed an env var, because it stubs itself out under vitest |
+| 3 | `respond` accepted any rec served in 30 days, while the control serves the LATEST snapshot | **Per-action authority**: current snapshot for acted/deferred/ignored, an active prior deferral for undeferred |
+| 4 | Read-then-write, with a snapshot rotation possible between them | **One statement** — the authority is the INSERT's own `WHERE` |
+| 5 | The snapshot could not say which provider account a recommendation was about | **`provider_account_id`**, populated at generation, withheld when unproven, never inferred from `scope_id` |
+| 6 | The history plan hard-coded a count that changes with every commit, and proposed a rebase that would collide with the untracked user file | **Execution-time measurement**, a scratch-clone rewrite, a ref-scoped reflog expiry |
 
-Seven commits since `392c92e37`. Excluding the recaptured evidence:
-19 files changed, +1 868 / −190.
+Seven commits since `cfc569258`. Excluding the recaptured evidence:
+39 files changed, +2 455 / −325.
 
 | Commit | Subject |
 |---|---|
-| `50c2ac9a6` | Enforce demo authority and served-id authority at the two operator write boundaries |
-| `8efb14ab6` | Launchpad: an unreadable store is not an empty one |
-| `f06d923f3` | WP13: confirm the direction that was opened, against the reading as it is now |
-| `011b38926` | Rewrite the history plan into two phases that can both be true |
-| `f5da5da38` | Prove the served-id refusal against a real database, not a mock |
-| `159cdf614` | Recapture the 92 frames from the audited tree |
-| `db50bea17` | Recapture the runtime screenshot set from the audited build |
+| `837f91949` | Complete the plan-wide demo mutation boundary, and make it machine-checked |
+| `1e62c840c` | D6: give snapshot rows a physical account, and authorize responses per action |
+| `b9949bdc2` | Prove the account boundary against a real database |
+| `b964cd9b1` | Make the history plan safe to execute, and stop it going stale |
+| `43f3575c8` | Update the Meta context snapshot, as INVARIANTS requires |
+| `b749db52f` | Recapture the 92 frames from the audited tree |
+| `daac86815` | Recapture the runtime screenshot set from the audited build |
+
+Two ADRs were required by the project's own rules and were written BEFORE the
+contract changed: `D-M009` (physical account lineage) and `D-M010` (per-action
+response authority) in `docs/meta-decision-center/DECISION_LOG.md`, with
+`CONTEXT_SNAPSHOT.md` updated as `INVARIANTS.md` demands.
 
 ---
 
 ## 2. The defects this pass found and fixed
 
-Every one is a MEASURED defect: an assertion that failed, or a guard that was
-absent and provably reachable. Where the audit's framing and the code disagreed,
-the code is quoted.
-
 | # | Defect | Consequence |
 |---|---|---|
-| 1 | `/api/meta/recommendations/respond` had no demo gate | `/api/auth/demo-login` opens a session as an ADMIN of the demo business under a non-reviewer email, so it cleared the role floor and the reviewer floor and inserted a durable `meta_decision_responses` row — which `lib/meta/outcome-accrual.ts` later reads back as evidence that an operator acted |
-| 2 | `/api/meta/snapshot/run-now` had no demo gate | Same session ran the recommendation engine INLINE: a five-minute in-process cooldown is stamped before anything else, then a calibration transaction opens and snapshot rows are upserted |
-| 3 | `lib/zero-base/meta/intelligence-server.ts` said both routes refuse a demo workspace, and disabled two controls on that basis | The rule existed only in the browser. A control disabled in a client is not an authority boundary |
-| 4 | The surface's `actor.demo` is a well-known-id comparison, not a read of `businesses.is_demo_business` | A workspace flagged demo without that id read as live on screen. The routes now read the flag; the screen may be the more permissive of the two, never the only one |
-| 5 | `respond` accepted any non-empty `recId` | No FK on the column, no existence check in the route: an operator decision could be recorded against an id of the caller's choosing, or another workspace's recommendation |
-| 6 | `/api/launchpad/meta/workspace` substituted `Promise.resolve([])` for an unreadable store and `settled()` stamped the section `complete` | An unmigrated schema arrived at the surface as "this workspace has no drafts" — the §9 collapse the contract exists to stop, and the opposite of what the route's own header claimed |
-| 7 | The composite refused a guest with `capability_read_denied` | §9.1 declares that a PROVIDER permission failure whose remedy is reconnecting Meta. It told an under-privileged operator to go reconnect a credential that was fine. `insufficient_role` is the code the dictionary added for exactly this |
-| 8 | `stopPhrase` was derived from the payload while the submitted action came from the captured direction | A payload that moved underneath produced "Type RESUME META to stop Meta automation for this business", and typing the phrase on screen submitted the OTHER direction |
-| 9 | The ceremony was resolved only at render | Typing takes time. A preflight could age past `STOP_PREFLIGHT_MAX_AGE_MS` while the operator typed, and nothing re-renders when a clock passes a boundary, so the confirmation was made against a reading the surface itself would now refuse |
-| 10 | `interpretMetaSnapshotRunResponse` read only a top-level `message` | The one interpreter both run-now clients share. Every nested guard refusal — including the reviewer 403 that has always existed — reached the operator as the generic "Snapshot refresh failed." |
-| 11 | The history plan created a backup ref, then required `--all` and blob-unreachability checks | The backup exists to keep those objects alive. Neither check could ever pass while it did |
-| 12 | This document's own first attempt to enumerate the blob-bearing commits used `"$c:path"` under zsh | zsh's `:a` modifier mangled it into an absolute path, and the loop reported a clean history for a history that was not clean. The corrected form and the reason are now recorded in the plan |
+| 1 | `campaign-labels` PUT had no demo gate | Main/Test/Mixed labels are a precondition for hard-action semantics, and the route then runs the engine inline |
+| 2 | `business-commercial-settings` PUT/POST had no demo gate | The commercial truth snapshot carries the hard-action anchors; its only demo check fired for the reviewer email on one hard-coded id, so a demo ADMIN passed it |
+| 3 | `decision-workflow` used `isDemoBusiness(...).catch(() => false)` over a function that already swallows errors into `false` | Two fail-open steps, against the BODY's business id |
+| 4 | `launchpad-handoff` POST lacked the boundary its own `/copy` sibling has | A handoff persists an `authorizedAction`; INVARIANTS gives a demo workspace null authorized action |
+| 5 | `creative-briefs` POST and PATCH were reviewer-only | A brief is the record that a decision authorized creative work |
+| 6 | `creatives/share` POST, DELETE and rotate/delete were reviewer-only | WP11's acceptance names reviewer AND demo. A share token leaves the workspace and outlives the conversation |
+| 7 | `decision-action/preflight` (both handlers) was ungated | It issues a receipt and a dispatch descriptor and writes an instrumentation row — an action-authorizing artifact, not a browse |
+| 8 | `launchpad/meta/validate` was ungated | It answers "is this launch cleared" with billing status and the pixel list. A demo workspace has false execution eligibility |
+| 9 | `runMetaDecisionIgnoredMarker` had no business filter at all | A cron sweep stamping `ignored` across every business in the database, read back later as operator evidence |
+| 10 | `appendCreativeShareMessage` appended for any live token | A durable row in a demo workspace's ledger, from a deliberately unauthenticated endpoint |
+| 11 | `readServedMetaRecommendation` accepted any rec served in 30 days | The mounted control serves the LATEST snapshot only, so an id served yesterday and absent today passed a check the screen would never have offered — and the previous status document said stale ids were rejected |
+| 12 | `undeferred` was authorized by "any served rec in the window" | An arbitrary 30-day-old id is not undefer authority |
+| 13 | The route read, then wrote, in two statements | `upsertSnapshotRows` DELETEs and re-inserts a day's rows, so a rotation between them could produce a row the check would refuse |
+| 14 | `meta_decision_snapshots_daily` had no provider-account column | An account-scoped surface served another account's recommendations under this account's heading, and the respond control acted on them |
+| 15 | The history plan hard-coded "24 commits" | True at `f06d923f3`, 28 at `db50bea17` where the status document repeated it, 32 by the time it was re-read |
+| 16 | The plan's rebase fallback would have run in this working copy | `eee701160` and `ab80dc1f9` both ADD the untracked user path, so checkout is refused mid-rewrite — or overwrites the file |
+| 17 | Phase B ran `git reflog expire --all` | Four branch reflogs exist; three are unrelated to this remediation and would have lost their recovery history |
 
-### 2.1 What the audit named that the code did NOT support
+### 2.1 What was verified SOUND and deliberately left alone
 
-Recorded because a fix that invents a scope is worse than one that admits it
-cannot express one.
+Recorded because "add a gate everywhere" would have been the wrong fix.
 
-**Account scope for a recommendation response is not expressible.**
-`meta_decision_snapshots_daily` has no provider-account column — the DDL is
-`(scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type, …)` — and
-for `scope_type='account'` rows `scope_id` is the BUSINESS id
-(`lib/meta/snapshot.ts`: `return { scopeType: "account", scopeId: businessId }`).
-A predicate against `scope_id` would mean two different things by row level and
-would reject every account-level recommendation. The check is therefore
-business- and recency-scoped, and `lib/meta/served-recommendation.ts` says so in
-its own header rather than implying an account scope it does not enforce.
+**The shared write-block path is fail-closed.** The ad / campaign / ad-set
+action routes are three-line wrappers that delegate to
+`lib/meta/ads-action-routes.ts` and `lib/meta/entity-action-routes.ts`, which
+reach `getMetaWriteBlockState`. It refuses a confirmed demo business, a missing
+business row, and an unreadable control state, and the well-known demo id is
+refused before any read at all. Adding gates to those wrappers would have been a
+redundant second authority over one fact.
 
-**"Latest snapshot only" would be wrong.** `undeferred` exists to lift a
-deferral taken days ago, so a latest-only test would refuse a legitimate
-response. The window is bounded at 30 days, which is also what keeps the read on
-`(business_id, snapshot_date)` — the only index there is. `rec_id` is in none of
-them, and this codebase has already lost a surface to an index-unusable
-predicate.
+Proving it required `META_AUTOMATION_WRITE_GUARD_TEST_READS=1`: the guard
+short-circuits to "not blocked" under vitest, so **every other test in this
+repository has been running against a stub of it**. That is now pinned by a case
+of its own, so the short-circuit cannot become unconditional unnoticed.
 
-**The check cannot be a table constraint.** `lib/triage-events.ts` is a second
-writer of `meta_decision_responses` whose rec ids are synthetic and never have a
-snapshot row. An FK, trigger or CHECK would break it. The check belongs at the
-route that accepts an id from a caller.
+### 2.2 What the review asked for that the schema does NOT support
+
+**A `triage:` namespace exemption was NOT added.** The concern is real — triage
+rec ids never appear in a snapshot — but `lib/triage-events.ts` writes to
+`meta_decision_responses` directly and never through this route. The only caller
+of `/api/meta/recommendations/respond` is the Intelligence controls client. An
+exemption would have been a hole with no traffic through it.
+
+**Account scope for account-LEVEL recommendations is still not expressible.**
+See §6.1. It is an architecture gap, not an external blocker.
 
 ---
 
@@ -108,9 +133,9 @@ route that accepts an id from a caller.
 | **WP4** Shell, account authority, rollout | **DONE (local)** | 38 checks across `off` / `allowlist`-in / `allowlist`-out / `on`; authorization runs before the rollout decision | — |
 | **WP5** Window, as-of, freshness | **DONE** | URL → request → caption as one equality, on the workspace's own clock; and the inspector now states the as-of and the evidence window as separate facts | — |
 | **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven; the notice's placement decided by whether a state ENDS; and `not-ready` is now produced by a real surface rather than only declared — Launchpad emits it for an unmigrated store | Query-plan, capacity, retention and growth evidence needs production read-only access |
-| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18. Demo write authority is now enforced at four boundaries rather than two — Launchpad, Automation, and both operator-decision routes — all reading one flag through one function | Needs a Meta sandbox account. TWO further routes run the same inline snapshot without a demo gate: see §7.10 |
+| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18. Demo write authority is enforced at every Meta mutation boundary — 14 direct, 12 through the verified shared handler, 1 in the store — all reading one flag through one function, and machine-checked so a new one cannot land without it | Needs a Meta sandbox account |
 | **WP8** Decisions | **DONE (local)** | Six lanes including the server's `blocked` state; the level filter with URL round-trip; the inspector's close, provenance band and grain gaps; share-view, brief, Ads Manager, inactive-assets strip and the manual-action route; the seven transitions with the fields the server requires; the 409 dialog with keep-mine and take-server; two server refusals every sibling route already performed | Provider execution needs a sandbox |
-| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed. Both control sections gated on the SERVER at three floors — role, reviewer, demo — with the demo half fail-closed. Respond acts on a `rec_id` the server verifies as served: an invented id and another workspace's id are both refused 404 against the real database, with nothing written | — |
+| **WP9** Account Intelligence | **PARTIAL** | All nine plan sections composed. Both control sections gated on the SERVER at three floors — role, reviewer, demo — with the demo half fail-closed. Respond acts on a `rec_id` the server verifies per action, scoped to the physical account, in the same statement that writes it; account isolation, colliding ids, stale ids and unproven lineage are all refused against the real database | **Not DONE**: account-LEVEL recommendations for a multi-account business still carry no physical account, so they are withheld rather than attributed — see §6.1 |
 | **WP10** Creative Studio core | **DONE (local)** | Five tabs × four account postures; per-tab telemetry resolves to nine distinct names | — |
 | **WP11** Briefs, Shares, Public Share | **DONE (local)** | The whole lifecycle on the LEGACY studio and the CANONICAL console; and a decision can now reach the brief flow at all | — |
 | **WP12** History | **DONE (local)** | Nine families SUM to the journal; `writes` matches the action log row for row | — |
@@ -147,7 +172,7 @@ lifted is worse than no stop — and both servers still reach no provider, becau
 `dryRunOnly` stays true and nothing on the surface addresses Meta.
 
 The saved responsive matrix is
-`playwright/artifacts/meta-runtime/meta-market-ready-159cdf6148/` — thirteen
+`playwright/artifacts/meta-runtime/meta-market-ready-b749db52fb/` — thirteen
 surfaces x five widths x two themes, named for the code it was taken from. It is
 not a regression baseline: nothing diffs against it, and the pixel oracles are
 the zero-base visual and fidelity gates.
@@ -156,56 +181,71 @@ the zero-base visual and fidelity gates.
 
 ## 5. Validation
 
-Run at `db50bea17` unless noted. Results quoted, not summarised.
+Measured at `b964cd9b1` — the last code commit — unless a row says otherwise.
+Results quoted, not summarised.
 
 | Command | Result |
 |---|---|
 | `git diff --check` / `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..HEAD` as a tree diff |
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
-| `npx vitest run` | **PASS** — 13 052 passed, 144 skipped, 63 todo (13 259) across 1 085 files, 0 failed |
+| `npx vitest run` | **PASS** — 13 195 passed, 144 skipped, 63 todo (13 402) across 1 087 files, 0 failed |
 | `npm run build` | **PASS** |
-| `npm run meta:runtime-evidence` | **PASS** — 381 passed, 130 skipped, 0 failed (26.2 min), exit 0 |
-| `META_RUNTIME_SPEC_FILTER=meta-runtime-intelligence …` | **PASS** — 13 passed, including the two new served-id refusals against the real table |
-| `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-159cdf6148 …screenshots.spec.ts` | **PASS** — 131 passed (7.7 min); this is the 130 the sweep skips |
+| `npm run meta:runtime-evidence` | **PASS** — 388 passed, 130 skipped, 0 failed (26.1 min), exit 0 |
+| `META_RUNTIME_SPEC_FILTER=meta-runtime-intelligence …` | **PASS** — 18 passed, including the five new D6 account cases |
+| `npm run test:migrations-from-zero` | **PASS** — the new column builds from zero and the migrations stay idempotent |
+| `npm run test:schema-upgrade-seam` | **PASS** — P1/P2/P3 |
+| `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-b749db52fb …` | **PASS** — 131 passed (7.7 min), at `b749db52f` |
 | `npm run meta:verify-mounted-bodies` | **PASS** — 15 surfaces |
 | `npm run test:zero-base:reference` | **PASS** — 99/99 regions, 248/248 controls, 35/35 collections, 83/83 artboards |
-| `npm run test:zero-base:fidelity` | **PASS** — 81/83 frames matching, with the 45 recorded paint-system findings on H19/H20. Unchanged by this pass |
-| `npm run zero-base:reconcile:frames` | **PASS** — 92/92, 0 substitutions, recaptured at `f5da5da381` |
+| `npm run test:zero-base:fidelity` | **PASS** — 81/83 frames matching, with the 45 recorded paint-system findings on H19/H20. **Unchanged by this pass** |
+| `npm run zero-base:reconcile:frames` | **PASS** — 92/92, 0 substitutions, recaptured at `43f3575c83` |
 | `npm run test:zero-base:a11y` / `:responsive` / `:visual` / `:theme` | **PASS** |
 | `npm run test:zero-base:routes` / `:flows` / `:states` / `:locale` / `:contract` / `:design` / `:compatibility` | **PASS** |
 | `npm run test:local-db` | **NOT RUN** — refuses without the external volume at `/Volumes/adsecuteDB`; a hardware precondition, and `test:migrations-from-zero` covers the same class |
 
-### 5.1 The new regressions, and proof they are regressions
+### 5.0 The write-boundary inventory, by classification
 
-A test that passes before and after a fix is not a regression test. Where a
-case could be run against the previous behaviour, it was.
+Every route under `app/api/meta/**`, `app/api/launchpad/meta/**`,
+`app/api/creatives/share/**` and `app/api/business-commercial-settings` that
+exports POST, PUT, PATCH or DELETE, enumerated by
+`app/api/meta-demo-write-authority.contract.test.ts` walking the filesystem —
+not by grep, and not by a hand-maintained list.
+
+| Classification | Count | Demo authority |
+|---|---|---|
+| (c) provider mutation | 12 | Delegated to `getMetaWriteBlockState` through the shared handlers, verified fail-closed (§2.1) |
+| (b) durable local mutation or action-authorizing artifact | 21 | Direct fail-closed guard before the first side effect |
+| (b) enforced in the store | 1 | `creatives/share/[token]/messages` — unauthenticated by design, so the refusal is a predicate on the UPDATE |
+| (a) no side effect | 2 | Exempt, with a reason, and re-checked: a listed route that starts writing FAILS |
+
+The contract runs 97 checks. It also asserts the negative: naming
+`isDemoBusiness` or `isDemoBusinessId` in a Meta route is a failure, not a pass.
+
+**What the contract cannot see is ORDER.** That the refusal precedes the first
+durable write is behavioural, and is asserted per route in the colocated tests —
+zero store calls, zero telemetry, zero cooldown stamps, zero token
+mint/rotate/revoke/delete, and zero provider calls, for BOTH a confirmed demo
+workspace and an unreadable flag.
+
+### 5.1 The new regressions
 
 | Area | Cases | Where |
 |---|---|---|
-| Demo authority, respond | confirmed demo → 403 nothing written; `unverified` and `not_established` → 503 nothing written; the flag read for the SERVER's business, not the body's | `app/api/meta/recommendations/respond/route.test.ts` |
-| Demo authority, run-now | the same three, plus "the refusal is where the shared interpreter can read it" and the server-business check | `app/api/meta/snapshot/run-now/route.test.ts` |
-| The guard itself | live passes; demo 403; both unverified states 503; both refusals stated at the top level AND inside `error`; asks about the business it was given | `app/api/meta/demo-write-authority.test.ts` |
-| Served-id | served / not_served / source_unavailable; the predicate names `business_id`, `rec_id`, `kind` and a date bound; it does NOT name `scope_id` or `provider_account_id`; the window clamps; an empty id asks the source nothing | `lib/meta/served-recommendation.test.ts` |
-| Served-id at the boundary | invented id → 404 nothing written; unreadable source → 503 nothing written, not 404 | `app/api/meta/recommendations/respond/route.test.ts` |
-| Served-id end to end | an invented id and another workspace's id, both refused 404 by the live server with `meta_decision_responses` read back at 0 rows | `playwright/tests/meta-runtime-intelligence.spec.ts` |
-| Unreadable schema, server | templates / drafts / intents each unmigrated → that section `unavailable` + `schema_not_ready` while the others stay `complete`; no repository called; a FAILED capability probe still attempts the read | `app/api/launchpad/meta/workspace/route.test.ts` |
-| Unreadable schema, client | outcome `not-ready` with `schema_not_ready` and the migration sentence; a guest's `insufficient_role` still reads as a refusal; an undeclared code is ignored | `app/(dashboard)/platforms/meta/launchpad/launchpad-exact.test.tsx` |
-| Direction flip | the phrase and copy stay in the opened direction; submit sends nothing and says why; the notice clears on reopen | `app/(dashboard)/platforms/meta/automation/stop-ceremony.test.tsx` |
-| Expiry after typing | fresh at open, aged past the window at submit → zero requests, the resolver's own sentence | same file |
-| The interpreter | reads a nested guard refusal; prefers a top-level sentence when both exist; still falls back when neither carries one | `components/meta/redesign/MetaPlatformPage.test.tsx` |
+| Demo authority, per route | confirmed demo → 403 with nothing written; `unverified` and `not_established` → 503 with nothing written; the flag read for the SERVER's business, not the body's | the colocated `route.test.ts` of each of the 14 boundaries |
+| Demo authority, structural | 97 checks: every Meta mutator reaches a fail-closed authority; no Meta route names a fail-open instrument; exemptions carry a reason and are re-checked | `app/api/meta-demo-write-authority.contract.test.ts` |
+| The shared handler | live passes; confirmed demo blocks; an unreadable control state blocks; a missing business row blocks; the canonical demo id blocks without reading; and the vitest short-circuit is pinned | `lib/meta/write-block-demo-authority.test.ts` |
+| Freshness, per action | acted/deferred/ignored served in the current snapshot and REFUSED from an older one; refused with no account; undeferred served on an active deferral, refused with none; the SQL asks for the latest response and excludes an expired deferral | `lib/meta/served-recommendation.test.ts` |
+| Account scope, unit | the predicate names `provider_account_id` and NOT `scope_id` | same file |
+| Identity at the boundary | invented id → 404 nothing written; unreadable source → 503 nothing written, not 404; the atomic writer is called with the server's business and the account | `app/api/meta/recommendations/respond/route.test.ts` |
+| Account isolation, runtime | another account's rec refused; the SAME id under two accounts stays separated; an OLDER snapshot's id refused while the current one is accepted; unproven lineage withheld; no-account refused | `playwright/tests/meta-runtime-intelligence.spec.ts` |
+| Migration | the column builds from zero, migrations stay idempotent, and the upgrade seam passes | `test:migrations-from-zero`, `test:schema-upgrade-seam` |
 
-**Proven against the previous behaviour.** The four ceremony cases were run
-with the fix reverted: all four fail, and the fifth — "still sends when nothing
-moved" — passes both ways, which is what a control case must do.
-
-```
-× keeps the phrase and the copy in the direction the form was opened in
-× refuses and sends nothing when the payload flipped direction while open
-× refuses and sends nothing when the reading aged out after typing
-× clears a previous abort notice when the ceremony is opened again
-  Tests  4 failed | 1 passed | 13 skipped (18)
-```
+**The stale-within-window case the review named** is covered twice: at the unit
+level (an id present only in an older snapshot is `not_served` for all three
+current-snapshot actions) and against the real database (an older-snapshot id is
+refused 404 while a current-snapshot id is accepted 200, so the refusal is about
+staleness rather than about the seeding being wrong).
 
 ### 5.2 Launchpad's first load, named
 
@@ -254,11 +294,12 @@ What did not change, and is asserted in `app/api/launchpad/meta/workspace/route.
 
 ### 5.3 The runtime sweep, by matrix
 
-Every one of the 381 checks runs in a browser against the production standalone
-build over HTTP with a real session. This pass added two — an invented `rec_id`
-and another workspace's `rec_id`, both refused by the live server with
-`meta_decision_responses` read back at zero rows — which is why Account
-Intelligence is 12 rather than 10.
+Every one of the 388 checks runs in a browser against the production standalone
+build over HTTP with a real session. This pass added five — another account's
+recommendation refused, the same id under two accounts kept separate, an older
+snapshot's id refused while the current one is accepted, unproven lineage
+withheld, and a response with no account refused — which is why Account
+Intelligence is 17 rather than 12.
 
 | Spec | Checks |
 |---|---|
@@ -274,7 +315,7 @@ Intelligence is 12 rather than 10.
 | release gates | 18 |
 | share lifecycle | 16 |
 | scope | 11 |
-| Account Intelligence | 12 |
+| Account Intelligence | 17 |
 | history | 7 |
 | window | 7 |
 | integrations · security · write gates | 5 each |
@@ -283,7 +324,7 @@ Intelligence is 12 rather than 10.
 The 130 skipped are `meta-runtime-screenshots.spec.ts`, which refuses to run
 without a caller-supplied set name; they are the separate 131-check row above.
 
-Ten of the 381 were added by the previous pass: eight for the Stop ceremony — the refusal
+Ten of the 388 were added by an earlier pass: eight for the Stop ceremony — the refusal
 before it acts, the preflight's age, the gate's two halves, release ungated,
 the typed confirmation suppressing the request, the engage → read-back →
 release → read-back round trip against `meta_automation_business_controls`, and
@@ -308,7 +349,47 @@ findings and nothing else**. §7.1 is why the repoint did not land.
 
 ---
 
-## 6. Evidence by class
+## 6. Architecture gaps — local, real, and NOT closed
+
+Neither of these is external. Nothing in §8 covers them, and neither is waiting
+on anyone outside this repository. They are recorded here so that "PARTIAL" in
+§3 has a specific meaning.
+
+### 6.1 An account-level recommendation for a multi-account business has no account
+
+`provider_account_id` is populated from the campaign and ad-set rows the engine
+already reads, so campaign-scoped and ad-set-scoped recommendations carry a
+physical account. Account-LEVEL recommendations do not, unless the business has
+exactly one assigned account — in which case "this business" and "this account"
+are the same fact and the row carries it.
+
+The cause is structural: `runMetaSnapshotForBusiness(businessId, snapshotDate)`
+aggregates across every assigned account, so an account-level recommendation is
+genuinely about all of them. There is no column to add that fixes this; the
+engine would have to run per account.
+
+**What this pass did instead of pretending otherwise.** Those rows stay NULL and
+are WITHHELD from an account-scoped read. The surface shows fewer
+recommendations rather than one account's decisions under another's heading, and
+the respond boundary refuses them. That is the fail-closed direction, and it is
+why WP9 is PARTIAL rather than DONE.
+
+Closing it is a Phase H change to the engine — per-account snapshot generation —
+and `D-M009` records it as deferred with that reasoning rather than as a
+limitation of the data.
+
+### 6.2 Two demo instruments remain in the codebase
+
+`lib/business-mode.server.isDemoBusiness` and `lib/demo-business.isDemoBusinessId`
+both answer "not a demo workspace" when they cannot tell. Neither is used by any
+Meta write boundary any more, and the contract test FAILS if one appears in a
+Meta route. They are still used elsewhere — presentation paths, where a
+fail-open read is survivable — and were not swept, because rewriting every
+caller is a wider change than this review asked for.
+
+The risk is contained by the contract test rather than removed.
+
+## 6.3 Evidence by class
 
 **Mounted route / browser.** Playwright against the production standalone build
 over HTTP with a real session, across five servers differing only in rollout
@@ -406,8 +487,14 @@ a SERVED id. Proven end to end on the running server: the runtime spec seeds one
 recommendation, drives the mounted control, and reads the row back out of
 `meta_decision_responses` for that exact `rec_id`.
 
-**What the previous revision closed was the AFFORDANCE. This pass closed the
-BOUNDARY.** The control acting on a served id was the surface doing the right
+**Corrected.** The previous revision said this was closed and that stale ids
+were rejected. They were not: the check accepted any rec served in the last 30
+days, while the mounted control serves the LATEST snapshot only. The authority
+is per-action now (§2, rows 11–13), scoped to the physical account, and applied
+in the same statement that writes.
+
+**What the revision before that closed was the AFFORDANCE. The one after closed
+the BOUNDARY. This one made the boundary correct.** The control acting on a served id was the surface doing the right
 thing; the route still accepted any id from any caller, and still wrote for a
 demo workspace. Both are now server-enforced, fail-closed, and proven against
 the real table (§5.1).
@@ -511,30 +598,47 @@ that cannot deliver what it claims.
 This is a fact about the repository, not a defect in the product, and it is not
 closable by code.
 
-### 7.10 Two more routes run the same inline snapshot without a demo gate — OPEN
+### 7.10 The plan-wide write boundary, closed
 
-Measured while fixing §7.4's demo boundary, and deliberately not fixed here:
-the instruction that produced this revision named two routes, and widening a
-security change beyond its stated scope without saying so is how a review stops
-being a review.
+The two routes this entry named — `campaign-labels` and
+`business-commercial-settings` — are gated, and so are twelve more that the
+inventory found once it was done properly rather than by grep. The full
+classification is §5.0; the enforcement is machine-checked; the shared-handler
+path was verified sound and deliberately left alone.
 
-```
-$ grep -rn "requestMetaSnapshotRefreshForBusiness" --include="*.ts" . | grep -v node_modules
-app/api/meta/snapshot/run-now/route.ts:47          <- gated by this pass
-app/api/meta/campaign-labels/route.ts:109          <- reviewer gate only, no demo gate
-app/api/business-commercial-settings/route.ts:223  <- no demo gate
-app/api/business-commercial-settings/route.ts:349  <- no demo gate
-```
+This entry is retained rather than deleted because the previous revision used it
+to record a decision — "the instruction named two routes, so widening the change
+would stop this being a review" — and that decision was wrong in a way worth
+keeping visible. A security boundary that is known to be missing elsewhere is
+not made safer by being documented. The correct move was to do the inventory and
+close all of it, which is what this pass did.
 
-All three run the identical inline snapshot: the same cooldown stamp, the same
-calibration transaction, the same snapshot upserts.
-`business-commercial-settings` does have an `isDemoBusinessId` check, but it
-fires only for the REVIEWER email and is the id-comparison helper rather than a
-read of `businesses.is_demo_business` — so a demo ADMIN passes it.
+### 7.11 The two demo instruments have not been swept from the codebase
 
-The fix is mechanical now that `rejectIfMetaOperatorDemoWrite` exists: the same
-call, after each route's reviewer guard, before its refresh. It is a decision
-about scope, not a technical blocker.
+Open, local, and NOT closed. `lib/business-mode.server.isDemoBusiness` and
+`lib/demo-business.isDemoBusinessId` still exist and are still used on
+presentation paths, where answering "not demo" for an unreadable flag is
+survivable. No Meta write boundary uses either, and the contract test fails if
+one appears in a Meta route — see §6.2. Rewriting every remaining caller is a
+wider change than this review asked for and is recorded rather than done.
+
+### 7.12 The history plan is executable, and still unexecuted
+
+Three operational defects were repaired (§2, rows 15–17): a hard-coded commit
+count that self-invalidates, a rebase that would have collided with the
+untracked user file in this working copy, and a `git reflog expire --all` that
+would have destroyed three unrelated branches' recovery history.
+
+Phase A now rewrites in a scratch clone and returns the result as an object,
+with `git diff --stat` between the old and new branch as the gate. Phase B's
+expiry is ref-scoped and its verification is skipped — with the outcome recorded
+honestly — if B0 keeps a Codex ref that still holds the blob.
+
+**Nothing in the plan has been run.** What was run, and only this: two
+read-only `git ls-remote` queries, one `git clone --no-checkout` to a scratch
+path that was then removed, and one `git reflog expire --dry-run` against a
+single named ref. After all three the user file was unchanged in bytes, mtime
+and index state.
 
 ## 8. Externally blocked
 
@@ -550,6 +654,9 @@ about scope, not a technical blocker.
 
 None of these can be closed by writing code.
 
-**Not on this list, because it is not external:** §7.10 — two further routes
-run the same inline snapshot without a demo gate. That is a scope decision, and
-the fix is one call each.
+**Not on this list, because they are not external:** §6.1 (account-level
+recommendations carry no physical account — a Phase H engine change), §6.2 /
+§7.11 (the two fail-open demo instruments still used on presentation paths), and
+§7.12 (the history plan, which waits for an instruction rather than for anyone
+outside this repository). Turning a local schema or authority gap into an
+"external blocker" is how a gap stops being worked on.

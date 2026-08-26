@@ -238,11 +238,16 @@ describe("the reading the confirmation is made against", () => {
     const blocked = container.querySelector("[data-stop-blocked]")!;
     expect(blocked.getAttribute("data-stop-blocked")).toBe("preflight_stale");
     expect(blocked.textContent).toContain(stale);
-    // Present and refusing: the control never vanishes.
-    expect(container.querySelector("[data-stop-trigger]")).not.toBeNull();
-    expect(
-      (container.querySelector("[data-stop-trigger]") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    // Present and refusing: the control never vanishes — and it stays in the
+    // tab order, because `disabled` would put the reason out of keyboard
+    // reach and the reason is why it is still on screen.
+    const staleTrigger = container.querySelector(
+      "[data-stop-trigger]",
+    ) as HTMLButtonElement;
+    expect(staleTrigger).not.toBeNull();
+    expect(staleTrigger.disabled).toBe(false);
+    expect(staleTrigger.getAttribute("aria-disabled")).toBe("true");
+    expect(staleTrigger.hasAttribute("data-stop-refused")).toBe(true);
   });
 
   it("refuses a reading that did not complete, and names the server's error code", () => {
@@ -272,6 +277,7 @@ describe("the role split matches the route", () => {
     const trigger = container.querySelector("[data-stop-trigger]") as HTMLButtonElement;
     expect(trigger.getAttribute("data-ctl")).toBe("gated:AUTO-01A engage");
     expect(trigger.disabled).toBe(false);
+    expect(trigger.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("refuses a collaborator the release, because releasing re-enables spend", () => {
@@ -283,7 +289,10 @@ describe("the role split matches the route", () => {
     ).toBe("insufficient_role");
     const trigger = container.querySelector("[data-stop-trigger]") as HTMLButtonElement;
     expect(trigger.getAttribute("data-ctl")).toBe("gated:AUTO-02 release");
-    expect(trigger.disabled).toBe(true);
+    // Refused, and still reachable: `aria-disabled` holds the action while the
+    // control keeps its place in the tab order so the reason can be read.
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.disabled).toBe(false);
   });
 });
 
@@ -307,9 +316,11 @@ describe("the gate holds engage and never holds release", () => {
     );
 
     expect(container.querySelector("[data-stop-blocked]")).toBeNull();
-    expect(
-      (container.querySelector("[data-stop-trigger]") as HTMLButtonElement).disabled,
-    ).toBe(false);
+    const gatedTrigger = container.querySelector(
+      "[data-stop-trigger]",
+    ) as HTMLButtonElement;
+    expect(gatedTrigger.disabled).toBe(false);
+    expect(gatedTrigger.getAttribute("aria-disabled")).toBeNull();
   });
 });
 

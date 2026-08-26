@@ -1483,15 +1483,30 @@ export function MetaAutomationView({
                   className={styles.killAction}
                   data-ctl="gated:AUTO-02 release"
                   data-stop-trigger=""
-                  disabled={
+                  /*
+                   * `aria-disabled`, never `disabled`.
+                   *
+                   * A `disabled` button leaves the tab order, so the operator
+                   * cannot reach the control to read the reason it refuses —
+                   * and the reason is the whole point of keeping it on screen.
+                   * The same choice the account-scope control and the date
+                   * picker already make, and the responsive gate's
+                   * "reachable from the keyboard" law measures it.
+                   */
+                  aria-disabled={
                     Boolean(stopCeremony.blocker) || !viewer.canMutate || stopPending
+                      ? true
+                      : undefined
+                  }
+                  data-stop-refused={
+                    Boolean(stopCeremony.blocker) || !viewer.canMutate ? "" : undefined
                   }
                   title={
                     stopCeremony.blocker?.message ??
                     (viewer.canMutate ? undefined : (viewer.reason ?? undefined))
                   }
                   onClick={() => {
-                    if (stopCeremony.blocker) return;
+                    if (stopCeremony.blocker || !viewer.canMutate || stopPending) return;
                     setStopTyped("");
                     setStopConfirm("release");
                   }}
@@ -1512,17 +1527,28 @@ export function MetaAutomationView({
                    * revision invented `live:`/`disabled:AUTOMATION-STOP`, which
                    * left the anatomy gate unable to find the control it was
                    * looking for. Whether the control is currently refused is
-                   * carried by `disabled` and `data-stop-engage-refused`, where
-                   * a state belongs.
+                   * carried by `aria-disabled` and `data-stop-engage-refused`,
+                   * where a state belongs.
                    */
                   data-ctl="gated:AUTO-01A engage"
                   data-stop-trigger=""
                   data-stop-engage-refused={stopEngageRefusalReason ? "" : undefined}
-                  disabled={
+                  // `aria-disabled` rather than `disabled` — see the release
+                  // trigger above for why the control must stay focusable.
+                  aria-disabled={
                     Boolean(stopCeremony.blocker) ||
                     Boolean(stopEngageRefusalReason) ||
                     !viewer.canMutate ||
                     stopPending
+                      ? true
+                      : undefined
+                  }
+                  data-stop-refused={
+                    Boolean(stopCeremony.blocker) ||
+                    Boolean(stopEngageRefusalReason) ||
+                    !viewer.canMutate
+                      ? ""
+                      : undefined
                   }
                   title={
                     stopCeremony.blocker?.message ??
@@ -1531,7 +1557,13 @@ export function MetaAutomationView({
                     undefined
                   }
                   onClick={() => {
-                    if (stopCeremony.blocker) return;
+                    if (
+                      stopCeremony.blocker ||
+                      stopEngageRefusalReason ||
+                      !viewer.canMutate ||
+                      stopPending
+                    )
+                      return;
                     setStopTyped("");
                     setStopConfirm("engage");
                   }}
@@ -1603,8 +1635,9 @@ export function MetaAutomationView({
               teaches an operator there is nothing here to reach for — the same
               law this card already applies to the gate. What the refusal
               removes is the ABILITY, not the affordance: the trigger is
-              disabled, carries the reason as its title, and its handler
-              returns before opening the confirmation.
+              `aria-disabled`, carries the reason as its title, stays in the
+              tab order so that reason can be reached, and its handler returns
+              before opening the confirmation.
             */}
             {stopCeremony.blocker ? (
               <p

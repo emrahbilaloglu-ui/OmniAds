@@ -32,13 +32,26 @@
  * actions writes control-plane rows, `dryRunOnly` stays true throughout, and
  * the assertions below check the database rather than Meta.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { Client } from "pg";
 
 import { openSurface, runtimeHandle } from "../helpers/meta-runtime";
 
 const handle = runtimeHandle();
 const AUTOMATION = `/c/${handle.businesses.oneAccount}/meta/automation`;
+
+/**
+ * Whether the trigger will actually act.
+ *
+ * Not `isEnabled()`: the control is `aria-disabled` when refused rather than
+ * `disabled`, so it stays in the tab order and the reason stays reachable —
+ * and Playwright reads only the `disabled` attribute, so it would call a
+ * refused control enabled. `data-stop-refused` is the state the body actually
+ * carries.
+ */
+async function triggerActs(trigger: Locator): Promise<boolean> {
+  return (await trigger.getAttribute("data-stop-refused")) === null;
+}
 
 /** The stop's stored state, read from the table rather than from the screen. */
 async function storedKillSwitch(): Promise<boolean | null> {
@@ -197,7 +210,7 @@ test.describe("the typed confirmation is what sends the request", () => {
 
     const trigger = page.locator("[data-stop-trigger]");
     await expect(trigger).toHaveCount(1);
-    if (!(await trigger.isEnabled())) {
+    if (!(await triggerActs(trigger))) {
       test.skip(
         true,
         "this viewer is refused on this server; the refusal itself is covered above",
@@ -251,7 +264,7 @@ test.describe("only a read-back may announce an outcome", () => {
     await openSurface(page, handle, AUTOMATION, handle.gatesOpenBaseUrl);
 
     const trigger = page.locator("[data-stop-trigger]");
-    if (!(await trigger.isEnabled())) {
+    if (!(await triggerActs(trigger))) {
       test.skip(true, "this viewer cannot change the stop on this server");
     }
 
@@ -300,7 +313,7 @@ test.describe("only a read-back may announce an outcome", () => {
     // ---- and back again ---------------------------------------------------
     const backTrigger = page.locator("[data-stop-trigger]");
     await expect(backTrigger).toHaveCount(1);
-    if (await backTrigger.isEnabled()) {
+    if (await triggerActs(backTrigger)) {
       await backTrigger.click();
       const secondDirection = await page
         .locator("[data-stop-confirm]")

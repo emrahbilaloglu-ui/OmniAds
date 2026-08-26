@@ -1384,13 +1384,21 @@ describe("Dashboard v2 exact Automation presentation", () => {
     /*
      * The contract key does not change with the state. `gated:AUTO-01A engage`
      * is the manifest's own value for this control; whether it is currently
-     * refused is `disabled` plus `data-stop-engage-refused`, asserted below.
+     * refused is `aria-disabled` plus `data-stop-engage-refused`, asserted
+     * below.
      */
     expect(released).toContain('data-ctl="gated:AUTO-01A engage"');
     expect(released).toContain('data-stop-engage-refused=""');
     expect(released).toContain("a stop that cannot be released is worse");
-    // The refusal is readable, not only a tooltip an operator must hunt for.
-    expect(released).toMatch(/<button[^>]*disabled=""[^>]*>Stop Meta writes<\/button>/);
+    /*
+     * The refusal is readable, not only a tooltip an operator must hunt for —
+     * and `aria-disabled` rather than `disabled`, so a keyboard user can reach
+     * the control the reason belongs to. The responsive gate measures exactly
+     * that reachability.
+     */
+    expect(released).toMatch(
+      /<button[^>]*aria-disabled="true"[^>]*>Stop Meta writes<\/button>/,
+    );
     // And it never names a deployment variable.
     expect(released).not.toMatch(/META_[A-Z_]+/);
 

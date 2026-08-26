@@ -1,69 +1,99 @@
 # Meta market-ready — runtime evidence and corrected status
 
 Branch: `meta-market-ready`
-Code HEAD: `6ab9d12d9` — every figure below was measured there unless §5 says
+Code HEAD: `db50bea17` — every figure below was measured there unless §5 says
 otherwise. This document is the only thing committed after it.
 Date: 2026-08-26
-Supersedes the revision written at `8f15c972a`.
+Supersedes the revision written at `392c92e37`.
+
+**How to read this document.** §1–§5 are MEASURED: every number has a command
+behind it and the command is named. §7 separates what is closed from what is
+open, and says which measurement closed it. §8 is EXTERNAL — things no amount
+of code can close. Where something is an inference rather than a measurement,
+it says so in the sentence.
 
 ---
 
 ## 1. What this pass built
 
-The previous revision left four things open and called three of them product
-decisions. They were not. Each names a behaviour the master plan and the
-accepted design package already define, and each is built here.
+An independent audit found five safe local defects the green suite did not
+cover, plus an incoherent remediation document. All five are fixed here, with
+regressions, and the document is rewritten.
+
+The previous revision's claim that "all four local items closed" was true of
+the four items it named and is NOT a claim about these five. They are different
+findings, and this revision does not inherit that sentence.
 
 | # | Was | Now |
 |---|---|---|
-| 1 | The Stop ceremony existed only in an archived presenter no route mounts | **Ported** — preflight, typed confirmation both directions, read-back-only success, on the body the route renders |
-| 2 | Launchpad's first load: 18 reads, cause recorded as "unattributed" | **11** — every request named, seven folded into one composed route, and the debt ceiling deleted rather than lowered |
-| 3 | Respond named an action and led to a sentence saying to go elsewhere | **Acts** — on a served `rec_id`, through the route that owns it, read back from `meta_decision_responses` |
-| 4 | The mobile scope sheet stated eight facts and could change none | **Changes three** — by invoking the topbar's own controls, not by mounting a second picker |
-| 5 | `app/dev-preview-share` swept into history a second time | **Untracked again**, forward-only; the rewrite stays approval-gated |
+| 1 | Two operator POST routes enforced role and reviewer and never read the demo flag, while the composer disabled their controls on the claim that they did | **Enforced on the server**, fail-closed: 403 for a confirmed demo workspace, 503 for a flag that could not be read, before any durable write |
+| 2 | `respond` took any non-empty `recId` straight to an INSERT — no FK, no existence check | **Server-authoritative**: the id must name a recommendation this business was served, inside a bounded window. Foreign-business, invented and stale ids are refused with nothing written |
+| 3 | The Launchpad composite substituted an empty array for a store its capability said was unreadable, then stamped the section `complete` | **`unavailable` / `schema_not_ready`**, and the repositories are not called. The client outcome is `not-ready`, never `empty` |
+| 4 | The Stop ceremony's phrase followed the payload while its action followed the direction the form was opened in | **Both follow the captured direction**, and submit re-resolves against the payload and clock as they are. Zero requests when either moved |
+| 5 | The history plan created a backup ref and then required checks that the backup makes impossible | **Two phases**, each verifying only what it can be true about — and a measured fact that reshapes it (§7.9) |
 
-Thirteen commits since `b719400a3`. Excluding the recaptured evidence:
-40 files changed, +4 702 / −715.
+Seven commits since `392c92e37`. Excluding the recaptured evidence:
+19 files changed, +1 868 / −190.
 
 | Commit | Subject |
 |---|---|
-| `8645fcd42` | Record the clean-history plan, and why it waits for approval |
-| `ab80dc1f9` | WP13: port the Meta Stop ceremony onto the body the route mounts |
-| `f7d7057cc` | Untrack app/dev-preview-share again, which my own commit re-added |
-| `48ca88902` | Record the recurrence in the history remediation plan |
-| `c29372622` | WP14/17: name every Launchpad first-load request, and fold seven into one |
-| `a47aff00c` | WP9: give the respond control a recommendation to act on |
-| `5316b0c33` | Mobile: let the scope sheet change scope, through the topbar's own controls |
-| `4a1a58b87` | Make the runtime evidence for WP9 and WP13 actually measure what it claims |
-| `c15080921` | WP13: keep the refused Stop trigger reachable from the keyboard |
-| `4460f87cb` | Recapture the 92 frames from the code this pass actually changed |
-| `e39edab85` | Make the Automation fixture describe the payload the route actually returns |
-| `0e5ea61b1` | Recapture the frames from the corrected Automation fixture |
-| `6ab9d12d9` | Recapture the runtime screenshot set from this pass's build |
+| `50c2ac9a6` | Enforce demo authority and served-id authority at the two operator write boundaries |
+| `8efb14ab6` | Launchpad: an unreadable store is not an empty one |
+| `f06d923f3` | WP13: confirm the direction that was opened, against the reading as it is now |
+| `011b38926` | Rewrite the history plan into two phases that can both be true |
+| `f5da5da38` | Prove the served-id refusal against a real database, not a mock |
+| `159cdf614` | Recapture the 92 frames from the audited tree |
+| `db50bea17` | Recapture the runtime screenshot set from the audited build |
 
 ---
 
 ## 2. The defects this pass found and fixed
 
-Every one was found by building the behaviour the design names, or by making a
-test measure what it claimed to, and discovering what the existing code did
-instead.
+Every one is a MEASURED defect: an assertion that failed, or a guard that was
+absent and provably reachable. Where the audit's framing and the code disagreed,
+the code is quoted.
 
 | # | Defect | Consequence |
 |---|---|---|
-| 1 | `resolveStopCeremony` required `admin` for BOTH directions; `/api/meta/automation` requires `collaborator` to engage and `admin` to release | The surface was stricter than the route: an operator the server would have accepted was shown the emergency stop as refused |
-| 2 | The mounted Stop had no preflight and no read age | The confirmation was made against nothing, and a 200 was allowed to announce success — the design's H20 calls this a release preflight for a reason |
-| 3 | The Launchpad first load's 18 reads were recorded with the cause "unattributed" | A recorded number with no cause is a ceiling nobody can lower; naming the requests took seven of them away |
-| 4 | Seven Launchpad routes asked one question about one account at one instant | Each was a separate round trip on every load, and each 4xx'd independently when the account could not resolve, so the surface inferred one state from seven answers |
-| 5 | `count(model.recommendations.length)` — `count()` takes an array | The Recommendations fact read "Not reported" on every load; a served three was reported as unknown |
-| 6 | The respond control was enabled and had no subject | It named an action and answered a click with a sentence saying to record it somewhere else |
-| 7 | With NO decision snapshot, the respond control stayed ENABLED with no targets | The wrapper reported itself available while the select was disabled — a control that looks usable and is not |
-| 8 | The refused Stop trigger was `disabled` | A `disabled` button leaves the tab order, so the reason it refuses — the whole point of keeping it on screen — was out of keyboard reach. The zero-base responsive gate caught it |
-| 9 | The Automation fixture put the SECTIONS shape under the `readCompleteness` key and served no `sections` | Anything reading a section's observation instant saw nothing, so the Stop ceremony was refused as `preflight_unavailable` on every frame and every interaction case. The bare `disabled` attribute had been hiding it from the harness's `aria-disabled` check |
-| 10 | The scope sheet's three picker slots were never filled | A phone could read the scope and not move it, while `ScopePickers` and `ROW_PICKER` had been in place for both |
-| 11 | `storedKillSwitch()` queried `meta_automation_business_control`; the table is `..._controls`, and a bare `catch { return null }` swallowed it | The test reported "the database holds nothing" for a row that existed — the exact failure mode that file exists to catch |
-| 12 | The gate probe asserted the literal `release_gate_closed`; the guard answers the §9.1 code `automation_stop_disabled` | The gate was shut all along; the assertion was reading for a word the server never says |
-| 13 | `git add -A` swept `app/dev-preview-share` into a commit for the second time | A user-owned file readable from nine commits instead of seven. Untracked again, forward-only |
+| 1 | `/api/meta/recommendations/respond` had no demo gate | `/api/auth/demo-login` opens a session as an ADMIN of the demo business under a non-reviewer email, so it cleared the role floor and the reviewer floor and inserted a durable `meta_decision_responses` row — which `lib/meta/outcome-accrual.ts` later reads back as evidence that an operator acted |
+| 2 | `/api/meta/snapshot/run-now` had no demo gate | Same session ran the recommendation engine INLINE: a five-minute in-process cooldown is stamped before anything else, then a calibration transaction opens and snapshot rows are upserted |
+| 3 | `lib/zero-base/meta/intelligence-server.ts` said both routes refuse a demo workspace, and disabled two controls on that basis | The rule existed only in the browser. A control disabled in a client is not an authority boundary |
+| 4 | The surface's `actor.demo` is a well-known-id comparison, not a read of `businesses.is_demo_business` | A workspace flagged demo without that id read as live on screen. The routes now read the flag; the screen may be the more permissive of the two, never the only one |
+| 5 | `respond` accepted any non-empty `recId` | No FK on the column, no existence check in the route: an operator decision could be recorded against an id of the caller's choosing, or another workspace's recommendation |
+| 6 | `/api/launchpad/meta/workspace` substituted `Promise.resolve([])` for an unreadable store and `settled()` stamped the section `complete` | An unmigrated schema arrived at the surface as "this workspace has no drafts" — the §9 collapse the contract exists to stop, and the opposite of what the route's own header claimed |
+| 7 | The composite refused a guest with `capability_read_denied` | §9.1 declares that a PROVIDER permission failure whose remedy is reconnecting Meta. It told an under-privileged operator to go reconnect a credential that was fine. `insufficient_role` is the code the dictionary added for exactly this |
+| 8 | `stopPhrase` was derived from the payload while the submitted action came from the captured direction | A payload that moved underneath produced "Type RESUME META to stop Meta automation for this business", and typing the phrase on screen submitted the OTHER direction |
+| 9 | The ceremony was resolved only at render | Typing takes time. A preflight could age past `STOP_PREFLIGHT_MAX_AGE_MS` while the operator typed, and nothing re-renders when a clock passes a boundary, so the confirmation was made against a reading the surface itself would now refuse |
+| 10 | `interpretMetaSnapshotRunResponse` read only a top-level `message` | The one interpreter both run-now clients share. Every nested guard refusal — including the reviewer 403 that has always existed — reached the operator as the generic "Snapshot refresh failed." |
+| 11 | The history plan created a backup ref, then required `--all` and blob-unreachability checks | The backup exists to keep those objects alive. Neither check could ever pass while it did |
+| 12 | This document's own first attempt to enumerate the blob-bearing commits used `"$c:path"` under zsh | zsh's `:a` modifier mangled it into an absolute path, and the loop reported a clean history for a history that was not clean. The corrected form and the reason are now recorded in the plan |
+
+### 2.1 What the audit named that the code did NOT support
+
+Recorded because a fix that invents a scope is worse than one that admits it
+cannot express one.
+
+**Account scope for a recommendation response is not expressible.**
+`meta_decision_snapshots_daily` has no provider-account column — the DDL is
+`(scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type, …)` — and
+for `scope_type='account'` rows `scope_id` is the BUSINESS id
+(`lib/meta/snapshot.ts`: `return { scopeType: "account", scopeId: businessId }`).
+A predicate against `scope_id` would mean two different things by row level and
+would reject every account-level recommendation. The check is therefore
+business- and recency-scoped, and `lib/meta/served-recommendation.ts` says so in
+its own header rather than implying an account scope it does not enforce.
+
+**"Latest snapshot only" would be wrong.** `undeferred` exists to lift a
+deferral taken days ago, so a latest-only test would refuse a legitimate
+response. The window is bounded at 30 days, which is also what keeps the read on
+`(business_id, snapshot_date)` — the only index there is. `rec_id` is in none of
+them, and this codebase has already lost a surface to an index-unusable
+predicate.
+
+**The check cannot be a table constraint.** `lib/triage-events.ts` is a second
+writer of `meta_decision_responses` whose rec ids are synthetic and never have a
+snapshot row. An FK, trigger or CHECK would break it. The check belongs at the
+route that accepts an id from a caller.
 
 ---
 
@@ -77,15 +107,15 @@ instead.
 | **WP3** Integrations & assignment | **PARTIAL** | A refused connection reads "Action required"; duplicate spellings resolve to the catalog's form; Overview now states per-source readiness from the real reads | A genuinely revoked Meta credential needs Meta to refuse one. Production read-only schema evidence |
 | **WP4** Shell, account authority, rollout | **DONE (local)** | 38 checks across `off` / `allowlist`-in / `allowlist`-out / `on`; authorization runs before the rollout decision | — |
 | **WP5** Window, as-of, freshness | **DONE** | URL → request → caption as one equality, on the workspace's own clock; and the inspector now states the as-of and the evidence window as separate facts | — |
-| **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven; the notice's placement decided by whether a state ENDS | Query-plan, capacity, retention and growth evidence needs production read-only access |
-| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18 | Needs a Meta sandbox account |
+| **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven; the notice's placement decided by whether a state ENDS; and `not-ready` is now produced by a real surface rather than only declared — Launchpad emits it for an unmigrated store | Query-plan, capacity, retention and growth evidence needs production read-only access |
+| **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18. Demo write authority is now enforced at four boundaries rather than two — Launchpad, Automation, and both operator-decision routes — all reading one flag through one function | Needs a Meta sandbox account. TWO further routes run the same inline snapshot without a demo gate: see §7.10 |
 | **WP8** Decisions | **DONE (local)** | Six lanes including the server's `blocked` state; the level filter with URL round-trip; the inspector's close, provenance band and grain gaps; share-view, brief, Ads Manager, inactive-assets strip and the manual-action route; the seven transitions with the fields the server requires; the 409 dialog with keep-mine and take-server; two server refusals every sibling route already performed | Provider execution needs a sandbox |
-| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed; the two control sections gated on the server; respond acts on a SERVED `rec_id` and the row is read back from `meta_decision_responses` on the running server | — |
+| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed. Both control sections gated on the SERVER at three floors — role, reviewer, demo — with the demo half fail-closed. Respond acts on a `rec_id` the server verifies as served: an invented id and another workspace's id are both refused 404 against the real database, with nothing written | — |
 | **WP10** Creative Studio core | **DONE (local)** | Five tabs × four account postures; per-tab telemetry resolves to nine distinct names | — |
 | **WP11** Briefs, Shares, Public Share | **DONE (local)** | The whole lifecycle on the LEGACY studio and the CANONICAL console; and a decision can now reach the brief flow at all | — |
 | **WP12** History | **DONE (local)** | Nine families SUM to the journal; `writes` matches the action log row for row | — |
-| **WP13** Automation | **PARTIAL** | The Stop ceremony on the MOUNTED body: a fresh persisted preflight with its age, typed confirmation in both directions, a POST that may never announce anything, success only from a server read-back, and engage → read-back → release → read-back in one session with the control table checked after each. `collaborator` engages, `admin` releases, matching the route | Provider-side reversibility needs a sandbox |
-| **WP14** Launchpad read/draft/validate | **DONE (local)** | Create → edit → list → validate → delete, each read back from the table; and the first load is one composed read at the two authorization floors the seven routes actually have | — |
+| **WP13** Automation | **PARTIAL** | The Stop ceremony on the MOUNTED body: a fresh persisted preflight with its age, typed confirmation in both directions, a POST that may never announce anything, success only from a server read-back, and engage → read-back → release → read-back in one session with the control table checked after each. The confirmation is now made in ONE direction against ONE reading: the phrase and copy follow the direction the form was opened in, and submit re-resolves against the payload and clock as they are — zero requests if either moved. `collaborator` engages, `admin` releases, matching the route | Provider-side reversibility needs a sandbox |
+| **WP14** Launchpad read/draft/validate | **DONE (local)** | Create → edit → list → validate → delete, each read back from the table; the first load is one composed read at the two authorization floors the seven routes actually have; and a store the capability says is unreadable is reported `not-ready`/`schema_not_ready` rather than empty, with its repository never called | — |
 | **WP15** Launchpad execution | **BLOCKED** | The shipped refusal proven end to end | Needs a Meta sandbox account |
 | **WP16** Harness, contracts, dead modules | **PARTIAL** | Anatomy 83/83; frames 92/92 recaptured from this tree; the Automation harness renders the mounted body, and the archived Automation presenter is now unreachable from every route and from every module outside `_reference` bar the flow-I suite. The Decisions repoint was RUN: 83/83 anatomy with the mounted body, and 229 fidelity findings, all `untokenised-colour` | The two repoints wait on the design re-vendor — see §7.1 and §7.2 |
 | **WP17** Telemetry, security, a11y, perf | **PARTIAL** | CLS within budget with an empty debt map; axe clean at 1440 light and 390 dark on thirteen surfaces; Launchpad's first load inside the budget with its ceiling deleted; the refused Stop reachable from the keyboard; the mobile scope sheet able to change the scope it states | Manual AT pass |
@@ -117,7 +147,7 @@ lifted is worse than no stop — and both servers still reach no provider, becau
 `dryRunOnly` stays true and nothing on the surface addresses Meta.
 
 The saved responsive matrix is
-`playwright/artifacts/meta-runtime/meta-market-ready-0e5ea61b13/` — thirteen
+`playwright/artifacts/meta-runtime/meta-market-ready-159cdf6148/` — thirteen
 surfaces x five widths x two themes, named for the code it was taken from. It is
 not a regression baseline: nothing diffs against it, and the pixel oracles are
 the zero-base visual and fidelity gates.
@@ -126,32 +156,58 @@ the zero-base visual and fidelity gates.
 
 ## 5. Validation
 
-Run at `6ab9d12d9` unless noted. Results quoted, not summarised.
+Run at `db50bea17` unless noted. Results quoted, not summarised.
 
 | Command | Result |
 |---|---|
 | `git diff --check` / `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..HEAD` as a tree diff |
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
-| `npx vitest run` | **PASS** — 13 011 passed, 144 skipped, 63 todo (13 218) across 1 083 files, 0 failed |
+| `npx vitest run` | **PASS** — 13 052 passed, 144 skipped, 63 todo (13 259) across 1 085 files, 0 failed |
 | `npm run build` | **PASS** |
-| `npm run meta:runtime-evidence` | **PASS** — 381 passed, 130 skipped, 0 failed (26.1 min), exit 0 |
-| `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-0e5ea61b13 …screenshots.spec.ts` | **PASS** — 131 passed (7.8 min); this is the 130 the sweep skips |
+| `npm run meta:runtime-evidence` | **PASS** — 381 passed, 130 skipped, 0 failed (26.2 min), exit 0 |
+| `META_RUNTIME_SPEC_FILTER=meta-runtime-intelligence …` | **PASS** — 13 passed, including the two new served-id refusals against the real table |
+| `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-159cdf6148 …screenshots.spec.ts` | **PASS** — 131 passed (7.7 min); this is the 130 the sweep skips |
 | `npm run meta:verify-mounted-bodies` | **PASS** — 15 surfaces |
 | `npm run test:zero-base:reference` | **PASS** — 99/99 regions, 248/248 controls, 35/35 collections, 83/83 artboards |
-| `npm run test:zero-base:fidelity` | **PASS** — 81/83 frames matching, with the 45 recorded paint-system findings on H19/H20 (was 46) |
-| `npm run zero-base:reconcile:frames` | **PASS** — 92/92, 0 substitutions, captured at `e39edab850` |
-| `npm run test:zero-base:a11y` | **PASS** |
-| `npm run test:zero-base:responsive` | **PASS** — 84 checks |
-| `npm run test:zero-base:visual` / `:theme` | **PASS** |
+| `npm run test:zero-base:fidelity` | **PASS** — 81/83 frames matching, with the 45 recorded paint-system findings on H19/H20. Unchanged by this pass |
+| `npm run zero-base:reconcile:frames` | **PASS** — 92/92, 0 substitutions, recaptured at `f5da5da381` |
+| `npm run test:zero-base:a11y` / `:responsive` / `:visual` / `:theme` | **PASS** |
 | `npm run test:zero-base:routes` / `:flows` / `:states` / `:locale` / `:contract` / `:design` / `:compatibility` | **PASS** |
-| `npm run test:zero-base:smoke:local` | **PASS** — 4 checks against the local production server |
-| `npm run test:zero-base:perf:local` | **PASS** — 5 checks; shared baseline 492.0 KB, above the 400 KB local investigation trigger, which is a diagnostic and not a plan gate |
-| `npm run zero-base:contract:verify` | **PASS** — reports the package's own verdict as NOT READY |
-| `npm run zero-base:contracts:check` / `:fonts:verify` / `zero-base:legibility` | **PASS** |
 | `npm run test:local-db` | **NOT RUN** — refuses without the external volume at `/Volumes/adsecuteDB`; a hardware precondition, and `test:migrations-from-zero` covers the same class |
 
-### 5.0 Launchpad's first load, named
+### 5.1 The new regressions, and proof they are regressions
+
+A test that passes before and after a fix is not a regression test. Where a
+case could be run against the previous behaviour, it was.
+
+| Area | Cases | Where |
+|---|---|---|
+| Demo authority, respond | confirmed demo → 403 nothing written; `unverified` and `not_established` → 503 nothing written; the flag read for the SERVER's business, not the body's | `app/api/meta/recommendations/respond/route.test.ts` |
+| Demo authority, run-now | the same three, plus "the refusal is where the shared interpreter can read it" and the server-business check | `app/api/meta/snapshot/run-now/route.test.ts` |
+| The guard itself | live passes; demo 403; both unverified states 503; both refusals stated at the top level AND inside `error`; asks about the business it was given | `app/api/meta/demo-write-authority.test.ts` |
+| Served-id | served / not_served / source_unavailable; the predicate names `business_id`, `rec_id`, `kind` and a date bound; it does NOT name `scope_id` or `provider_account_id`; the window clamps; an empty id asks the source nothing | `lib/meta/served-recommendation.test.ts` |
+| Served-id at the boundary | invented id → 404 nothing written; unreadable source → 503 nothing written, not 404 | `app/api/meta/recommendations/respond/route.test.ts` |
+| Served-id end to end | an invented id and another workspace's id, both refused 404 by the live server with `meta_decision_responses` read back at 0 rows | `playwright/tests/meta-runtime-intelligence.spec.ts` |
+| Unreadable schema, server | templates / drafts / intents each unmigrated → that section `unavailable` + `schema_not_ready` while the others stay `complete`; no repository called; a FAILED capability probe still attempts the read | `app/api/launchpad/meta/workspace/route.test.ts` |
+| Unreadable schema, client | outcome `not-ready` with `schema_not_ready` and the migration sentence; a guest's `insufficient_role` still reads as a refusal; an undeclared code is ignored | `app/(dashboard)/platforms/meta/launchpad/launchpad-exact.test.tsx` |
+| Direction flip | the phrase and copy stay in the opened direction; submit sends nothing and says why; the notice clears on reopen | `app/(dashboard)/platforms/meta/automation/stop-ceremony.test.tsx` |
+| Expiry after typing | fresh at open, aged past the window at submit → zero requests, the resolver's own sentence | same file |
+| The interpreter | reads a nested guard refusal; prefers a top-level sentence when both exist; still falls back when neither carries one | `components/meta/redesign/MetaPlatformPage.test.tsx` |
+
+**Proven against the previous behaviour.** The four ceremony cases were run
+with the fix reverted: all four fail, and the fifth — "still sends when nothing
+moved" — passes both ways, which is what a control case must do.
+
+```
+× keeps the phrase and the copy in the direction the form was opened in
+× refuses and sends nothing when the payload flipped direction while open
+× refuses and sends nothing when the reading aged out after typing
+× clears a previous abort notice when the ceremony is opened again
+  Tests  4 failed | 1 passed | 13 skipped (18)
+```
+
+### 5.2 Launchpad's first load, named
 
 The count was 18 with the cause recorded as "unattributed". The perf spec now
 prints every request whenever a surface is over budget, so the inventory is a
@@ -196,10 +252,13 @@ What did not change, and is asserted in `app/api/launchpad/meta/workspace/route.
 - **Reporting.** The four §9 outcomes keep their ids, their row counts and their
   meaning. A section the server did not report on is unread, never empty.
 
-### 5.1 The runtime sweep, by matrix
+### 5.3 The runtime sweep, by matrix
 
 Every one of the 381 checks runs in a browser against the production standalone
-build over HTTP with a real session.
+build over HTTP with a real session. This pass added two — an invented `rec_id`
+and another workspace's `rec_id`, both refused by the live server with
+`meta_decision_responses` read back at zero rows — which is why Account
+Intelligence is 12 rather than 10.
 
 | Spec | Checks |
 |---|---|
@@ -215,7 +274,7 @@ build over HTTP with a real session.
 | release gates | 18 |
 | share lifecycle | 16 |
 | scope | 11 |
-| Account Intelligence | 10 |
+| Account Intelligence | 12 |
 | history | 7 |
 | window | 7 |
 | integrations · security · write gates | 5 each |
@@ -224,14 +283,14 @@ build over HTTP with a real session.
 The 130 skipped are `meta-runtime-screenshots.spec.ts`, which refuses to run
 without a caller-supplied set name; they are the separate 131-check row above.
 
-Ten of the 381 are new this pass: eight for the Stop ceremony — the refusal
+Ten of the 381 were added by the previous pass: eight for the Stop ceremony — the refusal
 before it acts, the preflight's age, the gate's two halves, release ungated,
 the typed confirmation suppressing the request, the engage → read-back →
 release → read-back round trip against `meta_automation_business_controls`, and
 no provider call — and two for respond, which seeds one recommendation, drives
 the mounted control and reads the row back out of `meta_decision_responses`.
 
-### 5.2 The Decisions repoint, measured
+### 5.4 The Decisions repoint, measured
 
 Not reasoned about — run.
 
@@ -266,13 +325,22 @@ that is the right instrument is stated in the file rather than glossed.
 **Provider.** None. No Meta call was made by anything in this session.
 
 **Release and rollback.** Nothing merged, pushed, deployed or activated, and no
-history rewritten. Every release gate still defaults off — `automationStopUi`
+history rewritten. Each fix in this pass is one commit and reverts on its own. Every release gate still defaults off — `automationStopUi`
 holds ENGAGE and never holds RELEASE, and the gates-open server exists only so
 the difference between the two answers can be measured.
 
 ---
 
 ## 7. What remains, and the measurement behind each
+
+Three classes, kept apart on purpose:
+
+- **Closed** (§7.4–§7.7, §7.9) — a measurement says so, and the measurement is
+  named.
+- **Open and local** (§7.10) — this pass measured it and did not fix it,
+  because it is outside the instruction that produced this revision.
+- **Open and external** (§7.1–§7.3, §7.8) — no amount of code closes it. §8
+  lists what each needs.
 
 ### 7.1 The Decisions harness repoint — held by the paint system
 
@@ -329,7 +397,7 @@ claim (§7.6).
 The ceiling may only fall. It falls to zero on the day the design package is
 re-vendored.
 
-### 7.4 Respond, closed
+### 7.4 Respond, closed — and now enforced on the server as well as offered
 
 The control acts. `SectionControl` carries `targets` — the snapshot's own
 `rec_id` values with the titles it wrote — the view offers the recommendation
@@ -337,6 +405,12 @@ before the action, and the client posts `/api/meta/recommendations/respond` with
 a SERVED id. Proven end to end on the running server: the runtime spec seeds one
 recommendation, drives the mounted control, and reads the row back out of
 `meta_decision_responses` for that exact `rec_id`.
+
+**What the previous revision closed was the AFFORDANCE. This pass closed the
+BOUNDARY.** The control acting on a served id was the surface doing the right
+thing; the route still accepted any id from any caller, and still wrote for a
+demo workspace. Both are now server-enforced, fail-closed, and proven against
+the real table (§5.1).
 
 Two refusals, both server-authored. The ACTOR's — reviewer, then demo, then role
 — outranks everything, in the route's own precedence. And when there is nothing
@@ -386,28 +460,81 @@ stable-release gate.
 ### 7.7 Launchpad's first-load read count, closed
 
 11, measured on four consecutive runs, against a budget of 12. Every request is
-named in §5.0, the seven that asked one question are one composed route, and the
+named in §5.2, the seven that asked one question are one composed route, and the
 surface's `FIRST_LOAD_API_CALL_DEBT` entry is deleted rather than lowered. No
 exception is claimed, because none is needed.
 
 ### 7.8 The history rewrite waits for approval
 
 `app/dev-preview-share/page.tsx` is user-owned, untracked, and byte-unchanged
-(md5 `319c80d401494da99f507a4e4bb87c61`). It is readable from nine commits in
-LOCAL history because a broad `git add -A` swept it in twice — once at
-`eee701160` and again at `ab80dc1f9`, one commit after the first repair.
-`f7d7057cc` untracked it again, forward-only.
+(md5 `319c80d401494da99f507a4e4bb87c61`, verified again at `db50bea17`). It was
+swept into the index twice by a broad `git add -A` — at `eee701160` and again
+at `ab80dc1f9` — and untracked both times, forward-only, by `b719400a3` and
+`f7d7057cc`.
 
-The branch has never been pushed: `git ls-remote --heads origin meta-market-ready`
-returns nothing and there is no remote-tracking ref, both re-checked at
-execution time by step 2 of the plan. Removing the blob means rewriting thirteen
-commits including the HEAD every measurement here is stamped with, so it is a
-decision about the project's history rather than a defect to fix quietly.
-`docs/meta-market-ready/HISTORY_REMEDIATION_PLAN.md` records the exact
-procedure, its verification steps and its preconditions. **Nothing in it has
-been run.**
+Two numbers, measured and different: **seven** commits carry the path in their
+tree; the rewrite RANGE `eee701160~1..HEAD` is **24** commits, because every
+commit after the first addition must be rewritten for its parent to change.
+Earlier revisions of the plan gave one number for both and were wrong twice.
 
----
+Both remotes were queried live — `git ls-remote --heads origin` and
+`origin-ssh` — and neither holds this branch. There is no remote-tracking ref.
+`origin` and `origin-ssh` are two transports to one GitHub repository, and both
+are asked anyway.
+
+`docs/meta-market-ready/HISTORY_REMEDIATION_PLAN.md` is now two separately
+approved phases (§7.9 is why). **Nothing in it has been run**, and
+`git-filter-repo` is not installed on this machine.
+
+### 7.9 The blob is reachable from outside this branch — MEASURED, and it changes the plan
+
+The old plan's success criterion was "the blob is unreachable". That is not
+achievable by rewriting this branch, and this pass measured why.
+
+```
+$ for r in $(git for-each-ref --format='%(refname)' refs/codex refs/stash); do
+    git rev-parse -q --verify "${r}:app/dev-preview-share/page.tsx" >/dev/null && echo "$r"; done
+refs/codex/turn-diffs/captures/1787684943906/…/base                    -> 792c3e307
+refs/codex/turn-diffs/checkpoints/9f788053…/bff28d85…/1787635490589/…  -> ac9872d44
+```
+
+Both hold blob `7eee531c6d5e783f389e05e99ea6cd73cbedc1b4` — the same bytes —
+and neither descends from this branch. `refs/heads/meta-market-ready` is the
+only ref that descends from `eee701160`. `refs/stash` holds one entry and does
+not carry the path.
+
+Those refs are another tool's checkpoint state. Deleting them is a decision
+about that tool's recoverability, not about this branch's history, so Phase B
+names it as a precondition and says to STOP after Phase A rather than run a `gc`
+that cannot deliver what it claims.
+
+This is a fact about the repository, not a defect in the product, and it is not
+closable by code.
+
+### 7.10 Two more routes run the same inline snapshot without a demo gate — OPEN
+
+Measured while fixing §7.4's demo boundary, and deliberately not fixed here:
+the instruction that produced this revision named two routes, and widening a
+security change beyond its stated scope without saying so is how a review stops
+being a review.
+
+```
+$ grep -rn "requestMetaSnapshotRefreshForBusiness" --include="*.ts" . | grep -v node_modules
+app/api/meta/snapshot/run-now/route.ts:47          <- gated by this pass
+app/api/meta/campaign-labels/route.ts:109          <- reviewer gate only, no demo gate
+app/api/business-commercial-settings/route.ts:223  <- no demo gate
+app/api/business-commercial-settings/route.ts:349  <- no demo gate
+```
+
+All three run the identical inline snapshot: the same cooldown stamp, the same
+calibration transaction, the same snapshot upserts.
+`business-commercial-settings` does have an `isDemoBusinessId` check, but it
+fires only for the REVIEWER email and is the id-comparison helper rather than a
+read of `businesses.is_demo_business` — so a demo ADMIN passes it.
+
+The fix is mechanical now that `rejectIfMetaOperatorDemoWrite` exists: the same
+call, after each route's reviewer guard, before its refresh. It is a decision
+about scope, not a technical blocker.
 
 ## 8. Externally blocked
 
@@ -419,5 +546,10 @@ been run.**
 | No human assistive-technology pass | WP1, WP17 | A person with a screen reader confirming each disabled control's reason is announced. axe, the accessibility tree, focus order, dialog traps, live-region politeness and reduced motion are all checked; none is a substitute |
 | No release authorization | WP18 | Explicit approval, per step |
 | No approval for the history rewrite | §7.8 | An explicit instruction. The plan, its verification and its preconditions are written; nothing in it has been run |
+| The Codex turn-diff refs hold the blob | §7.9 | A decision by whoever owns that tooling about whether those two refs may be deleted. Until then Phase B cannot deliver an unreachable blob, whatever it does to this branch |
 
 None of these can be closed by writing code.
+
+**Not on this list, because it is not external:** §7.10 — two further routes
+run the same inline snapshot without a demo gate. That is a scope decision, and
+the fix is one call each.

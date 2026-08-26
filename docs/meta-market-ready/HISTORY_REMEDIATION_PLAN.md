@@ -4,6 +4,7 @@
 
 Branch: `meta-market-ready`
 HEAD at the time of writing: `b719400a3`
+**Amended after a recurrence — see §7.**
 Upstream: **none** — `git rev-parse --abbrev-ref @{u}` answers
 `fatal: no upstream configured for branch 'meta-market-ready'`. The branch has
 never been pushed, so this history exists on one machine and nowhere else.
@@ -176,7 +177,29 @@ blob alive by design, which is the point of it right up until it is not needed.
   pre-rewrite hashes. Recapturing costs about 35 minutes of harness time;
   relabelling by hand would make the manifests lie.
 
-## 6. If approval is withheld
+## 6. It happened a second time
+
+`ab80dc1f9` ("WP13: port the Meta Stop ceremony…") re-added the same path,
+through the same broad `git add -A`, one commit after `b719400a3` had removed
+it. `f7d7057cc` untracked it again. The bytes never changed — the blob is still
+`7eee531c6d5e783f389e05e99ea6cd73cbedc1b4` and the working copy is still
+`319c80d401494da99f507a4e4bb87c61` — so nothing was lost or altered; the file
+is simply readable from two more commits than it was.
+
+The affected range is therefore **every commit from `eee701160` to `HEAD`**,
+which now also includes:
+
+| Commit | Subject |
+|---|---|
+| `8645fcd42` | Record the clean-history remediation this branch needs |
+| `ab80dc1f9` | WP13: port the Meta Stop ceremony onto the body the route mounts |
+| `f7d7057cc` | Untrack app/dev-preview-share again, which my own commit re-added |
+
+The procedure in §4 is unchanged — `--refs eee701160~1..HEAD` already covers
+the whole range — but step 4 now has **two** empty commits to prune
+(`b719400a3` and `f7d7057cc`), and step 6 has more hashes to re-stamp.
+
+## 7. If approval is withheld
 
 Nothing further is required. The file is untracked, its bytes are unchanged, the
 branch is unpushed, and `b719400a3` records what happened and why in its own

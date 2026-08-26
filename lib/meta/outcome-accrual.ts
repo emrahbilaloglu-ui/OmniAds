@@ -41,14 +41,37 @@ export interface KpiWindowTotals {
   revenueAfter: number;
 }
 
+/**
+ * The identity of one accrued outcome.
+ *
+ * It gained a physical-account segment (D-M011/D-M012), because two assigned
+ * accounts may legitimately hold the same scope id, rec type and snapshot date
+ * — and without the account those two collapse to ONE fingerprint, so the
+ * `NOT EXISTS` idempotency guard below would let account A's outcome suppress
+ * account B's forever.
+ *
+ * ## Appended, never inserted
+ *
+ * The segment is APPENDED and only when an account is known, so a row whose
+ * lineage is null keeps a byte-identical fingerprint to the one it was written
+ * with before this change. That is what makes the upgrade safe: an already
+ * accrued legacy outcome is still found by the guard and is not written twice,
+ * while a new account-scoped outcome gets its own identity.
+ *
+ * A null account is NOT rendered as an empty segment for the same reason — that
+ * would change every legacy fingerprint and re-accrue every legacy snapshot.
+ */
 export function metaOutcomeFingerprint(input: {
   businessId: string;
   scopeType: string;
   scopeId: string;
   recType: string;
   snapshotDate: string;
+  providerAccountId?: string | null;
 }): string {
-  return `meta_v1|${input.businessId}|${input.scopeType}|${input.scopeId}|${input.recType}|${input.snapshotDate}`;
+  const base = `meta_v1|${input.businessId}|${input.scopeType}|${input.scopeId}|${input.recType}|${input.snapshotDate}`;
+  const account = input.providerAccountId?.trim() || null;
+  return account ? `${base}|${account}` : base;
 }
 
 export function classifyKpiOutcome(totals: KpiWindowTotals): MetaKpiOutcomeStatus {
@@ -71,6 +94,14 @@ export function classifyKpiOutcome(totals: KpiWindowTotals): MetaKpiOutcomeStatu
 
 type CandidateRow = {
   business_id: string;
+  /**
+   * The account the recommendation was COMPUTED for (D-M011), or null for a
+   * row written before snapshots carried a lineage. Null is preserved as
+   * unknown and never resolved into an account: a legacy row is business-wide
+   * evidence, and stamping it with whichever account happens to be assigned
+   * today would manufacture attribution the row never had.
+   */
+  provider_account_id: string | null;
   scope_type: "campaign" | "adset";
   scope_id: string;
   rec_type: string;
@@ -99,8 +130,28 @@ function addDaysToISO(value: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * The map key for one scope's KPI window.
+ *
+ * Keyed by ACCOUNT and scope id, not scope id alone. Meta entity ids are
+ * globally unique in practice, but this map is what decides which numbers a
+ * given candidate is labelled from — and a key that cannot express two
+ * accounts is a key that silently pools them the first time an id repeats.
+ * The NUL separator cannot appear in either half.
+ */
+function kpiWindowKey(providerAccountId: string | null, scopeId: string) {
+  return `${providerAccountId ?? ""}\u0000${scopeId}`;
+}
+
 async function readKpiWindows(input: {
   businessId: string;
+  /**
+   * The account whose spend and revenue may be counted. Non-null narrows the
+   * read to that account BEFORE the sums are taken; null reads every account
+   * this business has, which is what a legacy unattributed candidate means and
+   * exactly what it measured before this change.
+   */
+  providerAccountId: string | null;
   scopeType: "campaign" | "adset";
   scopeIds: string[];
   snapshotDate: string;
@@ -122,6 +173,7 @@ async function readKpiWindows(input: {
       COALESCE(SUM(revenue) FILTER (WHERE date BETWEEN $5::date AND $6::date), 0) AS revenue_after
     FROM ${table}
     WHERE business_id = $1
+      AND ($7::text IS NULL OR provider_account_id = $7)
       AND ${idColumn} = ANY($2::text[])
       AND date BETWEEN $3::date AND $6::date
     GROUP BY ${idColumn}
@@ -133,11 +185,12 @@ async function readKpiWindows(input: {
       input.snapshotDate,
       afterStart,
       afterEnd,
+      input.providerAccountId,
     ],
   )) as KpiRow[];
   return new Map(
     rows.map((row) => [
-      row.scope_id,
+      kpiWindowKey(input.providerAccountId, row.scope_id),
       {
         spendBefore: toNumber(row.spend_before),
         revenueBefore: toNumber(row.revenue_before),
@@ -148,18 +201,41 @@ async function readKpiWindows(input: {
   );
 }
 
+/**
+ * Did an operator act on these recommendations, IN THIS ACCOUNT?
+ *
+ * Both sources persist the physical account, so both are matched on it
+ * DIRECTLY — no inference, and nothing derived from the rec id:
+ *
+ *   `meta_decision_responses.provider_account_id` (D-M012).
+ *   `meta_ads_action_log.provider_account_id`, written by
+ *   `insertMetaAdsActionLog` alongside `provider_account_ref_id`.
+ *
+ * Rec ids may now repeat across accounts, so a row whose own lineage is null
+ * is NOT admitted into an account-scoped read. That is the fail-closed
+ * direction, and the alternative was considered and rejected: resolving the
+ * account from the ad through `meta_ad_dimensions` would be both an inference
+ * where a persisted fact exists and an incomplete one, because this log also
+ * records campaign, ad-set and launch actions that no ad dimension resolves.
+ *
+ * A null account means the CANDIDATE itself is legacy and business-wide, and
+ * both halves then read exactly what they read before this change.
+ */
 async function readOperatorActedRecIds(input: {
   businessId: string;
+  providerAccountId: string | null;
   recIds: string[];
   snapshotDate: string;
 }): Promise<Set<string>> {
   if (input.recIds.length === 0) return new Set();
   const sql = getDb();
+  const account = input.providerAccountId?.trim() || null;
   const windowEnd = addDaysToISO(input.snapshotDate, 8);
   const rows = (await sql`
     SELECT rec_id
     FROM meta_decision_responses
     WHERE business_id = ${input.businessId}
+      AND (${account}::text IS NULL OR provider_account_id = ${account})
       AND action = 'acted'
       AND rec_id = ANY(${input.recIds}::text[])
       AND timestamp >= ${input.snapshotDate}::date
@@ -168,6 +244,7 @@ async function readOperatorActedRecIds(input: {
     SELECT rec_id_origin AS rec_id
     FROM meta_ads_action_log
     WHERE business_id = ${input.businessId}
+      AND (${account}::text IS NULL OR provider_account_id = ${account})
       AND status = 'success'
       AND rec_id_origin = ANY(${input.recIds}::text[])
       AND created_at >= ${input.snapshotDate}::date
@@ -188,6 +265,7 @@ export async function runMetaOutcomeAccrualForBusiness(
   const candidates = (await sql`
     SELECT
       snapshot.business_id,
+      snapshot.provider_account_id,
       snapshot.scope_type,
       snapshot.scope_id,
       snapshot.rec_type,
@@ -202,13 +280,30 @@ export async function runMetaOutcomeAccrualForBusiness(
       AND snapshot.decision_state = 'act'
       AND snapshot.scope_type IN ('campaign', 'adset')
       AND snapshot.snapshot_date = ${snapshotDate}::date
+      /*
+       * Idempotency, PER ACCOUNT.
+       *
+       * Two instruments, either of which alone would separate two accounts,
+       * and together a fingerprint collision still cannot suppress across
+       * them: the stored lineage must match the candidate's exactly
+       * (IS NOT DISTINCT FROM, so a legacy null outcome answers for a legacy
+       * null candidate and for nothing else), and the fingerprint carries the
+       * account as an appended segment.
+       *
+       * The COALESCE reproduces metaOutcomeFingerprint exactly, including
+       * its rule that a null account appends NOTHING —
+       * which is what keeps an already accrued legacy outcome findable and
+       * stops this rerunning every legacy snapshot.
+       */
       AND NOT EXISTS (
         SELECT 1
         FROM meta_decision_action_outcome_logs log
         WHERE log.action_type = 'outcome'
+          AND log.provider_account_id IS NOT DISTINCT FROM snapshot.provider_account_id
           AND log.recommendation_fingerprint =
             'meta_v1|' || snapshot.business_id || '|' || snapshot.scope_type || '|' ||
-            snapshot.scope_id || '|' || snapshot.rec_type || '|' || snapshot.snapshot_date::text
+            snapshot.scope_id || '|' || snapshot.rec_type || '|' || snapshot.snapshot_date::text ||
+            COALESCE('|' || snapshot.provider_account_id, '')
       )
   `) as CandidateRow[];
 
@@ -216,35 +311,85 @@ export async function runMetaOutcomeAccrualForBusiness(
     return { businessId, snapshotDate, candidates: 0, written: 0 };
   }
 
-  const campaignIds = candidates
-    .filter((row) => row.scope_type === "campaign")
-    .map((row) => row.scope_id);
-  const adsetIds = candidates
-    .filter((row) => row.scope_type === "adset")
-    .map((row) => row.scope_id);
-  const [campaignKpis, adsetKpis, actedRecIds] = await Promise.all([
-    readKpiWindows({ businessId, scopeType: "campaign", scopeIds: campaignIds, snapshotDate }),
-    readKpiWindows({ businessId, scopeType: "adset", scopeIds: adsetIds, snapshotDate }),
-    readOperatorActedRecIds({
-      businessId,
-      recIds: candidates.map((row) => row.rec_id),
-      snapshotDate,
+  /*
+   * Read PER ACCOUNT, not once for the business.
+   *
+   * One business-wide read cannot answer an account-scoped question: its KPI
+   * map is keyed by scope id, so two accounts holding the same campaign id
+   * would pool their spend into whichever row won the key — and its acted-set
+   * is keyed by rec id, so one account's operator response would mark the
+   * other's recommendation as acted on. Both are the same defect, and both are
+   * closed by narrowing before the read rather than filtering after it.
+   *
+   * A legacy candidate with no lineage forms its own null group and reads
+   * business-wide, exactly as it did before.
+   */
+  const accountKeys = Array.from(
+    new Set(candidates.map((row) => row.provider_account_id ?? "")),
+  );
+  const kpiByScope = new Map<string, KpiWindowTotals>();
+  const actedRecIdsByAccount = new Map<string, Set<string>>();
+  await Promise.all(
+    accountKeys.map(async (accountKey) => {
+      const providerAccountId = accountKey || null;
+      const forAccount = candidates.filter(
+        (row) => (row.provider_account_id ?? "") === accountKey,
+      );
+      const [campaignKpis, adsetKpis, acted] = await Promise.all([
+        readKpiWindows({
+          businessId,
+          providerAccountId,
+          scopeType: "campaign",
+          scopeIds: forAccount
+            .filter((row) => row.scope_type === "campaign")
+            .map((row) => row.scope_id),
+          snapshotDate,
+        }),
+        readKpiWindows({
+          businessId,
+          providerAccountId,
+          scopeType: "adset",
+          scopeIds: forAccount
+            .filter((row) => row.scope_type === "adset")
+            .map((row) => row.scope_id),
+          snapshotDate,
+        }),
+        readOperatorActedRecIds({
+          businessId,
+          providerAccountId,
+          recIds: forAccount.map((row) => row.rec_id),
+          snapshotDate,
+        }),
+      ]);
+      for (const [key, totals] of [...campaignKpis, ...adsetKpis]) {
+        kpiByScope.set(key, totals);
+      }
+      actedRecIdsByAccount.set(accountKey, acted);
     }),
-  ]);
+  );
 
   let written = 0;
   for (const candidate of candidates) {
     const totals =
-      (candidate.scope_type === "campaign" ? campaignKpis : adsetKpis).get(candidate.scope_id) ??
-      { spendBefore: 0, revenueBefore: 0, spendAfter: 0, revenueAfter: 0 };
+      kpiByScope.get(
+        kpiWindowKey(candidate.provider_account_id ?? null, candidate.scope_id),
+      ) ?? { spendBefore: 0, revenueBefore: 0, spendAfter: 0, revenueAfter: 0 };
     const outcomeStatus = classifyKpiOutcome(totals);
-    const operatorActed = actedRecIds.has(candidate.rec_id);
+    const operatorActed =
+      actedRecIdsByAccount
+        .get(candidate.provider_account_id ?? "")
+        ?.has(candidate.rec_id) ?? false;
     const roasBefore = totals.spendBefore > 0 ? totals.revenueBefore / totals.spendBefore : null;
     const roasAfter = totals.spendAfter > 0 ? totals.revenueAfter / totals.spendAfter : null;
     await appendMetaDecisionActionOutcomeLog({
       businessId,
+      // Persisted, so the read side can prove which account an outcome belongs
+      // to instead of correlating on a rec id two accounts may share. Null
+      // stays null: a legacy candidate is not given a lineage it never had.
+      providerAccountId: candidate.provider_account_id ?? null,
       recommendationFingerprint: metaOutcomeFingerprint({
         businessId,
+        providerAccountId: candidate.provider_account_id,
         scopeType: candidate.scope_type,
         scopeId: candidate.scope_id,
         recType: candidate.rec_type,
@@ -262,6 +407,13 @@ export async function runMetaOutcomeAccrualForBusiness(
         causalDesign: null,
         treatmentReceipt: null,
         snapshotDate: candidate.snapshot_date,
+        // The evidence says which account it measured, and says so explicitly
+        // when it could not tell — a reader must not have to infer that from
+        // the absence of a field.
+        providerAccountId: candidate.provider_account_id ?? null,
+        accountAttribution: candidate.provider_account_id
+          ? ("exact" as const)
+          : ("unattributed_legacy" as const),
         scopeType: candidate.scope_type,
         scopeId: candidate.scope_id,
         confidenceScore: toNumber(candidate.confidence_score),

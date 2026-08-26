@@ -1,10 +1,10 @@
 {
-  "commit": "e39edab850",
+  "commit": "f5da5da381",
   "package": "decisions-readiness",
-  "createdAt": "2026-08-26T06:41:05.551Z",
-  "artifactSet": "zero-base/e39edab850/decisions-readiness",
+  "createdAt": "2026-08-26T08:53:57.328Z",
+  "artifactSet": "zero-base/f5da5da381/decisions-readiness",
   "provenance": {
-    "digest": "8b9059c34cd22003b35de9dde1e628b87a905c927cf498b7588590b27cc5822f",
+    "digest": "146d88a774cad0ab3f3f7d4ce333803cc48eaaaa6468dc36f5ee63704c7d3b3d",
     "files": {
       "components/zero-base/_reference/home-view.tsx": "987ebc7bddea23b6765bede9b1d0b1c7eaa2d1ac69a7f51a70b236b8fa58a79d",
       "components/zero-base/_reference/meta-automation-client.tsx": "f6b1c357047b75c5f6751a7087a66f53406067fb08c0c00fcbdd09d062341a55",
@@ -142,7 +142,7 @@
       "lib/zero-base/meta/decisions-url-state.ts": "fb93136d2661e76e2fcd69da344bb59a4608156582b2303ae571911bfb55e64e",
       "lib/zero-base/meta/dispatch-contract.ts": "86083625235774ffe7486305e449cfc4f92b0b20f1136f63003189700f291179",
       "lib/zero-base/meta/history-adapter.ts": "bd05ba479b1db208bea8c0c9d87b9045714b9162cdd38593f5bd3b8838dc09cb",
-      "lib/zero-base/meta/intelligence-server.ts": "b16d00b114dd024eef82e32ebe3d9ec2c69cb455c1d4be521509b8ff40c66a43",
+      "lib/zero-base/meta/intelligence-server.ts": "1c3a919bd760d74662ca9fb27b058f84421ab1d77536c80e8286074128432fb3",
       "lib/zero-base/meta/intelligence-window.ts": "d5558fe0c0935e6c4bc573ede8be6f4a0ed955ff134dd41e499d223a78e7d3cb",
       "lib/zero-base/meta/mutation-ceremony.ts": "0174bb5c9c7fb7be92f1ac0ba01c72b66e0bd6179d81c62496a422253069e473",
       "lib/zero-base/meta/workflow-schema.ts": "482671b1b890c39c811d26aaa1b066b762e0e0e2dc32ce5f0cb7b4aa15166b51",
@@ -168,7 +168,7 @@
       "lib/design/fonts.ts": "c7b575d516920f9a9f3449755d01c1767723f776b12f34ce2e2dbb3a03b78cfe",
       "lib/design/ledger-tokens.ts": "e0c24b0914bf7db34f4269479937e8dc4a915fa3deff86c7eee7ede46e1189c5",
       "app/globals.css": "59cb863ccd2870e11458d5ba4dc33ed3a949cdcf7ce3feb7ae6258f687cc4d27",
-      "app/(dashboard)/platforms/meta/automation/automation-view.tsx": "08771dad9f523486438ac2b2beec584859d935ead4bff9f6ab64140cfa893cc5",
+      "app/(dashboard)/platforms/meta/automation/automation-view.tsx": "6c52a3a58b6d1457b3a6c44a719903d5adae4cb3b5481177de34dfb8b9037b29",
       "components/meta/decision-center/MetaDecisionCenterExact.module.css": "a645d7206290c96a0ad4e9576dea813dc5e58503616868ddfb255724f4154d78",
       "components/meta/decision-center/MetaDecisionCenterExact.tsx": "71a396617cf32291ba86055d78dd33726663b0a3e05f0f88767d87b8e057b1a5",
       "components/meta/decision-center/meta-decision-center-exact-adapter.ts": "a762c4b7bff4146fa1ddf324a9d184054db66628d4938aceef6d40a24594eed7",
@@ -185,7 +185,7 @@
       "components/meta/redesign/MetaHealthyRow.tsx": "dfaad936424c15c74e05d99757cfb9565932d8c085285a5614ea63ef78ae0ee3",
       "components/meta/redesign/MetaLaunchpadOverlay.tsx": "06aa3696a4be15097a71dc695b00bae8131fa1c6758cae8cc1e249af374c0aa8",
       "components/meta/redesign/MetaPlatformPage.module.css": "70bbd7bd252cc68229c8f20eb2d5188c3e8e45ff1b01e1e8c7d51f19453e30b4",
-      "components/meta/redesign/MetaPlatformPage.tsx": "417e109b46486f20832bda7e79ae70c559be89e37458d9c943546857deb23b9a",
+      "components/meta/redesign/MetaPlatformPage.tsx": "1d4d84afeca4de9eb0295d59cdff4df8708ecf6b039a5064c3db85398cebf05d",
       "components/meta/redesign/MetaScopeChip.tsx": "2f4bab93b200cc365a0adcceb3f96bf4cf72c897497663e38452adba574ca3aa",
       "components/meta/redesign/MetaUpperFunnelInformationalCard.tsx": "f707cfa8d2d666f6f0ed35708f4532015c7bb67f331af76a3e86592c4d81a637",
       "components/meta/redesign/MetaWatchingCard.tsx": "8a848997beb0e8f662d6a98513c3656e3699be9abc239ce974cd6752ac538977",
@@ -742,8 +742,8 @@
       "width": 390,
       "theme": "light",
       "file": "H51__L-AG-TODAY__narrow-agency__390__light.png",
-      "sha256": "8e47f7a6f30d03f0fe26a5136b9520d80be9792eba012114ff2b6769a3a276c7",
-      "bytes": 141696
+      "sha256": "3033e50aba7afa535bcca2ac712b32ff929afeccce971a10282191ad1c9502c4",
+      "bytes": 141709
     },
     {
       "leaf": "H52:L-C-META-DEC",
@@ -769,8 +769,8 @@
       "width": 390,
       "theme": "light",
       "file": "H54__L-SH-CREATIVE__narrow-share__390__light.png",
-      "sha256": "9206d724a2326e34655fd5f11752992ab2360b86606f0dc3874271128aed7f18",
-      "bytes": 85313
+      "sha256": "528f0ff01f60d969acf1eeed901e7a20edb70f047e2742b2a9c4d1af61791047",
+      "bytes": 85267
     },
     {
       "leaf": "H55:L-C-HOME",
@@ -787,8 +787,8 @@
       "width": 320,
       "theme": "light",
       "file": "H56__L-AG-CLIENTS__narrow-agency-wrapping__320__light.png",
-      "sha256": "ba15def9a39da0e231680ec5c5fe3cf19c3316b8fe9b65048f8a31580541215d",
-      "bytes": 127710
+      "sha256": "deb8b866c07e91d829d845dd8d8e13e97f5a07eda2968b4dee04680273da89db",
+      "bytes": 127721
     },
     {
       "leaf": "H57:L-C-META-DEC",
@@ -814,8 +814,8 @@
       "width": 320,
       "theme": "dark",
       "file": "H59__L-SH-CREATIVE__narrow-share-gone__320__dark.png",
-      "sha256": "0a612df21c2d51e8c8a80561a6f93a32f8d9d0dbd9d61ddd5380ae705011135b",
-      "bytes": 80836
+      "sha256": "aa57f0a196538b94ccf7003e18468fb0dfee6a27e14647045e81f513e4820343",
+      "bytes": 80835
     },
     {
       "leaf": "H60:L-C-HOME",
@@ -877,8 +877,8 @@
       "width": 390,
       "theme": "light",
       "file": "H66__L-AG-TODAY__agency-return__390__light.png",
-      "sha256": "394a4eb29e63688a8ba383655edb0c8e152af95448cd3facdb96d892c2a15731",
-      "bytes": 145638
+      "sha256": "6d85fac0a4724133922d067aeec8bd49113eca71d05d27f7e9d4df702d772df6",
+      "bytes": 145627
     },
     {
       "leaf": "M01:L-C-HOME",

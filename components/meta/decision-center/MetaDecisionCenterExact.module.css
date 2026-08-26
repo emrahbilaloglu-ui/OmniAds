@@ -2195,3 +2195,28 @@
   color: #68707f;
   cursor: default;
 }
+
+.manualActionButton {
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid #c9d2e0;
+  border-radius: 9999px;
+  background: #fff;
+  color: #2a5fe2;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.manualActionButton[aria-disabled="true"] {
+  color: #68707f;
+  cursor: default;
+}
+
+.manualActionRefusal {
+  display: block;
+  margin-top: 4px;
+  color: #555d6d;
+}

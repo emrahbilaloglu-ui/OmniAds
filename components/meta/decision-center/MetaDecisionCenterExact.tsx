@@ -521,6 +521,23 @@ export interface MetaDecisionCenterExactInspectorViewModel {
     | { refusalReason: string }
     | null;
   /**
+   * The manual action sheet (`gated:META-WRITE-01 open-manual`).
+   *
+   * The mutation ceremony — preflight, type-to-confirm, receipt,
+   * reconciliation — already exists and is server-gated by
+   * `ZERO_BASE_MUTATION_UI_ENABLED`, which defaults off. What was missing was
+   * any way to reach it from a decision.
+   *
+   * Present-and-refusing when the gate is shut or the viewer may not write,
+   * because a control that disappears takes the reason with it and the surface
+   * then reads as a product with no manual path at all.
+   */
+  manualAction?: {
+    label?: MetaDecisionCenterExactDisplayValue;
+    refusalReason: string | null;
+    onOpen?: () => void;
+  } | null;
+  /**
    * The operator workflow overlay for THIS decision (WP8).
    *
    * Ownership state, not engine truth. Nothing here can change a decision's
@@ -2463,7 +2480,7 @@ function EvidenceInspector({
         ) : null}
         {/*
           What this verdict was measured over.
-          
+
           Two facts and never one: `asof-row` is when the engine wrote the
           snapshot, `evidence-window` is the range the figures above cover. A
           verdict without the window is unfalsifiable — the reader cannot tell
@@ -2499,6 +2516,33 @@ function EvidenceInspector({
           action. Grouped under one marker because the design treats them as one
           band: what an operator can do with THIS row without executing it.
         */}
+        {model?.manualAction ? (
+          <p className={styles.rowAction}>
+            <button
+              aria-disabled={model.manualAction.refusalReason ? true : undefined}
+              className={styles.manualActionButton}
+              data-ctl="gated:META-WRITE-01 open-manual"
+              onClick={
+                model.manualAction.refusalReason
+                  ? undefined
+                  : model.manualAction.onOpen
+              }
+              type="button"
+            >
+              {meaningfulDisplay(model.manualAction.label)
+                ? display(model.manualAction.label)
+                : "Open manual action"}
+            </button>
+            {model.manualAction.refusalReason ? (
+              <span
+                className={styles.manualActionRefusal}
+                data-meta-exact-manual-refusal
+              >
+                {model.manualAction.refusalReason}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {model?.brief ? (
           <p className={styles.rowAction} data-el="row-action">
             {"href" in model.brief ? (
@@ -2941,7 +2985,7 @@ export function MetaDecisionCenterExact({
 
       {/*
         The advisory strip: what this account holds that no lane decides about.
-        
+
         `live:META-DEC-13 open` contracts an inactive-assets strip whose detail
         is read-only, and the Archive lane IS that detail — every row in it is
         an inactive campaign, ad set or withheld Ad decision, and none of them

@@ -25,11 +25,8 @@ import {
   DecisionsView,
   type DecisionsWorkflow,
 } from "@/components/zero-base/_reference/meta-decisions-view";
-import type {
-  DispatchAnswer,
-  MutationCeremonySeed,
-  PreflightAnswer,
-} from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
+import { buildMutationCeremonySeed } from "@/components/zero-base/meta/decisions/mutation-ceremony-seed";
+import type { MutationCeremonySeed } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import type { WorkflowSubmit, WorkflowSubmitResult } from "@/components/zero-base/meta/decisions/workflow-overlay";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
 import { buildOsDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
@@ -200,103 +197,15 @@ export function DecisionsClient({
   // hidden one — absent, along with every request it could have made.
   const mutation: MutationCeremonySeed | undefined =
     mutationUiEnabled && model
-      ? {
+      ? buildMutationCeremonySeed({
           businessId,
-          enabled: true,
           viewer: {
             isReviewer: model.viewer?.isReviewer ?? false,
             demo,
             role: model.viewer?.role ?? null,
           },
           newMutationId,
-          preflight: async ({ businessId: business, decisionKey, action }) => {
-            const response = await fetch("/api/meta/decision-action/preflight", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              // Decision key and action only. No target, no expected state.
-              body: JSON.stringify({
-                contract: "zero-base.decision.v1",
-                businessId: business,
-                decisionKey,
-                action,
-              }),
-            });
-            const json = (await response.json().catch(() => null)) as {
-              receipt?: { verdict: string; detail: string; checkedAt: string };
-              dispatch?: DispatchDescriptor;
-              withheld?: { reason: string; message: string };
-              target?: {
-                grain: "campaign" | "adset" | "ad";
-                entityId: string;
-                providerAccountId: string;
-                status: string | null;
-              };
-              error?: string;
-              message?: string;
-            } | null;
-            // The server proved the target but the handler's required inputs
-            // are unavailable. Said plainly rather than offered as a control
-            // that could only fail.
-            if (response.ok && json?.withheld) {
-              return {
-                ok: false,
-                kind: "withheld",
-                code: json.withheld.reason,
-                message: json.withheld.message,
-              } satisfies PreflightAnswer;
-            }
-            if (!response.ok || !json?.receipt || !json.dispatch || !json.target) {
-              return {
-                ok: false,
-                code: json?.error ?? `http_${response.status}`,
-                message: json?.message ?? "The preflight could not be completed.",
-              } satisfies PreflightAnswer;
-            }
-            return {
-              ok: true,
-              target: json.target,
-              verdict: json.receipt.verdict as "ready",
-              detail: json.receipt.detail,
-              checkedAt: json.receipt.checkedAt,
-              // Path and body both come from the server. This client assembles
-              // neither.
-              dispatch: json.dispatch,
-            } satisfies PreflightAnswer;
-          },
-          dispatch: async ({ path, body, mutationId }) => {
-            try {
-              const response = await fetch(path, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                // Verbatim: the server's own body for this handler, plus the
-                // operator choices the descriptor declared. Nothing invented.
-                body: JSON.stringify({ ...body, mutationId }),
-              });
-              const json = (await response.json().catch(() => null)) as {
-                outcome?: TerminalOutcome;
-                durable?: boolean;
-                reference?: string | null;
-                message?: string;
-              } | null;
-              return {
-                // The endpoint's own classification is authority. An unnamed
-                // outcome is ambiguous, never assumed applied.
-                outcome: json?.outcome ?? (response.ok ? "provider_outcome_ambiguous" : "failed"),
-                durable: json?.durable === true,
-                reference: json?.reference ?? null,
-                detail: json?.message ?? `HTTP ${response.status}`,
-              } satisfies DispatchAnswer;
-            } catch (error) {
-              // A request that never returned may still have been applied.
-              return {
-                outcome: "provider_outcome_ambiguous",
-                durable: false,
-                reference: null,
-                detail: error instanceof Error ? error.message : "The request did not complete.",
-              } satisfies DispatchAnswer;
-            }
-          },
-        }
+        })
       : undefined;
 
   return (

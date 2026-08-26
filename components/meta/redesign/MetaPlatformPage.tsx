@@ -91,6 +91,9 @@ import { formatCurrency } from "@/lib/briefing/utils";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { MutationCeremonyPanel } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
+import { buildMutationCeremonySeed } from "@/components/zero-base/meta/decisions/mutation-ceremony-seed";
+import { toDecisionRow } from "@/lib/zero-base/meta/decisions-presentation";
 import {
   useDecisionWorkflow,
   WORKFLOW_ACTION_LABELS,
@@ -153,6 +156,13 @@ interface MetaPlatformPageProps {
    * workflow STATE is shown regardless; only the transitions are gated.
    */
   decisionWorkflowUiEnabled?: boolean;
+  /**
+   * The manual action sheet's own gate (`ZERO_BASE_MUTATION_UI_ENABLED`).
+   *
+   * A SECOND, independent flag from the workflow one — opening either does not
+   * open the other — and, like every release gate here, off by default.
+   */
+  mutationUiEnabled?: boolean;
 }
 
 type AuthorizedMetaNativeAdPause = Extract<
@@ -3326,10 +3336,15 @@ export function MetaPlatformPage({
   businessName,
   serverProviderAccountId = null,
   decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
+  mutationUiEnabled: authorizedMutationUiEnabled,
 }: MetaPlatformPageProps) {
   // `=== true` rather than `?? false`: any value other than a server's explicit
   // true reads as closed.
   const decisionWorkflowUiEnabled = authorizedWorkflowUiEnabled === true;
+  // Exactly `true`, like every other gate on this surface: an absent, empty or
+  // misspelled value is off, and `undefined` from a caller that has not been
+  // threaded is off too.
+  const mutationUiEnabled = authorizedMutationUiEnabled === true;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -3421,6 +3436,16 @@ export function MetaPlatformPage({
    * has not asked for it to stay closed forever.
    */
   const [inspectorDismissed, setInspectorDismissed] = useState(false);
+  /**
+   * The row whose manual action sheet is open, or null.
+   *
+   * The ceremony is a page-level overlay rather than a section of the
+   * inspector: it is a four-step sequence with its own terminal states, and
+   * burying it in a column that the operator can scroll away from is how a
+   * receipt gets lost.
+   */
+  const [manualCeremonyRec, setManualCeremonyRec] =
+    useState<MetaRecommendation | null>(null);
   /*
    * The row the evidence window is describing, in the two envelopes it can
    * arrive in. BOTH are nullable and at least one is always present.
@@ -4986,11 +5011,44 @@ export function MetaPlatformPage({
         },
       })
     : null;
+  /**
+   * The manual action sheet's posture for the selected row.
+   *
+   * Two independent refusals, and the more specific one wins: a reviewer or a
+   * read-only workspace is told about THEM, and only then is the gate reported.
+   * Absent entirely when nothing is selected — there is no row to act on.
+   */
+  const inspectorManualAction: NonNullable<
+    MetaDecisionCenterExactViewModel["inspector"]
+  >["manualAction"] = selectedDecisionKey
+    ? {
+        label: "Open manual action",
+        refusalReason: isViewerReadOnly
+          ? viewerReadOnlyReason
+          : workspaceQuery.data?.system.killSwitchEngaged
+            ? "Meta writes are stopped for this workspace, so no manual action can be prepared."
+            : !mutationUiEnabled
+              ? "The manual action sheet is not enabled on this workspace yet. The decision and its evidence are shown above."
+              : null,
+        onOpen:
+          mutationUiEnabled &&
+          !isViewerReadOnly &&
+          !workspaceQuery.data?.system.killSwitchEngaged &&
+          drillItem &&
+          drillItem.mode !== "anomaly"
+            ? () => setManualCeremonyRec(drillItem.rec)
+            : undefined,
+      }
+    : null;
   const exactViewModelWithWorkflow: MetaDecisionCenterExactViewModel =
-    inspectorWorkflow && exactViewModel.inspector
+    exactViewModel.inspector
       ? {
           ...exactViewModel,
-          inspector: { ...exactViewModel.inspector, workflow: inspectorWorkflow },
+          inspector: {
+            ...exactViewModel.inspector,
+            ...(inspectorWorkflow ? { workflow: inspectorWorkflow } : {}),
+            manualAction: inspectorManualAction,
+          },
         }
       : exactViewModel;
 
@@ -5508,6 +5566,56 @@ export function MetaPlatformPage({
               );
             }}
           />
+        ) : null}
+        {/*
+          The manual action sheet.
+
+          Mounted only when the operator asked for it AND the server-read gate
+          is open: `ZERO_BASE_MUTATION_UI_ENABLED` defaults off, so on a shipped
+          workspace this is never constructed and no request it could make is
+          ever issued. The row is mapped through the same `toDecisionRow` the
+          ceremony's other caller uses, so both drive the panel with one shape.
+        */}
+        {manualCeremonyRec && mutationUiEnabled ? (
+          <div
+            aria-label="Manual action"
+            className="meta-manual-ceremony"
+            data-meta-manual-ceremony={manualCeremonyRec.id}
+            role="dialog"
+          >
+            <button
+              onClick={() => setManualCeremonyRec(null)}
+              type="button"
+            >
+              Close manual action
+            </button>
+            <MutationCeremonyPanel
+              row={toDecisionRow(manualCeremonyRec)}
+              seed={buildMutationCeremonySeed({
+                businessId,
+                viewer: {
+                  // The served viewer, forwarded. The panel refuses on its own
+                  // authority as well; this is what it refuses ABOUT.
+                  isReviewer: workspaceQuery.data?.viewer?.isReviewer ?? false,
+                  /*
+                   * A demo workspace is a property of the BUSINESS, not of the
+                   * served viewer envelope — which carries `isReviewer` and
+                   * `readOnly` and nothing about demo. The payload's own
+                   * evidence source is where the product records it, and a
+                   * false here would be a claim rather than a reading, so the
+                   * served token is what decides.
+                   */
+                  demo:
+                    pulseQuery.data?.dataReadiness?.evidenceSource === "demo",
+                  role: workspaceQuery.data?.viewer?.role ?? null,
+                },
+                newMutationId: () =>
+                  typeof crypto !== "undefined" && "randomUUID" in crypto
+                    ? crypto.randomUUID()
+                    : `${manualCeremonyRec.id}:${Date.now()}`,
+              })}
+            />
+          </div>
         ) : null}
 
         {activeScope === "creatives" && canLoadMoreCreatives ? (

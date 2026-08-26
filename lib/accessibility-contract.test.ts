@@ -143,7 +143,20 @@ describe("pressable rows are real controls", () => {
     // the controls that remain are still operable without a mouse.
     const decisions = read("decisions");
     expect(decisions).toContain("aria-pressed={activeScope === \"structure\"}");
-    expect(decisions).toContain("aria-pressed={activeLane === item.id}");
+    /*
+     * The lanes are a radiogroup now, not six independent toggles.
+     *
+     * `aria-pressed` on six unrelated spans told a screen reader there were six
+     * toggle buttons that happened to be near each other; the lanes are ONE
+     * choice with six options, which is what `role="radiogroup"` plus
+     * `aria-checked` says — and it is what gives the design's own arrow-key
+     * contract (`live:lane`) something to bind to. Only the checked option is
+     * tabbable; the arrows move between them.
+     */
+    expect(decisions).toContain('role="radiogroup"');
+    expect(decisions).toContain("aria-checked={activeLane === item.id}");
+    expect(decisions).toContain('role="radio"');
+    expect(decisions).toContain("tabIndex={activeLane === item.id ? 0 : -1}");
     expect(decisions).not.toContain("aria-pressed={activeWindow === window}");
     expect(decisions).toContain("function activate(");
     expect(decisions).toContain('event.key !== "Enter" && event.key !== " "');

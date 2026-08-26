@@ -8,6 +8,7 @@ import { resolveProviderAccountId } from "@/lib/zero-base/provider-scope-server"
 import LegacyMetaPage from "@/app/(dashboard)/platforms/meta/legacy-page";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
 import { MetaSurfaceStateLive } from "@/components/meta/meta-surface-state-live";
+import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
 import { resolveMetaPageSurfaceState } from "@/lib/meta/surface-read-state-server";
 
 export const dynamic = "force-dynamic";
@@ -136,6 +137,16 @@ export default async function MetaDecisionsPage({
        * the owner's separately approved round. Defaults off.
        */
       decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
+      /*
+       * The manual action sheet's gate, read on the server for the same reason.
+       *
+       * The mutation ceremony — preflight, type-to-confirm, receipt,
+       * reconciliation — has existed for a while with no way to reach it from a
+       * decision. `ZERO_BASE_MUTATION_UI_ENABLED` is a SECOND, independent flag
+       * from the workflow one and also defaults off; with it shut the control
+       * is present and refusing, which is D8's posture, not hidden.
+       */
+      mutationUiEnabled={isMutationUiEnabled()}
     />
     </>
   );

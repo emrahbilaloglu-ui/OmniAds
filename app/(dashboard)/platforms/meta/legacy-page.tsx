@@ -24,6 +24,8 @@ interface MetaPageProps {
    * it; an absent value stays absent so the body's fail-closed reading applies.
    */
   decisionWorkflowUiEnabled?: boolean;
+  /** Same rule, second gate: forwarded verbatim, never decided here. */
+  mutationUiEnabled?: boolean;
 }
 
 /**
@@ -145,6 +147,7 @@ export default function MetaPage({
   currency: authorizedCurrency = null,
   serverProviderAccountId = null,
   decisionWorkflowUiEnabled,
+  mutationUiEnabled,
 }: MetaPageProps = {}) {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -197,6 +200,7 @@ export default function MetaPage({
       currency={authorizedCurrency ?? business?.currency ?? null}
       serverProviderAccountId={serverProviderAccountId}
       decisionWorkflowUiEnabled={decisionWorkflowUiEnabled}
+      mutationUiEnabled={mutationUiEnabled}
     />
   );
 }

@@ -167,6 +167,9 @@ describe("Meta Decisions canonical route authority", () => {
       // owner's separately approved round), and a route forwarding `undefined`
       // would leave the body guessing at a fact the server just read.
       decisionWorkflowUiEnabled: false,
+      // The second, independent gate. Both default off, and opening one does
+      // not open the other.
+      mutationUiEnabled: false,
     });
     expect(legacyInteriorBridge).not.toHaveBeenCalled();
   });
@@ -216,6 +219,9 @@ describe("Meta Decisions canonical route authority", () => {
       currency: "TRY",
       serverProviderAccountId: null,
       decisionWorkflowUiEnabled: false,
+      // The second, independent gate. Both default off, and opening one does
+      // not open the other.
+      mutationUiEnabled: false,
     });
     expect(legacyMetaPage.mock.calls[0]?.[0]).not.toHaveProperty(
       "providerAccountId",

@@ -1,5 +1,5 @@
 {
-  "set": "meta-market-ready-8f15c972a0",
+  "set": "meta-market-ready-0e5ea61b13",
   "surfaces": 13,
   "widths": [
     1440,
@@ -196,8 +196,8 @@
       "width": 1440,
       "theme": "dark",
       "file": "creative-copies-1440-dark.png",
-      "sha256": "fd1552cb89fb9c345f746d98bb564136d65c4fef7bedadcc1730e6ebbce6ddce",
-      "bytes": 135996
+      "sha256": "356eb4bea776315d7c4f9ff34edc6d4922845ffe87380732fb2133c1fe330655",
+      "bytes": 135995
     },
     {
       "surfaceId": "creative-copies",
@@ -220,8 +220,8 @@
       "width": 320,
       "theme": "light",
       "file": "creative-copies-320-light.png",
-      "sha256": "17cb693d5028275754e3a4bba79bbcddb21832aa8787dba897dab49468106536",
-      "bytes": 60191
+      "sha256": "d400898bec9a3ef42572bf64424a829241dcfeeb9c73adf792d004dc30a55236",
+      "bytes": 60178
     },
     {
       "surfaceId": "creative-copies",
@@ -244,16 +244,16 @@
       "width": 768,
       "theme": "dark",
       "file": "creative-copies-768-dark.png",
-      "sha256": "64a12b34d3c917d16d12ef187e80cb19c55ec518f06af05d34a12a29e89322c0",
-      "bytes": 106131
+      "sha256": "6009b213238b83ef2f1852e0e2971b72ef90e7b61a608a2da266600e870a9729",
+      "bytes": 106138
     },
     {
       "surfaceId": "creative-copies",
       "width": 768,
       "theme": "light",
       "file": "creative-copies-768-light.png",
-      "sha256": "6009b213238b83ef2f1852e0e2971b72ef90e7b61a608a2da266600e870a9729",
-      "bytes": 106138
+      "sha256": "64a12b34d3c917d16d12ef187e80cb19c55ec518f06af05d34a12a29e89322c0",
+      "bytes": 106131
     },
     {
       "surfaceId": "creative-inbox",
@@ -324,8 +324,8 @@
       "width": 768,
       "theme": "dark",
       "file": "creative-inbox-768-dark.png",
-      "sha256": "4996f946f786f8d1aaea590adee5697c54dd59b8b3e25ab6b14738f1014365ef",
-      "bytes": 98557
+      "sha256": "1fd53317809f24aa55e1c9d359fd3970c0e8c7f1d7c96bc4673d8d731593cbd1",
+      "bytes": 98556
     },
     {
       "surfaceId": "creative-inbox",
@@ -340,8 +340,8 @@
       "width": 1024,
       "theme": "dark",
       "file": "creative-landing-pages-1024-dark.png",
-      "sha256": "19e12a4035f73d18c6b75c17b64f21de543e2d7b2df6d1691dbd76bd85a3e90f",
-      "bytes": 136627
+      "sha256": "cd58528c310b1aadbffa904ec2911572861b6a070b21a8f0e8a1d80afb00b5ac",
+      "bytes": 136620
     },
     {
       "surfaceId": "creative-landing-pages",
@@ -380,8 +380,8 @@
       "width": 320,
       "theme": "light",
       "file": "creative-landing-pages-320-light.png",
-      "sha256": "eebc2b8158f5590462b88387cf2f445bf8ceee54b07ed00f7bd96e0e156fe291",
-      "bytes": 72649
+      "sha256": "3ac3a31885e13b98b7acedff70ee654cc8159199cd2ec23afdd6a29fa0c7fc6f",
+      "bytes": 72641
     },
     {
       "surfaceId": "creative-landing-pages",
@@ -396,16 +396,16 @@
       "width": 390,
       "theme": "light",
       "file": "creative-landing-pages-390-light.png",
-      "sha256": "12c94294f80c542fb7a627bb0b019394d25cc967a6059a05e2b97ac2d42551fe",
-      "bytes": 77505
+      "sha256": "a4b821cef2104d240fbea8176474c96d84ec253cdc17469f4c8ad3ec92ca1b4a",
+      "bytes": 77495
     },
     {
       "surfaceId": "creative-landing-pages",
       "width": 768,
       "theme": "dark",
       "file": "creative-landing-pages-768-dark.png",
-      "sha256": "a96b4d10d39f52823d52c6253694bab81d15baf38455be494f70449a2251310f",
-      "bytes": 105881
+      "sha256": "b0cb2ac8692ff7d57d54a77c2e5ad1d742b48eaa769d5fc29d7c216502e69516",
+      "bytes": 105877
     },
     {
       "surfaceId": "creative-landing-pages",
@@ -596,16 +596,16 @@
       "width": 1440,
       "theme": "dark",
       "file": "manage-integrations-1440-dark.png",
-      "sha256": "dfeb564f45494d5b5190952f1093f44718a46c969b6b2a65818380131622574f",
-      "bytes": 182136
+      "sha256": "19dcf09651831c342fe43f8b6f57d5cc5e589f8e537344bed50ff878fc8cd8e0",
+      "bytes": 182270
     },
     {
       "surfaceId": "manage-integrations",
       "width": 1440,
       "theme": "light",
       "file": "manage-integrations-1440-light.png",
-      "sha256": "60068088077705affe66964a211924c53eec1e02a90cc5f70aec3e4dc06d655e",
-      "bytes": 182232
+      "sha256": "dfeb564f45494d5b5190952f1093f44718a46c969b6b2a65818380131622574f",
+      "bytes": 182136
     },
     {
       "surfaceId": "manage-integrations",
@@ -620,8 +620,8 @@
       "width": 320,
       "theme": "light",
       "file": "manage-integrations-320-light.png",
-      "sha256": "cff8364d86dd5f01a9afc6243cc76c6a3bce9e4d3a411100ab2c75844e5754e2",
-      "bytes": 75070
+      "sha256": "c397c83ec6056b7aa9fa6c75c92809dc5a2a7b4be291f04d8b0c50a0a424f15f",
+      "bytes": 75079
     },
     {
       "surfaceId": "manage-integrations",
@@ -636,56 +636,56 @@
       "width": 390,
       "theme": "light",
       "file": "manage-integrations-390-light.png",
-      "sha256": "f3f5ef47f3ae64da8f1b324fb75d870ade045fabcd9698a38fb518299a923fc2",
-      "bytes": 78757
+      "sha256": "5fb4090f48df7e020a255602211ea67edcaf311a4b0291b0055c84912c24b6e8",
+      "bytes": 78748
     },
     {
       "surfaceId": "manage-integrations",
       "width": 768,
       "theme": "dark",
       "file": "manage-integrations-768-dark.png",
-      "sha256": "fac9a9f46785d8100a5afae388f881cef4ae432cde9e8f6f149fb71ca99b5f77",
-      "bytes": 121189
+      "sha256": "7d965a362952bc0965687f8107d9cfa1f0070997ff54f0390bbf51266613bd3b",
+      "bytes": 121183
     },
     {
       "surfaceId": "manage-integrations",
       "width": 768,
       "theme": "light",
       "file": "manage-integrations-768-light.png",
-      "sha256": "fac9a9f46785d8100a5afae388f881cef4ae432cde9e8f6f149fb71ca99b5f77",
-      "bytes": 121189
+      "sha256": "7d965a362952bc0965687f8107d9cfa1f0070997ff54f0390bbf51266613bd3b",
+      "bytes": 121183
     },
     {
       "surfaceId": "meta-automation",
       "width": 1024,
       "theme": "dark",
       "file": "meta-automation-1024-dark.png",
-      "sha256": "aa40c4691b8b6405592ae295ae0e695f850d0017fe68e210512fd5e51aa7b4c3",
-      "bytes": 151115
+      "sha256": "8f259589155872e20794bdeca3f2374ad4cecc3f0e67e8e5944e2a8a78db855b",
+      "bytes": 156422
     },
     {
       "surfaceId": "meta-automation",
       "width": 1024,
       "theme": "light",
       "file": "meta-automation-1024-light.png",
-      "sha256": "aa40c4691b8b6405592ae295ae0e695f850d0017fe68e210512fd5e51aa7b4c3",
-      "bytes": 151115
+      "sha256": "36e5a52e21238f562abc7f281f93f24be8add5698b708dffa850e98ca55c6794",
+      "bytes": 156529
     },
     {
       "surfaceId": "meta-automation",
       "width": 1440,
       "theme": "dark",
       "file": "meta-automation-1440-dark.png",
-      "sha256": "3690d6b8590c29119314de6d78ec2d59667b3ffea36c9ea4386a4effce0e81a0",
-      "bytes": 171792
+      "sha256": "35a8fe3e1a8933acc2951b2c40a36526a8da3f79c318779fea5990e4010e470f",
+      "bytes": 178610
     },
     {
       "surfaceId": "meta-automation",
       "width": 1440,
       "theme": "light",
       "file": "meta-automation-1440-light.png",
-      "sha256": "3690d6b8590c29119314de6d78ec2d59667b3ffea36c9ea4386a4effce0e81a0",
-      "bytes": 171792
+      "sha256": "2751b270f5c42297968a5eeef0ea11eface70169a5d1083f3052cc6d04550cb0",
+      "bytes": 178579
     },
     {
       "surfaceId": "meta-automation",
@@ -780,8 +780,8 @@
       "width": 320,
       "theme": "light",
       "file": "meta-decisions-320-light.png",
-      "sha256": "123a48d528f8ee3469f59e8d0f4e7f795ed6fb43ef07289507731f834d7cb3ab",
-      "bytes": 78624
+      "sha256": "ba24b79809d012ec2d100154893d776a6b72287220aee11395e4ca9ce2fb44f4",
+      "bytes": 78639
     },
     {
       "surfaceId": "meta-decisions",
@@ -820,32 +820,32 @@
       "width": 1024,
       "theme": "dark",
       "file": "meta-history-1024-dark.png",
-      "sha256": "843ad5d96695fb57207f919bdcddab40a34ec37b59a6e8a7c5b004a905a2e35b",
-      "bytes": 173311
+      "sha256": "ef714cfe07480c73c8440bda3d9d8432a8f9173c171747db1e91b9ef4b75a7e7",
+      "bytes": 174083
     },
     {
       "surfaceId": "meta-history",
       "width": 1024,
       "theme": "light",
       "file": "meta-history-1024-light.png",
-      "sha256": "843ad5d96695fb57207f919bdcddab40a34ec37b59a6e8a7c5b004a905a2e35b",
-      "bytes": 173311
+      "sha256": "ef714cfe07480c73c8440bda3d9d8432a8f9173c171747db1e91b9ef4b75a7e7",
+      "bytes": 174083
     },
     {
       "surfaceId": "meta-history",
       "width": 1440,
       "theme": "dark",
       "file": "meta-history-1440-dark.png",
-      "sha256": "2724a3c820140849c04d335a5a7fdcc27bda3e30fbe62cda2e514f2bb1007346",
-      "bytes": 168112
+      "sha256": "6aef0cfee85c00e57e0bd14bdcc913790e3cd32029dbc41c8e0614c549aa06c3",
+      "bytes": 169211
     },
     {
       "surfaceId": "meta-history",
       "width": 1440,
       "theme": "light",
       "file": "meta-history-1440-light.png",
-      "sha256": "2724a3c820140849c04d335a5a7fdcc27bda3e30fbe62cda2e514f2bb1007346",
-      "bytes": 168112
+      "sha256": "72cd1ec648d5a1c63d246c320d1e100025b7a0f27ecc8c2d227152d0ae75f59b",
+      "bytes": 169204
     },
     {
       "surfaceId": "meta-history",
@@ -868,32 +868,32 @@
       "width": 390,
       "theme": "dark",
       "file": "meta-history-390-dark.png",
-      "sha256": "9b1c7c407dcab0c6bfb5e8e1da3945170ffddfa62bbb251cc189f79a651fce95",
-      "bytes": 83466
+      "sha256": "771179d7aef5512f8c0b80daa655ab5d2b4a1a57b58f71c7e203d37e4478e7d5",
+      "bytes": 83458
     },
     {
       "surfaceId": "meta-history",
       "width": 390,
       "theme": "light",
       "file": "meta-history-390-light.png",
-      "sha256": "9b1c7c407dcab0c6bfb5e8e1da3945170ffddfa62bbb251cc189f79a651fce95",
-      "bytes": 83466
+      "sha256": "771179d7aef5512f8c0b80daa655ab5d2b4a1a57b58f71c7e203d37e4478e7d5",
+      "bytes": 83458
     },
     {
       "surfaceId": "meta-history",
       "width": 768,
       "theme": "dark",
       "file": "meta-history-768-dark.png",
-      "sha256": "9f6d04be7872f8446d16c2e80363cabd268ef0556e0339a058289df8e9718b1e",
-      "bytes": 136393
+      "sha256": "b8690340a89af893064c03faa03faa8c98bb37d3994cbc32dd10c853f1e7a062",
+      "bytes": 137780
     },
     {
       "surfaceId": "meta-history",
       "width": 768,
       "theme": "light",
       "file": "meta-history-768-light.png",
-      "sha256": "9f6d04be7872f8446d16c2e80363cabd268ef0556e0339a058289df8e9718b1e",
-      "bytes": 136393
+      "sha256": "b8690340a89af893064c03faa03faa8c98bb37d3994cbc32dd10c853f1e7a062",
+      "bytes": 137780
     },
     {
       "surfaceId": "meta-intelligence",

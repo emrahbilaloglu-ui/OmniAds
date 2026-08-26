@@ -80,6 +80,17 @@ export interface RunMetaSnapshotResult {
    * facts, and the queue's read completeness depends on telling them apart.
    */
   proposals: { projected: number; expired: number } | null;
+  /**
+   * Accounts whose generation threw, by id.
+   *
+   * Empty on a clean run. A per-account failure is CONTAINED — INVARIANTS is
+   * explicit for the sibling native path that it "must not abort or prune
+   * unrelated ready" work — so the run reports which accounts are missing
+   * rather than discarding the ones that succeeded.
+   */
+  failedAccountIds?: string[];
+  /** Set when the run refused before computing anything. */
+  skippedReason?: "provider_account_not_assigned";
 }
 
 export interface RunMetaSnapshotAllBusinessesResult {
@@ -422,21 +433,78 @@ function anomalyToSnapshotRow(
   };
 }
 
-async function upsertSnapshotRows(input: {
+/**
+ * Clear this date's recommendation rows that carry NO proven account.
+ *
+ * Run ONCE per business refresh, before the per-account loop. It cannot live
+ * inside the loop: `provider_account_id = $a` never matches NULL, so legacy
+ * rows would survive every refresh forever — invisible to an account-scoped
+ * read and still visible to every business-scoped one — while a predicate of
+ * `(= $a OR IS NULL)` inside the loop would have each account delete whatever
+ * the previous account had just written under NULL.
+ */
+async function clearUnattributedRecommendationRows(input: {
   businessId: string;
   snapshotDate: string;
-  rows: SnapshotPayloadRow[];
 }) {
   const sql = getDb();
-  const recommendationRows = input.rows.filter((row) => row.kind === "recommendation");
-  const anomalyRows = input.rows.filter((row) => row.kind === "anomaly");
-
   await sql`
     DELETE FROM meta_decision_snapshots_daily
     WHERE business_id = ${input.businessId}
       AND snapshot_date = ${input.snapshotDate}::date
       AND kind = 'recommendation'
+      AND provider_account_id IS NULL
   `;
+}
+
+async function upsertSnapshotRows(input: {
+  businessId: string;
+  snapshotDate: string;
+  /**
+   * The account this write is FOR. Only its rows are replaced.
+   *
+   * The delete used to take every recommendation row for the business and
+   * date, which under per-account generation means account B's refresh erases
+   * account A's snapshot — and INVARIANTS is explicit for the sibling native
+   * path that a per-account run "must not abort or prune unrelated ready" work.
+   * Scoping the delete is what makes a rerun of one account deterministic and
+   * a rerun of another harmless.
+   *
+   * Null means "the unattributed batch" — anomalies, and businesses with no
+   * assigned account. `IS NOT DISTINCT FROM` rather than `=` so that null
+   * matches null.
+   */
+  providerAccountId?: string | null;
+  /**
+   * Whether this call owns the recommendation batch for its account.
+   *
+   * False for the anomaly epilogue, which writes only anomalies. Without it
+   * that call's DELETE would take the recommendation rows the loop just wrote
+   * under a NULL account — the case of a business with nothing assigned, whose
+   * whole snapshot would vanish one statement after it landed.
+   */
+  replaceRecommendations?: boolean;
+  rows: SnapshotPayloadRow[];
+}) {
+  const sql = getDb();
+  const account = input.providerAccountId?.trim() || null;
+  const recommendationRows = input.rows.filter((row) => row.kind === "recommendation");
+  const anomalyRows = input.rows.filter((row) => row.kind === "anomaly");
+
+  /*
+   * Replace THIS account's batch for THIS date. Not leaving an older same-day
+   * batch serving is the other half of the law: a rerun must supersede its own
+   * previous attempt, and touch nothing else.
+   */
+  if (input.replaceRecommendations !== false) {
+    await sql`
+      DELETE FROM meta_decision_snapshots_daily
+      WHERE business_id = ${input.businessId}
+        AND snapshot_date = ${input.snapshotDate}::date
+        AND kind = 'recommendation'
+        AND provider_account_id IS NOT DISTINCT FROM ${account}
+    `;
+  }
   if (recommendationRows.length > 0) {
     await sql.query(
       `
@@ -524,9 +592,10 @@ async function upsertSnapshotRows(input: {
           calibration_scope,
           signal_quality
         FROM payload
-        ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
+        ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type, provider_account_id)
         DO UPDATE SET
           business_id = EXCLUDED.business_id,
+          provider_account_id = EXCLUDED.provider_account_id,
           rec_id = EXCLUDED.rec_id,
           level = EXCLUDED.level,
           decision_state = EXCLUDED.decision_state,
@@ -682,9 +751,10 @@ async function upsertSnapshotRows(input: {
         calibration_scope,
         signal_quality
       FROM payload
-      ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
+      ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type, provider_account_id)
       DO UPDATE SET
         business_id = EXCLUDED.business_id,
+        provider_account_id = EXCLUDED.provider_account_id,
         rec_id = EXCLUDED.rec_id,
         level = EXCLUDED.level,
         decision_state = EXCLUDED.decision_state,
@@ -789,10 +859,25 @@ async function buildAdsetCalibrationContexts(input: {
 async function buildSnapshotRecommendations(input: {
   businessId: string;
   snapshotDate: string;
+  /**
+   * The ONE physical provider account this generation is for.
+   *
+   * D-M011: every input below is narrowed to it BEFORE the decision is
+   * computed. Tagging rows with an account after a business-wide computation —
+   * which is what D-M009 did — produces a row that says "account A" while its
+   * spend, ROAS, percentiles, calibration context and hysteresis were pooled
+   * across every assigned account. That is a labelled aggregate, not an
+   * account-scoped decision, and D6 asks for the latter.
+   *
+   * Null is still accepted and still means business-wide, because the
+   * business-scoped callers that are not account surfaces have not moved.
+   */
+  providerAccountId?: string | null;
 }): Promise<{
   recommendations: MetaRecommendation[];
   lineage: SnapshotAccountLineage;
 }> {
+  const accountId = input.providerAccountId?.trim() || null;
   const endDate = normalizeDate(input.snapshotDate);
   const startDate = addDaysToISO(endDate, -29);
   const selectedSpanDays = dayDiffInclusive(startDate, endDate);
@@ -807,47 +892,56 @@ async function buildSnapshotRecommendations(input: {
 
   const selectedCampaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate,
     endDate,
     includePrev: true,
   });
   const previousSelectedCampaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: previousStart,
     endDate: previousEnd,
   });
   const last3Campaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: last3Start,
     endDate,
   });
   const last7Campaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: last7Start,
     endDate,
   });
   const last14Campaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: last14Start,
     endDate,
   });
   const last30Campaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: last30Start,
     endDate,
   });
   const last90Campaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: last90Start,
     endDate,
   });
   const allHistoryCampaigns = await getMetaCampaignsForRange({
     businessId: input.businessId,
+    accountId,
     startDate: allHistoryStart,
     endDate,
   });
   const breakdowns = await getMetaBreakdownsForRange({
     businessId: input.businessId,
+    providerAccountId: accountId,
     startDate,
     endDate,
   });
@@ -915,6 +1009,7 @@ async function buildSnapshotRecommendations(input: {
 
   const adsetRows = await getMetaAdSetsForRange({
     businessId: input.businessId,
+    accountId,
     startDate,
     endDate,
     campaignIds,
@@ -1009,6 +1104,19 @@ async function readAssignedMetaAccountIds(businessId: string): Promise<string[]>
 export async function runMetaSnapshotForBusiness(
   businessId: string,
   snapshotDate: string,
+  /**
+   * Compute ONE assigned account instead of every one.
+   *
+   * A selected-account manual control passes its account, and gets exactly the
+   * computation the surface reads back. Omitted orchestrates every currently
+   * assigned account — still computing and persisting each independently, so
+   * the whole-business entry point never creates pooled truth.
+   *
+   * An account that is not currently assigned is refused rather than computed:
+   * a stale selection must not mint a snapshot for an account this workspace
+   * no longer has.
+   */
+  providerAccountId?: string | null,
 ): Promise<RunMetaSnapshotResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
   const calibration = await runMetaCalibrationForBusiness(
@@ -1026,69 +1134,202 @@ export async function runMetaSnapshotForBusiness(
     });
     return null;
   });
-  const { recommendations: rawRecommendations, lineage: accountLineage } =
-    await buildSnapshotRecommendations({
+  /*
+   * PER-ACCOUNT GENERATION (D-M011).
+   *
+   * D-M009 computed one business-wide decision and then LABELLED each row with
+   * an account derived from its campaign. Every number inside that row — spend,
+   * ROAS, the percentile it was compared against, the calibration context, the
+   * hysteresis memory — came from a pool of every assigned account. A row that
+   * says "account A" while its evidence is A+B is not an account-scoped
+   * decision; it is an aggregate wearing a label, and D6 asks for the former.
+   *
+   * So the inputs are narrowed BEFORE the computation, once per assigned
+   * account, and each account is computed and persisted independently.
+   *
+   * ## What stays once per business, and why
+   *
+   * CALIBRATION runs above this loop. `getMetaCalibrationScope` is already
+   * called per campaign WITH `accountId` (see `buildCalibrationContexts`), so
+   * the cells it produces are account-scoped already; running the whole
+   * calibration pass per account would recompute the same cells N times.
+   *
+   * ANOMALIES stay once per business, in the epilogue. Their detector resolves
+   * open anomalies with a business-wide `NOT EXISTS` that has no account
+   * predicate available, so running it inside the loop would let account A's
+   * run resolve account B's open anomalies. They are written with NULL lineage
+   * for a multi-account business, which the account-scoped read then withholds
+   * — the fail-closed direction, and honest about what the detector can prove.
+   *
+   * ## Failure is contained per account
+   *
+   * INVARIANTS is explicit for the sibling native path: a per-account failure
+   * "must not abort healthy sibling accounts". `Promise.allSettled` here is
+   * that law. One account failing leaves the others written, and the result
+   * reports which failed instead of throwing the whole run away.
+   */
+  const assignedAccounts = await readAssignedMetaAccountIds(businessId);
+  const requestedAccount = providerAccountId?.trim() || null;
+  if (requestedAccount && !assignedAccounts.includes(requestedAccount)) {
+    /*
+     * A stale or revoked selection is refused, not computed. Generating a
+     * snapshot for an account this workspace no longer has would mint decisions
+     * about spend nobody here controls, and the respond boundary would then
+     * treat them as authority.
+     */
+    return {
       businessId,
       snapshotDate: normalizedSnapshotDate,
-    });
-  // CDC discipline: act-boundary state flips must hold two consecutive
-  // snapshots before publishing. Memory-read failure degrades to
-  // no-hysteresis (publish raw) instead of failing the snapshot run.
-  const previousStates = await readPreviousMetaDecisionStates({
+      calibration,
+      recommendationsWritten: 0,
+      anomaliesWritten: 0,
+      proposals: null,
+      failedAccountIds: [],
+      skippedReason: "provider_account_not_assigned",
+    };
+  }
+  /*
+   * A business with no assigned account still runs once, unscoped. That is not
+   * a fallback to pooling — with nothing assigned there is nothing to pool —
+   * and it preserves the pre-change behaviour for a workspace mid-setup.
+   */
+  const generationAccounts: Array<string | null> = requestedAccount
+    ? [requestedAccount]
+    : assignedAccounts.length > 0
+      ? assignedAccounts
+      : [null];
+
+  /*
+   * Legacy NULL-lineage rows for this date are cleared ONCE, before the loop.
+   *
+   * They cannot be cleared inside it: `provider_account_id = $a` never matches
+   * NULL, so they would survive every refresh forever — invisible to an
+   * account-scoped read and visible to every business-scoped one. And a
+   * predicate of `(= $a OR IS NULL)` inside the loop would have each account
+   * delete the previous account's rows on its way past. Once, here, is the
+   * only placement that is both complete and non-destructive.
+   */
+  await clearUnattributedRecommendationRows({
     businessId,
-    asOf: normalizedSnapshotDate,
-    engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
-  }).catch((error) => {
-    console.warn("[meta-snapshot] previous_state_read_failed", {
-      businessId,
-      snapshotDate: normalizedSnapshotDate,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return new Map<string, never>();
+    snapshotDate: normalizedSnapshotDate,
   });
-  const { recommendations, suppressedCount } = stabilizeMetaRecommendations({
-    recommendations: rawRecommendations,
-    previousByKey: previousStates,
-    scopeFor: (recommendation) => {
-      const scope = scopeForRecommendation(recommendation, businessId);
-      return { scopeType: scope.scopeType, scopeId: scope.scopeId };
-    },
-  });
-  if (suppressedCount > 0) {
-    console.info("[meta-snapshot] state_transitions_suppressed", {
+
+  const perAccount = await Promise.allSettled(
+    generationAccounts.map(async (accountId) => {
+      const { recommendations: rawRecommendations, lineage: accountLineage } =
+        await buildSnapshotRecommendations({
+          businessId,
+          snapshotDate: normalizedSnapshotDate,
+          providerAccountId: accountId,
+        });
+      // CDC discipline: act-boundary state flips must hold two consecutive
+      // snapshots before publishing. Memory-read failure degrades to
+      // no-hysteresis (publish raw) instead of failing the snapshot run. The
+      // memory is THIS account's; a sibling account's flips are not evidence
+      // about this one.
+      const previousStates = await readPreviousMetaDecisionStates({
+        businessId,
+        asOf: normalizedSnapshotDate,
+        engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+        providerAccountId: accountId,
+      }).catch((error) => {
+        console.warn("[meta-snapshot] previous_state_read_failed", {
+          businessId,
+          providerAccountId: accountId,
+          snapshotDate: normalizedSnapshotDate,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return new Map<string, never>();
+      });
+      const { recommendations, suppressedCount } = stabilizeMetaRecommendations({
+        recommendations: rawRecommendations,
+        previousByKey: previousStates,
+        scopeFor: (recommendation) => {
+          const scope = scopeForRecommendation(recommendation, businessId);
+          return { scopeType: scope.scopeType, scopeId: scope.scopeId };
+        },
+        providerAccountId: accountId,
+      });
+      if (suppressedCount > 0) {
+        console.info("[meta-snapshot] state_transitions_suppressed", {
+          businessId,
+          providerAccountId: accountId,
+          snapshotDate: normalizedSnapshotDate,
+          suppressedCount,
+        });
+      }
+      const evidenceTrails = await buildEvidenceTrailsForRecommendations({
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        recommendations,
+      });
+      /*
+       * The row's account is the account this run was FOR, not one derived
+       * from a campaign after the fact. `accountLineage` still resolves
+       * campaign and ad-set rows, but with the window narrowed those all
+       * belong to this account anyway — so the two agree, and where they
+       * cannot (an account-level row), the run's own account is the answer.
+       */
+      const scopedLineage: SnapshotAccountLineage = accountId
+        ? { ...accountLineage, soleAssignedAccountId: accountId }
+        : accountLineage;
+      const rows = recommendations.map((recommendation) =>
+        recommendationToSnapshotRow(
+          recommendation,
+          businessId,
+          normalizedSnapshotDate,
+          evidenceTrails[recommendation.id] ?? null,
+          scopedLineage,
+        ),
+      );
+      await upsertSnapshotRows({
+        businessId,
+        snapshotDate: normalizedSnapshotDate,
+        providerAccountId: accountId,
+        rows,
+      });
+      return { accountId, recommendations, rows: rows.length };
+    }),
+  );
+
+  const failedAccounts = perAccount
+    .map((outcome, index) => ({ outcome, accountId: generationAccounts[index] ?? null }))
+    .filter((entry) => entry.outcome.status === "rejected");
+  for (const failure of failedAccounts) {
+    console.warn("[meta-snapshot] account_generation_failed", {
       businessId,
+      providerAccountId: failure.accountId,
       snapshotDate: normalizedSnapshotDate,
-      suppressedCount,
+      message:
+        failure.outcome.status === "rejected"
+          ? String((failure.outcome as PromiseRejectedResult).reason)
+          : "",
     });
   }
+  const recommendations = perAccount.flatMap((outcome) =>
+    outcome.status === "fulfilled" ? outcome.value.recommendations : [],
+  );
+
+  /*
+   * Anomalies, once, after every account has been written. Their detector is
+   * business-wide and its resolve pass has no account predicate, so it belongs
+   * outside the loop — see the note above.
+   */
   const anomalies = await detectAnomaliesForBusiness({
     businessId,
     snapshotDate: normalizedSnapshotDate,
     calibrationContext: null,
   });
-  const evidenceTrails = await buildEvidenceTrailsForRecommendations({
-    businessId,
-    snapshotDate: normalizedSnapshotDate,
-    recommendations,
-  });
-  const rows = [
-    ...recommendations.map((recommendation) =>
-      recommendationToSnapshotRow(
-        recommendation,
-        businessId,
-        normalizedSnapshotDate,
-        evidenceTrails[recommendation.id] ?? null,
-        accountLineage,
-      ),
-    ),
-    ...anomalies.map((anomaly) =>
-      anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, accountLineage),
-    ),
-  ];
   await upsertSnapshotRows({
     businessId,
     snapshotDate: normalizedSnapshotDate,
-    rows,
+    providerAccountId: null,
+    // Anomalies only. The recommendation batches are already written and each
+    // belongs to an account this call knows nothing about.
+    replaceRecommendations: false,
+    rows: anomalies.map((anomaly) =>
+      anomalyToSnapshotRow(anomaly, businessId, normalizedSnapshotDate, null),
+    ),
   });
   // The confirmation queue is a projection of the rows that just landed, so it
   // is refreshed here and nowhere else. This is what "expired proposals
@@ -1118,6 +1359,9 @@ export async function runMetaSnapshotForBusiness(
     snapshotDate: normalizedSnapshotDate,
     calibration,
     recommendationsWritten: recommendations.length,
+    failedAccountIds: failedAccounts
+      .map((entry) => entry.accountId)
+      .filter((id): id is string => typeof id === "string"),
     anomaliesWritten: anomalies.length,
     proposals,
   };

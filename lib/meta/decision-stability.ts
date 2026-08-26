@@ -73,15 +73,34 @@ export function applyMetaStateHysteresis(
   };
 }
 
-/** Stable identity for a recommendation across snapshots. rec_id embeds the
- * generator row id, which can shift; scope+type is the operator-facing
- * identity ("what decision about which entity"). */
+/**
+ * Stable identity for a recommendation across snapshots.
+ *
+ * `rec_id` embeds the generator row id, which can shift; scope+type is the
+ * operator-facing identity ("what decision about which entity").
+ *
+ * D-M011: the PHYSICAL ACCOUNT is part of that identity, and leaving it out was
+ * a real cross-account defect rather than a tidiness one. Campaign and ad-set
+ * `scope_id`s are Meta entity ids and are globally unique, so those never
+ * collided — but `scopeForRecommendation` sets `scope_id = businessId` for
+ * ACCOUNT-level rows, so two assigned accounts producing the same account-level
+ * `rec_type` shared one key. `readPreviousMetaDecisionStates` takes
+ * `DISTINCT ON` that key ordered by date, so whichever account was written last
+ * governed the OTHER account's hysteresis: account A's act-boundary flip could
+ * be suppressed because account B had already flipped, and neither screen could
+ * show why.
+ *
+ * A null account keeps the legacy key shape exactly, so rows written before the
+ * lineage column still match themselves.
+ */
 export function metaStabilityKey(input: {
   scopeType: string;
   scopeId: string;
   recType: string;
+  providerAccountId?: string | null;
 }): string {
-  return `${input.scopeType}|${input.scopeId}|${input.recType}`;
+  const account = input.providerAccountId?.trim() || "";
+  return `${input.scopeType}|${input.scopeId}|${input.recType}|${account}`;
 }
 
 type StabilityMemory = {
@@ -107,13 +126,25 @@ export async function readPreviousMetaDecisionStates(input: {
   businessId: string;
   asOf: string;
   engineVersion: string;
+  /**
+   * Narrow the memory to ONE physical account.
+   *
+   * Per-account generation reads its own account's history and nothing else.
+   * Omitted keeps the business-wide read for callers that are not account
+   * surfaces. Note this is `IS NOT DISTINCT FROM`, not `=`: when an account is
+   * given, legacy NULL-lineage rows are NOT its memory — they belong to no
+   * proven account and must not govern one.
+   */
+  providerAccountId?: string | null;
 }): Promise<Map<string, PreviousPublishedState>> {
   const sql = getDb();
+  const account = input.providerAccountId?.trim() || null;
   const rows = (await sql`
-    SELECT DISTINCT ON (scope_type, scope_id, rec_type)
+    SELECT DISTINCT ON (scope_type, scope_id, rec_type, provider_account_id)
       scope_type,
       scope_id,
       rec_type,
+      provider_account_id,
       decision_state,
       signal_quality
     FROM meta_decision_snapshots_daily
@@ -121,8 +152,10 @@ export async function readPreviousMetaDecisionStates(input: {
       AND kind = 'recommendation'
       AND engine_version = ${input.engineVersion}
       AND snapshot_date < ${input.asOf}::date
-    ORDER BY scope_type, scope_id, rec_type, snapshot_date DESC
+      AND (${account}::text IS NULL OR provider_account_id = ${account})
+    ORDER BY scope_type, scope_id, rec_type, provider_account_id, snapshot_date DESC
   `) as Array<{
+    provider_account_id?: string | null;
     scope_type: string;
     scope_id: string;
     rec_type: string;
@@ -138,6 +171,7 @@ export async function readPreviousMetaDecisionStates(input: {
         scopeType: row.scope_type,
         scopeId: row.scope_id,
         recType: row.rec_type,
+        providerAccountId: row.provider_account_id,
       }),
       {
         publishedState: row.decision_state as MetaDecisionState,
@@ -159,6 +193,14 @@ export function stabilizeMetaRecommendations(input: {
   recommendations: MetaRecommendation[];
   previousByKey: Map<string, PreviousPublishedState>;
   scopeFor: (recommendation: MetaRecommendation) => { scopeType: string; scopeId: string };
+  /**
+   * The physical account this generation is for.
+   *
+   * Must be the SAME account the memory was read with, or the keys will not
+   * match and every recommendation looks new. Omitted keeps the legacy
+   * business-wide behaviour.
+   */
+  providerAccountId?: string | null;
 }): { recommendations: MetaRecommendation[]; suppressedCount: number } {
   let suppressedCount = 0;
   const recommendations = input.recommendations.map((recommendation) => {
@@ -168,6 +210,7 @@ export function stabilizeMetaRecommendations(input: {
         scopeType: scope.scopeType,
         scopeId: scope.scopeId,
         recType: recommendation.type,
+        providerAccountId: input.providerAccountId,
       }),
     );
     const result = applyMetaStateHysteresis(recommendation.decisionState, previous);

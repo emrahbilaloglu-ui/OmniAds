@@ -24,6 +24,9 @@ vi.mock("@/lib/meta/calibration", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/provider-account-assignments", () => ({
+  getProviderAccountAssignments: vi.fn(async () => ({ account_ids: ["act_1"] })),
+}));
 vi.mock("@/lib/meta/campaigns-source", () => ({
   getMetaCampaignsForRange: vi.fn(),
 }));
@@ -110,6 +113,7 @@ const evidenceTrail = await import("@/lib/meta/evidence-trail");
 const entitySignals = await import("@/lib/meta/entity-signals");
 const entitySignalsBackfill = await import("@/lib/meta/entity-signals-backfill");
 const commercialTargets = await import("@/lib/meta/commercial-targets");
+const assignments = await import("@/lib/provider-account-assignments");
 const automationProposals = await import("@/lib/meta/automation-proposals");
 
 function makeSqlMock(tagRows: unknown[] = []) {
@@ -280,8 +284,105 @@ describe("meta snapshot job", () => {
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
     await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
 
-    expect(sql.calls.filter((text) => text.includes("DELETE FROM meta_decision_snapshots_daily"))).toHaveLength(2);
+    /*
+     * TWO deletes per run, not one, and they are different statements.
+     *
+     * Generation is per assigned account, so a run first clears this date's
+     * UNATTRIBUTED rows once — legacy lineage that no account owns and that a
+     * per-account delete can never match — and then replaces each account's own
+     * batch. A rerun repeats both, which is what makes it deterministic.
+     */
+    const deletes = sql.calls.filter((text) =>
+      text.includes("DELETE FROM meta_decision_snapshots_daily"),
+    );
+    expect(deletes).toHaveLength(4);
+    expect(
+      deletes.filter((text) => text.includes("provider_account_id IS NULL")),
+    ).toHaveLength(2);
+    expect(
+      deletes.filter((text) => text.includes("IS NOT DISTINCT FROM")),
+    ).toHaveLength(2);
     expect(sql.calls.filter((text) => text.includes("INSERT INTO meta_decision_snapshots_daily"))).toHaveLength(2);
+  });
+
+  /*
+   * D-M011: refreshing one account must not erase another.
+   *
+   * The delete used to take every recommendation row for the business and the
+   * date, so under per-account generation account B's refresh would have wiped
+   * account A's snapshot a moment after it was written. INVARIANTS states the
+   * law for the sibling native path — a per-account run "must not abort or
+   * prune unrelated ready" work — and this is that law for this table.
+   */
+  it("scopes each account's delete to that account", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    const scoped = sql.calls.filter(
+      (text) =>
+        text.includes("DELETE FROM meta_decision_snapshots_daily") &&
+        text.includes("provider_account_id IS NOT DISTINCT FROM"),
+    );
+    // One per assigned account, plus the anomaly epilogue's own batch is
+    // written with `replaceRecommendations: false` and issues none.
+    expect(scoped).toHaveLength(2);
+    // And no statement takes the whole business's recommendations for the day.
+    expect(
+      sql.calls.filter(
+        (text) =>
+          text.includes("DELETE FROM meta_decision_snapshots_daily") &&
+          text.includes("kind = 'recommendation'") &&
+          !text.includes("provider_account_id"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("computes each assigned account separately, and narrows every input", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+
+    /*
+     * The point of the change: the ACCOUNT reaches the source BEFORE the
+     * numbers are computed. Tagging a row afterwards leaves its spend, ROAS,
+     * percentiles and calibration pooled across every assigned account.
+     */
+    const campaignCalls = vi.mocked(campaignSource.getMetaCampaignsForRange).mock.calls;
+    expect(campaignCalls.length).toBeGreaterThan(0);
+    expect(campaignCalls.every(([arg]) => "accountId" in (arg as object))).toBe(true);
+    expect(
+      new Set(campaignCalls.map(([arg]) => (arg as { accountId?: string }).accountId)),
+    ).toEqual(new Set(["act_1", "act_2"]));
+
+    const adsetCalls = vi.mocked(adsetsSource.getMetaAdSetsForRange).mock.calls;
+    expect(
+      new Set(adsetCalls.map(([arg]) => (arg as { accountId?: string }).accountId)),
+    ).toEqual(new Set(["act_1", "act_2"]));
+  });
+
+  it("refuses an account the workspace no longer has, and computes nothing", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1"],
+    } as never);
+
+    const result = await runMetaSnapshotForBusiness("biz_1", "2026-05-06", "act_revoked");
+
+    expect(result.skippedReason).toBe("provider_account_not_assigned");
+    expect(result.recommendationsWritten).toBe(0);
+    expect(
+      sql.calls.filter((text) => text.includes("INSERT INTO meta_decision_snapshots_daily")),
+    ).toEqual([]);
   });
 
   it("re-projects the confirmation queue on every snapshot, after the rows land", async () => {

@@ -37,6 +37,16 @@ function cooldownUntil(startedAt: number, cooldownMs: number) {
 
 export async function requestMetaSnapshotRefreshForBusiness(input: {
   businessId: string;
+  /**
+   * One assigned account, or omitted for "every assigned account".
+   *
+   * A selected-account manual control passes its account so the refresh is the
+   * same per-account computation the surface reads. Omitted keeps the
+   * whole-business orchestration, which still computes each account
+   * independently — it is the ENTRY POINT that is business-wide, never the
+   * computation.
+   */
+  providerAccountId?: string | null;
   reason: MetaSnapshotRefreshReason;
   snapshotDate?: string | null;
   cooldownMs?: number;
@@ -45,7 +55,17 @@ export async function requestMetaSnapshotRefreshForBusiness(input: {
   const businessId = input.businessId.trim();
   const snapshotDate = input.snapshotDate?.trim() || todayISO();
   const cooldownMs = input.cooldownMs ?? META_SNAPSHOT_REFRESH_COOLDOWN_MS;
-  const key = `${businessId}:${snapshotDate}`;
+  /*
+   * The key carries the ACCOUNT, when one was asked for.
+   *
+   * Generation is per assigned account now, and a business-wide key made two
+   * accounts share one in-flight promise and one five-minute cooldown: a
+   * request for account B returned account A's promise as
+   * `{ok: true, status: "already_running"}` — a success response for a run
+   * that never touched B — or parked B in a cooldown it never asked for.
+   */
+  const accountKey = input.providerAccountId?.trim() || "*";
+  const key = `${businessId}:${accountKey}:${snapshotDate}`;
   const running = inflightRefreshes.get(key);
   if (running) {
     return {
@@ -74,7 +94,11 @@ export async function requestMetaSnapshotRefreshForBusiness(input: {
   }
 
   lastRefreshStartedAt.set(key, now);
-  const refresh = runMetaSnapshotForBusiness(businessId, snapshotDate)
+  const refresh = runMetaSnapshotForBusiness(
+    businessId,
+    snapshotDate,
+    input.providerAccountId ?? null,
+  )
     .then((result) => ({
       ok: true,
       status: "ran" as const,

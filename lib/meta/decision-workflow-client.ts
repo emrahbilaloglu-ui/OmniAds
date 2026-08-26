@@ -45,10 +45,19 @@ export interface WorkflowSubmitRequest {
   expectedVersion: number;
   /** One id per attempt, stable across retries of the same attempt. */
   mutationId: string;
-  assigneeUserId: string | null;
-  dueAt: string | null;
-  snoozeUntil: string | null;
-  reasonCode: string | null;
+  assigneeUserId?: string | null;
+  /**
+   * Optional, and the distinction is load-bearing.
+   *
+   * `lib/decision-workflow.ts` treats `undefined` as "do not touch" and `null`
+   * as "clear it". The only caller sent `dueAt: null` on every action, so an
+   * unrelated acknowledge or defer silently destroyed a stored due date. An
+   * omitted key is `undefined` after `JSON.stringify`, which is what a
+   * transition that has nothing to say about a field should send.
+   */
+  dueAt?: string | null;
+  snoozeUntil?: string | null;
+  reasonCode?: string | null;
 }
 
 export type WorkflowSubmitOutcome =

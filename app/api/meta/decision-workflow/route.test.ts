@@ -23,13 +23,18 @@ const findMembership = vi.hoisted(() =>
   })),
 );
 
+const isDemoBusiness = vi.hoisted(() => vi.fn(async () => false));
+
 vi.mock("@/lib/access", () => ({ requireBusinessAccess, findMembership }));
+vi.mock("@/lib/business-mode.server", () => ({ isDemoBusiness }));
 vi.mock("@/lib/decision-workflow-store", () => ({
   readWorkflowRecord,
   persistWorkflowTransition,
   readWorkflowRecords,
   readWorkflowEvents,
 }));
+
+import { SHOPIFY_REVIEWER_EMAIL } from "@/lib/reviewer-access";
 
 import { GET, POST } from "@/app/api/meta/decision-workflow/route";
 
@@ -92,10 +97,59 @@ describe("POST decision workflow", () => {
     requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
     readWorkflowRecord.mockResolvedValue(openRecord);
     persistWorkflowTransition.mockResolvedValue({ ok: true });
+    isDemoBusiness.mockResolvedValue(false);
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  /**
+   * The two refusals every sibling Meta write route performs, and this one did
+   * not.
+   *
+   * A reviewer holds a real membership, so the `minRole: "collaborator"` check
+   * passes them; `rejectIfReviewerReadOnly` is what stops them everywhere else
+   * and this handler never called it. A demo workspace has zero write authority
+   * anywhere in the product. The SURFACE has refused both for a while
+   * (`workflowPosture`), which is exactly why the gap mattered — the screen was
+   * enforcing a rule the server did not, so a stale tab or a replayed request
+   * moved real workflow state.
+   */
+  it("refuses a reviewer, whose membership passes the role check", async () => {
+    requireBusinessAccess.mockResolvedValue({
+      session: { user: { id: "user-1", email: SHOPIFY_REVIEWER_EMAIL } },
+    });
+
+    const response = await POST(
+      postRequest({
+        businessId: "biz-1",
+        decisionKey: "dec-1",
+        action: "acknowledge",
+        expectedVersion: 1,
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe("reviewer_read_only");
+    expect(persistWorkflowTransition).not.toHaveBeenCalled();
+  });
+
+  it("refuses a demo workspace", async () => {
+    isDemoBusiness.mockResolvedValue(true);
+
+    const response = await POST(
+      postRequest({
+        businessId: "biz-1",
+        decisionKey: "dec-1",
+        action: "acknowledge",
+        expectedVersion: 1,
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toBe("demo_business_read_only");
+    expect(persistWorkflowTransition).not.toHaveBeenCalled();
   });
 
   it("refuses every transition while the workflow gate is shut", async () => {

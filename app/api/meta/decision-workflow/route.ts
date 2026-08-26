@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { findMembership, requireBusinessAccess } from "@/lib/access";
 import { rejectIfMetaGateClosed } from "@/lib/meta/release-gate-guard";
+import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
   applyWorkflowTransition,
   newWorkflowRecord,
@@ -165,6 +167,40 @@ export async function POST(request: NextRequest) {
   // Changing ownership is a write; a viewer may read the overlay but not move it.
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  /**
+   * The two refusals every other Meta write route performs, and this one did not.
+   *
+   * A reviewer holds a real membership, so the role check above passes them —
+   * `rejectIfReviewerReadOnly` is what every sibling write route
+   * (`lib/meta/entity-action-routes.ts`, `lib/meta/ads-action-routes.ts`, the
+   * creative-brief create) uses to stop them, and this handler simply never
+   * called it. A demo workspace has zero write authority anywhere in the
+   * product and the overlay is no exception; INVARIANTS is explicit that a
+   * presentation defect supplying an action does not grant one.
+   *
+   * The surface has refused both for a while (`workflowPosture`), which is
+   * exactly why the gap mattered: the screen was enforcing a rule the server
+   * did not, so a stale tab or a replayed request moved real workflow state.
+   * Nothing here reaches Meta — what a refusal protects is the operator record
+   * of who acknowledged what.
+   */
+  const reviewerBlocked = rejectIfReviewerReadOnly(
+    access,
+    `decision_workflow_${action}`,
+  );
+  if (reviewerBlocked) return reviewerBlocked;
+
+  if (await isDemoBusiness(businessId).catch(() => false)) {
+    return NextResponse.json(
+      {
+        error: "demo_business_read_only",
+        message:
+          "The demo workspace has no workflow authority; nothing was recorded.",
+      },
+      { status: 403 },
+    );
+  }
 
   /**
    * The workflow gate, on the server as well as on the screen.

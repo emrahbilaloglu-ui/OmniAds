@@ -97,8 +97,8 @@ describe("the inspector's Workflow section", () => {
       actionsRefusedReason: null,
       onAction,
     });
-    model!.actions.find((action) => action.id === "acknowledge")!.onSelect!();
-    expect(onAction).toHaveBeenCalledExactlyOnceWith("acknowledge", RECORD);
+    model!.actions.find((action) => action.id === "acknowledge")!.onSelect!({});
+    expect(onAction).toHaveBeenCalledExactlyOnceWith("acknowledge", RECORD, {});
     // stateVersion is what the server compares for optimistic concurrency; a
     // handler that had to re-look-up the record could send a newer one and
     // overwrite a change it never saw.

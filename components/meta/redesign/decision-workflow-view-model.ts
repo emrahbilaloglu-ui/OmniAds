@@ -22,6 +22,28 @@ const STATE_LABELS: Readonly<Record<WorkflowState, string>> = {
 };
 
 /**
+ * Fields the server refuses a transition without.
+ *
+ * Mirrors `REQUIRED_FIELDS` in `lib/zero-base/meta/workflow-view-model.ts`, and
+ * for the same reason the offered-actions table is mirrored: this decides which
+ * INPUTS a control collects, while the server decides what it accepts. `assign`
+ * with no assignee is the one that is not a validation error — it is a no-op
+ * that still increments `stateVersion`, so every other open tab conflicts over
+ * a change that changed nothing.
+ */
+const REQUIRED_FIELDS: Readonly<
+  Record<CanonicalWorkflowAction, readonly ("assignee" | "snoozeUntil" | "reasonCode")[]>
+> = {
+  assign: ["assignee"],
+  acknowledge: [],
+  defer: [],
+  snooze: ["snoozeUntil"],
+  reject: ["reasonCode"],
+  resolve: [],
+  reopen: [],
+};
+
+/**
  * Build the inspector's Workflow section for one selected decision.
  *
  * Three rules this encodes, each of which the surface got wrong before it
@@ -42,7 +64,19 @@ export function buildDecisionWorkflowViewModel(input: {
   record: WorkflowRecord | null;
   /** Non-null when no action may run: the gate, a reviewer, a demo workspace. */
   actionsRefusedReason: string | null;
-  onAction?: (action: CanonicalWorkflowAction, record: WorkflowRecord) => void;
+  onAction?: (
+    action: CanonicalWorkflowAction,
+    record: WorkflowRecord,
+    values: {
+      assigneeUserId?: string;
+      snoozeUntil?: string;
+      reasonCode?: string;
+    },
+  ) => void;
+  /** True while a transition for this decision is in flight. */
+  pending?: boolean;
+  /** The unresolved 409, already shaped for the dialog. */
+  conflict?: MetaDecisionCenterExactWorkflow["conflict"];
   /** Formats an ISO instant for display. Injected so this stays pure. */
   formatInstant?: (iso: string) => string;
 }): MetaDecisionCenterExactWorkflow | null {
@@ -99,9 +133,10 @@ export function buildDecisionWorkflowViewModel(input: {
     id: action,
     label: WORKFLOW_ACTION_LABELS[action],
     refusalReason: input.actionsRefusedReason,
+    requires: REQUIRED_FIELDS[action],
     onSelect: input.actionsRefusedReason
       ? undefined
-      : () => input.onAction?.(action, record),
+      : (values) => input.onAction?.(action, record, values),
   }));
 
   return {
@@ -120,6 +155,9 @@ export function buildDecisionWorkflowViewModel(input: {
         : EM_DASH,
     actions,
     actionsRefusedReason: input.actionsRefusedReason,
+    menuRefusedReason: input.actionsRefusedReason,
+    pending: input.pending ?? false,
+    conflict: input.conflict ?? null,
   };
 }
 

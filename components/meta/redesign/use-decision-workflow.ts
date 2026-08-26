@@ -25,6 +25,30 @@ import {
 
 export type DecisionWorkflowReadState = "idle" | "loading" | "ready" | "unavailable";
 
+/** Fields a transition cannot be sent without. */
+export interface WorkflowSubmitValues {
+  assigneeUserId?: string | null;
+  snoozeUntil?: string | null;
+  reasonCode?: string | null;
+}
+
+/**
+ * A refused transition, kept in full rather than as a sentence.
+ *
+ * The hook used to keep only `outcome.message`, so the surface could say that
+ * something changed and nothing about WHAT — which is precisely the pair of
+ * choices H12's dialog exists to offer. Keeping the server's current record and
+ * the attempt beside it is what makes keep-mine and take-server possible at
+ * all.
+ */
+export interface DecisionWorkflowConflict {
+  decisionKey: string;
+  current: WorkflowRecord;
+  attempted: { action: CanonicalWorkflowAction; fromVersion: number };
+  values: WorkflowSubmitValues;
+  message: string;
+}
+
 export interface DecisionWorkflowOverlay {
   readState: DecisionWorkflowReadState;
   unavailableReason: string | null;
@@ -33,9 +57,16 @@ export interface DecisionWorkflowOverlay {
     decisionKey: string,
     action: CanonicalWorkflowAction,
     record: WorkflowRecord,
+    values?: WorkflowSubmitValues,
   ) => Promise<WorkflowSubmitOutcome>;
   /** Set after a submit that did not apply. Cleared by the next attempt. */
   lastMessage: string | null;
+  /** The unresolved 409, or null. @see DecisionWorkflowConflict */
+  conflict: DecisionWorkflowConflict | null;
+  /** Takes the server's state and drops the local attempt. */
+  dismissConflict: () => void;
+  /** The decision key a submit is in flight for, or null. */
+  pendingKey: string | null;
 }
 
 /**
@@ -85,6 +116,17 @@ export function useDecisionWorkflow(input: {
   const [readState, setReadState] = useState<DecisionWorkflowReadState>("idle");
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<DecisionWorkflowConflict | null>(
+    null,
+  );
+  /*
+   * One in-flight submit at a time, per decision.
+   *
+   * Two clicks used to send two POSTs carrying the SAME `expectedVersion`; the
+   * second came back 409 and, once conflicts are rendered, would have looked
+   * like a phantom third-party edit of the operator's own making.
+   */
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
 
   // A stable key, so a re-render with the same ids does not re-fetch.
@@ -147,8 +189,10 @@ export function useDecisionWorkflow(input: {
       decisionKey: string,
       action: CanonicalWorkflowAction,
       record: WorkflowRecord,
+      values: WorkflowSubmitValues = {},
     ): Promise<WorkflowSubmitOutcome> => {
       setLastMessage(null);
+      setPendingKey(decisionKey);
       const outcome = await submitDecisionWorkflow({
         businessId: input.businessId,
         decisionKey,
@@ -161,14 +205,31 @@ export function useDecisionWorkflow(input: {
             typeof crypto !== "undefined" && "randomUUID" in crypto
               ? crypto.randomUUID()
               : `${decisionKey}:${action}:${record.stateVersion}`,
-          assigneeUserId: null,
-          dueAt: null,
-          snoozeUntil: null,
-          reasonCode: null,
+          /*
+           * Only what this transition is actually about.
+           *
+           * `assign` without an assignee is a no-op that still burns a
+           * `stateVersion` — `RESULTING_STATE` has no `assign` entry, so the
+           * state is unchanged and every other open tab then 409s. `reject`
+           * without a reason code and `snooze` without an instant are
+           * guaranteed 422s. All three used to be hard-coded null here while
+           * the menu offered all three, so two of the buttons could not
+           * succeed and the third did damage.
+           *
+           * `dueAt` is omitted entirely rather than sent as null: null CLEARS
+           * a stored due date, and an acknowledge has nothing to say about one.
+           */
+          ...(values.assigneeUserId
+            ? { assigneeUserId: values.assigneeUserId }
+            : {}),
+          ...(values.snoozeUntil ? { snoozeUntil: values.snoozeUntil } : {}),
+          ...(values.reasonCode ? { reasonCode: values.reasonCode } : {}),
         },
       });
+      setPendingKey(null);
 
       if (outcome.ok) {
+        setConflict(null);
         // Replace from the server's own record rather than patching locally: a
         // local guess at the next state is a second state machine.
         setRecords((prev) =>
@@ -187,6 +248,13 @@ export function useDecisionWorkflow(input: {
             item.decisionKey === decisionKey ? outcome.current : item,
           ),
         );
+        setConflict({
+          decisionKey,
+          current: outcome.current,
+          attempted: { action, fromVersion: record.stateVersion },
+          values,
+          message: outcome.message,
+        });
       } else {
         // Re-read rather than assume: a failed submit may or may not have
         // landed, and the overlay must not display a state nobody confirmed.
@@ -198,5 +266,16 @@ export function useDecisionWorkflow(input: {
     [input.businessId],
   );
 
-  return { readState, unavailableReason, recordFor, submit, lastMessage };
+  const dismissConflict = useCallback(() => setConflict(null), []);
+
+  return {
+    readState,
+    unavailableReason,
+    recordFor,
+    submit,
+    lastMessage,
+    conflict,
+    dismissConflict,
+    pendingKey,
+  };
 }

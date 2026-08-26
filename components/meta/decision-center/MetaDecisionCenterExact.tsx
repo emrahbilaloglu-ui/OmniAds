@@ -389,7 +389,48 @@ export interface MetaDecisionCenterExactWorkflowAction {
    * a control that leaves the tab order takes its own explanation with it.
    */
   readonly refusalReason: string | null;
-  readonly onSelect?: () => void;
+  /**
+   * Fields this transition cannot be sent without.
+   *
+   * `assign` needs an assignee, `snooze` an instant, `reject` a reason code.
+   * All three were offered with those fields hard-coded null, so two of them
+   * were guaranteed 422s and the third was a no-op that still burned a
+   * `stateVersion` — which made every other open tab conflict.
+   */
+  readonly requires?: readonly ("assignee" | "snoozeUntil" | "reasonCode")[];
+  readonly onSelect?: (values: {
+    assigneeUserId?: string;
+    snoozeUntil?: string;
+    reasonCode?: string;
+  }) => void;
+}
+
+/**
+ * A refused transition, and the two things an operator may do about it (H12).
+ *
+ * The names come from the design's contract and they are not intuitive, so:
+ * `keep` is KEEP MINE — "re-submits transition with fresh expectedVersion" —
+ * and `reapply` is TAKE SERVER — "discards local transition; row re-renders
+ * server state". Neither is automatic: a silent retry against the new version
+ * would overwrite whatever the other operator just did without anyone reading
+ * it.
+ */
+export interface MetaDecisionCenterExactWorkflowConflict {
+  /** What the server says the decision is NOW. */
+  readonly currentStateLabel: MetaDecisionCenterExactDisplayValue;
+  readonly currentVersion: number;
+  /** What the operator was trying to do, and from which version. */
+  readonly attemptedLabel: MetaDecisionCenterExactDisplayValue;
+  readonly attemptedFromVersion: number;
+  readonly message: MetaDecisionCenterExactDisplayValue;
+  /**
+   * Non-null when re-applying is refused — the transition no longer applies to
+   * the state the server is in. Stated rather than hidden: an operator whose
+   * only option is to take the server's answer should be told why.
+   */
+  readonly keepRefusedReason?: string | null;
+  readonly onKeepMine?: () => void;
+  readonly onTakeServer?: () => void;
 }
 
 export interface MetaDecisionCenterExactWorkflow {
@@ -412,6 +453,17 @@ export interface MetaDecisionCenterExactWorkflow {
   readonly actions: readonly MetaDecisionCenterExactWorkflowAction[];
   /** The one sentence explaining why every action is refused, when they all are. */
   readonly actionsRefusedReason?: string | null;
+  /**
+   * Why the transition menu may not be opened, or null when it may.
+   *
+   * Present-and-refusing rather than absent: `gated:META-WF-02..08 menu`'s own
+   * failure clause is "guest/reviewer: menu absent/disabled with reason", and a
+   * menu that vanishes takes its explanation with it.
+   */
+  readonly menuRefusedReason?: string | null;
+  /** True while a transition is in flight for this decision. */
+  readonly pending?: boolean;
+  readonly conflict?: MetaDecisionCenterExactWorkflowConflict | null;
 }
 
 export interface MetaDecisionCenterExactInspectorViewModel {
@@ -1992,6 +2044,277 @@ function CreativesScope({
   );
 }
 
+/**
+ * The transition menu (`gated:META-WF-02..08 menu`).
+ *
+ * The seven transitions used to render as seven bare buttons in a row, each
+ * `aria-disabled` with a title. Three things were wrong with that: the design
+ * draws a `⋯` menu and not a button bar; a title is not an accessible
+ * explanation; and `assign`, `snooze` and `reject` were fired with their
+ * required fields hard-coded null, so two of them were guaranteed 422s and the
+ * third was a no-op that still burned a version and made every other open tab
+ * conflict.
+ *
+ * So: one trigger, a real `role="menu"` with roving focus and Escape, and a
+ * form for the transitions that need one. Refusal keeps the trigger present
+ * and explains itself in text — the contract's own failure clause is
+ * "guest/reviewer: menu absent/disabled with reason".
+ */
+function WorkflowMenu({
+  workflow,
+}: {
+  workflow: MetaDecisionCenterExactWorkflow;
+}) {
+  const [open, setOpen] = useState(false);
+  const [collecting, setCollecting] =
+    useState<MetaDecisionCenterExactWorkflowAction | null>(null);
+  const [values, setValues] = useState<{
+    assigneeUserId: string;
+    snoozeUntil: string;
+    reasonCode: string;
+  }>({ assigneeUserId: "", snoozeUntil: "", reasonCode: "" });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const refused =
+    workflow.menuRefusedReason ?? workflow.actionsRefusedReason ?? null;
+
+  const close = (returnFocus: boolean) => {
+    setOpen(false);
+    setCollecting(null);
+    if (returnFocus) triggerRef.current?.focus();
+  };
+
+  const choose = (action: MetaDecisionCenterExactWorkflowAction) => {
+    if (action.refusalReason) return;
+    if ((action.requires ?? []).length > 0) {
+      setCollecting(action);
+      setOpen(false);
+      return;
+    }
+    action.onSelect?.({});
+    close(true);
+  };
+
+  const missing = (collecting?.requires ?? []).filter((field) =>
+    field === "assignee"
+      ? !values.assigneeUserId.trim()
+      : field === "snoozeUntil"
+        ? !values.snoozeUntil.trim()
+        : !values.reasonCode.trim(),
+  );
+
+  return (
+    <div className={styles.workflowActions} data-meta-exact-workflow-menu={open ? "open" : "closed"}>
+      <button
+        aria-disabled={refused ? true : undefined}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={styles.workflowMenuTrigger}
+        data-ctl="gated:META-WF-02..08 menu"
+        onClick={refused ? undefined : () => setOpen((value) => !value)}
+        ref={triggerRef}
+        type="button"
+      >
+        ⋯ Workflow
+      </button>
+      {refused ? (
+        <p className={styles.inspectorMeta} data-workflow-menu-refusal>
+          {refused}
+        </p>
+      ) : null}
+      {workflow.pending ? (
+        <p className={styles.inspectorMeta} role="status">
+          Recording…
+        </p>
+      ) : null}
+      {open && !refused ? (
+        <div
+          className={styles.workflowMenu}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close(true);
+              return;
+            }
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            event.preventDefault();
+            const items = Array.from(
+              menuRef.current?.querySelectorAll<HTMLButtonElement>(
+                '[role="menuitem"]',
+              ) ?? [],
+            );
+            const index = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            items[(index + step + items.length) % items.length]?.focus();
+          }}
+          ref={menuRef}
+          role="menu"
+        >
+          {workflow.actions.map((action) => (
+            <button
+              aria-disabled={action.refusalReason ? true : undefined}
+              className={styles.workflowAction}
+              data-workflow-action={action.id}
+              key={action.id}
+              onClick={() => choose(action)}
+              role="menuitem"
+              type="button"
+            >
+              {action.label}
+              {(action.requires ?? []).length > 0 ? "…" : ""}
+              {action.refusalReason ? (
+                <span className={styles.workflowActionRefusal}>
+                  {action.refusalReason}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {collecting ? (
+        <form
+          className={styles.workflowForm}
+          data-meta-exact-workflow-form={collecting.id}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (missing.length > 0) return;
+            collecting.onSelect?.({
+              ...(values.assigneeUserId.trim()
+                ? { assigneeUserId: values.assigneeUserId.trim() }
+                : {}),
+              ...(values.snoozeUntil.trim()
+                ? { snoozeUntil: values.snoozeUntil.trim() }
+                : {}),
+              ...(values.reasonCode.trim()
+                ? { reasonCode: values.reasonCode.trim() }
+                : {}),
+            });
+            close(true);
+          }}
+        >
+          <p className={styles.inspectorSectionLabel}>{collecting.label}</p>
+          {(collecting.requires ?? []).includes("assignee") ? (
+            <label>
+              Assign to (member id)
+              <input
+                onChange={(event) =>
+                  setValues((v) => ({ ...v, assigneeUserId: event.target.value }))
+                }
+                required
+                value={values.assigneeUserId}
+              />
+            </label>
+          ) : null}
+          {(collecting.requires ?? []).includes("snoozeUntil") ? (
+            <label>
+              Let cook until
+              <input
+                onChange={(event) =>
+                  setValues((v) => ({ ...v, snoozeUntil: event.target.value }))
+                }
+                required
+                type="datetime-local"
+                value={values.snoozeUntil}
+              />
+            </label>
+          ) : null}
+          {(collecting.requires ?? []).includes("reasonCode") ? (
+            <label>
+              Reason code
+              <input
+                onChange={(event) =>
+                  setValues((v) => ({ ...v, reasonCode: event.target.value }))
+                }
+                required
+                value={values.reasonCode}
+              />
+            </label>
+          ) : null}
+          <span className={styles.workflowFormActions}>
+            <button type="submit">Record {collecting.label.toLowerCase()}</button>
+            <button onClick={() => close(true)} type="button">
+              Cancel
+            </button>
+          </span>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The version-conflict dialog (H12).
+ *
+ * Shown, never resolved silently. The operator sees what the server says the
+ * decision is NOW beside what they were trying to do, and chooses — because a
+ * silent retry against the refreshed version would overwrite whatever the other
+ * operator just did without anyone reading it.
+ *
+ * The two control keys read backwards and are the design's own: `keep` is KEEP
+ * MINE (re-submit against the fresh version) and `reapply` is TAKE SERVER
+ * (discard the local transition).
+ */
+function WorkflowConflictDialog({
+  conflict,
+}: {
+  conflict: MetaDecisionCenterExactWorkflowConflict;
+}) {
+  return (
+    <div
+      aria-label="This decision changed while you were reading it"
+      aria-modal="false"
+      className={styles.conflictDialog}
+      data-el="conflict-dialog"
+      role="dialog"
+    >
+      <p className={styles.conflictMessage}>{display(conflict.message)}</p>
+      <dl className={styles.conflictFacts}>
+        <div>
+          <dt>Server now</dt>
+          <dd data-meta-exact-conflict-current>
+            {display(conflict.currentStateLabel)} · version{" "}
+            {conflict.currentVersion}
+          </dd>
+        </div>
+        <div>
+          <dt>You tried</dt>
+          <dd data-meta-exact-conflict-attempted>
+            {display(conflict.attemptedLabel)} · from version{" "}
+            {conflict.attemptedFromVersion}
+          </dd>
+        </div>
+      </dl>
+      <span className={styles.conflictActions}>
+        <button
+          aria-disabled={conflict.keepRefusedReason ? true : undefined}
+          data-ctl="live:META-WF-11 keep"
+          onClick={
+            conflict.keepRefusedReason ? undefined : conflict.onKeepMine
+          }
+          type="button"
+        >
+          Keep mine — re-apply against version {conflict.currentVersion}
+        </button>
+        <button
+          data-ctl="live:META-WF-11 reapply"
+          onClick={conflict.onTakeServer}
+          type="button"
+        >
+          Take the server&apos;s state
+        </button>
+      </span>
+      {conflict.keepRefusedReason ? (
+        <p className={styles.inspectorMeta} data-meta-exact-conflict-keep-refused>
+          {conflict.keepRefusedReason}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function EvidenceInspector({
   model,
   onClose,
@@ -2227,29 +2550,10 @@ function EvidenceInspector({
               </>
             )}
             {model.workflow.actions.length > 0 ? (
-              <div className={styles.workflowActions}>
-                {model.workflow.actions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className={styles.workflowAction}
-                    data-workflow-action={action.id}
-                    /*
-                      `aria-disabled`, not `disabled`. A disabled button leaves
-                      the tab order and takes its own explanation with it, so a
-                      keyboard or screen-reader operator would find nothing here
-                      and no reason why.
-                    */
-                    aria-disabled={action.refusalReason ? true : undefined}
-                    title={action.refusalReason ?? undefined}
-                    onClick={
-                      action.refusalReason ? undefined : action.onSelect
-                    }
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
+              <WorkflowMenu workflow={model.workflow} />
+            ) : null}
+            {model.workflow.conflict ? (
+              <WorkflowConflictDialog conflict={model.workflow.conflict} />
             ) : null}
             {model.workflow.actionsRefusedReason ? (
               <p className={styles.inspectorMeta} data-workflow-refusal>

@@ -58,6 +58,7 @@ import {
   type MetaDecisionCenterExactTone,
   type MetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactWindow,
+  type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import {
   buildMetaDecisionCenterExactViewModel,
@@ -90,7 +91,15 @@ import { formatCurrency } from "@/lib/briefing/utils";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
-import { useDecisionWorkflow } from "@/components/meta/redesign/use-decision-workflow";
+import {
+  useDecisionWorkflow,
+  WORKFLOW_ACTION_LABELS,
+  type DecisionWorkflowConflict,
+} from "@/components/meta/redesign/use-decision-workflow";
+import {
+  reapplyPlan,
+  WORKFLOW_STATE_LABEL,
+} from "@/lib/zero-base/meta/workflow-view-model";
 import { buildDecisionWorkflowViewModel } from "@/components/meta/redesign/decision-workflow-view-model";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
@@ -2609,6 +2618,37 @@ function creativeEvidenceStudioHref(input: {
 }
 
 /**
+ * The hook's conflict, shaped for the dialog that renders it.
+ *
+ * Returns null unless the conflict belongs to the decision the inspector is
+ * describing: a 409 on another row is not this panel's business, and showing it
+ * here would attribute somebody else's collision to the row on screen.
+ */
+function workflowConflict(
+  conflict: DecisionWorkflowConflict | null,
+  selectedDecisionKey: string | null,
+  onKeepMine: (conflict: DecisionWorkflowConflict) => void,
+  onTakeServer: () => void,
+): MetaDecisionCenterExactWorkflow["conflict"] {
+  if (!conflict || conflict.decisionKey !== selectedDecisionKey) return null;
+  const plan = reapplyPlan({
+    current: conflict.current,
+    attempted: conflict.attempted,
+    message: conflict.message,
+  });
+  return {
+    currentStateLabel: WORKFLOW_STATE_LABEL[conflict.current.state],
+    currentVersion: conflict.current.stateVersion,
+    attemptedLabel: WORKFLOW_ACTION_LABELS[conflict.attempted.action],
+    attemptedFromVersion: conflict.attempted.fromVersion,
+    message: conflict.message,
+    keepRefusedReason: plan.allowed ? null : plan.reason,
+    onKeepMine: plan.allowed ? () => onKeepMine(conflict) : undefined,
+    onTakeServer,
+  };
+}
+
+/**
  * The provider's own campaign manager, for this exact account.
  *
  * A read-only way OUT, and nothing more. It is not an action: the operator
@@ -4914,8 +4954,35 @@ export function MetaPlatformPage({
         unavailableReason: workflow.unavailableReason,
         record: workflow.recordFor(selectedDecisionKey),
         actionsRefusedReason: workflowActionsRefusedReason,
-        onAction: (action, record) => {
-          void workflow.submit(selectedDecisionKey, action, record);
+        pending: workflow.pendingKey === selectedDecisionKey,
+        /*
+         * The 409, rendered.
+         *
+         * The hook has always returned a structured conflict and the page has
+         * always thrown it away, so a refused transition changed the row's
+         * state on screen and said nothing. Neither choice is automatic:
+         * re-applying overwrites what the other operator just did, and the
+         * operator has to be the one who decides that.
+         *
+         * `reapplyPlan` probes the REAL state machine with the server's fresh
+         * record, so "keep mine" is offered only when the transition still
+         * applies — and when it does not, it says why instead of failing again.
+         */
+        conflict: workflowConflict(
+          workflow.conflict,
+          selectedDecisionKey,
+          (conflict) => {
+            void workflow.submit(
+              conflict.decisionKey,
+              conflict.attempted.action,
+              conflict.current,
+              conflict.values,
+            );
+          },
+          workflow.dismissConflict,
+        ),
+        onAction: (action, record, values) => {
+          void workflow.submit(selectedDecisionKey, action, record, values);
         },
       })
     : null;

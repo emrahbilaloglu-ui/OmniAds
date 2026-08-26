@@ -614,3 +614,236 @@ test.describe("responding to a recommendation records a row", () => {
     expect(provider, "a provider call from an operator response").toEqual([]);
   });
 });
+
+/**
+ * D6 on the running server: one physical provider account, proven.
+ *
+ * The snapshot could not say which account a recommendation was about, so an
+ * account-scoped surface served another account's rows under this account's
+ * heading and the respond control acted on them. These cases seed real rows
+ * with real lineage and drive the mounted surface and the write boundary.
+ *
+ * Every row seeded here is deleted afterwards, including on failure.
+ */
+test.describe("recommendations are scoped to one physical account", () => {
+  const A = "runtime_evidence_acct_a_rec";
+  const B = "runtime_evidence_acct_b_rec";
+  /** The SAME id under two accounts, which is what a collision looks like. */
+  const COLLIDING = "runtime_evidence_colliding_rec";
+  const seeded = [A, B, COLLIDING];
+
+  async function seedRow(input: {
+    recId: string;
+    account: string | null;
+    business: string;
+    daysAgo?: number;
+    recType: string;
+  }) {
+    await withDb(async (client) => {
+      await client.query(
+        `INSERT INTO meta_decision_snapshots_daily
+           (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+            rec_id, rec_type, level, decision_state, confidence_score,
+            recommended_action, reasoning, engine_version, kind)
+         VALUES ('account', $1, $1, $2, CURRENT_DATE - ($3::int), $4, $5,
+            'account', 'act', 0.9, 'Hold spend.', 'Seeded by the runtime harness.',
+            'runtime-evidence', 'recommendation')
+         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+        [input.business, input.account, input.daysAgo ?? 0, input.recId, input.recType],
+      );
+    });
+  }
+
+  test.afterEach(async () => {
+    await withDb(async (client) => {
+      await client.query(
+        "DELETE FROM meta_decision_responses WHERE rec_id = ANY($1::text[])",
+        [seeded],
+      );
+      await client.query(
+        "DELETE FROM meta_decision_snapshots_daily WHERE rec_id = ANY($1::text[])",
+        [seeded],
+      );
+    });
+  });
+
+  async function respond(
+    page: Page,
+    body: { businessId: string; providerAccountId: string | null; recId: string; action: string },
+  ) {
+    return page.evaluate(async (payload) => {
+      const response = await fetch("/api/meta/recommendations/respond", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      return { status: response.status, body: (await response.text()).slice(0, 300) };
+    }, body);
+  }
+
+  async function responseCount(recId: string, business: string) {
+    return withDb(async (client) =>
+      Number(
+        (
+          await client.query(
+            "SELECT count(*)::int AS n FROM meta_decision_responses WHERE business_id = $1 AND rec_id = $2",
+            [business, recId],
+          )
+        ).rows[0].n,
+      ),
+    );
+  }
+
+  test("a recommendation belonging to another account is refused", async ({ page }) => {
+    const business = handle.businesses.manyAccounts;
+    await seedRow({ recId: B, account: handle.accounts.manyB, business, recType: "rt_b" });
+    await openSurface(
+      page,
+      handle,
+      `/c/${business}/meta/intelligence?providerAccountId=${handle.accounts.manyA}`,
+    );
+
+    // Account A is selected; the row belongs to account B.
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyA,
+      recId: B,
+      action: "acted",
+    });
+
+    expect(refused.status).toBe(404);
+    expect(refused.body).toContain("recommendation_not_served");
+    expect(await responseCount(B, business)).toBe(0);
+  });
+
+  test("the same rec id under two accounts stays separated", async ({ page }) => {
+    const business = handle.businesses.manyAccounts;
+    await seedRow({
+      recId: COLLIDING,
+      account: handle.accounts.manyA,
+      business,
+      recType: "rt_collide_a",
+    });
+    await openSurface(
+      page,
+      handle,
+      `/c/${business}/meta/intelligence?providerAccountId=${handle.accounts.manyA}`,
+    );
+
+    // Under account A the id is served, so the response is recorded.
+    const accepted = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyA,
+      recId: COLLIDING,
+      action: "acted",
+    });
+    expect(accepted.status).toBe(200);
+    expect(await responseCount(COLLIDING, business)).toBe(1);
+
+    // The identical id claimed under account B is refused: the row that carries
+    // it belongs to A, and an id is not authority.
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.manyB,
+      recId: COLLIDING,
+      action: "acted",
+    });
+    expect(refused.status).toBe(404);
+    expect(await responseCount(COLLIDING, business)).toBe(1);
+  });
+
+  /*
+   * The freshness defect, end to end. The id is real, this account's, and
+   * inside any reasonable window — it is simply not in the CURRENT snapshot.
+   */
+  test("an id from an older snapshot is refused for acted", async ({ page }) => {
+    const business = handle.businesses.oneAccount;
+    const account = handle.accounts.one;
+    await seedRow({
+      recId: A,
+      account,
+      business,
+      daysAgo: 3,
+      recType: "rt_stale",
+    });
+    // A newer snapshot for the same account, which is what makes the older one
+    // stale rather than merely old.
+    await seedRow({
+      recId: "runtime_evidence_current_rec",
+      account,
+      business,
+      daysAgo: 0,
+      recType: "rt_current",
+    });
+    seeded.push("runtime_evidence_current_rec");
+    await openSurface(
+      page,
+      handle,
+      `/c/${business}/meta/intelligence?providerAccountId=${account}`,
+    );
+
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: account,
+      recId: A,
+      action: "acted",
+    });
+
+    expect(refused.status).toBe(404);
+    expect(refused.body).toContain("recommendation_not_served");
+    expect(await responseCount(A, business)).toBe(0);
+
+    // And the current one IS accepted, so the refusal is about staleness rather
+    // than about the seeding being wrong.
+    const accepted = await respond(page, {
+      businessId: business,
+      providerAccountId: account,
+      recId: "runtime_evidence_current_rec",
+      action: "acted",
+    });
+    expect(accepted.status).toBe(200);
+  });
+
+  /*
+   * Legacy rows: written before the lineage column existed, so their account
+   * cannot be proven. They are withheld, never shown for every account.
+   */
+  test("a row with no proven account lineage is withheld, not shared", async ({ page }) => {
+    const business = handle.businesses.oneAccount;
+    await seedRow({ recId: A, account: null, business, recType: "rt_legacy" });
+    await openSurface(
+      page,
+      handle,
+      `/c/${business}/meta/intelligence?providerAccountId=${handle.accounts.one}`,
+    );
+
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: handle.accounts.one,
+      recId: A,
+      action: "acted",
+    });
+
+    expect(refused.status).toBe(404);
+    expect(await responseCount(A, business)).toBe(0);
+  });
+
+  test("a response with no account at all is refused", async ({ page }) => {
+    const business = handle.businesses.oneAccount;
+    await seedRow({ recId: A, account: handle.accounts.one, business, recType: "rt_noacct" });
+    await openSurface(page, handle, INTELLIGENCE);
+
+    const refused = await respond(page, {
+      businessId: business,
+      providerAccountId: null,
+      recId: A,
+      action: "acted",
+    });
+
+    // "The current snapshot" is a per-account fact, so an unscoped response
+    // cannot be authorized — it does not fall back to business-wide.
+    expect(refused.status).toBe(404);
+    expect(await responseCount(A, business)).toBe(0);
+  });
+});

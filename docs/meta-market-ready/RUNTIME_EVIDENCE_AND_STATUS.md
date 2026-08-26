@@ -1,85 +1,69 @@
 # Meta market-ready — runtime evidence and corrected status
 
 Branch: `meta-market-ready`
-Code HEAD: `8f15c972a` — every figure below was measured there unless §5 says
-otherwise. This document and the recaptured evidence are the only things
-committed after it.
+Code HEAD: `6ab9d12d9` — every figure below was measured there unless §5 says
+otherwise. This document is the only thing committed after it.
 Date: 2026-08-26
-Supersedes the revision written at `bede81bd2`.
+Supersedes the revision written at `8f15c972a`.
 
 ---
 
 ## 1. What this pass built
 
-The previous revision closed six findings and left two "product decisions":
-repointing the Decisions and Overview harnesses. That framing was wrong. The
-missing pieces were product BEHAVIOUR, the master plan and the accepted design
-package define it, and it is built now.
+The previous revision left four things open and called three of them product
+decisions. They were not. Each names a behaviour the master plan and the
+accepted design package already define, and each is built here.
 
 | # | Was | Now |
 |---|---|---|
-| 1 | No Needs Resolution lane | **Built** — the server's own `blocked` state, given a lane |
-| 2 | No level filter | **Built** — and the `levels` link parameter is honoured for the first time |
-| 3 | Inspector could not be closed | **Built** — `live:close`, focus returned to the row |
-| 4 | No evidence-window / as-of statement | **Built** — two facts, drawn separately, plus the grain gaps |
-| 5 | No share-view, brief, Ads Manager, ceremony trigger, stale-demoted | **Built** — all five, on existing safe contracts |
-| 6 | The 409 was handled headlessly | **Built** — the conflict dialog, keep-mine and take-server |
-| 7 | The seven workflow transitions, three of which could not work | **Built** — a real menu, and the fields the server requires |
-| 8 | Every string a hardcoded English literal | **Built** — 76 catalogue keys, EN and TR, aria-labels included |
-| 9 | Overview had none of its four capabilities | **Built** — readiness, connect, chart/table, divergence, mobile triage |
-| 10 | The archived Decisions body in the harness allowlist | **Measured, and still there** — see §7.1 |
-| 11 | The archived Overview body in the harness allowlist | **Measured, and still there** — see §7.2 |
+| 1 | The Stop ceremony existed only in an archived presenter no route mounts | **Ported** — preflight, typed confirmation both directions, read-back-only success, on the body the route renders |
+| 2 | Launchpad's first load: 18 reads, cause recorded as "unattributed" | **11** — every request named, seven folded into one composed route, and the debt ceiling deleted rather than lowered |
+| 3 | Respond named an action and led to a sentence saying to go elsewhere | **Acts** — on a served `rec_id`, through the route that owns it, read back from `meta_decision_responses` |
+| 4 | The mobile scope sheet stated eight facts and could change none | **Changes three** — by invoking the topbar's own controls, not by mounting a second picker |
+| 5 | `app/dev-preview-share` swept into history a second time | **Untracked again**, forward-only; the rewrite stays approval-gated |
 
-Ten commits since `bede81bd2`; 43 source files, +6 168 / −346.
+Thirteen commits since `b719400a3`. Excluding the recaptured evidence:
+40 files changed, +4 702 / −715.
 
 | Commit | Subject |
 |---|---|
-| `685d05d41` | Gate the whitespace that four green gates could not see |
-| `d67f61c3c` | WP8: give the server's blocked decisions a lane of their own |
-| `f8b998e6c` | WP8: give the queue the level filter its own links already promised |
-| `0a35f137c` | WP8: say what the verdict was measured over, let the panel close, route the brief |
-| `130485425` | WP8: the three queue controls the design names and the surface had none of |
-| `eee701160` | WP8: render the 409, build the transition menu, and close two server gaps |
-| `ffc46fc60` | WP8: give the decision a route into the manual action sheet |
-| `97c9e181a` | WP8: put the Decision Center's own words through the copy catalogue |
-| `428f6c950` | Overview: build the four capabilities the design names |
-| `8f15c972a` | WP16: run the Decisions repoint, and record what it measured |
+| `8645fcd42` | Record the clean-history plan, and why it waits for approval |
+| `ab80dc1f9` | WP13: port the Meta Stop ceremony onto the body the route mounts |
+| `f7d7057cc` | Untrack app/dev-preview-share again, which my own commit re-added |
+| `48ca88902` | Record the recurrence in the history remediation plan |
+| `c29372622` | WP14/17: name every Launchpad first-load request, and fold seven into one |
+| `a47aff00c` | WP9: give the respond control a recommendation to act on |
+| `5316b0c33` | Mobile: let the scope sheet change scope, through the topbar's own controls |
+| `4a1a58b87` | Make the runtime evidence for WP9 and WP13 actually measure what it claims |
+| `c15080921` | WP13: keep the refused Stop trigger reachable from the keyboard |
+| `4460f87cb` | Recapture the 92 frames from the code this pass actually changed |
+| `e39edab85` | Make the Automation fixture describe the payload the route actually returns |
+| `0e5ea61b1` | Recapture the frames from the corrected Automation fixture |
+| `6ab9d12d9` | Recapture the runtime screenshot set from this pass's build |
 
 ---
 
 ## 2. The defects this pass found and fixed
 
-Every one was found by building the behaviour the design names and discovering
-what the existing code did instead.
+Every one was found by building the behaviour the design names, or by making a
+test measure what it claimed to, and discovering what the existing code did
+instead.
 
 | # | Defect | Consequence |
 |---|---|---|
-| 1 | Trailing whitespace survived typecheck, lint, 12 887 Vitest checks and a 26-minute browser sweep | None of them looks at bytes nobody can see; `git diff --check` was wired to nothing |
-| 2 | A `blocked` decision was drawn under "Action Now" | The lane that promises an action held decisions whose authority the engine had explicitly withheld — on Grandmix, most of the queue |
-| 3 | `lane=test` links resolved to Action Now and were reported as unrestorable | It is the older contract's name for `blocked`; there was nowhere to put it, so the recipient saw a different set of rows |
-| 4 | `levels=campaign` was reported as dropped | The surface had no level filter, so a link that promised "campaigns only" showed every ad set |
-| 5 | Selecting Needs Resolution would have written `segment=structures` | A reload would have landed on Archive |
-| 6 | The inspector had no close control | `inspectorOpen` is computed by the page and is unconditionally true on the Action lane |
-| 7 | The inspector rendered with no selection | A workspace that had not resolved drew a full evidence column of em dashes beside an empty queue |
-| 8 | `startDate`, `endDate` and `snapshotCreatedAt` reached no screen | A verdict with no window is unfalsifiable, and a snapshot time shown as a window is how a stale read passes for a current one |
-| 9 | Nothing minted a brief link | `canCreateBrief` and the Briefs surface's URL lineage both existed; the flow was reachable only by hand-writing a URL |
-| 10 | The 409 was invisible | The hook returned a structured conflict and the page voided it, so a refused transition changed the row on screen and said nothing |
-| 11 | `assign` with no assignee is a no-op that still burns a `stateVersion` | Every other open tab then conflicts over a change that changed nothing |
-| 12 | `reject` and `snooze` were fired with their required fields hard-coded null | Two of the seven offered transitions were guaranteed 422s |
-| 13 | `dueAt: null` on every action | Null CLEARS a stored due date, so an unrelated acknowledge destroyed one |
-| 14 | `POST /api/meta/decision-workflow` had no reviewer guard and no demo refusal | A reviewer holds a real membership and passed the role check; the screen was enforcing a rule the server did not |
-| 15 | Two clicks sent two POSTs with the same `expectedVersion` | Once conflicts are rendered, the second reads as a phantom third-party edit of the operator's own making |
-| 16 | The mobile screen drew five lanes | It would have hidden the blocked rows entirely once they left Action Now |
-| 17 | Overview never asked `/api/integrations/status` | The readiness panel would have had to infer connectedness from whether a metric happened to be non-zero |
-| 18 | Overview drew a chart with no way to read the numbers | `live:chart-table-toggle` contracts real `<table>` markup, announced, persisted per surface |
-| 19 | Four marked controls were `<span>` or sized off the reference type scale | A marked control that is not a control cannot be reached by keyboard to read its own refusal; 11px is below this product's own floor |
-| 20 | The workflow menu sat below the manual action | B02 draws it above |
-
-And one trap worth recording, because it cost a green gate: adding
-`MetaDecisionCenterExact.module.css` to the frame harness while the frames still
-render the reference body **moved a control on H09**. The CSS-module stub leaves
-class names unhashed, so a module appended to a frame that renders a different
-body paints that body through generic names.
+| 1 | `resolveStopCeremony` required `admin` for BOTH directions; `/api/meta/automation` requires `collaborator` to engage and `admin` to release | The surface was stricter than the route: an operator the server would have accepted was shown the emergency stop as refused |
+| 2 | The mounted Stop had no preflight and no read age | The confirmation was made against nothing, and a 200 was allowed to announce success — the design's H20 calls this a release preflight for a reason |
+| 3 | The Launchpad first load's 18 reads were recorded with the cause "unattributed" | A recorded number with no cause is a ceiling nobody can lower; naming the requests took seven of them away |
+| 4 | Seven Launchpad routes asked one question about one account at one instant | Each was a separate round trip on every load, and each 4xx'd independently when the account could not resolve, so the surface inferred one state from seven answers |
+| 5 | `count(model.recommendations.length)` — `count()` takes an array | The Recommendations fact read "Not reported" on every load; a served three was reported as unknown |
+| 6 | The respond control was enabled and had no subject | It named an action and answered a click with a sentence saying to record it somewhere else |
+| 7 | With NO decision snapshot, the respond control stayed ENABLED with no targets | The wrapper reported itself available while the select was disabled — a control that looks usable and is not |
+| 8 | The refused Stop trigger was `disabled` | A `disabled` button leaves the tab order, so the reason it refuses — the whole point of keeping it on screen — was out of keyboard reach. The zero-base responsive gate caught it |
+| 9 | The Automation fixture put the SECTIONS shape under the `readCompleteness` key and served no `sections` | Anything reading a section's observation instant saw nothing, so the Stop ceremony was refused as `preflight_unavailable` on every frame and every interaction case. The bare `disabled` attribute had been hiding it from the harness's `aria-disabled` check |
+| 10 | The scope sheet's three picker slots were never filled | A phone could read the scope and not move it, while `ScopePickers` and `ROW_PICKER` had been in place for both |
+| 11 | `storedKillSwitch()` queried `meta_automation_business_control`; the table is `..._controls`, and a bare `catch { return null }` swallowed it | The test reported "the database holds nothing" for a row that existed — the exact failure mode that file exists to catch |
+| 12 | The gate probe asserted the literal `release_gate_closed`; the guard answers the §9.1 code `automation_stop_disabled` | The gate was shut all along; the assertion was reading for a word the server never says |
+| 13 | `git add -A` swept `app/dev-preview-share` into a commit for the second time | A user-owned file readable from nine commits instead of seven. Untracked again, forward-only |
 
 ---
 
@@ -96,15 +80,15 @@ body paints that body through generic names.
 | **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven; the notice's placement decided by whether a state ENDS | Query-plan, capacity, retention and growth evidence needs production read-only access |
 | **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18 | Needs a Meta sandbox account |
 | **WP8** Decisions | **DONE (local)** | Six lanes including the server's `blocked` state; the level filter with URL round-trip; the inspector's close, provenance band and grain gaps; share-view, brief, Ads Manager, inactive-assets strip and the manual-action route; the seven transitions with the fields the server requires; the 409 dialog with keep-mine and take-server; two server refusals every sibling route already performed | Provider execution needs a sandbox |
-| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed, the two control sections gated on the server with a §9.1 code | Respond acts on one recommendation and this section reports a count — see §7.4 |
+| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed; the two control sections gated on the server; respond acts on a SERVED `rec_id` and the row is read back from `meta_decision_responses` on the running server | — |
 | **WP10** Creative Studio core | **DONE (local)** | Five tabs × four account postures; per-tab telemetry resolves to nine distinct names | — |
 | **WP11** Briefs, Shares, Public Share | **DONE (local)** | The whole lifecycle on the LEGACY studio and the CANONICAL console; and a decision can now reach the brief flow at all | — |
 | **WP12** History | **DONE (local)** | Nine families SUM to the journal; `writes` matches the action log row for row | — |
-| **WP13** Automation | **PARTIAL** | The Stop's round trip both directions; AUTO-03 records an autonomy mode per action kind | Provider-side reversibility needs a sandbox |
-| **WP14** Launchpad read/draft/validate | **DONE (local)** | Create → edit → list → validate → delete, each read back from the table | — |
+| **WP13** Automation | **PARTIAL** | The Stop ceremony on the MOUNTED body: a fresh persisted preflight with its age, typed confirmation in both directions, a POST that may never announce anything, success only from a server read-back, and engage → read-back → release → read-back in one session with the control table checked after each. `collaborator` engages, `admin` releases, matching the route | Provider-side reversibility needs a sandbox |
+| **WP14** Launchpad read/draft/validate | **DONE (local)** | Create → edit → list → validate → delete, each read back from the table; and the first load is one composed read at the two authorization floors the seven routes actually have | — |
 | **WP15** Launchpad execution | **BLOCKED** | The shipped refusal proven end to end | Needs a Meta sandbox account |
-| **WP16** Harness, contracts, dead modules | **PARTIAL** | Anatomy 83/83; frames 92/92; the Automation harness renders the mounted body. The Decisions repoint was RUN: 83/83 anatomy with the mounted body, and 229 fidelity findings, all `untokenised-colour` | The two repoints wait on the design re-vendor — see §7.1 and §7.2 |
-| **WP17** Telemetry, security, a11y, perf | **PARTIAL** | CLS within budget with an empty debt map; axe clean at 1440 light and 390 dark on thirteen surfaces; the Decision Center's own words in EN and TR | Manual AT pass |
+| **WP16** Harness, contracts, dead modules | **PARTIAL** | Anatomy 83/83; frames 92/92 recaptured from this tree; the Automation harness renders the mounted body, and the archived Automation presenter is now unreachable from every route and from every module outside `_reference` bar the flow-I suite. The Decisions repoint was RUN: 83/83 anatomy with the mounted body, and 229 fidelity findings, all `untokenised-colour` | The two repoints wait on the design re-vendor — see §7.1 and §7.2 |
+| **WP17** Telemetry, security, a11y, perf | **PARTIAL** | CLS within budget with an empty debt map; axe clean at 1440 light and 390 dark on thirteen surfaces; Launchpad's first load inside the budget with its ceiling deleted; the refused Stop reachable from the keyboard; the mobile scope sheet able to change the scope it states | Manual AT pass |
 | **WP18** Staged release | **BLOCKED** | — | Explicit authorization. Nothing merged, pushed, deployed or activated |
 
 ---
@@ -122,11 +106,18 @@ answers to the same request *is* the mode or the gate.
 `META_LAUNCHPAD_EXECUTION`, `META_AUTOMATION_LIVE_WRITES`,
 `META_DECISION_WORKFLOW_UI` and `ZERO_BASE_MUTATION_UI_ENABLED` are opened
 **nowhere**. The first two because their next step is a call to Meta; the second
-two because the controls they open are new this pass and default off, which is
-what a staged release means.
+two because the controls they open default off, which is what a staged release
+means.
+
+`META_AUTOMATION_STOP_UI` is the one gate the two servers differ on, and the
+difference is the evidence: the same POST answers 503 `automation_stop_disabled`
+on the shipped server and is accepted on the gates-open one. Releasing an
+existing stop is refused by no gate at either setting — a stop that cannot be
+lifted is worse than no stop — and both servers still reach no provider, because
+`dryRunOnly` stays true and nothing on the surface addresses Meta.
 
 The saved responsive matrix is
-`playwright/artifacts/meta-runtime/meta-market-ready-8f15c972a0/` — thirteen
+`playwright/artifacts/meta-runtime/meta-market-ready-0e5ea61b13/` — thirteen
 surfaces x five widths x two themes, named for the code it was taken from. It is
 not a regression baseline: nothing diffs against it, and the pixel oracles are
 the zero-base visual and fidelity gates.
@@ -135,44 +126,85 @@ the zero-base visual and fidelity gates.
 
 ## 5. Validation
 
-Run at `8f15c972a`. Results quoted, not summarised.
+Run at `6ab9d12d9` unless noted. Results quoted, not summarised.
 
 | Command | Result |
 |---|---|
-| `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..HEAD` as a tree diff |
+| `git diff --check` / `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..HEAD` as a tree diff |
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
-| `npx vitest run` | **PASS** — 12 951 passed, 144 skipped, 63 todo (13 158) across 1 079 files, 0 failed |
+| `npx vitest run` | **PASS** — 13 011 passed, 144 skipped, 63 todo (13 218) across 1 083 files, 0 failed |
 | `npm run build` | **PASS** |
-| `npm run meta:runtime-evidence` | **PASS** — 372 passed, 130 skipped, 0 failed (26.0 min), exit 0 |
-| `META_RUNTIME_SCREENSHOT_SET=… META_RUNTIME_SPEC_FILTER=…screenshots.spec.ts npm run meta:runtime-evidence` | **PASS** — 131 passed (7.8 min); this is the 130 the sweep skips |
-| `npx vitest run lib/creative-decision-engine/__tests__/golden-cases.test.ts …/invariants.test.ts` | **PASS** — 74 passed, 52 todo |
+| `npm run meta:runtime-evidence` | **PASS** — 381 passed, 130 skipped, 0 failed (26.1 min), exit 0 |
+| `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-0e5ea61b13 …screenshots.spec.ts` | **PASS** — 131 passed (7.8 min); this is the 130 the sweep skips |
 | `npm run meta:verify-mounted-bodies` | **PASS** — 15 surfaces |
 | `npm run test:zero-base:reference` | **PASS** — 99/99 regions, 248/248 controls, 35/35 collections, 83/83 artboards |
-| `npm run test:zero-base:fidelity` | **PASS** — with the 46 recorded paint-system findings on H19/H20 |
-| `npm run test:zero-base:frames` | **PASS** — 92/92, 0 substitutions |
-| `npm run zero-base:reconcile:frames` | **PASS** |
-| `npm run test:zero-base:a11y` | **PASS** — 85 checks |
+| `npm run test:zero-base:fidelity` | **PASS** — 81/83 frames matching, with the 45 recorded paint-system findings on H19/H20 (was 46) |
+| `npm run zero-base:reconcile:frames` | **PASS** — 92/92, 0 substitutions, captured at `e39edab850` |
+| `npm run test:zero-base:a11y` | **PASS** |
 | `npm run test:zero-base:responsive` | **PASS** — 84 checks |
-| `npm run test:zero-base:visual` | **PASS** |
-| `npm run test:zero-base:theme` | **PASS** — 84 checks |
+| `npm run test:zero-base:visual` / `:theme` | **PASS** |
 | `npm run test:zero-base:routes` / `:flows` / `:states` / `:locale` / `:contract` / `:design` / `:compatibility` | **PASS** |
+| `npm run test:zero-base:smoke:local` | **PASS** — 4 checks against the local production server |
+| `npm run test:zero-base:perf:local` | **PASS** — 5 checks; shared baseline 492.0 KB, above the 400 KB local investigation trigger, which is a diagnostic and not a plan gate |
 | `npm run zero-base:contract:verify` | **PASS** — reports the package's own verdict as NOT READY |
 | `npm run zero-base:contracts:check` / `:fonts:verify` / `zero-base:legibility` | **PASS** |
-| `npm run test:migrations-from-zero` | **PASS** |
-| `npm run test:selection-race-seam` | **PASS** |
-| `npm run test:release-gate-plan-seam` | **PASS** |
-| `npm run test:operator-hardening` | **PASS** |
 | `npm run test:local-db` | **NOT RUN** — refuses without the external volume at `/Volumes/adsecuteDB`; a hardware precondition, and `test:migrations-from-zero` covers the same class |
+
+### 5.0 Launchpad's first load, named
+
+The count was 18 with the cause recorded as "unattributed". The perf spec now
+prints every request whenever a surface is over budget, so the inventory is a
+measurement rather than a claim. Nine of the eighteen are the SHELL, and every
+Meta surface pays the same nine:
+
+```
+/api/instrumentation/event   /api/auth/me        /api/billing
+/api/integrations  (x2)      /api/notifications  /api/meta/status
+/api/oauth/shopify/pending   /api/google-ads/status
+```
+
+`meta-history` measures exactly nine, which is how the shell's share was
+isolated. The other nine were Launchpad's own, and seven asked the same question
+about the same account at the same instant:
+
+```
+/api/meta/history/accounts           /api/launchpad/meta/drafts
+/api/launchpad/meta/templates        /api/launchpad/meta/intents
+/api/launchpad/meta/templates/recent /api/launchpad/meta/recent-ad-actions
+/api/business-commercial-settings
+```
+
+`/api/launchpad/meta/workspace` composes those seven. Measured **11** on four
+consecutive runs (once 10), against a budget of 12, and the surface's entry in
+`FIRST_LOAD_API_CALL_DEBT` is **deleted** rather than lowered — it needs no
+ceiling of its own. The only repeat is the shell's known `/api/integrations`
+duplicate, which is on the recorded list and belongs to two owners of the
+integrations store.
+
+What did not change, and is asserted in `app/api/launchpad/meta/workspace/route.test.ts`:
+
+- **Authorization.** The seven routes do not share one floor and this does not
+  give them one. `/api/meta/history/accounts` admits a `guest`; the six
+  Launchpad routes are hardcoded to `collaborator`. Both are enforced
+  separately, so a guest still reads the account list and still cannot read the
+  library — the refusal arrives as a 200 that names it per section, not as a 403
+  that would have taken the account picker away.
+- **Scope.** The same `resolveAssignedMetaLaunchAccount`, and the client still
+  filters rows to the account it asked for.
+- **Freshness.** Every folded route is `force-dynamic` and uncached; so is this.
+- **Reporting.** The four §9 outcomes keep their ids, their row counts and their
+  meaning. A section the server did not report on is unread, never empty.
 
 ### 5.1 The runtime sweep, by matrix
 
-Every one of the 372 checks runs in a browser against the production standalone
+Every one of the 381 checks runs in a browser against the production standalone
 build over HTTP with a real session.
 
 | Spec | Checks |
 |---|---|
 | a11y (axe, 13 surfaces x 2 postures) | 53 |
+| Automation Stop ceremony | 8 |
 | interaction (keyboard, dialogs, drawer, scope sheet, notice placement, reduced motion, logs) | 49 |
 | rollout (four modes x the surface set) | 38 |
 | surface identity (canonical / `/app` twin / legacy spelling) | 37 |
@@ -183,7 +215,7 @@ build over HTTP with a real session.
 | release gates | 18 |
 | share lifecycle | 16 |
 | scope | 11 |
-| Account Intelligence | 8 |
+| Account Intelligence | 10 |
 | history | 7 |
 | window | 7 |
 | integrations · security · write gates | 5 each |
@@ -191,6 +223,13 @@ build over HTTP with a real session.
 
 The 130 skipped are `meta-runtime-screenshots.spec.ts`, which refuses to run
 without a caller-supplied set name; they are the separate 131-check row above.
+
+Ten of the 381 are new this pass: eight for the Stop ceremony — the refusal
+before it acts, the preflight's age, the gate's two halves, release ungated,
+the typed confirmation suppressing the request, the engage → read-back →
+release → read-back round trip against `meta_automation_business_controls`, and
+no provider call — and two for respond, which seeds one recommendation, drives
+the mounted control and reads the row back out of `meta_decision_responses`.
 
 ### 5.2 The Decisions repoint, measured
 
@@ -226,8 +265,10 @@ that is the right instrument is stated in the file rather than glossed.
 
 **Provider.** None. No Meta call was made by anything in this session.
 
-**Release and rollback.** Nothing merged, pushed, deployed or activated. Every
-release gate still defaults off, including the two this pass gave controls to.
+**Release and rollback.** Nothing merged, pushed, deployed or activated, and no
+history rewritten. Every release gate still defaults off — `automationStopUi`
+holds ENGAGE and never holds RELEASE, and the gates-open server exists only so
+the difference between the two answers can be measured.
 
 ---
 
@@ -275,42 +316,96 @@ the harness cannot render it without a presenter extraction. That extraction
 belongs with the re-vendor rather than before it: on its own it would produce a
 harness that renders the mounted body and still fails fidelity for the paint.
 
-### 7.3 The archived-body ceiling is 2, not 0
+### 7.3 The archived-body ceiling is still 2
 
-Both entries remain, and both reasons in
-`scripts/zero-base/harness-reachability.test.ts` are now measurements rather
-than judgements. The ceiling may only fall, and it falls to zero on the day the
-design package is re-vendored.
+Unchanged by this pass, and worth stating plainly rather than letting §7.6 imply
+otherwise. `PERMITTED_REFERENCE_BODIES` holds two entries — the archived
+Decisions body and the archived Overview body — and both are held by the paint
+system, not by anything this pass could build. The Automation presenter came off
+that list in the previous pass, when H19/H20 were repointed at the mounted body;
+what this pass did was remove its remaining reachability, which is a different
+claim (§7.6).
 
-### 7.4 What respond can honestly do
+The ceiling may only fall. It falls to zero on the day the design package is
+re-vendored.
 
-`/api/meta/recommendations/respond` needs a `recId`, and the Recommendations
-section reports how many are in scope rather than which. The control records the
-action and says where to record it against a specific decision. Giving the
-section a per-recommendation list is a design question about what belongs on
-Account Intelligence versus Decision Center.
+### 7.4 Respond, closed
 
-### 7.5 The scope sheet's pickers
+The control acts. `SectionControl` carries `targets` — the snapshot's own
+`rec_id` values with the titles it wrote — the view offers the recommendation
+before the action, and the client posts `/api/meta/recommendations/respond` with
+a SERVED id. Proven end to end on the running server: the runtime spec seeds one
+recommendation, drives the mounted control, and reads the row back out of
+`meta_decision_responses` for that exact `rec_id`.
 
-The sheet states all eight facts; its rows carry no pickers. `ScopePickers`
-treats an omitted handler as "this actor genuinely cannot do this" and draws
-nothing rather than something disabled — and the console's real business,
-account and window controls are in the topbar two inches above.
+Two refusals, both server-authored. The ACTOR's — reviewer, then demo, then role
+— outranks everything, in the route's own precedence. And when there is nothing
+to act on, the control is refused with a served sentence and **no §9.1 code**: a
+snapshot that carries no recommendation is a measured zero, and giving it a
+failure code would report an absence as a defect.
 
-### 7.6 The archived Automation presenter
+The count fact was also wrong: `count()` takes an array and was handed
+`.length`, so a served three read "Not reported" on every load.
 
-Still on disk, unreachable from any route and no longer reached by any release
-evidence. It is the only implementation of the stop CEREMONY the design's H20
-calls a "release preflight", and the mounted body has a direct engage/release
-pair with none of it. Deleting it deletes the ceremony and the flow-I suite that
-encodes its laws.
+### 7.5 The scope sheet's pickers, closed
 
-### 7.7 Launchpad's first-load read count
+The three rows the design gives a picker now have one, and it is the topbar's.
+Each topbar control registers a handle through `ScopeControlsProvider`; the
+sheet closes, the real trigger takes focus and opens, and the same handler
+writes the same cookie, the same URL and the same store it always did. There is
+no second writer and no second opinion about what is permitted.
 
-18, measured with no variance, against a ceiling recorded as a 16–17 band. No
-Launchpad code was touched in this pass or the last, and neither could attribute
-the extra read to a change it made. Recorded as what it measures, with the fact
-that the cause is unattributed written down beside it.
+A picker appears only where there is a choice: with no assigned account the row
+is a link to Integrations and with exactly one the account is named rather than
+offered, so neither registers. Refusals travel with the handle and are RENDERED,
+not only titled — the account picker's release-gate sentence and the surface
+registry's current-state note, in the words that decided them — and the control
+is `aria-disabled` rather than `disabled`, so it keeps its place in the tab
+order.
+
+### 7.6 The archived Automation presenter, retired
+
+The ceremony was ported to `app/(dashboard)/platforms/meta/automation/automation-view.tsx`,
+which is the body every route mounts: a fresh persisted preflight with its age,
+a typed confirmation whose phrase depends on the direction, a POST that may
+never announce anything, and success only where a server read-back agrees with
+the intent. `collaborator` engages and `admin` releases, matching the route —
+the archived resolver required `admin` for both and was therefore hiding the
+emergency stop from operators the server would have accepted.
+
+The presenter was already off the harness allowlist. What changed here is
+reachability: its client wrapper moved to `components/zero-base/_reference/`
+beside it, and `harness-reachability.test.ts` now asserts both that no route
+reaches the presenter and that nothing outside `_reference` imports it, with one
+named exception — `flow-i.test.tsx`, which still encodes the ceremony's laws
+against it.
+
+It is not deleted. WP16's migration rule holds compatibility until the required
+stable-release gate.
+
+### 7.7 Launchpad's first-load read count, closed
+
+11, measured on four consecutive runs, against a budget of 12. Every request is
+named in §5.0, the seven that asked one question are one composed route, and the
+surface's `FIRST_LOAD_API_CALL_DEBT` entry is deleted rather than lowered. No
+exception is claimed, because none is needed.
+
+### 7.8 The history rewrite waits for approval
+
+`app/dev-preview-share/page.tsx` is user-owned, untracked, and byte-unchanged
+(md5 `319c80d401494da99f507a4e4bb87c61`). It is readable from nine commits in
+LOCAL history because a broad `git add -A` swept it in twice — once at
+`eee701160` and again at `ab80dc1f9`, one commit after the first repair.
+`f7d7057cc` untracked it again, forward-only.
+
+The branch has never been pushed: `git ls-remote --heads origin meta-market-ready`
+returns nothing and there is no remote-tracking ref, both re-checked at
+execution time by step 2 of the plan. Removing the blob means rewriting thirteen
+commits including the HEAD every measurement here is stamped with, so it is a
+decision about the project's history rather than a defect to fix quietly.
+`docs/meta-market-ready/HISTORY_REMEDIATION_PLAN.md` records the exact
+procedure, its verification steps and its preconditions. **Nothing in it has
+been run.**
 
 ---
 
@@ -320,8 +415,9 @@ that the cause is unattributed written down beside it.
 |---|---|---|
 | No Meta sandbox account | WP7, WP15, WP13's provider-side reversibility, WP1's live-refusal confirmation | A physical Meta ad account that may receive PAUSED creates, named explicitly, with the scope it may be used at |
 | No production read-only access | WP6 query plan / capacity / retention / growth | Explicit authorization and the exact business IDs that may be read |
-| **Design package not re-vendored** | **WP16 §7.1 and §7.2** — 229 measured findings on Decisions, and the same class on Overview — plus REQ-27, REQ-28/M11, REQ-41 | An export regenerated at a single fingerprint. The archive itself is not needed; the vendored bytes are hash-verified |
+| **Design package not re-vendored** | **WP16 §7.1 and §7.2** — 229 measured findings on Decisions, and the same class on Overview — plus the 45 recorded paint-system findings on H19/H20, REQ-27, REQ-28/M11 and REQ-41 | An export regenerated at a single fingerprint. The archive itself is not needed; the vendored bytes are hash-verified |
 | No human assistive-technology pass | WP1, WP17 | A person with a screen reader confirming each disabled control's reason is announced. axe, the accessibility tree, focus order, dialog traps, live-region politeness and reduced motion are all checked; none is a substitute |
 | No release authorization | WP18 | Explicit approval, per step |
+| No approval for the history rewrite | §7.8 | An explicit instruction. The plan, its verification and its preconditions are written; nothing in it has been run |
 
 None of these can be closed by writing code.

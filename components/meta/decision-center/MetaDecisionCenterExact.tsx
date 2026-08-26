@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import styles from "./MetaDecisionCenterExact.module.css";
 
@@ -438,6 +438,37 @@ export interface MetaDecisionCenterExactInspectorViewModel {
    */
   advisories?: MetaDecisionCenterExactDisplayValue;
   /**
+   * When the engine wrote this verdict, and what it measured.
+   *
+   * Two separate facts, drawn separately, because collapsing them is how a
+   * stale read looks current: a snapshot written this morning can describe a
+   * window that ended three days ago. `asOf` is the engine's write time;
+   * `evidenceWindow` is the range every figure in this panel covers.
+   */
+  asOf?: MetaDecisionCenterExactDisplayValue;
+  evidenceWindow?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * Metrics the server did not serve at this row's grain.
+   *
+   * Named rather than smoothed over. A null metric is not a zero — the
+   * invariant is explicit that source absence must never become a measured
+   * zero — so the panel says which figures are missing instead of printing an
+   * em dash the reader has to interpret.
+   */
+  provenanceGaps?: readonly MetaDecisionCenterExactDisplayValue[];
+  /**
+   * The brief control's posture (`live:CREATIVE-07 brief`).
+   *
+   * A brief is derived from a creative decision snapshot, so a structure row
+   * cannot mint one and says why rather than offering a link that would be
+   * refused after the navigation. Server-authored: the reason is the brief
+   * contract's own gate text.
+   */
+  brief?:
+    | { href: string; label?: MetaDecisionCenterExactDisplayValue }
+    | { refusalReason: string }
+    | null;
+  /**
    * The operator workflow overlay for THIS decision (WP8).
    *
    * Ownership state, not engine truth. Nothing here can change a decision's
@@ -543,6 +574,15 @@ export interface MetaDecisionCenterExactProps {
   lane?: MetaDecisionCenterExactLane;
   defaultLane?: MetaDecisionCenterExactLane;
   inspectorOpen?: boolean;
+  /**
+   * Closes the evidence inspector (`live:close`).
+   *
+   * The panel had no close control at all: `inspectorOpen` is computed by the
+   * page and is unconditionally true on the Action lane, so an operator who
+   * opened a row could not put it away. Absent means the caller does not offer
+   * one, and the control is then not drawn — rather than drawn and inert.
+   */
+  onCloseInspector?: () => void;
   onScopeChange?: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange?: (lane: MetaDecisionCenterExactLane) => void;
   onRunSnapshot?: () => void;
@@ -1880,8 +1920,10 @@ function CreativesScope({
 
 function EvidenceInspector({
   model,
+  onClose,
 }: {
   model?: MetaDecisionCenterExactInspectorViewModel | null;
+  onClose?: () => void;
 }) {
   const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
   const evidence = (model?.evidence ?? []).filter(
@@ -1894,6 +1936,14 @@ function EvidenceInspector({
   const hasBlockers = meaningfulDisplay(model?.blockers);
   const hasAdvisories = meaningfulDisplay(model?.advisories);
   const hasProvenance = meaningfulDisplay(model?.provenance);
+  /*
+   * No selection, no panel.
+   *
+   * This used to render regardless, so once the inspector became closable — and
+   * once a lane could have no selected row — the operator would have met a
+   * fully drawn panel of em dashes rather than an absent one.
+   */
+  if (!model) return null;
   return (
     <aside
       className={`${styles.inspector} ${inspectorTone}`}
@@ -1904,6 +1954,17 @@ function EvidenceInspector({
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
           {display(model?.decisionLabel)}
         </span>
+        {onClose ? (
+          <button
+            aria-label="Close the evidence inspector"
+            className={styles.inspectorClose}
+            data-ctl="live:close"
+            onClick={onClose}
+            type="button"
+          >
+            ✕
+          </button>
+        ) : null}
       </div>
       <div className={styles.inspectorBody}>
         <div>
@@ -2003,6 +2064,68 @@ function EvidenceInspector({
             </p>
           </div>
         ) : null}
+        {/*
+          What this verdict was measured over.
+          
+          Two facts and never one: `asof-row` is when the engine wrote the
+          snapshot, `evidence-window` is the range the figures above cover. A
+          verdict without the window is unfalsifiable — the reader cannot tell
+          what it was measured over — and a snapshot time presented as the
+          window is how a stale read passes for a current one.
+        */}
+        {meaningfulDisplay(model?.asOf) ||
+        meaningfulDisplay(model?.evidenceWindow) ? (
+          <dl className={styles.evidenceProvenance}>
+            <div>
+              <dt>As of</dt>
+              <dd data-el="asof-row">{display(model?.asOf)}</dd>
+            </div>
+            <div>
+              <dt>Evidence window</dt>
+              <dd data-el="evidence-window">{display(model?.evidenceWindow)}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {(model?.provenanceGaps ?? []).filter(meaningfulDisplay).length > 0 ? (
+          <div>
+            <p className={styles.blockersHeading}>Not served at this grain</p>
+            <p className={styles.provenanceGap} data-el="provenance-gap">
+              {(model?.provenanceGaps ?? [])
+                .filter(meaningfulDisplay)
+                .map((gap) => display(gap))
+                .join(" · ")}
+            </p>
+          </div>
+        ) : null}
+        {/*
+          The row's own onward actions, as opposed to the decision's primary
+          action. Grouped under one marker because the design treats them as one
+          band: what an operator can do with THIS row without executing it.
+        */}
+        {model?.brief ? (
+          <p className={styles.rowAction} data-el="row-action">
+            {"href" in model.brief ? (
+              <a
+                data-ctl="live:CREATIVE-07 brief"
+                href={model.brief.href}
+                rel="noopener"
+              >
+                {meaningfulDisplay(model.brief.label)
+                  ? display(model.brief.label)
+                  : "Open the brief"}
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                data-ctl="live:CREATIVE-07 brief"
+                data-refused=""
+                role="link"
+              >
+                {model.brief.refusalReason}
+              </span>
+            )}
+          </p>
+        ) : null}
         {model?.workflow ? (
           <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
             <p className={styles.inspectorSectionLabel}>Workflow</p>
@@ -2097,6 +2220,7 @@ export function MetaDecisionCenterExact({
   lane,
   defaultLane = "action",
   inspectorOpen = true,
+  onCloseInspector,
   onScopeChange,
   onLaneChange,
   onRunSnapshot,
@@ -2126,6 +2250,15 @@ export function MetaDecisionCenterExact({
   const [shownByLane, setShownByLane] = useState<
     Partial<Record<MetaDecisionCenterExactLane, number>>
   >({});
+  /*
+   * The surface root, so closing the inspector can hand focus back.
+   *
+   * `live:close` contracts "focus returns to originating row", and the row that
+   * opened the panel is the one the view model marked selected. Queried at
+   * close time rather than tracked in a ref map: the rows are rebuilt on every
+   * payload, and a map keyed by id would hold stale nodes across a re-read.
+   */
+  const rootRef = useRef<HTMLElement | null>(null);
   const shownFor = (laneId: MetaDecisionCenterExactLane) =>
     shownByLane[laneId] ?? LANE_PAGE_SIZE;
   const loadMoreFor = (laneId: MetaDecisionCenterExactLane) => () =>
@@ -2183,7 +2316,11 @@ export function MetaDecisionCenterExact({
   }
 
   return (
-    <section className={styles.root} data-screen-label="Meta Decision Center">
+    <section
+      className={styles.root}
+      data-screen-label="Meta Decision Center"
+      ref={rootRef}
+    >
       <div className={styles.pageHeader}>
         <div>
           <p className={styles.pageEyebrow}>
@@ -2464,7 +2601,27 @@ export function MetaDecisionCenterExact({
           ) : null}
         </div>
         {showInspector ? (
-          <EvidenceInspector model={viewModel.inspector} />
+          <EvidenceInspector
+            model={viewModel.inspector}
+            onClose={
+              onCloseInspector
+                ? () => {
+                    onCloseInspector();
+                    // The row that opened it, then any row: a panel that closed
+                    // and left focus on `<body>` would drop a keyboard operator
+                    // at the top of the document.
+                    const back =
+                      rootRef.current?.querySelector<HTMLElement>(
+                        '[data-meta-exact-selected="true"] [data-meta-exact-card-open]',
+                      ) ??
+                      rootRef.current?.querySelector<HTMLElement>(
+                        "[data-meta-exact-card-open]",
+                      );
+                    back?.focus();
+                  }
+                : undefined
+            }
+          />
         ) : null}
       </div>
     </section>

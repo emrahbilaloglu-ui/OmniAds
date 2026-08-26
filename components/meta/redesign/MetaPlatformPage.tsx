@@ -2609,6 +2609,57 @@ function creativeEvidenceStudioHref(input: {
 }
 
 /**
+ * Where a brief is created from a decision (`live:CREATIVE-07 brief`).
+ *
+ * The Briefs surface already reads `creativeId`, `snapshotId` and `trigger`
+ * from its URL and refuses creation without all three
+ * (`canCreateBrief`) — but nothing in the product minted a link carrying them,
+ * so the brief-from-decision flow was reachable only by hand-writing a URL.
+ * This is that link.
+ *
+ * The window travels too. A brief is written against what the operator was
+ * looking at, and landing them on the Studio's own stored range would describe
+ * a different set of days than the decision they came from.
+ */
+function decisionBriefHref(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  creativeId: string;
+  snapshotId: string;
+  trigger: string;
+  startDate: string | null;
+  endDate: string | null;
+  pathname: string | null;
+}): string | null {
+  if (!input.providerAccountId?.trim()) return null;
+  const params = new URLSearchParams({
+    providerAccountId: input.providerAccountId.trim(),
+    creativeId: input.creativeId,
+    snapshotId: input.snapshotId,
+    trigger: input.trigger,
+  });
+  // The Studio's own spelling, which `scopeFromSearchParams` reads on this
+  // route. A half window is not a window and is left off entirely.
+  if (input.startDate && input.endDate && input.startDate <= input.endDate) {
+    params.set("start", input.startDate);
+    params.set("end", input.endDate);
+  }
+  /*
+   * Written in the `/app` spelling on purpose.
+   *
+   * Briefs is a v2 surface with no pre-v2 route, so it has no legacy key in
+   * `APP_PATH_BY_LEGACY_PATH`; a bare `/creative/briefs` would fall through
+   * `dashboardHrefForRouteFamily` unchanged and produce a link to nothing. The
+   * `/app` spelling is recognised, and the rewrite then keeps a `/c/:business`
+   * reader inside the business they are explicitly scoped to.
+   */
+  return dashboardHrefForRouteFamily(
+    `/app/creative/briefs?${params.toString()}`,
+    input.pathname ?? "",
+  );
+}
+
+/**
  * The evidence tokens that mean "this ad account was actually measured".
  *
  * Read from the served vocabulary, not guessed: `MetaEvidenceSource`
@@ -3301,6 +3352,16 @@ export function MetaPlatformPage({
   const [activeLevels, setActiveLevels] = useState<MetaDecisionLevel[]>(() =>
     parseMetaDecisionLevels(searchParams),
   );
+  /*
+   * Whether the operator has put the evidence panel away.
+   *
+   * Local rather than in the URL, and deliberately so: `live:close` says the
+   * SELECTION state is kept in the URL, which it is — closing the panel does
+   * not clear `row`, and a reload lands on the same row. What it does not
+   * survive is a reload, because an operator who closed a panel three days ago
+   * has not asked for it to stay closed forever.
+   */
+  const [inspectorDismissed, setInspectorDismissed] = useState(false);
   /*
    * The row the evidence window is describing, in the two envelopes it can
    * arrive in. BOTH are nullable and at least one is always present.
@@ -4186,6 +4247,8 @@ export function MetaPlatformPage({
   };
 
   const openDrillForRec = (rec: MetaRecommendation) => {
+    // Opening any row un-dismisses the panel: the operator asked for it back.
+    setInspectorDismissed(false);
     emitProductInstrumentation({
       eventName: "decision_opened",
       surface: "meta_decisions",
@@ -4732,7 +4795,17 @@ export function MetaPlatformPage({
                 kind: "structure",
                 recommendationId: drillItem.rec.id,
               }
-            : undefined,
+            : /*
+               * `null` suppresses the inspector; `undefined` lets the adapter
+               * fall back to the first Action Now row.
+               *
+               * The distinction is the whole of the close control: without it,
+               * closing the panel cleared the drill, the adapter re-selected
+               * the first row and the panel reopened on the next render.
+               */
+              inspectorDismissed
+              ? null
+              : undefined,
         overrides: {
           actionNow: exactActionRows,
           watching: exactWatchingRows,
@@ -4745,6 +4818,17 @@ export function MetaPlatformPage({
           deferredCount,
         },
         callbacks: {
+          briefHref: (lineage) =>
+            decisionBriefHref({
+              businessId,
+              providerAccountId,
+              creativeId: lineage.creativeId,
+              snapshotId: lineage.snapshotId,
+              trigger: lineage.trigger,
+              startDate: workspaceQuery.data?.lanes.startDate ?? null,
+              endDate: workspaceQuery.data?.lanes.endDate ?? null,
+              pathname,
+            }),
           onStructurePrimary:
             !isViewerReadOnly && !workspaceQuery.data.system.killSwitchEngaged
               ? (recommendation, action) => {
@@ -5316,6 +5400,10 @@ export function MetaPlatformPage({
                 ? () => setLabelModalOpen(true)
                 : undefined
             }
+            onCloseInspector={() => {
+              setInspectorDismissed(true);
+              setDrillItem(null);
+            }}
             onSortChange={setRowSort}
             levels={activeLevels}
             onLevelsChange={selectLevels}

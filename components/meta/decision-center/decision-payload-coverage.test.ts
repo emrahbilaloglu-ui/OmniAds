@@ -582,11 +582,13 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaLanePayload.businessId": N(
     "The lane payload echoes the business it was computed for; the shell names the account once.",
   ),
-  "MetaLanePayload.startDate": N(
-    "A range echo; the date-window control renders the URL's range.",
+  "MetaLanePayload.startDate": W(
+    S.INSPECTOR,
+    "the evidence-window fact, which states the range every figure on the panel covers; a verdict without it cannot be checked against anything",
   ),
-  "MetaLanePayload.endDate": N(
-    "A range echo; the date-window control renders the URL's range.",
+  "MetaLanePayload.endDate": W(
+    S.INSPECTOR,
+    "the other half of the evidence-window fact",
   ),
   "MetaLanePayload.sourceModel": N(
     "Which lane model produced the rows; the source panel states the decision source, its table and its authority for the grain that actually carries authority.",
@@ -595,8 +597,9 @@ const COVERAGE: Record<string, Coverage> = {
     S.HEADER,
     "the snapshot identity chip, when the read model served no snapshotAsOf",
   ),
-  "MetaLanePayload.snapshotCreatedAt": N(
-    "The engine write time of the lane rows; the header states one snapshot identity, as-of plus computed-at, from the read model.",
+  "MetaLanePayload.snapshotCreatedAt": W(
+    S.INSPECTOR,
+    "the as-of fact, drawn beside the evidence window and never as it: a snapshot written this morning can describe a window that ended days ago",
   ),
   "MetaLanePayload.statusFilter": N(
     "The request's own status filter echoed back; the lane counts it produced are what the pills state.",
@@ -2167,11 +2170,19 @@ const COVERAGE: Record<string, Coverage> = {
     S.ACTION,
     "every row's money line and the creative row's ROAS chip",
   ),
-  "MetaOsDecisionMetrics.cpa": N(
-    "The inspector states spend and purchases as separate evidence rows; cost per purchase is their quotient, and a third number on the same panel can only agree with the two above it.",
+  /*
+   * Both are still not printed as numbers, and both now reach the panel as
+   * their own ABSENCE. A null metric is not a zero, and the grain that did not
+   * serve it is a fact the reader needs in order to know why the figure is not
+   * there — so the provenance-gap line names it.
+   */
+  "MetaOsDecisionMetrics.cpa": W(
+    S.INSPECTOR,
+    "the provenance-gap line, which names CPA as not served at this row's grain rather than leaving an unexplained gap",
   ),
-  "MetaOsDecisionMetrics.ctr": N(
-    "The evidence window draws this ad's CTR as a 28-day daily trail, which is the same measure at higher resolution; the scalar's home, if the operator wants it on the queue, is a creative-row chip beside the ROAS chip.",
+  "MetaOsDecisionMetrics.ctr": W(
+    S.INSPECTOR,
+    "the provenance-gap line, for the same reason as CPA",
   ),
   "MetaOsDecisionMetrics.frequency": R(
     S.POSTURE,
@@ -2853,7 +2864,9 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   EVIDENCE: [80, 22],
   HEADER: [0, 10],
   HEALTHY: [0, 10],
-  INSPECTOR: [2, 8],
+  // Five more claims on this panel, none of them keyed to a stable row id:
+  // the provenance band is one band, not a table of rows.
+  INSPECTOR: [2, 13],
   INVENTORY: [0, 14],
   KPI: [0, 18],
   MOBILE: [0, 6],
@@ -2886,7 +2899,10 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
   CREATIVES: [2, 12],
-  INSPECTOR: [3, 6],
+  // The provenance band put five payload leaves in this panel's DOM that had
+  // never reached a screen: the evidence window's two dates, the engine write
+  // time, and the two metrics whose ABSENCE the gap line now names.
+  INSPECTOR: [8, 6],
   PROVENANCE: [13, 22],
   WATCHING: [1, 3],
   // Behind a lane tab the default render never presses. This is the whole
@@ -2895,20 +2911,20 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ARCHIVE: [0, 10],
   HEALTHY: [0, 10],
   NONSALES: [0, 1],
-  POSTURE: [0, 2],
+  POSTURE: [1, 1],
   // Drawn by a DIFFERENT component than this channel renders: the inventory
   // table and the creative evidence window are their own surfaces, and the
   // banner strip and the mobile panels are already observed as HTML in their
   // own right, so a zero here says "not this component" and not "not on
   // screen".
   BANNERS: [0, 25],
-  EVIDENCE: [0, 98],
+  EVIDENCE: [1, 97],
   INVENTORY: [0, 14],
   MOBILE: [0, 6],
 };
 
 /** `[in the DOM, view model only]`, over every claim whose field can vary. */
-const DOM_PROOF_TOTALS: [number, number] = [64, 209];
+const DOM_PROOF_TOTALS: [number, number] = [71, 207];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 const DOM_PROOF_PINNED_LEAVES = 6;
@@ -2920,7 +2936,7 @@ const DOM_PROOF_PINNED_LEAVES = 6;
  * than a feeling. @see the test that reads it for what it does and does not
  * mean.
  */
-const NOWHERE_LEAVES = 248;
+const NOWHERE_LEAVES = 243;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -2929,7 +2945,7 @@ const NOWHERE_LEAVES = 248;
  * kept so "it travels to the boundary" is written down rather than confused
  * with a pixel.
  */
-const NOWHERE_BUT_AT_THE_BOUNDARY = 56;
+const NOWHERE_BUT_AT_THE_BOUNDARY = 54;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -3851,9 +3867,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     const withElement = rendered.filter(([, value]) => value.element);
     const withoutElement = rendered.filter(([, value]) => !value.element);
 
-    expect(rendered.length).toBe(279);
+    expect(rendered.length).toBe(284);
     expect(withElement.length).toBe(115);
-    expect(withoutElement.length).toBe(164);
+    expect(withoutElement.length).toBe(169);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -4906,6 +4922,15 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount",
       "MetaDecisionsWorkspaceReadModel.status",
       "MetaHealthyEntity.isBidStrategyMixed",
+      // The evidence inspector's provenance band: the window every figure on
+      // the panel covers, the moment the engine wrote the snapshot, and the
+      // metrics the payload did not serve at this row's grain. All three were
+      // in the payload and on no screen.
+      "MetaLanePayload.endDate",
+      "MetaLanePayload.snapshotCreatedAt",
+      "MetaLanePayload.startDate",
+      "MetaOsDecisionMetrics.cpa",
+      "MetaOsDecisionMetrics.ctr",
       // The token that says whether the figures on this page measure this
       // account at all, which until this round reached nothing on a demo
       // business — the one state where it is the only thing that would.

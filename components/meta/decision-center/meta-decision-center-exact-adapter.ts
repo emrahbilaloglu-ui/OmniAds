@@ -35,6 +35,7 @@ import type {
   MetaOsDecisionLane,
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
+import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 
 const EM_DASH = "—";
 
@@ -122,6 +123,19 @@ export interface MetaDecisionCenterExactAdapterCallbacks {
     decision: MetaOsAdDecision,
     canonicalDecision: MetaCanonicalDecision | null,
   ) => void;
+  /**
+   * Where a brief is created from this decision (`live:CREATIVE-07 brief`).
+   *
+   * The adapter resolves the LINEAGE — creative id, decision snapshot, trigger
+   * — and the caller turns it into an href, because only the caller knows which
+   * route family it is rendering in. Absent means the surface offers no brief
+   * control at all, which is different from offering one that refuses.
+   */
+  briefHref?: (lineage: {
+    creativeId: string;
+    snapshotId: string;
+    trigger: string;
+  }) => string | null;
 }
 
 export type MetaDecisionCenterExactAdapterSelection =
@@ -1980,6 +1994,70 @@ function servedEvidenceRows(
   });
 }
 
+/**
+ * The provenance every inspector states: when, and over what.
+ *
+ * Read off the payload rather than composed: `snapshotCreatedAt` is the
+ * engine's write time and `startDate`/`endDate` are the window the figures
+ * cover. They are separate fields because they are separate facts — a snapshot
+ * written this morning can describe a window that ended three days ago, and a
+ * panel that printed one as the other would make a stale read look current.
+ */
+function inspectorProvenance(workspace: MetaDecisionsWorkspacePayload): {
+  asOf: string;
+  evidenceWindow: string;
+} {
+  const asOf =
+    nonBlank(workspace.lanes.snapshotCreatedAt) ??
+    nonBlank(workspace.os?.generatedAt) ??
+    nonBlank(workspace.lanes.snapshotDate) ??
+    EM_DASH;
+  const start = nonBlank(workspace.lanes.startDate);
+  const end = nonBlank(workspace.lanes.endDate);
+  return {
+    asOf,
+    evidenceWindow: start && end ? `${start} to ${end}` : EM_DASH,
+  };
+}
+
+/**
+ * Metrics the server did not serve at this row's grain.
+ *
+ * A null metric is not a zero — "Optional Meta event metrics remain null when
+ * no source payload key was observed. Source absence must not be converted to a
+ * measured zero." — so the ones the panel would otherwise print as an em dash
+ * are named instead, with the grain the payload said it was serving.
+ */
+const GRAIN_GAP_METRICS = [
+  { key: "cpa", label: "CPA" },
+  { key: "ctr", label: "CTR" },
+  { key: "frequency", label: "Frequency" },
+] as const;
+
+function provenanceGaps(
+  metrics:
+    | {
+        cpa: number | null;
+        ctr: number | null;
+        frequency: number | null;
+        grain: string;
+      }
+    | null
+    | undefined,
+): string[] {
+  if (!metrics) return [];
+  // A payload that did not state its own grain cannot name one in the gap
+  // sentence either; the metric is still reported as unserved.
+  const grain = nonBlank(metrics.grain)?.replaceAll("_", " ") ?? null;
+  return GRAIN_GAP_METRICS.filter(
+    (metric) => finite(metrics[metric.key]) === null,
+  ).map((metric) =>
+    grain
+      ? `${metric.label} — not served at the ${grain} grain`
+      : `${metric.label} — not served at this row's grain`,
+  );
+}
+
 function structureInspector(input: {
   recommendation: MetaRecommendation;
   node: MetaOsStructureNode | null;
@@ -2145,6 +2223,7 @@ function inspector(input: {
   nodes: ReadonlyMap<string, MetaOsStructureNode>;
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
   fallbackCurrency: string | null;
+  provenance: { asOf: string; evidenceWindow: string };
   callbacks: MetaDecisionCenterExactAdapterCallbacks;
 }): MetaDecisionCenterExactInspectorViewModel | null {
   const selection = input.selection;
@@ -2155,12 +2234,33 @@ function inspector(input: {
       (item) => item.id === selection.recommendationId,
     );
     if (!recommendation) return null;
-    return structureInspector({
-      recommendation,
-      node: input.nodes.get(recommendation.id) ?? null,
-      fallbackCurrency: input.fallbackCurrency,
-      callback: input.callbacks.onStructurePrimary,
-    });
+    const node = input.nodes.get(recommendation.id) ?? null;
+    return {
+      ...structureInspector({
+        recommendation,
+        node,
+        fallbackCurrency: input.fallbackCurrency,
+        callback: input.callbacks.onStructurePrimary,
+      }),
+      ...input.provenance,
+      provenanceGaps: provenanceGaps(node?.metrics),
+      /*
+       * A structure row cannot mint a brief, and says so in the brief
+       * contract's own words.
+       *
+       * `createMetaCreativeBrief` is keyed to a creative decision snapshot —
+       * `source_creative_id` and `source_snapshot_id` are NOT NULL — and a
+       * campaign or ad set has neither. Offering a link that would be refused
+       * after the navigation is worse than refusing here.
+       */
+      brief: input.callbacks.briefHref
+        ? {
+            refusalReason:
+              "A brief is created from a creative decision. This row is a " +
+              `${structureLevel(recommendation.level).toLowerCase()}, so it carries no creative snapshot to derive one from.`,
+          }
+        : null,
+    };
   }
 
   const decision = input.creativeDecisions.find(
@@ -2174,12 +2274,46 @@ function inspector(input: {
     input.canonical.get(
       canonicalKey(decision.decisionId, decision.sourceSnapshotId),
     ) ?? null;
-  return creativeInspector({
-    decision,
-    canonicalDecision,
-    fallbackCurrency: input.fallbackCurrency,
-    callback: input.callbacks.onCreativeReview,
-  });
+  /*
+   * The brief lineage, when the row carries one.
+   *
+   * `canCreateBrief` is the brief contract's own gate — the same function the
+   * Briefs surface runs before it will POST — so the control here refuses for
+   * exactly the reasons the route would, in exactly its words. Nothing else in
+   * the product mints a link carrying this lineage, so until now the brief
+   * flow was reachable only by hand-writing a URL.
+   */
+  const briefLineage = {
+    creativeId: decision.creativeId,
+    accountId: decision.providerAccountId,
+    snapshotId: decision.sourceSnapshotId,
+    trigger: nonBlank(decision.publishedLabel) ?? nonBlank(decision.rawLabel),
+  };
+  const briefGate = canCreateBrief(briefLineage);
+  const briefHref = briefGate.ok
+    ? (input.callbacks.briefHref?.({
+        creativeId: decision.creativeId!.trim(),
+        snapshotId: decision.sourceSnapshotId.trim(),
+        trigger: briefLineage.trigger!.trim(),
+      }) ?? null)
+    : null;
+  return {
+    ...creativeInspector({
+      decision,
+      canonicalDecision,
+      fallbackCurrency: input.fallbackCurrency,
+      callback: input.callbacks.onCreativeReview,
+    }),
+    ...input.provenance,
+    provenanceGaps: provenanceGaps(decision.metrics),
+    brief: !input.callbacks.briefHref
+      ? null
+      : briefHref
+        ? { href: briefHref, label: "Create a brief from this decision" }
+        : { refusalReason: briefGate.ok
+            ? "This route family has no brief workspace to open."
+            : briefGate.reason },
+  };
 }
 
 /**
@@ -3222,6 +3356,7 @@ export function buildMetaDecisionCenterExactViewModel(
     }),
     creativeFootnote: creativeFootnote(workspace.os?.ads?.items ?? []),
     inspector: inspector({
+      provenance: inspectorProvenance(workspace),
       selection,
       selectableRecommendations: [
         ...actionRecommendations,

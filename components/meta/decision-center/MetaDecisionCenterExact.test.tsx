@@ -837,7 +837,29 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
     expect(root().textContent).not.toContain("undefined");
     expect(root().textContent).not.toContain("null");
     expect(root().textContent).not.toContain("NaN");
-    expect(document.querySelector("[data-meta-exact-inspector]")).toBeTruthy();
+    /*
+     * No selection, no panel.
+     *
+     * This used to assert the opposite, and the opposite was the defect: with
+     * no inspector in the view model the panel rendered anyway, so a workspace
+     * that had not resolved drew a fully formed evidence column of em dashes
+     * beside an empty queue. An absent panel is the honest shape; the em-dash
+     * law below is about a panel that HAS a selection whose fields were not
+     * served.
+     */
+    expect(document.querySelector("[data-meta-exact-inspector]")).toBeNull();
+  });
+
+  it("still em-dashes a selected row whose fields were not served", () => {
+    render(
+      <MetaDecisionCenterExact viewModel={{ inspector: { entityName: null } }} />,
+    );
+
+    const inspector = document.querySelector("[data-meta-exact-inspector]");
+    expect(inspector).toBeTruthy();
+    expect(inspector?.textContent).not.toContain("undefined");
+    expect(inspector?.textContent).not.toContain("null");
+    expect(inspector?.textContent).toContain("—");
   });
 
   it("names the inert action buttons whose whole label is the em dash", () => {
@@ -862,6 +884,15 @@ describe("MetaDecisionCenterExact fail-closed presentation boundary", () => {
     });
     expect(rowAction).toBeDisabled();
     expect(rowAction.textContent).toBe("—");
+
+  });
+
+  it("names the inspector's inert action button when a row IS selected", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={{ inspector: { entityName: "Selected but unserved" } }}
+      />,
+    );
 
     const inspectorAction = screen.getByRole("button", {
       name: "No action available: the inspector has no selection to act on",

@@ -1878,3 +1878,86 @@
 .levelFilterLabel {
   font-weight: 600;
 }
+
+/* ------------------------------------------------------- inspector detail -- */
+
+/*
+ * The close control.
+ *
+ * Sits in the header row rather than floating over the content: the panel is a
+ * column in a grid, not an overlay, so a control that hovered above the text
+ * would cover it at narrow widths.
+ */
+.inspectorClose {
+  margin-left: auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 1px solid #e4e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #555d6d;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.inspectorClose:hover {
+  border-color: #c9d2e0;
+  color: #0e1526;
+}
+
+/*
+ * The two provenance facts, side by side and separately labelled.
+ *
+ * A definition list because that is what they are: two named facts about the
+ * same verdict, neither derivable from the other.
+ */
+.evidenceProvenance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.evidenceProvenance dt {
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.evidenceProvenance dd {
+  margin: 0;
+  color: #0e1526;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.provenanceGap {
+  margin: 0;
+  color: #8a3d05;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/*
+ * The row's onward actions.
+ *
+ * A refused control keeps its shape and its place: it is drawn as a role=link
+ * with `aria-disabled`, so it stays in the reading order with its reason
+ * attached rather than disappearing and taking the explanation with it.
+ */
+.rowAction {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.rowAction a {
+  color: #2a5fe2;
+  font-weight: 600;
+}
+
+.rowAction [data-refused] {
+  color: #555d6d;
+}

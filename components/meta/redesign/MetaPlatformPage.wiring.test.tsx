@@ -977,16 +977,66 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(noticeText(dom)).toContain("lane=whatever");
   });
 
-  // `levels` has no counterpart at all — this surface shows every level. The
-  // old contract let a link say "campaigns only"; honouring the URL silently
-  // would show an operator every ad row under a link that promised none.
-  it("states that levels was not applied because there is no level filter", () => {
+  // `levels` is applied now. The old contract let a link say "campaigns only"
+  // and this surface had no filter, so the parameter was reported as dropped
+  // and the recipient was shown every ad set too. It narrows the table instead,
+  // and there is nothing left to report.
+  it("applies levels rather than reporting it as unhonoured", () => {
     state.workspaceData = workspacePayload();
     state.search = "levels=campaign,adset";
     const dom = render();
+    expect(state.exactProps.levels).toEqual(["campaign", "adset"]);
+    expect(noticeText(dom)).toBe("");
+  });
+
+  /**
+   * The filter is a row filter, not a label.
+   *
+   * `levels=campaign` has to narrow the served rows to campaigns — in both
+   * scopes and in every lane — or the control is a chip that changes nothing.
+   */
+  it("narrows the served rows to the selected level", () => {
+    state.workspaceData = workspacePayload({
+      actionNow: [
+        metaRec({ id: "cmp", level: "campaign", title: "A campaign" }),
+        metaRec({ id: "set", level: "adset", title: "An ad set" }),
+      ],
+    });
+    state.search = "levels=campaign";
+    render();
+    expect(
+      state.exactProps.viewModel.actionRows.map((row: { id: string }) => row.id),
+    ).toEqual(["cmp"]);
+  });
+
+  /**
+   * The filter reaches the other scope too.
+   *
+   * Every creative row is an ad, so the only question the filter asks there is
+   * whether the ad grain is selected at all — and the answer has to be applied,
+   * or a link that says "campaigns only" would show every ad the moment the
+   * recipient switched scope.
+   */
+  it("carries the level filter into the creatives scope", () => {
+    state.workspaceData = workspacePayload();
+    state.search = "scope=creatives&levels=campaign";
+    render();
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.levels).toEqual(["campaign"]);
+    expect(state.exactProps.viewModel.creativeDecisions).toEqual([]);
+  });
+
+  // `account` is in the older vocabulary and names a grain with no row here.
+  // Honouring it silently would empty the queue on the strength of a word.
+  it("states the part of levels this queue has no grain for", () => {
+    state.workspaceData = workspacePayload();
+    state.search = "levels=account,campaign";
+    const dom = render();
+    expect(state.exactProps.levels).toEqual(["campaign"]);
     const text = noticeText(dom);
-    expect(text).toContain("levels=campaign,adset");
-    expect(text).toContain("no level filter");
+    expect(text).toContain("levels=account,campaign");
+    expect(text).toContain("account");
+    expect(text).toContain("applied as campaign");
   });
 
   // `q` IS restorable: the queue has a row search. So it is restored, and the

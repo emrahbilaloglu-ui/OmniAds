@@ -1857,3 +1857,24 @@
   font-size: 12px;
   line-height: 16px;
 }
+
+/* ------------------------------------------------------------ level filter */
+
+/*
+ * The level switch, beside the sort.
+ *
+ * A labelled select rather than a pill row: it is a single-choice filter over
+ * a fixed vocabulary, and the pills in this toolbar already mean "lane".
+ */
+.levelFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #555d6d;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.levelFilterLabel {
+  font-weight: 600;
+}

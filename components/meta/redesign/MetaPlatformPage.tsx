@@ -260,6 +260,71 @@ function parseMetaLaneView(value: string | null): MetaLaneView {
   return "action";
 }
 
+/**
+ * The level filter's state.
+ *
+ * A SET rather than one value, because that is the shape the decisions URL
+ * contract mints (`levels=campaign,adset`) and a link that names two levels has
+ * to round-trip as two. Empty means every level — the surface does not default
+ * to one, so an operator who has chosen nothing is shown everything.
+ */
+export type MetaDecisionLevel = "campaign" | "adset" | "ad";
+
+export const META_DECISION_LEVELS: readonly MetaDecisionLevel[] = [
+  "campaign",
+  "adset",
+  "ad",
+] as const;
+
+/**
+ * `levels` from the URL, restored rather than reported as dropped.
+ *
+ * `account` is in the older contract's vocabulary and has no row at this grain:
+ * this queue serves campaigns, ad sets and ads, and there is no account-level
+ * decision row to filter to. It is dropped from the SET here and named in the
+ * compatibility report, which is the difference between honouring a link and
+ * pretending to.
+ */
+export function parseMetaDecisionLevels(params: {
+  get(name: string): string | null;
+}): MetaDecisionLevel[] {
+  const raw = params.get("levels")?.trim();
+  if (!raw) return [];
+  const requested = new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  // Canonical order, not the URL's, so two links selecting the same levels
+  // produce the same state and the same serialisation.
+  return META_DECISION_LEVELS.filter((level) => requested.has(level));
+}
+
+/** Levels the given scope can actually serve. */
+export function levelsServedByScope(
+  scope: MetaDecisionCenterExactScope,
+): readonly MetaDecisionLevel[] {
+  return scope === "creatives" ? ["ad"] : ["campaign", "adset"];
+}
+
+/**
+ * Does this served level pass the filter?
+ *
+ * An empty filter passes everything. A row whose level the payload did not
+ * state passes too — withholding a row because its grain was not served would
+ * be filtering on the absence of evidence.
+ */
+export function metaRecLevelMatch(
+  level: string | null | undefined,
+  levels: readonly MetaDecisionLevel[],
+): boolean {
+  if (levels.length === 0) return true;
+  const value = level?.trim().toLowerCase();
+  if (!value) return true;
+  return (levels as readonly string[]).includes(value);
+}
+
 function parseMetaWorkspaceLane(params: {
   get(name: string): string | null;
 }): MetaLaneView {
@@ -267,6 +332,7 @@ function parseMetaWorkspaceLane(params: {
   if (legacyLane) return parseMetaLaneView(legacyLane);
   if (params.get("area") !== "monitor") return "action";
   const segment = params.get("segment");
+  if (segment === "needs_resolution") return "needsres";
   if (segment === "healthy") return "healthy";
   if (segment === "out_of_scope") return "nonSales";
   if (segment === "structures") return "archive";
@@ -386,14 +452,39 @@ export function describeMetaDeepLinkCompatibility(params: {
     }
   }
 
+  /*
+   * `levels` is applied now, so only the parts of it this queue cannot serve
+   * are reported.
+   *
+   * The queue has campaign, ad-set and ad rows. `account` is in the older
+   * contract's vocabulary and names a grain with no row here, so a link asking
+   * for it is honoured as far as it goes and the rest is stated — and a link
+   * asking ONLY for it is honoured as "every level", because filtering to a
+   * grain that does not exist would empty the screen on the strength of a word.
+   */
   const rawLevels = params.get("levels")?.trim() ?? "";
   if (rawLevels) {
-    entries.push({
-      param: "levels",
-      value: rawLevels,
-      behaviour:
-        "no level filter exists here; campaign, ad set and ad rows are all shown",
-    });
+    const requested = rawLevels
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const unservable = requested.filter(
+      (level) => !(META_DECISION_LEVELS as readonly string[]).includes(level),
+    );
+    if (unservable.length > 0) {
+      const kept = requested.filter((level) =>
+        (META_DECISION_LEVELS as readonly string[]).includes(level),
+      );
+      entries.push({
+        param: "levels",
+        value: rawLevels,
+        behaviour:
+          `${unservable.join(", ")} names no row grain this queue serves; ` +
+          (kept.length > 0
+            ? `the filter was applied as ${kept.join(", ")}`
+            : "every level is shown"),
+      });
+    }
   }
 
   const rawRow = params.get("row")?.trim() ?? "";
@@ -3201,6 +3292,16 @@ export function MetaPlatformPage({
     parseMetaRowSearch(searchParams),
   );
   /*
+   * `levels` is restored too, and that is a change of posture.
+   *
+   * This surface used to have no level filter at all, so a link that said
+   * "campaigns only" was reported as unhonoured and the recipient was shown
+   * every ad set as well. The filter exists now, so the parameter is applied.
+   */
+  const [activeLevels, setActiveLevels] = useState<MetaDecisionLevel[]>(() =>
+    parseMetaDecisionLevels(searchParams),
+  );
+  /*
    * The row the evidence window is describing, in the two envelopes it can
    * arrive in. BOTH are nullable and at least one is always present.
    *
@@ -3977,10 +4078,29 @@ export function MetaPlatformPage({
     } else {
       params.set("area", "monitor");
       if (next === "watching") params.delete("segment");
+      else if (next === "needsres") params.set("segment", "needs_resolution");
       else if (next === "healthy") params.set("segment", "healthy");
       else if (next === "nonSales") params.set("segment", "out_of_scope");
       else params.set("segment", "structures");
     }
+    replaceMetaParams(params);
+  };
+
+  /**
+   * The level filter, written to the URL the way the link contract spells it.
+   *
+   * `levels` is the decisions URL contract's own parameter name and shape
+   * (`levels=campaign,adset`), so a view narrowed here produces a link that a
+   * colleague opens narrowed the same way — which is the whole of
+   * `live:META-DEC-02 level`'s "URL param (INV-18)" clause. Empty deletes the
+   * parameter rather than writing an empty one, so the default view has the
+   * short URL and two equivalent states serialise identically.
+   */
+  const selectLevels = (next: MetaDecisionLevel[]) => {
+    setActiveLevels(next);
+    const params = currentUrlParams();
+    if (next.length === 0) params.delete("levels");
+    else params.set("levels", next.join(","));
     replaceMetaParams(params);
   };
 
@@ -4438,7 +4558,13 @@ export function MetaPlatformPage({
    */
   const exactCreativeDecisions = (
     workspaceQuery.data?.os?.ads?.items ?? []
-  ).filter((decision) => metaOsCreativeSearchMatch(decision, rowSearch));
+  ).filter(
+    (decision) =>
+      metaOsCreativeSearchMatch(decision, rowSearch) &&
+      // Every row in this scope is an ad, so the filter is a single question:
+      // does the selection include the ad grain at all.
+      metaRecLevelMatch("ad", activeLevels),
+  );
   const servedCreativeCount = workspaceQuery.data?.os?.ads?.items.length ?? 0;
   const eligibleCreativeCount =
     workspaceQuery.data?.os?.ads?.eligiblePreCapCount ?? servedCreativeCount;
@@ -4481,30 +4607,48 @@ export function MetaPlatformPage({
       decision,
     })),
   ];
+  /*
+   * Search and level, applied together and in that order.
+   *
+   * Both are row filters over the SAME served arrays, so they compose: a link
+   * that carries `q=broad&levels=campaign` narrows twice, and neither is
+   * allowed to widen the other. Level is checked against the row's own served
+   * grain — a row whose level the payload did not state is kept, because
+   * dropping it would be filtering on the absence of evidence.
+   */
+  const rowLevelMatch = (level: string | null | undefined) =>
+    metaRecLevelMatch(level, activeLevels);
   const exactActionRows = sortMetaRecs(
-    actionNow.filter((recommendation) =>
-      metaRecSearchMatch(recommendation, rowSearch),
+    actionNow.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        rowLevelMatch(recommendation.level),
     ),
     rowSort,
   );
   const exactWatchingRows = sortMetaRecs(
-    watching.filter((recommendation) =>
-      metaRecSearchMatch(recommendation, rowSearch),
+    watching.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        rowLevelMatch(recommendation.level),
     ),
     rowSort,
   );
   const exactNonSalesRows = sortMetaRecs(
-    nonSales.filter((recommendation) =>
-      metaRecSearchMatch(recommendation, rowSearch),
+    nonSales.filter(
+      (recommendation) =>
+        metaRecSearchMatch(recommendation, rowSearch) &&
+        rowLevelMatch(recommendation.level),
     ),
     rowSort,
   );
   const exactHealthyRows = healthy.filter(
     (row) =>
-      !rowSearch.trim() ||
-      [row.name, row.campaignName ?? ""].some((value) =>
-        value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
-      ),
+      (!rowSearch.trim() ||
+        [row.name, row.campaignName ?? ""].some((value) =>
+          value.toLowerCase().includes(rowSearch.trim().toLowerCase()),
+        )) &&
+      rowLevelMatch(row.level),
   );
   /*
    * The served census, built once per payload / search term.
@@ -5173,6 +5317,8 @@ export function MetaPlatformPage({
                 : undefined
             }
             onSortChange={setRowSort}
+            levels={activeLevels}
+            onLevelsChange={selectLevels}
             onSearchChange={setRowSearchParam}
             initialQuery={rowSearch}
             onOpenCreativeStudio={() => {

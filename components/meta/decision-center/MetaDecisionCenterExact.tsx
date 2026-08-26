@@ -22,6 +22,14 @@ export type MetaDecisionCenterExactScope = "structure" | "creatives";
 export type MetaDecisionCenterExactLane =
   "action" | "needsres" | "watching" | "healthy" | "nonsales" | "archive";
 export type MetaDecisionCenterExactWindow = "7d" | "14d" | "28d" | "90d";
+/**
+ * The grain a decision row was served at.
+ *
+ * `account` is deliberately absent: the older decisions URL contract lists it,
+ * and this queue has no account-grain row to filter to. Offering it would be a
+ * control that can only ever empty the table.
+ */
+export type MetaDecisionCenterExactLevel = "campaign" | "adset" | "ad";
 export type MetaDecisionCenterExactTone =
   "positive" | "negative" | "warning" | "info" | "automation" | "neutral";
 
@@ -541,6 +549,15 @@ export interface MetaDecisionCenterExactProps {
   onNewCampaign?: () => void;
   onManageLabels?: () => void;
   onSortChange?: (sort: MetaDecisionCenterExactSort) => void;
+  /**
+   * The levels the table is filtered to. Empty means every level.
+   *
+   * Controlled by the page, because the value lives in the URL: the design's
+   * own contract for this control is "campaign/ad set/ad level switch; URL
+   * param (INV-18)", and a filter the link cannot carry is not that control.
+   */
+  levels?: readonly MetaDecisionCenterExactLevel[];
+  onLevelsChange?: (levels: MetaDecisionCenterExactLevel[]) => void;
   onSearchChange?: (query: string) => void;
   /**
    * The search term restored from the deep link. The queue is filtered by
@@ -952,6 +969,90 @@ function LanePaging({
   );
 }
 
+/**
+ * The level filter (`live:META-DEC-02 level`).
+ *
+ * Two things it deliberately does NOT do.
+ *
+ * It does not offer a level the current scope cannot serve. Structure rows are
+ * campaigns and ad sets; the Creatives scope is ads, and only ads. An option
+ * that could only ever empty the table is drawn disabled with the reason,
+ * rather than left out — an absent option reads as an oversight, and a present
+ * one that empties the screen reads as a broken filter.
+ *
+ * And it does not collapse a multi-level selection. `levels=campaign,adset`
+ * from a link is two levels, and the select says so rather than silently
+ * showing one of them; choosing any option replaces the pair, which is the
+ * operator's own act.
+ */
+const LEVEL_OPTIONS: readonly {
+  id: MetaDecisionCenterExactLevel;
+  label: string;
+}[] = [
+  { id: "campaign", label: "Campaign" },
+  { id: "adset", label: "Ad set" },
+  { id: "ad", label: "Ad" },
+];
+
+function LevelFilter({
+  levels,
+  scope,
+  onLevelsChange,
+}: {
+  levels: readonly MetaDecisionCenterExactLevel[];
+  scope: MetaDecisionCenterExactScope;
+  onLevelsChange?: (levels: MetaDecisionCenterExactLevel[]) => void;
+}) {
+  const served: readonly MetaDecisionCenterExactLevel[] =
+    scope === "creatives" ? ["ad"] : ["campaign", "adset"];
+  const value =
+    levels.length === 0 ? "all" : levels.length === 1 ? levels[0]! : "multiple";
+  return (
+    <label className={styles.levelFilter} data-meta-exact-level-filter={value}>
+      <span className={styles.levelFilterLabel}>Level</span>
+      <select
+        aria-label="Filter decisions by level"
+        data-ctl="live:META-DEC-02 level"
+        data-level-filter="select"
+        disabled={!onLevelsChange}
+        onChange={(event) => {
+          const next = event.target.value;
+          onLevelsChange?.(
+            next === "all" || next === "multiple"
+              ? []
+              : [next as MetaDecisionCenterExactLevel],
+          );
+        }}
+        value={value}
+      >
+        <option value="all">All levels</option>
+        {LEVEL_OPTIONS.map((option) => {
+          const unavailable = !served.includes(option.id);
+          return (
+            <option
+              disabled={unavailable}
+              key={option.id}
+              value={option.id}
+            >
+              {option.label}
+              {unavailable
+                ? scope === "creatives"
+                  ? " — campaigns and ad sets are in the other scope"
+                  : " — ads are in the Creatives scope"
+                : ""}
+            </option>
+          );
+        })}
+        {value === "multiple" ? (
+          <option value="multiple">
+            {levels.length} levels — from the link that opened this view
+          </option>
+        ) : null}
+      </select>
+    </label>
+  );
+}
+
 /** A lane that served no rows, said rather than drawn as blankness. */
 function LaneEmpty({
   reason,
@@ -970,20 +1071,17 @@ function LaneEmpty({
 function ActionLane({
   rows,
   shown,
+  emptyReason,
   onLoadMore,
 }: {
   rows: readonly MetaDecisionCenterExactActionRowViewModel[];
   shown: number;
+  emptyReason: string;
   onLoadMore?: () => void;
 }) {
   const page = rows.slice(0, shown);
   if (rows.length === 0) {
-    return (
-      <LaneEmpty
-        lane="action"
-        reason="No rows were served in this lane for this account and snapshot."
-      />
-    );
+    return <LaneEmpty lane="action" reason={emptyReason} />;
   }
   return (
     <div data-collection="decisions" data-meta-exact-lane-body="action">
@@ -1085,11 +1183,13 @@ function NeedsResolutionLane({
   rows,
   shown,
   notice,
+  emptyReason,
   onLoadMore,
 }: {
   rows: readonly MetaDecisionCenterExactNeedsResolutionRowViewModel[];
   shown: number;
   notice?: MetaDecisionCenterExactDisplayValue;
+  emptyReason: string;
   onLoadMore?: () => void;
 }) {
   const page = rows.slice(0, shown);
@@ -1097,11 +1197,7 @@ function NeedsResolutionLane({
     return (
       <LaneEmpty
         lane="needsres"
-        reason={
-          meaningfulDisplay(notice)
-            ? display(notice)
-            : "No rows were served in this lane for this account and snapshot."
-        }
+        reason={meaningfulDisplay(notice) ? display(notice) : emptyReason}
       />
     );
   }
@@ -2007,6 +2103,8 @@ export function MetaDecisionCenterExact({
   onNewCampaign,
   onManageLabels,
   onSortChange,
+  levels = [],
+  onLevelsChange,
   onSearchChange,
   initialQuery = "",
   onOpenCreativeStudio,
@@ -2038,6 +2136,23 @@ export function MetaDecisionCenterExact({
 
   const activeScope = scope ?? internalScope;
   const activeLane = lane ?? internalLane;
+  /*
+   * Why a lane is empty, distinguishing the two cases that look identical.
+   *
+   * "Nothing was served" and "everything served was filtered out" are different
+   * facts, and a lane that says the first while the operator has a search term
+   * and a level selected is telling them the account is empty when it is not.
+   */
+  const activeFilters = [
+    query.trim() ? `the search “${query.trim()}”` : null,
+    levels.length > 0
+      ? `${levels.length === 1 ? "the level" : "the levels"} ${levels.join(", ")}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+  const laneEmptyReason =
+    activeFilters.length > 0
+      ? `No served row in this lane matches ${activeFilters.join(" and ")}.`
+      : "No rows were served in this lane for this account and snapshot.";
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
@@ -2205,6 +2320,11 @@ export function MetaDecisionCenterExact({
             Deferred {display(counts?.deferred)}
           </span>
           <span className={styles.toolbarSpacer} />
+          <LevelFilter
+            levels={levels}
+            onLevelsChange={onLevelsChange}
+            scope={activeScope}
+          />
           <select
             aria-label="Sort decisions"
             onChange={(event) => {
@@ -2247,6 +2367,17 @@ export function MetaDecisionCenterExact({
          */
         <div className={styles.laneToolbar} data-meta-exact-creative-toolbar>
           <span className={styles.toolbarSpacer} />
+          {/*
+            The level filter comes along for the same reason the search box
+            does: it is page state that filters THESE rows too, and a control
+            that vanished on scope change would leave a filter applied with no
+            visible cause and no way out.
+          */}
+          <LevelFilter
+            levels={levels}
+            onLevelsChange={onLevelsChange}
+            scope={activeScope}
+          />
           <input
             aria-label="Search creatives"
             onChange={(event) => {
@@ -2287,6 +2418,7 @@ export function MetaDecisionCenterExact({
           ) : null}
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
+              emptyReason={laneEmptyReason}
               onLoadMore={loadMoreFor("action")}
               rows={viewModel.actionRows ?? []}
               shown={shownFor("action")}
@@ -2294,6 +2426,7 @@ export function MetaDecisionCenterExact({
           ) : null}
           {activeScope === "structure" && activeLane === "needsres" ? (
             <NeedsResolutionLane
+              emptyReason={laneEmptyReason}
               notice={viewModel.needsResolutionNotice}
               onLoadMore={loadMoreFor("needsres")}
               rows={viewModel.needsResolutionRows ?? []}

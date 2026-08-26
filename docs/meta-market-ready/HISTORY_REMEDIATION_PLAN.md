@@ -6,8 +6,16 @@ approval after Phase A has been verified.
 
 Repository: `/Users/harmelek/Adsecute` (`emrahbilaloglu-ui/OmniAds`)
 Branch: `meta-market-ready`
-HEAD when this revision was written: `f06d923f3`
 Measured: 2026-08-26
+
+**This document pins no HEAD and no commit count.** Both move every time
+anything is committed — including the evidence and status commits this work
+produces — so a number written here is stale before it is read. Earlier
+revisions said 7, then 9, then 24, and each was wrong within hours: at
+`f06d923f3` the range really was 24, at `db50bea17` it was 28, and the status
+document still said 24 there. Every count below is a COMMAND to run at
+execution time, and the one number the procedure needs pinned — the
+pre-rewrite HEAD — is captured by step A1 into a file, not typed into prose.
 
 ---
 
@@ -50,16 +58,19 @@ ffc46fc60  WP8: give the decision a route into the manual action sheet
 ab80dc1f9  WP13: port the Meta Stop ceremony onto the body the route mounts
 ```
 
-The rewrite RANGE is larger than that: `eee701160~1..HEAD` is **24 commits**,
-because every commit after the first addition has to be rewritten for its
-parent to change, whether or not its own tree carries the file.
+The rewrite RANGE is larger than that, and grows with every commit:
+`eee701160~1..HEAD` covers every commit after the first addition, because each
+one's parent changes whether or not its own tree carries the file. Run
+`git rev-list --count eee701160~1..HEAD` at execution time — it was 24 at
+`f06d923f3`, 28 at `db50bea17`, and 32 while this paragraph was being written.
+That is precisely why no expected value is recorded here.
 
-> Earlier revisions of this document said "seven commits", then "nine", and
-> claimed `eee701160` was "the only commit that touches the path". All three
-> were wrong in the same way: they conflated *commits whose tree carries the
-> file* with *commits a rewrite would rewrite*, and the last was simply false
-> once `ab80dc1f9` happened. Both numbers above are measured at `f06d923f3`,
-> and they are different numbers for different things.
+> Earlier revisions said "seven commits", then "nine", then "24", and claimed
+> `eee701160` was "the only commit that touches the path". They conflated
+> *commits whose tree carries the file* — a fixed set of seven, because the two
+> additions and the range between them are history — with *commits a rewrite
+> would rewrite*, which grows with every new commit. The first number is stable
+> and is listed above. The second is a measurement, never a constant.
 
 ## 2. Where the blob is reachable from — including outside this branch
 
@@ -122,7 +133,8 @@ remote-tracking ref is a cache and proves nothing about the remote.
 
 ## 3. Why this has not been done unasked
 
-Rewriting `eee701160~1..HEAD` changes **24 commit hashes**, including the HEAD
+Rewriting `eee701160~1..HEAD` changes **every commit hash in that range** —
+run the count above — including the HEAD
 that every measurement in `RUNTIME_EVIDENCE_AND_STATUS.md` is stamped with, the
 commit table in that document, and the evidence directories under
 `playwright/artifacts/` that are NAMED after commit hashes
@@ -157,16 +169,19 @@ meaningful check — and only if the Codex refs in §2 have been dealt with firs
 
 Approval required. Nothing below has been run.
 
-**A1 — Anchor the current history.**
+**A1 — Anchor the current history, and pin the numbers this run will use.**
 
 ```bash
 git rev-parse HEAD > ~/meta-market-ready-pre-rewrite-head.txt
 git branch meta-market-ready-pre-history-rewrite HEAD
 git rev-parse meta-market-ready-pre-history-rewrite
+git rev-list --count eee701160~1..HEAD > ~/meta-market-ready-pre-rewrite-count.txt
+md5 -q app/dev-preview-share/page.tsx > ~/meta-market-ready-userfile-md5.txt
 ```
 
-Nothing after this can lose work while that ref exists. The recorded HEAD is
-what A6 compares against.
+Nothing after this can lose work while that ref exists. The three files are the
+pinned facts for THIS run — A6 compares against them rather than against a
+number typed into a document.
 
 **A2 — Re-query BOTH remotes, live.**
 
@@ -181,17 +196,18 @@ If any of the first three produces output naming this branch, **stop**.
 Rewriting shared history is a different operation with a different blast radius,
 and the file has already left the machine. Re-run this at execution time
 whatever §2 recorded: a branch can be pushed between writing a plan and
-approving it.
+approving it. Both remotes are asked even though they are two transports to one
+GitHub repository — a configured remote that is never queried is an assumption.
 
 **A3 — Confirm what is about to be rewritten.**
 
 ```bash
-git rev-list --count eee701160~1..HEAD                       # expect 24 at f06d923f3
+git rev-list --count eee701160~1..HEAD                       # matches the A1 file
 for c in $(git rev-list eee701160~1..HEAD); do
   git rev-parse -q --verify "${c}:app/dev-preview-share/page.tsx" >/dev/null \
     && git log -1 --format='%h %s' "$c"
 done                                                          # expect the 7 in §1
-md5 -q app/dev-preview-share/page.tsx                         # expect 319c80d401494da99f507a4e4bb87c61
+md5 -q app/dev-preview-share/page.tsx                         # matches the A1 file
 ```
 
 Note the `${c}:path` braces. Without them zsh applies its `:a` modifier to `$c`
@@ -199,30 +215,84 @@ and the loop silently reports "absent" for every commit — this document's own
 first attempt at that check did exactly that, and reported a clean history for a
 history that was not clean.
 
-**A4 — Rewrite the range, dropping the path.**
+**A4 — Rewrite in a SCRATCH CLONE. Never in this working copy.**
 
-`git-filter-repo` is what git's own documentation points to. **It is not
-installed on this machine** (`command -v git-filter-repo` → no output), so
-either install it first or use the rebase form.
+This is the step the previous revision got dangerously wrong. It proposed
+`git rebase -i eee701160~1` in place, and claimed the working copy was "left
+alone". That claim is false, and predictably so:
 
-```bash
-git filter-repo --force --refs eee701160~1..HEAD \
-  --path app/dev-preview-share --invert-paths
+- `app/dev-preview-share/page.tsx` exists in THIS working tree as an untracked
+  file;
+- `eee701160` and `ab80dc1f9` both ADD that exact path;
+- checking either out over an untracked file is refused —
+  *"error: The following untracked working tree files would be overwritten by
+  checkout"* — so the rebase stops mid-flight, on a detached HEAD, with the
+  branch half-rewritten;
+- and if it did not refuse, it would OVERWRITE the user's file, which is the one
+  outcome this whole document exists to avoid.
+
+So the rewrite happens somewhere that has never heard of the file. A clone
+carries committed objects only — untracked files never travel — which was
+verified rather than assumed:
+
+```
+$ git clone --no-checkout --quiet /Users/harmelek/Adsecute /tmp/clone-probe
+$ git -C /tmp/clone-probe ls-tree HEAD app/dev-preview-share/
+(no output — absent, because it is untracked here)
+$ git -C /tmp/clone-probe rev-parse -q --verify "eee701160:app/dev-preview-share/page.tsx"
+7eee531c6d5e783f389e05e99ea6cd73cbedc1b4      (the blob IS there, so a rewrite is meaningful)
+$ ls /tmp/clone-probe
+(empty — --no-checkout materialises no worktree at all)
 ```
 
-Without it, the equivalent is an interactive rebase over the same range, editing
-the two commits that ADD the file:
+The probe was run and removed; the user file's md5 and mtime were unchanged
+afterwards. Note the size: `.git` was **1.1 GiB**, so the scratch needs disk.
 
 ```bash
-git rebase -i eee701160~1
-#   mark eee701160 and ab80dc1f9 as `edit`
-#   at each stop:  git rm --cached app/dev-preview-share/page.tsx
-#                  git commit --amend --no-edit
-#                  git rebase --continue
+# 1. A scratch clone. --no-hardlinks so nothing the rewrite does can touch the
+#    source object store; --no-checkout so no worktree is ever materialised and
+#    the user path cannot be written anywhere.
+git clone --no-hardlinks --no-checkout /Users/harmelek/Adsecute /tmp/rewrite-scratch
+cd /tmp/rewrite-scratch
+git checkout -B meta-market-ready origin/meta-market-ready   # a worktree WITHOUT the untracked file
+
+# 2. Rewrite there. See A4b for the two candidate tools and their status.
+
+# 3. Verify there (A6 runs inside the scratch).
+
+# 4. Bring the result back as an OBJECT, not as a checkout:
+cd /Users/harmelek/Adsecute
+git fetch /tmp/rewrite-scratch meta-market-ready:refs/heads/meta-market-ready-rewritten
+git diff --stat meta-market-ready meta-market-ready-rewritten   # expect: no output
+git update-ref refs/heads/meta-market-ready refs/heads/meta-market-ready-rewritten
 ```
 
-The rebase form is slower and equally correct. Whichever is used, the working
-copy is left alone: `git rm --cached` removes it from the index only.
+The last step is safe for the working copy precisely because the check above it
+passed: HEAD's TREE is identical before and after, so moving the branch ref
+changes which commits exist and changes no file. Git never touches the working
+directory, and the untracked user file is never a candidate for anything. If
+`git diff --stat` prints ANYTHING, stop — the trees differ and this is no longer
+a history-only rewrite.
+
+**A4b — The rewrite command itself is NOT VERIFIED here.**
+
+Stated plainly rather than presented as executable:
+
+- `git filter-repo` is **not installed on this machine**
+  (`command -v git-filter-repo` → no output), so its `--refs eee701160~1..HEAD`
+  range semantics could not be exercised. `filter-repo` also normally refuses to
+  run against a non-fresh clone and rewrites ALL refs unless `--refs` is given,
+  and whether `--refs` accepts a range rather than a ref name in the installed
+  version is exactly what could not be checked. **Do not paste it and hope.**
+  Install it in the scratch, run `git filter-repo --analyze` first, and confirm
+  on a throwaway copy that only the intended refs moved.
+- The interactive-rebase form works in a scratch clone because the untracked
+  file is not there — but it too was NOT executed, because this pass was
+  forbidden from running any history mutation.
+
+Either way, the procedure is: run it in `/tmp/rewrite-scratch`, verify with A6
+INSIDE the scratch, and only then fetch the result back. A rewrite that cannot
+be verified in the scratch must not be fetched.
 
 **A5 — Drop the two commits that now do nothing.**
 
@@ -232,8 +302,12 @@ needs an explicit `drop` for each.
 
 **A6 — Verify, and verify only what Phase A can be true about.**
 
+Checks 1, 2 and 4 run INSIDE `/tmp/rewrite-scratch`, against the rewritten
+branch, BEFORE anything is fetched back. Check 3 runs in the real repository,
+before and after the `update-ref`, and both readings must match the A1 file.
+
 ```bash
-# 1. The path is absent from THIS BRANCH's history.
+# 1. The path is absent from the REWRITTEN branch's history.
 git log --oneline meta-market-ready -- app/dev-preview-share      # expect: no output
 
 # 2. No commit on this branch carries it in its tree.
@@ -242,12 +316,16 @@ for c in $(git rev-list meta-market-ready); do
     && echo "STILL PRESENT: $c"
 done                                                              # expect: no output
 
-# 3. The working copy is byte-identical and still untracked.
-md5 -q app/dev-preview-share/page.tsx                             # expect 319c80d401494da99f507a4e4bb87c61
+# 3. The user's file, in the REAL repository, before AND after the update-ref.
+#    Byte-identical, still untracked, and never staged.
+md5 -q app/dev-preview-share/page.tsx                             # must equal ~/meta-market-ready-userfile-md5.txt
+stat -f "%Sm" app/dev-preview-share/page.tsx                      # mtime must not have moved
 git ls-files --error-unmatch app/dev-preview-share/page.tsx && echo "TRACKED — STOP"
 git status --porcelain --untracked-files=all                      # expect only: ?? app/dev-preview-share/page.tsx
 
-# 4. THE CODE IS UNCHANGED. This is the check that matters.
+# 4. THE CODE IS UNCHANGED. This is the check that matters, and it is what
+#    makes the object-level update-ref safe: identical trees mean git has no
+#    file to write, so the untracked user path is never a candidate.
 git diff --stat meta-market-ready-pre-history-rewrite meta-market-ready   # expect: no output
 ```
 
@@ -344,19 +422,54 @@ git branch -D meta-market-ready-pre-history-rewrite
 git for-each-ref --format='%(refname)' | grep pre-history-rewrite || echo "backup ref gone"
 ```
 
-**B3 — Expire the reflogs that still reach the old commits, then collect.**
+**B3 — Expire ONLY the reflogs this remediation affects, then collect.**
+
+`--all` is wrong here and the previous revision was wrong to use it. This
+repository has four branch reflogs plus HEAD's:
+
+```
+$ ls .git/logs/refs/heads
+codex  main  meta-market-ready  meta-surfaces-functional-2026-08-19
+```
+
+`git reflog expire --expire=now --expire-unreachable=now --all` destroys the
+recovery history of `main`, `codex` and `meta-surfaces-functional-2026-08-19`
+as well — branches this remediation has nothing to do with, whose reflogs are
+someone's way back from an unrelated mistake. Scope it:
 
 ```bash
-git reflog expire --expire=now --expire-unreachable=now --all
+# Named refs only. The backup ref must already be deleted (B2), or its reflog
+# holds the old commits and this achieves nothing.
+git reflog expire --expire=now --expire-unreachable=now \
+  refs/heads/meta-market-ready HEAD
+
+# Verify the untouched ones are still there BEFORE collecting.
+git reflog show main | head -3                                  # expect entries
+git reflog show refs/heads/codex | head -3                      # expect entries
+
 git gc --prune=now
 ```
+
+The ref-scoped form was checked on this machine rather than assumed:
+`git reflog expire --dry-run --expire=90.days refs/heads/meta-market-ready`
+exits 0 and leaves the reflog at its original length (git 2.50.1). Only the
+`--dry-run` was executed; nothing was expired.
 
 `--expire-unreachable=now` is what actually releases the old objects;
 `--expire=now` alone leaves unreachable entries behind. `--aggressive` is
 omitted: it repacks everything, takes far longer, and changes nothing about what
 is pruned.
 
-**B4 — Verify, and only now.**
+If the two Codex refs from §2 are still present (B0), the old objects remain
+reachable through them and `gc` will not release the blob. That is not a reason
+to widen the expiry — it is the B0 decision, and the honest outcome is to stop.
+
+**B4 — Verify, and only now. And do not promise more than B0 allowed.**
+
+If B0 kept either Codex ref, SKIP this section and record the outcome as
+"Phase A complete; the blob remains reachable from refs outside this branch".
+Running the checks below in that state produces a failure that is not a defect,
+and reporting "blob gone" in that state would be false.
 
 ```bash
 # The blob must be unreachable — failing to find it is the success.
@@ -380,9 +493,11 @@ answer.
 ## 5. Preconditions for approval
 
 - **Phase A:** the A2 remote check still returns nothing on BOTH remotes at
-  execution time. The operator accepts that 24 commit hashes change, including
-  the HEAD every measurement in `RUNTIME_EVIDENCE_AND_STATUS.md` is stamped
-  with, and accepts A7's decision about the hash-named evidence directories.
+  execution time. The operator accepts that every commit hash in the range
+  changes — run `git rev-list --count eee701160~1..HEAD` for the current figure
+  — including the HEAD every measurement in `RUNTIME_EVIDENCE_AND_STATUS.md` is
+  stamped with, and accepts A7's decision about the hash-named evidence
+  directories. There is disk for a ~1.1 GiB scratch clone.
 - **Phase B:** Phase A verified and its re-stamp committed. A decision has been
   made about each `refs/codex/turn-diffs/*` ref in §2 by whoever owns that
   tooling. A decision has been made about whether an external bundle is wanted
@@ -397,8 +512,21 @@ local, and the history is honest about it.
 
 ## 7. What must never be run without the approvals above
 
-`git filter-repo`, `git rebase` over this range, `git reset`,
-`git reflog expire`, `git gc --prune`, `git branch -D` of the backup ref,
-restoring a bundle into this repository, or any push — forced or otherwise.
+`git filter-repo`, `git rebase` over this range, `git reset`, `git update-ref`,
+`git reflog expire` (other than `--dry-run`), `git gc --prune`, `git branch -D`
+of the backup ref, restoring a bundle into this repository, or any push — forced
+or otherwise.
 
-None of it has been run. `git-filter-repo` is not installed on this machine.
+None of it has been run. What WAS run, and only these:
+
+- `git ls-remote --heads` against both remotes (read-only);
+- `git clone --no-checkout` to a scratch path, to verify that an untracked file
+  does not travel into a clone, followed by `rm -rf` of that path;
+- `git reflog expire --dry-run` against one named ref, to verify the ref-scoped
+  syntax is accepted on git 2.50.1.
+
+After all three, `app/dev-preview-share/page.tsx` was still untracked, still
+`319c80d401494da99f507a4e4bb87c61`, and its mtime had not moved.
+
+`git-filter-repo` is not installed on this machine, so no command using it has
+been verified — see A4b.

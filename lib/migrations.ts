@@ -7230,34 +7230,79 @@ export async function runMigrations(options?: {
           () => {},
         ),
         /*
-         * D6 lineage: which PHYSICAL provider account a recommendation is
-         * about.
+         * D6 lineage, and D-M011 identity. ORDER IS LOAD-BEARING here, so these
+         * four steps are thunks rather than bare array elements.
          *
-         * Account Intelligence is an account-scoped surface — it receives a
-         * `providerAccountId` and names one account on screen — but this table
-         * could not say which account a row belonged to. `scope_id` is not that
+         * Every `sql`…`` in a plain batch array starts executing the moment the
+         * array literal is evaluated — see `orderedMigrationSteps` above. The
+         * unique index below NAMES `provider_account_id`, so issuing it before
+         * the `ADD COLUMN` completes is a coin flip; and because every
+         * statement in this file swallows its own error, a lost race would
+         * leave the table with NO primary key and NO unique index, reported as
+         * a successful migration. That is the worst possible outcome of the
+         * three, and it is what a bare array would have risked.
+         *
+         * ## The column
+         *
+         * Account Intelligence is an account-scoped surface, but this table
+         * could not say which account a row was about. `scope_id` is not the
          * answer: for `scope_type = 'account'` rows it holds the BUSINESS id
-         * (see `scopeForRecommendation` in lib/meta/snapshot.ts), so a
-         * predicate on it would mean two different things by row level and
-         * would reject every account-level recommendation. The column is the
-         * only honest way to carry it.
+         * (`scopeForRecommendation` in lib/meta/snapshot.ts), so a predicate on
+         * it would mean two different things by row level.
          *
-         * NULLABLE, and deliberately OUTSIDE the primary key. Rows written
-         * before this column existed genuinely cannot prove an account, and
-         * account-level rows for a multi-account business have none to prove —
-         * both stay NULL and are WITHHELD by an account-scoped read rather than
-         * shown for every account. There is no backfill here for the same
-         * reason: inventing lineage for legacy rows would be exactly the
-         * synthetic "all accounts" fallback this is meant to prevent. The
-         * primary key stays `(scope_type, scope_id, snapshot_date, rec_type)`,
-         * which both writers depend on.
+         * NULLABLE. Rows written before this column cannot prove an account and
+         * are not backfilled — inventing lineage for a legacy row is the
+         * synthetic "belongs to every account" fallback this exists to prevent.
+         * An account-scoped read withholds them.
+         *
+         * ## The identity
+         *
+         * The old key `(scope_type, scope_id, snapshot_date, rec_type)` cannot
+         * hold two accounts' account-level rows of the same type on the same
+         * day, because their `scope_id` is the same business id. The second one
+         * UPDATED the first, and the old `ON CONFLICT` did not even carry
+         * `provider_account_id` into its `DO UPDATE SET`, so the survivor kept
+         * the loser's lineage.
+         *
+         * NULLS NOT DISTINCT (PostgreSQL 15+; this repo runs 16) is what makes
+         * the widening safe for legacy data: two rows with a NULL account still
+         * collide exactly as they did under the old key, so nothing about
+         * pre-lineage behaviour changes. Without it NULL never equals NULL and
+         * every legacy row would become insertable twice.
+         *
+         * Dropping the primary key cannot fail on existing data — the new key
+         * is the old one plus a column, so it is strictly more permissive — and
+         * no reader depends on the constraint; only `ON CONFLICT` inference
+         * does, and it is repointed at this index. A PK is not available as the
+         * replacement because PostgreSQL requires NOT NULL on every primary-key
+         * column, and this one must stay nullable for legacy rows.
          */
-        sql`ALTER TABLE meta_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS provider_account_id TEXT`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_account_date
-          ON meta_decision_snapshots_daily (business_id, provider_account_id, snapshot_date)`.catch(
-          () => {},
-        ),
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE meta_decision_snapshots_daily
+              ADD COLUMN IF NOT EXISTS provider_account_id TEXT`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_account_date
+              ON meta_decision_snapshots_daily (business_id, provider_account_id, snapshot_date)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_decision_snapshots_daily_identity
+              ON meta_decision_snapshots_daily
+              (scope_type, scope_id, snapshot_date, rec_type, provider_account_id)
+              NULLS NOT DISTINCT`.catch(() => {}),
+          /*
+           * The PK is dropped LAST, and only after the replacement exists. If
+           * the index creation failed, the old key is still standing and the
+           * table is merely un-widened — a stale capability, not an unprotected
+           * table.
+           */
+          () =>
+            sql`ALTER TABLE meta_decision_snapshots_daily
+              DROP CONSTRAINT IF EXISTS meta_decision_snapshots_daily_pkey`.catch(
+              () => {},
+            ),
+        ]),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ALTER COLUMN confidence_score DROP NOT NULL`.catch(() => {}),
         sql`UPDATE meta_decision_snapshots_daily
@@ -7410,6 +7455,32 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
           ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
+        /*
+         * D-M012: which PHYSICAL account an operator response was about.
+         *
+         * The table stored none, so `undeferred` matched on business + rec id
+         * alone and a deferral taken under account A could authorise an
+         * undefer from account B — and every recorded response lost its account
+         * the moment it was written, leaving history and outcome accrual to
+         * correlate on a rec id that two accounts can legitimately share.
+         *
+         * NULLABLE, and NOT in the primary key. Legacy rows genuinely cannot
+         * prove an account; triage rows are synthetic and never had one; and
+         * PostgreSQL requires NOT NULL on every primary-key column. The key
+         * `(rec_id, action, timestamp)` already separates two accounts'
+         * responses, because two operators answering are two instants — the
+         * defect was never uniqueness, it was the READ predicates.
+         */
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE meta_decision_responses
+              ADD COLUMN IF NOT EXISTS provider_account_id TEXT`.catch(() => {}),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_account_rec
+              ON meta_decision_responses (business_id, provider_account_id, rec_id, timestamp DESC)`.catch(
+              () => {},
+            ),
+        ]),
         // Operator workflow overlay. This records who owns a decision and what
         // they did about it. It is deliberately separate from engine truth: no
         // column here can change a decision's label, authority, or provider

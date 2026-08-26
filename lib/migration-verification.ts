@@ -301,6 +301,9 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // multi-account business cannot prove a physical account, and an
   // account-scoped read withholds them rather than showing them everywhere.
   { table: "meta_decision_snapshots_daily", column: "provider_account_id", dataType: "text", isNullable: true },
+  // D-M012. Nullable: legacy rows and triage's synthetic ids cannot prove an
+  // account, and the four Intelligence actions require one at write time.
+  { table: "meta_decision_responses", column: "provider_account_id", dataType: "text", isNullable: true },
 ];
 
 /**

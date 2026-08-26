@@ -192,3 +192,75 @@ would refuse.
 
 An unreadable source refuses with its own code and never reads as absence — a
 404 for a database outage would tell an operator their recommendation is gone.
+
+## D-M011 - Physical Account Is Part Of A Snapshot Row's Identity
+
+Decision: `meta_decision_snapshots_daily` carries `provider_account_id`, and
+that column is part of the identity of every NEW row:
+
+- the unique index becomes
+  `(scope_type, scope_id, snapshot_date, rec_type, provider_account_id)` with
+  `NULLS NOT DISTINCT`, replacing the four-column primary key;
+- `runMetaSnapshotForBusiness` computes and persists one batch PER currently
+  assigned account, narrowing every input — campaign windows, breakdowns, ad
+  sets, entity signals, hysteresis state — BEFORE the computation rather than
+  labelling rows after a business-wide aggregation;
+- a per-account run DELETEs only `provider_account_id IS NOT DISTINCT FROM` its
+  own account, so refreshing one account cannot erase another;
+- one prologue clears the business's unattributed (`NULL`) rows for that date,
+  because a scoped `= $account` predicate can never match them and they would
+  otherwise be served forever beside their replacements.
+
+Reason: `scope_id` holds the BUSINESS id for account-level rows
+(`scopeForRecommendation`), so it is not an account scope and never was. With no
+account column, two assigned accounts collapsed into one pooled truth: a
+`campaign_budget` recommendation computed across both accounts' spend, stored
+once, and served to whichever account the operator happened to be looking at.
+The four-column key made that structural — a second account's row of the same
+type on the same day could not exist.
+
+`NULLS NOT DISTINCT` (PostgreSQL 15+; production is 16.13) is what preserves
+legacy rows: pre-change rows have a NULL account and still collide with each
+other exactly as the old key made them collide, so nothing silently duplicates,
+while two real accounts now coexist. Readers that never learned about the column
+keep working, because the column is nullable and additive.
+
+Anomalies stay once per business and are written with `replaceRecommendations:
+false`: their resolve CTE has no account predicate, and a per-account rewrite
+would have deleted the recommendations the same run had just written.
+
+A per-account failure is settled independently (`Promise.allSettled`) and
+reported in `failedAccountIds`, because INVARIANTS is explicit that one
+account's failure must not abort or prune unrelated ready work.
+
+## D-M012 - An Operator Response Belongs To One Physical Account
+
+Decision: `meta_decision_responses` carries a nullable `provider_account_id`,
+and all four Intelligence actions require a currently assigned one, proven in
+the INSERT itself:
+
+- `acted` / `deferred` / `ignored` — the rec must be in the CURRENT snapshot for
+  THAT account;
+- `undeferred` — the latest response for `business + account + rec_id` must be
+  an unexpired deferral;
+- every action additionally requires the account to still be selected in
+  `business_provider_accounts` at write time;
+- `runMetaDecisionIgnoredMarker` carries the lineage from the row it stamps and
+  dedupes with `IS NOT DISTINCT FROM`.
+
+Reason: without the column, `undeferred` matched on business + rec id alone, so
+a deferral taken under account A authorized an undefer from account B — and
+D-M011 makes that collision ordinary rather than theoretical, since two accounts
+may now legitimately hold rows of the same type on the same day.
+
+Nullable, and NOT in the primary key. Legacy rows genuinely cannot prove an
+account, `lib/triage-events.ts` writes synthetic ids that never had one, and
+PostgreSQL forbids a nullable primary-key column. Uniqueness was never the
+defect: `(rec_id, action, timestamp)` already separates two operators' answers,
+because two answers are two instants. The defect was the READ predicates, and
+those are what this closes.
+
+An old snapshot row is not authority. A selection revoked after a snapshot was
+built leaves its rows behind, so the assignment is re-proven at write time in
+the same statement — a separate read would leave a window in which a revoked
+account could still record a decision.

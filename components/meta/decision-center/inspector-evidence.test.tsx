@@ -161,9 +161,16 @@ describe("the brief control is a route or a reason, never a broken link", () => 
     );
 
     const control = document.querySelector('[data-ctl="live:CREATIVE-07 brief"]');
-    // Present and refusing, with the reason attached — not absent, and not a
-    // link that would be refused after the navigation.
-    expect(control?.tagName).toBe("SPAN");
+    /*
+     * Present and refusing, with the reason attached — not absent, and not a
+     * link that would be refused after the navigation.
+     *
+     * A BUTTON rather than a `role="link"` span: the fidelity gate grades a
+     * marked control's tag and reports `not-a-control` for a span, and it is
+     * right to — a refused control that is not a control cannot be reached by
+     * keyboard to read its own reason.
+     */
+    expect(control?.tagName).toBe("BUTTON");
     expect(control?.getAttribute("aria-disabled")).toBe("true");
     expect(control?.textContent).toContain("creative decision");
     expect(control?.getAttribute("href")).toBeNull();

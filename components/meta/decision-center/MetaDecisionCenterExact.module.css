@@ -326,6 +326,15 @@
   flex: 1;
 }
 
+/*
+ * On the reference's own type scale.
+ *
+ * These two carry `live:META-DEC-02 level` and `live:META-DEC-17 search`, and
+ * the fidelity gate grades a marked element's font size against the scale the
+ * accepted artboards actually use — 12, 13, 13.5, 14 and up. 12.5 is not a step
+ * of it, so a marker on a 12.5px control fails as typography no matter what
+ * colour it is painted.
+ */
 .laneToolbar select,
 .laneToolbar input {
   height: 34px;
@@ -333,7 +342,7 @@
   border-radius: 9px;
   background: #fff;
   color: #45526b;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .laneToolbar select {
@@ -467,14 +476,31 @@
   flex-wrap: wrap;
 }
 
+/*
+ * The row chips, including the ownership chip (`data-el="wf-chip"`).
+ *
+ * The size is stated here and `.rowChip` is deliberately absent from the 11px
+ * group further down. It carries `data-el="wf-chip"`, which the fidelity gate
+ * grades against the reference type scale — and 11px is both off that scale and
+ * below the design's own 12px floor. The chip states who owns a decision; it is
+ * not decoration.
+ */
 .rowChip {
   padding: 2px 8px;
   border-radius: 6px;
   background: #f1f4f9;
   color: #45526b;
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 500;
 }
 
+/*
+ * The verdict chip (`data-el="verdict-chip"`), on the reference type scale.
+ *
+ * 12.5px is not a step of the scale the accepted artboards use, and this
+ * element is graded.
+ */
 .decisionLabel {
   display: inline-flex;
   flex-shrink: 0;
@@ -482,7 +508,7 @@
   border-radius: 8px;
   background: var(--tone-bg);
   color: var(--tone-fg);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1365,7 +1391,6 @@
 }
 
 .laneOption > span,
-.rowChip,
 .confidencePill,
 .nonSalesContext,
 .archiveStatus,
@@ -2219,4 +2244,35 @@
   display: block;
   margin-top: 4px;
   color: #555d6d;
+}
+
+/*
+ * The narrow terminus bar.
+ *
+ * Sticky inside the inspector rather than fixed to the viewport: it belongs to
+ * the decision being read, and a viewport-fixed bar would follow the operator
+ * onto rows it does not describe. Hidden above the tablet breakpoint, where the
+ * rail already carries the stop.
+ */
+.stickyBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 8px 0;
+  border-top: 1px solid #e4e8f0;
+  background: #fff;
+}
+
+.stickyBarNav {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: #2a5fe2;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
 }

@@ -543,6 +543,18 @@ export interface MetaDecisionCenterExactInspectorViewModel {
     onOpen?: () => void;
   } | null;
   /**
+   * The narrow terminus bar (H52/H57).
+   *
+   * At 390 and 320 the decision detail is the end of the read: the operator has
+   * scrolled past the verdict, the evidence and the workflow, and the two
+   * things they may still need — the manual action sheet and the Meta stop —
+   * are several screens back up the rail. The bar keeps both one tap away.
+   *
+   * Absent at desktop, where the rail already carries the stop and the
+   * inspector's own controls are still on screen.
+   */
+  stickyBar?: { metaStopHref: string } | null;
+  /**
    * The operator workflow overlay for THIS decision (WP8).
    *
    * Ownership state, not engine truth. Nothing here can change a decision's
@@ -2556,6 +2568,69 @@ function EvidenceInspector({
           action. Grouped under one marker because the design treats them as one
           band: what an operator can do with THIS row without executing it.
         */}
+        {model?.workflow ? (
+          <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
+            <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
+            {model.workflow.unavailableReason ? (
+              /*
+                A failed read is said, not defaulted. Rendering "open" here
+                would claim nobody owns these decisions — a statement about
+                other people's work made on no evidence.
+              */
+              <p className={styles.contractCopy} role="status">
+                {model.workflow.unavailableReason}
+              </p>
+            ) : (
+              <>
+                <p className={styles.contractCopy}>
+                  {display(model.workflow.stateLabel)}
+                  {" · "}
+                  {display(model.workflow.assignee)}
+                </p>
+                {meaningfulDisplay(model.workflow.holdUntil) ? (
+                  <p className={styles.inspectorMeta}>
+                    {display(model.workflow.holdUntil)}
+                  </p>
+                ) : null}
+              </>
+            )}
+            {model.workflow.actions.length > 0 ? (
+              <WorkflowMenu workflow={model.workflow} />
+            ) : null}
+            {model.workflow.conflict ? (
+              <WorkflowConflictDialog conflict={model.workflow.conflict} />
+            ) : null}
+            {model.workflow.actionsRefusedReason ? (
+              <p className={styles.inspectorMeta} data-workflow-refusal>
+                {model.workflow.actionsRefusedReason}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {model?.stickyBar ? (
+          <div className={styles.stickyBar} data-meta-exact-sticky-bar>
+            <button
+              aria-disabled={model.manualAction?.refusalReason ? true : undefined}
+              className={styles.manualActionButton}
+              data-ctl="gated:META-WRITE-01"
+              onClick={
+                model.manualAction?.refusalReason
+                  ? undefined
+                  : model.manualAction?.onOpen
+              }
+              type="button"
+            >
+              {copy.openManualAction}
+            </button>
+            <a
+              className={styles.stickyBarNav}
+              data-ctl="live:nav"
+              href={model.stickyBar.metaStopHref}
+            >
+              {copy.metaStop}
+            </a>
+          </div>
+        ) : null}
         {model?.manualAction ? (
           <p className={styles.rowAction}>
             <button
@@ -2596,55 +2671,16 @@ function EvidenceInspector({
                   : copy.openTheBrief}
               </a>
             ) : (
-              <span
+              <button
                 aria-disabled="true"
                 data-ctl="live:CREATIVE-07 brief"
                 data-refused=""
-                role="link"
+                type="button"
               >
                 {model.brief.refusalReason}
-              </span>
+              </button>
             )}
           </p>
-        ) : null}
-        {model?.workflow ? (
-          <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
-            <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
-            {model.workflow.unavailableReason ? (
-              /*
-                A failed read is said, not defaulted. Rendering "open" here
-                would claim nobody owns these decisions — a statement about
-                other people's work made on no evidence.
-              */
-              <p className={styles.contractCopy} role="status">
-                {model.workflow.unavailableReason}
-              </p>
-            ) : (
-              <>
-                <p className={styles.contractCopy}>
-                  {display(model.workflow.stateLabel)}
-                  {" · "}
-                  {display(model.workflow.assignee)}
-                </p>
-                {meaningfulDisplay(model.workflow.holdUntil) ? (
-                  <p className={styles.inspectorMeta}>
-                    {display(model.workflow.holdUntil)}
-                  </p>
-                ) : null}
-              </>
-            )}
-            {model.workflow.actions.length > 0 ? (
-              <WorkflowMenu workflow={model.workflow} />
-            ) : null}
-            {model.workflow.conflict ? (
-              <WorkflowConflictDialog conflict={model.workflow.conflict} />
-            ) : null}
-            {model.workflow.actionsRefusedReason ? (
-              <p className={styles.inspectorMeta} data-workflow-refusal>
-                {model.workflow.actionsRefusedReason}
-              </p>
-            ) : null}
-          </div>
         ) : null}
         {evidence.map((item, index) => (
           <div
@@ -2941,7 +2977,7 @@ export function MetaDecisionCenterExact({
             role="radiogroup"
           >
             {LANES.map((item) => (
-              <span
+              <button
                 key={item.id}
                 {...controlProps(() => selectLane(item.id))}
                 /*
@@ -2959,10 +2995,11 @@ export function MetaDecisionCenterExact({
                 data-meta-exact-lane={item.id}
                 role="radio"
                 tabIndex={activeLane === item.id ? 0 : -1}
+                type="button"
               >
                 {copy[item.labelKey]}
                 <span>{display(counts?.[item.id])}</span>
-              </span>
+              </button>
             ))}
           </span>
           <span className={styles.deferredPill}>

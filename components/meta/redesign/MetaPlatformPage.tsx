@@ -58,6 +58,7 @@ import {
   type MetaDecisionCenterExactTone,
   type MetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactWindow,
+  type MetaDecisionCenterExactRowWorkflowChip,
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import {
@@ -98,11 +99,13 @@ import {
   useDecisionWorkflow,
   WORKFLOW_ACTION_LABELS,
   type DecisionWorkflowConflict,
+  type DecisionWorkflowReadState,
 } from "@/components/meta/redesign/use-decision-workflow";
 import {
   reapplyPlan,
   WORKFLOW_STATE_LABEL,
 } from "@/lib/zero-base/meta/workflow-view-model";
+import type { WorkflowRecord } from "@/lib/decision-workflow";
 import { buildDecisionWorkflowViewModel } from "@/components/meta/redesign/decision-workflow-view-model";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
@@ -2628,6 +2631,44 @@ function creativeEvidenceStudioHref(input: {
 }
 
 /**
+ * The ownership chip for one queue row (H09 `wf-chip`).
+ *
+ * The workflow overlay's state was reachable only by opening the inspector, so
+ * a queue of forty rows could not be scanned for "which of these has somebody
+ * already taken". `null` when the overlay was not read at all — a chip reading
+ * "Open" for an unread overlay would be a claim about other people's work made
+ * on no evidence — and `unknown` when the read itself failed, which is a
+ * different fact and says so.
+ */
+function rowWorkflowChip(input: {
+  readState: DecisionWorkflowReadState;
+  record: WorkflowRecord | null;
+}): MetaDecisionCenterExactRowWorkflowChip | null {
+  if (input.readState === "idle") return null;
+  if (input.readState !== "ready" || !input.record) {
+    return {
+      state: "unknown",
+      label: "Ownership unknown",
+      tone: "warning",
+      detail:
+        input.readState === "loading"
+          ? "The workflow overlay is still being read."
+          : "The workflow overlay could not be read for this row.",
+    };
+  }
+  return {
+    state: input.record.state,
+    label: WORKFLOW_STATE_LABEL[input.record.state],
+    tone: input.record.state === "resolved" ? "positive" : "neutral",
+    detail: input.record.assigneeUserId
+      ? `Owner ${input.record.assigneeUserId}`
+      : input.record.snoozeUntil
+        ? `Held until ${input.record.snoozeUntil}`
+        : null,
+  };
+}
+
+/**
  * The hook's conflict, shaped for the dialog that renders it.
  *
  * Returns null unless the conflict belongs to the decision the inspector is
@@ -5040,17 +5081,45 @@ export function MetaPlatformPage({
             : undefined,
       }
     : null;
-  const exactViewModelWithWorkflow: MetaDecisionCenterExactViewModel =
-    exactViewModel.inspector
+  /*
+   * The per-row ownership chip, attached after the adapter has built the rows.
+   *
+   * Composed here for the same reason the inspector's Workflow section is: the
+   * adapter turns the workspace payload into presentation and performs no
+   * fetch, and the overlay is a separate read with its own lifecycle.
+   */
+  const withWorkflowChip = <T extends { id: string }>(rows: readonly T[]) =>
+    rows.map((row) => ({
+      ...row,
+      workflowChip: rowWorkflowChip({
+        readState: workflow.readState,
+        record: workflow.recordFor(row.id),
+      }),
+    }));
+  const exactViewModelWithRowChips: MetaDecisionCenterExactViewModel = {
+    ...exactViewModel,
+    ...(exactViewModel.actionRows
+      ? { actionRows: withWorkflowChip(exactViewModel.actionRows) }
+      : {}),
+    ...(exactViewModel.needsResolutionRows
       ? {
-          ...exactViewModel,
+          needsResolutionRows: withWorkflowChip(
+            exactViewModel.needsResolutionRows,
+          ),
+        }
+      : {}),
+  };
+  const exactViewModelWithWorkflow: MetaDecisionCenterExactViewModel =
+    exactViewModelWithRowChips.inspector
+      ? {
+          ...exactViewModelWithRowChips,
           inspector: {
-            ...exactViewModel.inspector,
+            ...exactViewModelWithRowChips.inspector,
             ...(inspectorWorkflow ? { workflow: inspectorWorkflow } : {}),
             manualAction: inspectorManualAction,
           },
         }
-      : exactViewModel;
+      : exactViewModelWithRowChips;
 
   // Served authority the mobile surface states beside its rows. Read-only
   // projection of already-fetched fields: no extra query, no derivation.

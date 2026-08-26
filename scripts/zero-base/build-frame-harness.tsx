@@ -62,6 +62,20 @@ const THEME_ATTRIBUTE = "data-adc-theme";
 const MOUNTED_BODY_STYLESHEETS: Record<string, readonly string[]> = {
   H19: ["app/(dashboard)/platforms/meta/automation/automation.module.css"],
   H20: ["app/(dashboard)/platforms/meta/automation/automation.module.css"],
+  /*
+   * The Decisions artboards are NOT here, and the omission is load-bearing.
+   *
+   * They would need
+   * `components/meta/decision-center/MetaDecisionCenterExact.module.css` the
+   * moment `frame-registry.tsx` points them at the mounted body — and not one
+   * moment sooner. The CSS-module stub leaves class names UNHASHED, so a module
+   * appended to a frame that renders a different body paints that body through
+   * generic names like `.laneToolbar`: adding it while the frames still render
+   * the reference body moved a control on H09 and produced a `placement`
+   * finding that had nothing to do with either component.
+   *
+   * Add the eleven ids together with the repoint, in one change.
+   */
 };
 
 function mountedBodyCss(frameId: string): string {

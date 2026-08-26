@@ -110,7 +110,10 @@ const EXACT_REFERENCE_SURFACES: readonly ExactReferenceSurface[] = [
       },
       {
       selector:
-      ".laneOption > span, .rowChip, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
+      // `.rowChip` left this group: it carries `data-el="wf-chip"`, which the
+      // fidelity gate grades against the reference type scale, and 11px is both
+      // off that scale and below this product's own 12px floor.
+      ".laneOption > span, .confidencePill, .nonSalesContext, .archiveStatus, .inspectorDecision, .evidenceRow > span:last-child",
       size: 11,
       },
       {

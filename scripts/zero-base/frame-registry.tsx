@@ -54,6 +54,8 @@ import {
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import { HomeView } from "@/components/zero-base/_reference/home-view";
 import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
+import { MetaDecisionCenterExact } from "@/components/meta/decision-center/MetaDecisionCenterExact";
+import { decisionCenterFixture } from "@/scripts/zero-base/fixtures/decision-center";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import type { OverviewMetricUnit } from "@/src/types/models";
 import { buildPerformanceViewModel } from "@/lib/zero-base/creative/performance-adapter";
@@ -353,7 +355,30 @@ const DECISION_VIEWER = {
   readOnlyReason: null,
 };
 
-/** The Decisions workspace, optionally with its inspector open. */
+/**
+ * The Decisions workspace.
+ *
+ * STILL the reference body, and the reason is now a measurement rather than a
+ * guess. `scripts/zero-base/decisions-repoint-readiness.test.ts` renders the
+ * MOUNTED `MetaDecisionCenterExact` — through the real adapter, from
+ * `decisionCenterFixture` — and proves it carries every `data-el`, `data-ctl`
+ * and `data-collection` that H09, H10, H11, H12, B02, B06, B07, H52, H57, P06
+ * and P07 require. Repointing this thunk at that fixture takes the anatomy gate
+ * to 83/83 with the mounted body; that was run, and it passed.
+ *
+ * What it does NOT pass is fidelity, by 229 findings across those eleven
+ * artboards, EVERY ONE of them `untokenised-colour`. The mounted Decision
+ * Center is painted in the adv system (Instrument Sans, Space Grotesk,
+ * `--adv-*`) and the accepted package is the Ledger one. There are exactly two
+ * ways to make that green and both are refused: repainting this one surface
+ * leaves it foreign to the other twelve, and adding these frames to
+ * `PAINT_SYSTEM_DEBT` raises a ceiling that may only fall.
+ *
+ * So the repoint waits on the design owner's re-vendor, and it is one line when
+ * that lands: swap the body below for the commented form. Everything else —
+ * the fixture, the CSS-module wiring in `build-frame-harness.tsx`, and the
+ * markers on the mounted body — is already in place and already proven.
+ */
 const decisions = (selected: string | null = null, rows = 3, sticky = false, conflict = false, paging = false) => {
   const items = Array.from({ length: rows }, (_, index) =>
     metaRecommendation({

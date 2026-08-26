@@ -196,8 +196,23 @@ export async function buildEvidenceTrailsForRecommendations(input: {
   businessId: string;
   snapshotDate: string;
   recommendations: MetaRecommendation[];
+  /**
+   * The physical account this snapshot run is FOR (D-M011).
+   *
+   * The daily history below is narrowed by it. It was already account-safe by
+   * identity — a trail is matched to a recommendation on `campaign_id` /
+   * `adset_id`, and Meta entity ids are globally unique, so another account's
+   * rows matched nothing and were simply fetched and discarded — but "narrowed
+   * before the computation" is the rule, and reading one account's history to
+   * build one account's trails is also the cheaper query.
+   *
+   * Null for a business with no assigned account, which reads everything it
+   * has, exactly as before.
+   */
+  providerAccountId?: string | null;
 }): Promise<Record<string, MetaEvidenceTrail>> {
   const snapshotDate = normalizeDate(input.snapshotDate);
+  const account = input.providerAccountId?.trim() || null;
   if (input.recommendations.length === 0) return {};
   const start28 = addDaysToISO(snapshotDate, -27);
   const start14 = addDaysToISO(snapshotDate, -13);
@@ -214,6 +229,7 @@ export async function buildEvidenceTrailsForRecommendations(input: {
         bid_strategy_type
       FROM meta_campaign_daily
       WHERE business_id = ${input.businessId}
+        AND (${account}::text IS NULL OR provider_account_id = ${account})
         AND date BETWEEN ${start28}::date AND ${snapshotDate}::date
       UNION ALL
       SELECT
@@ -225,6 +241,7 @@ export async function buildEvidenceTrailsForRecommendations(input: {
         bid_strategy_type
       FROM meta_adset_daily
       WHERE business_id = ${input.businessId}
+        AND (${account}::text IS NULL OR provider_account_id = ${account})
         AND date BETWEEN ${start28}::date AND ${snapshotDate}::date
     ` as Promise<DailyHistoryRow[]>,
     sql`
@@ -234,6 +251,11 @@ export async function buildEvidenceTrailsForRecommendations(input: {
         payload_request,
         payload_response,
         rec_id_origin
+      -- NOT narrowed by account: meta_ads_action_log has no account column.
+      -- It is keyed by ad_id, which is globally unique at Meta, and the match
+      -- below is on that id — so another account's actions match no
+      -- recommendation here. The absence is recorded so a reader does not
+      -- mistake it for an oversight.
       FROM meta_ads_action_log
       WHERE business_id = ${input.businessId}
         AND requested_at >= ${start14}::date

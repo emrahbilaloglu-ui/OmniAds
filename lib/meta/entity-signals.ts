@@ -101,7 +101,26 @@ function qualityStatusOrDefault(value: unknown): MetaEntitySignalQualityStatus {
 export async function readMetaEntityDecisionSignalsDaily(input: {
   businessId: string;
   asOfDate: string;
+  /**
+   * The physical account the caller is computing for (D-M011).
+   *
+   * Narrowed rather than filtered afterwards: a snapshot run for one account
+   * must not enrich its recommendations from signals it did not compute.
+   *
+   * A row whose lineage is null is WITHHELD from an account-scoped read rather
+   * than admitted. Every field here is an optional enrichment, so withholding
+   * degrades a recommendation's detail; admitting an unattributable row would
+   * put another account's learning state, creative age or audience overlap
+   * inside this account's decision. The writer above stamps the column, and
+   * the backfill runs at the top of every snapshot, so unattributed rows heal
+   * on the next run instead of persisting.
+   *
+   * Null reads everything this business has, which is the shape a workspace
+   * with no assigned account still needs.
+   */
+  providerAccountId?: string | null;
 }): Promise<Map<string, MetaEntityDecisionSignal>> {
+  const account = input.providerAccountId?.trim() || null;
   const sql = getDb();
   try {
     const rows = (await sql`
@@ -134,6 +153,7 @@ export async function readMetaEntityDecisionSignalsDaily(input: {
         computed_at
       FROM meta_entity_decision_signals_daily
       WHERE business_id = ${input.businessId}
+        AND (${account}::text IS NULL OR provider_account_id = ${account})
         AND as_of_date = ${normalizeDate(input.asOfDate)}
     `) as Array<{
       business_id: string;

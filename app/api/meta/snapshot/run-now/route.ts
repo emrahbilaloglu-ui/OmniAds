@@ -11,10 +11,27 @@ function stringValue(value: unknown) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as { businessId?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as {
+    businessId?: unknown;
+    providerAccountId?: unknown;
+  } | null;
   const businessId =
     stringValue(body?.businessId) ||
     stringValue(request.nextUrl.searchParams.get("businessId"));
+  /*
+   * The account the operator is looking at, when the surface names one.
+   *
+   * A selected-account control that refreshed the whole business would compute
+   * every assigned account on a click about one of them, and the operator would
+   * wait on work they did not ask for. Omitted still orchestrates every
+   * assigned account — each computed and persisted independently (D-M011), so
+   * neither shape produces pooled truth. An account this workspace no longer
+   * holds is refused by `runMetaSnapshotForBusiness` rather than computed.
+   */
+  const providerAccountId =
+    stringValue(body?.providerAccountId) ||
+    stringValue(request.nextUrl.searchParams.get("providerAccountId")) ||
+    null;
 
   if (!businessId) {
     return NextResponse.json(
@@ -47,6 +64,7 @@ export async function POST(request: NextRequest) {
 
   const refresh = await requestMetaSnapshotRefreshForBusiness({
     businessId: access.membership.businessId,
+    providerAccountId,
     reason: "manual",
   });
 

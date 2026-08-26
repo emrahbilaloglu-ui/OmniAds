@@ -367,6 +367,32 @@ describe("meta snapshot job", () => {
     expect(
       new Set(adsetCalls.map(([arg]) => (arg as { accountId?: string }).accountId)),
     ).toEqual(new Set(["act_1", "act_2"]));
+
+    // ...and the two enrichment reads, which were the last inputs still asked
+    // business-wide. A learning state or a creative age from the sibling
+    // account inside this account's recommendation is the same defect in a
+    // quieter place.
+    const signalCalls = vi.mocked(
+      entitySignals.readMetaEntityDecisionSignalsDaily,
+    ).mock.calls;
+    expect(
+      new Set(
+        signalCalls.map(
+          ([arg]) => (arg as { providerAccountId?: string | null }).providerAccountId,
+        ),
+      ),
+    ).toEqual(new Set(["act_1", "act_2"]));
+
+    const trailCalls = vi.mocked(
+      evidenceTrail.buildEvidenceTrailsForRecommendations,
+    ).mock.calls;
+    expect(
+      new Set(
+        trailCalls.map(
+          ([arg]) => (arg as { providerAccountId?: string | null }).providerAccountId,
+        ),
+      ),
+    ).toEqual(new Set(["act_1", "act_2"]));
   });
 
   it("refuses an account the workspace no longer has, and computes nothing", async () => {

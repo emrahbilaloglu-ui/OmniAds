@@ -60,7 +60,13 @@ export function IntelligenceControlsClient({
         cache: "no-store",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId }),
+        /*
+         * The account this screen is about, so a refresh recomputes exactly
+         * what the operator is looking at rather than every assigned account.
+         * The server re-checks it against the current assignment; this is a
+         * request, not authority.
+         */
+        body: JSON.stringify({ businessId, providerAccountId }),
       });
       const payload = (await response.json().catch(() => null)) as unknown;
       /*
@@ -85,7 +91,7 @@ export function IntelligenceControlsClient({
     } finally {
       setBusy(false);
     }
-  }, [businessId, busy, snapshotControl]);
+  }, [businessId, busy, providerAccountId, snapshotControl]);
 
   /**
    * One served recommendation, one served action, one route.

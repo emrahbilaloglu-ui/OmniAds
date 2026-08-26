@@ -956,6 +956,7 @@ async function buildSnapshotRecommendations(input: {
   const campaignLabelsById = campaignContextState.campaignLabelsById;
   const entitySignals = await readMetaEntityDecisionSignalsDaily({
     businessId: input.businessId,
+    providerAccountId: accountId,
     asOfDate: endDate,
   });
   const entitySignalsByCampaignId = Object.fromEntries(
@@ -1260,6 +1261,7 @@ export async function runMetaSnapshotForBusiness(
       }
       const evidenceTrails = await buildEvidenceTrailsForRecommendations({
         businessId,
+        providerAccountId: accountId,
         snapshotDate: normalizedSnapshotDate,
         recommendations,
       });

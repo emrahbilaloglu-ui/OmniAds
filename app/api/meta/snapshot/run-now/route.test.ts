@@ -60,9 +60,29 @@ describe("POST /api/meta/snapshot/run-now", () => {
     });
     expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).toHaveBeenCalledWith({
       businessId: "biz_1",
+      // No account named: orchestrate every currently assigned one. Each is
+      // still computed and persisted independently (D-M011), so the
+      // whole-business shape is not the pooled shape.
+      providerAccountId: null,
       reason: "manual",
     });
     expect(payload.status).toBe("ran");
+  });
+
+  it("refreshes only the account the operator is looking at, when one is named", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/meta/snapshot/run-now", {
+        method: "POST",
+        body: JSON.stringify({ businessId: "biz_1", providerAccountId: "act_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      reason: "manual",
+    });
   });
 
   it("requires businessId", async () => {

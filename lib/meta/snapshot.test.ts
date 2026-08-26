@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
 import {
+  readLatestMetaDecisionSnapshot,
   readMetaDecisionSnapshotForRange,
   runMetaSnapshotForAllBusinesses,
   runMetaSnapshotForBusiness,
@@ -99,7 +100,22 @@ vi.mock("@/lib/meta/commercial-targets", async (importOriginal) => {
   };
 });
 
+/*
+ * The empirical-outcome boundary, spied rather than exercised.
+ *
+ * It is called unconditionally by both snapshot paths — the rec-type early
+ * return lives INSIDE it — so a spy here proves which account each caller asks
+ * for without the fixture having to produce recommendations first. Recommendations
+ * pass through untouched, so nothing else in this file changes behaviour.
+ */
+vi.mock("@/lib/meta/empirical-outcome-integration", () => ({
+  attachMetaEmpiricalOutcomeSummariesFromLogs: vi.fn(
+    async (input: { recommendations: unknown[] }) => input.recommendations,
+  ),
+}));
+
 const db = await import("@/lib/db");
+const empirical = await import("@/lib/meta/empirical-outcome-integration");
 const decisionStability = await import("@/lib/meta/decision-stability");
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const calibration = await import("@/lib/meta/calibration");
@@ -393,6 +409,75 @@ describe("meta snapshot job", () => {
         ),
       ),
     ).toEqual(new Set(["act_1", "act_2"]));
+
+    /*
+     * ...and the empirical outcome history, which is the evidence an operator
+     * reads as "how this kind of decision has worked out HERE". Asked without
+     * an account it is read business-wide, so account A's recommendation would
+     * carry account B's track record for the same rec type — a summary that
+     * sets a confidence band and an automation-readiness tier.
+     */
+    const empiricalCalls = vi.mocked(
+      empirical.attachMetaEmpiricalOutcomeSummariesFromLogs,
+    ).mock.calls;
+    expect(
+      new Set(
+        empiricalCalls.map(
+          ([arg]) => (arg as { providerAccountId?: string | null }).providerAccountId,
+        ),
+      ),
+    ).toEqual(new Set(["act_1", "act_2"]));
+    // Never business-wide from a per-account run.
+    expect(
+      empiricalCalls.some(
+        ([arg]) => !(arg as { providerAccountId?: string | null }).providerAccountId,
+      ),
+    ).toBe(false);
+  });
+
+  /*
+   * The other call site: the SELECTED-account read the Intelligence surface
+   * serves. It already withholds rows that are not this account's; serving
+   * those rows with outcome evidence pooled across every account would put
+   * back, in the evidence, exactly what the row filter removes.
+   */
+  it("scopes the served snapshot's outcome evidence to the account it read for", async () => {
+    // One stored row, so the read gets past "nothing served" and reaches the
+    // evidence step this case is about.
+    const sql = makeSqlMock([
+      {
+        scope_type: "campaign",
+        scope_id: "cmp_1",
+        business_id: "biz_1",
+        snapshot_date: "2026-05-06",
+        rec_id: "rec_1",
+        rec_type: "campaign_budget",
+        level: "campaign",
+        decision_state: "act",
+        confidence_score: 0.8,
+        recommended_action: "Scale.",
+        reasoning: "Because.",
+        engine_version: "v1",
+        created_at: "2026-05-06T03:00:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+
+    await readLatestMetaDecisionSnapshot({
+      businessId: "biz_1",
+      startDate: "2026-05-01",
+      endDate: "2026-05-06",
+      providerAccountId: "act_1",
+    });
+
+    const calls = vi.mocked(
+      empirical.attachMetaEmpiricalOutcomeSummariesFromLogs,
+    ).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.at(-1)![0]).toMatchObject({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
   });
 
   it("refuses an account the workspace no longer has, and computes nothing", async () => {

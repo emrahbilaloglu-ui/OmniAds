@@ -13,8 +13,10 @@ for everything:
 
 | Class | Measured at |
 |---|---|
-| unit suite, typecheck, lint, whitespace, build, zero-base gates | `b964cd9b1` — the last code commit |
-| runtime harness (388 checks) | `b964cd9b1` |
+| unit suite, typecheck, lint, whitespace, build, zero-base gates | `b964cd9b1`, then re-run at `d56c32bc8` — see §5.5 |
+| runtime harness, FULL (388 checks) | `b964cd9b1`. **Not re-run since.** |
+| runtime harness, FILTERED (19 checks + 312 route cases) | `d56c32bc8` — the account-isolation spec only, and not a substitute for the full sweep |
+| the account-isolation work (§6.1, §6.2) | `ef6fdc12f`..`d56c32bc8` and the empirical-outcome commit after it — see §5.5 |
 | frame evidence (92/92) | `b749db52f`, which is what the manifest records |
 | screenshot set (131 checks) | `b749db52f` |
 | the history-plan facts in §7.8 / §7.9 | re-measured at `daac86815` |
@@ -26,10 +28,19 @@ here claims to have measured it.
 
 - **Verified local facts** — §1–§5. A command produced the number, and the
   command is named.
-- **Architecture gaps** — §6.1. Local, real, and NOT closed by this pass. They
-  are not external and are not listed in §8.
-- **External blockers** — §8. Nothing in this repository closes them.
+- **Architecture gaps** — §6. Both were local, real and open; both are now
+  closed, each with a proof that fails against the commit before its fix. They
+  were never external and are not listed in §8.
+- **External blockers** — §8. Nothing in this repository closes them, and
+  closing §6 did not move any of them.
 - **Inferences** — said as inferences, in the sentence, wherever they appear.
+
+**Local closure is not market-ready.** Every "DONE (local)" in §3 means the
+behaviour is proven against this repository, its tests and an ephemeral
+PostgreSQL. No provider write has been attempted, no production database has
+been read, and no live acceptance has been given on a real Meta account. This
+branch is not merged, pushed, deployed or activated, and it must not be called
+market-ready until §8 is answered on a live account.
 
 ---
 
@@ -39,7 +50,9 @@ An independent review found that the previous revision had left a safe local
 security defect open in §7.10, that the new served-id boundary did not reject
 the stale ids the document claimed it did, that Account Intelligence had no
 physical-account lineage at all, and that the history plan was operationally
-unsafe. All of it is closed here except one named architecture gap (§6.1).
+unsafe. All of it is closed here, including the two architecture gaps §6.1 and
+§6.2, which a later pass on this branch closed rather than deferring — see §5.5
+for the commits and the proofs that fail against the commit before each fix.
 
 | # | Was | Now |
 |---|---|---|
@@ -135,7 +148,7 @@ See §6.1. It is an architecture gap, not an external blocker.
 | **WP6** Response/state contract | **PARTIAL** | One server-owned resolver; all seven §9 states proven; the notice's placement decided by whether a state ENDS; and `not-ready` is now produced by a real surface rather than only declared — Launchpad emits it for an unmigrated store | Query-plan, capacity, retention and growth evidence needs production read-only access |
 | **WP7** Mutation safety foundation | **BLOCKED** | The contract is declared and `launchpad_create` conforms 18/18. Demo write authority is enforced at every Meta mutation boundary — 14 direct, 12 through the verified shared handler, 1 in the store — all reading one flag through one function, and machine-checked so a new one cannot land without it | Needs a Meta sandbox account |
 | **WP8** Decisions | **DONE (local)** | Six lanes including the server's `blocked` state; the level filter with URL round-trip; the inspector's close, provenance band and grain gaps; share-view, brief, Ads Manager, inactive-assets strip and the manual-action route; the seven transitions with the fields the server requires; the 409 dialog with keep-mine and take-server; two server refusals every sibling route already performed | Provider execution needs a sandbox |
-| **WP9** Account Intelligence | **PARTIAL** | All nine plan sections composed. Both control sections gated on the SERVER at three floors — role, reviewer, demo — with the demo half fail-closed. Respond acts on a `rec_id` the server verifies per action, scoped to the physical account, in the same statement that writes it; account isolation, colliding ids, stale ids and unproven lineage are all refused against the real database | **Not DONE**: account-LEVEL recommendations for a multi-account business still carry no physical account, so they are withheld rather than attributed — see §6.1 |
+| **WP9** Account Intelligence | **DONE (local)** | All nine plan sections composed. Both control sections gated on the SERVER at three floors — role, reviewer, demo — with the demo half fail-closed. Respond acts on a `rec_id` the server verifies per action, scoped to the physical account, in the same statement that writes it; account isolation, colliding ids, stale ids and unproven lineage are all refused against the real database. §6.1 is closed: decisions are now generated per assigned account with every input narrowed before the computation, and responses, History, outcome accrual and empirical-outcome evidence are scoped the same way | Provider execution needs a sandbox — WP7/WP15. Live acceptance on a real account remains ungiven — see §8 |
 | **WP10** Creative Studio core | **DONE (local)** | Five tabs × four account postures; per-tab telemetry resolves to nine distinct names | — |
 | **WP11** Briefs, Shares, Public Share | **DONE (local)** | The whole lifecycle on the LEGACY studio and the CANONICAL console; and a decision can now reach the brief flow at all | — |
 | **WP12** History | **DONE (local)** | Nine families SUM to the journal; `writes` matches the action log row for row | — |
@@ -181,7 +194,19 @@ the zero-base visual and fidelity gates.
 
 ## 5. Validation
 
-Measured at `b964cd9b1` — the last code commit — unless a row says otherwise.
+Two measurement points, and they are not interchangeable.
+
+**The full sweep** in the table below was measured at `b964cd9b1` and is the
+last time every gate ran together. Its rows still stand for everything the
+account-isolation work did not touch.
+
+**The account-isolation work** — §6.1 and §6.2, commits `ef6fdc12f` through
+`d56c32bc8` plus the empirical-outcome fix on top — was validated separately,
+in §5.5. Its runtime run was **filtered to the affected spec**: 19 Playwright
+checks and 312 authenticated route cases. It is NOT the 388-check full runtime
+sweep, and nothing here should be read as if it were. The full sweep has not
+been re-run since `b964cd9b1`.
+
 Results quoted, not summarised.
 
 | Command | Result |
@@ -192,7 +217,7 @@ Results quoted, not summarised.
 | `npx vitest run` | **PASS** — 13 195 passed, 144 skipped, 63 todo (13 402) across 1 087 files, 0 failed |
 | `npm run build` | **PASS** |
 | `npm run meta:runtime-evidence` | **PASS** — 388 passed, 130 skipped, 0 failed (26.1 min), exit 0 |
-| `META_RUNTIME_SPEC_FILTER=meta-runtime-intelligence …` | **PASS** — 18 passed, including the five new D6 account cases |
+| `META_RUNTIME_SPEC_FILTER=meta-runtime-intelligence …` | **PASS** — 18 passed, including the five new D6 account cases. Superseded by §5.5, which re-ran the same filter at 19 |
 | `npm run test:migrations-from-zero` | **PASS** — the new column builds from zero and the migrations stay idempotent |
 | `npm run test:schema-upgrade-seam` | **PASS** — P1/P2/P3 |
 | `META_RUNTIME_SCREENSHOT_SET=meta-market-ready-b749db52fb …` | **PASS** — 131 passed (7.7 min), at `b749db52f` |
@@ -349,45 +374,128 @@ findings and nothing else**. §7.1 is why the repoint did not land.
 
 ---
 
-## 6. Architecture gaps — local, real, and NOT closed
+### 5.5 The account-isolation pass, measured at `d56c32bc8` and after
 
-Neither of these is external. Nothing in §8 covers them, and neither is waiting
-on anyone outside this repository. They are recorded here so that "PARTIAL" in
-§3 has a specific meaning.
+Seven commits close §6.1 and §6.2: `ef6fdc12f` (schema and both ADRs),
+`d9d9ca6c5` (per-account generation), `37f4f7cfc` (read posture),
+`6a5ee9c39` (operator-response lineage), `41326d871` (runtime seeds),
+`5ccdacb3c` (the real-PostgreSQL identity seam), `defed14c0` (the nine read
+routes and the read-posture contract), `8b1c9b584` (the last two generation
+inputs and a manual refresh's account), then `77a21df45` / `43dd42345` /
+`d56c32bc8` (outcome accrual, History correlations, the collision proofs), and
+the empirical-outcome forwarding on top.
 
-### 6.1 An account-level recommendation for a multi-account business has no account
+| Command | Result |
+|---|---|
+| `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..d56c32bc8` |
+| `npm run typecheck` | **PASS** |
+| `npm run lint` | **PASS** |
+| `npx vitest run` | **PASS** — 13 221 passed, 144 skipped, 63 todo (13 428) across 1 089 files, 0 failed. Run at `d56c32bc8`; the empirical-outcome commit after it ran only the focused suites |
+| `npm run build` | **PASS** |
+| `npm run test:migrations-from-zero` | **PASS** — the new columns and the identity index build from zero and stay idempotent |
+| `npm run test:schema-upgrade-seam` | **PASS** — U7, P1/P2/P3 |
+| `npm run test:decision-identity-seam` | **PASS** — 12 stages, real PostgreSQL, run green twice |
+| `npm run meta:verify-mounted-bodies` | **PASS** — 15 surfaces |
+| `META_RUNTIME_SPEC_FILTER=playwright/tests/meta-runtime-intelligence.spec.ts npm run meta:runtime-evidence` | **PASS** — 19 Playwright checks and 312 authenticated route cases. **FILTERED**, not the 388-check full sweep |
+| `npm run meta:runtime-evidence` (unfiltered) | **NOT RUN since `b964cd9b1`** |
 
-`provider_account_id` is populated from the campaign and ad-set rows the engine
-already reads, so campaign-scoped and ad-set-scoped recommendations carry a
-physical account. Account-LEVEL recommendations do not, unless the business has
-exactly one assigned account — in which case "this business" and "this account"
-are the same fact and the row carries it.
+**Proofs that fail against the commit before their fix.** Ten unit and contract
+cases fail against `8b1c9b584`; the identity seam fails at I9 there, and at I11
+with History alone repaired; and the two empirical-outcome forwarding cases fail
+against `d56c32bc8`. The one case that passes on both sides is the
+"legacy fingerprint is byte-identical" invariant, which is a compatibility
+guarantee rather than a defect proof, and is marked as such in the file.
 
-The cause is structural: `runMetaSnapshotForBusiness(businessId, snapshotDate)`
-aggregates across every assigned account, so an account-level recommendation is
-genuinely about all of them. There is no column to add that fixes this; the
-engine would have to run per account.
+## 6. Architecture gaps — local, real, and now CLOSED
 
-**What this pass did instead of pretending otherwise.** Those rows stay NULL and
-are WITHHELD from an account-scoped read. The surface shows fewer
-recommendations rather than one account's decisions under another's heading, and
-the respond boundary refuses them. That is the fail-closed direction, and it is
-why WP9 is PARTIAL rather than DONE.
+Both entries below were open local gaps in the previous revision of this
+document. They are no longer. The implementation and the tests that close them
+are named per entry, and each names a proof that FAILS against the commit
+before the fix — an entry without one would be a claim, not evidence.
 
-Closing it is a Phase H change to the engine — per-account snapshot generation —
-and `D-M009` records it as deferred with that reasoning rather than as a
-limitation of the data.
+Nothing here is a substitute for §8. These were the two gaps that were nobody
+else's to unblock; the external blockers are untouched by this pass.
 
-### 6.2 Two demo instruments remain in the codebase
+### 6.1 Per-account decision generation — CLOSED
 
-`lib/business-mode.server.isDemoBusiness` and `lib/demo-business.isDemoBusinessId`
-both answer "not a demo workspace" when they cannot tell. Neither is used by any
-Meta write boundary any more, and the contract test FAILS if one appears in a
-Meta route. They are still used elsewhere — presentation paths, where a
-fail-open read is survivable — and were not swept, because rewriting every
-caller is a wider change than this review asked for.
+**What was wrong.** `runMetaSnapshotForBusiness(businessId, snapshotDate)`
+aggregated across every assigned account, and the four-column primary key on
+`meta_decision_snapshots_daily` made that structural: two accounts could not
+hold a row of the same type on the same day, so one row had to answer for both.
+Account-level recommendations carried no account at all and were withheld.
 
-The risk is contained by the contract test rather than removed.
+**What closes it.** The engine now computes and persists ONE batch per currently
+assigned account, narrowing every input before the computation rather than
+labelling rows after it — campaign windows, breakdowns, ad sets, entity signals,
+evidence trails, hysteresis state, and the empirical outcome history. Identity is
+now `(scope_type, scope_id, snapshot_date, rec_type, provider_account_id)` with
+`NULLS NOT DISTINCT`, so two accounts coexist while legacy NULL-lineage rows
+still collide exactly as the old key made them. A per-account run deletes only
+its own account's rows. Operator responses, History and outcome accrual are
+scoped the same way, each on the source's own persisted lineage.
+
+ADRs `D-M011` (snapshot identity and per-account generation) and `D-M012`
+(operator-response lineage) record the decisions. `D-M009`'s deferral is
+superseded by them.
+
+**Evidence.** `scripts/ephemeral-postgres-decision-identity-seam.ts`, twelve
+stages against a real PostgreSQL — from zero, and across a rewind to the genuine
+pre-change schema with rows already in it. It covers both accounts coexisting,
+per-account responses, a defer/undefer chain that cannot be driven from the
+sibling account, History isolation, KPI windows and accrued outcomes staying
+separate for colliding scope and rec ids, and idempotency that allows one
+outcome per account. Against `8b1c9b584` it fails at I9; with History alone
+repaired it fails at I11 with `an accrued outcome carries no physical account:
+[null,null]`.
+
+**Legacy rows are preserved, never re-attributed.** A row written before the
+lineage column exists is admitted to an account-scoped view only when its ENTITY
+resolves to exactly one account in the business and that account is the selected
+one — the same `HAVING COUNT(DISTINCT provider_account_id) = 1` proof the read
+model already made for creatives. It is reported as `unique_entity_key` rather
+than passing for a direct read, and an entity id seen under two accounts is
+withheld rather than guessed.
+
+**One deliberate consequence.** An action-log row with a NULL
+`provider_account_id` now fails closed: it no longer appears in account-scoped
+History or in the operator-acted set, rather than being attached through a
+`rec_id` two accounts can share. Whether such rows exist in production is a
+production unknown — see §8.
+
+### 6.2 The read-side demo posture — CLOSED
+
+**What was wrong.** `lib/business-mode.server.isDemoBusiness` manufactures
+`false` — live — from a `businesses` table it cannot read, and caches that guess
+for 60 seconds; `lib/demo-business.isDemoBusinessId` never reads the column at
+all. No Meta WRITE boundary used either, but nine Meta READ routes did, so a
+workspace whose flag could not be read had a provider called for it and live
+figures served as fact.
+
+**What closes it.** `lib/meta/business-data-posture.readMetaBusinessDataPosture`
+is a tri-state read over the same column the write boundary uses: `demo` serves
+fixtures, `live` reads live sources, and `unverified` refuses with 503
+`workspace_posture_unverified` carrying `isPartial` and `notReadyReason`, so a
+caller that renders the envelope says "not ready" rather than drawing an empty
+screen. All nine routes and the campaign, ad-set and breakdown sources use it.
+`page-status` reads it in the handler rather than the builder, because the
+builder sits behind a cache and a check inside it would be skipped on a hit.
+
+**Evidence.** `app/api/meta-demo-read-posture.contract.test.ts` walks the active
+Meta surface and fails if a fail-open instrument is CALLED, or if a caller of
+the tri-state read branches only on `demo`. Both halves were verified to fail
+when reintroduced: restoring one `isDemoBusinessId` call names the file, and
+deleting only the refusal while keeping its import still fails, because imports
+are stripped before the second check. Behavioural cases prove the refusal
+happens BEFORE the source is read, so an unreadable flag never becomes a
+provider call.
+
+**What is deliberately still in the codebase.** Both instruments still exist and
+are still used outside the active Meta surface —
+`app/api/integrations/route.ts` serves every provider rather than Meta,
+`lib/archive/**` holds preserved V1/V2 bodies, and Google, SEO, Klaviyo and
+Shopify have their own posture questions. Those were not swept, because that is
+a wider change than this review asked for; the contract test's scope is the
+active Meta surface and says so.
 
 ## 6.3 Evidence by class
 
@@ -613,14 +721,20 @@ keeping visible. A security boundary that is known to be missing elsewhere is
 not made safer by being documented. The correct move was to do the inventory and
 close all of it, which is what this pass did.
 
-### 7.11 The two demo instruments have not been swept from the codebase
+### 7.11 The demo instruments are off the active Meta surface — CLOSED there
 
-Open, local, and NOT closed. `lib/business-mode.server.isDemoBusiness` and
-`lib/demo-business.isDemoBusinessId` still exist and are still used on
-presentation paths, where answering "not demo" for an unreadable flag is
-survivable. No Meta write boundary uses either, and the contract test fails if
-one appears in a Meta route — see §6.2. Rewriting every remaining caller is a
-wider change than this review asked for and is recorded rather than done.
+Closed for Meta, and deliberately not swept beyond it. The nine Meta READ routes
+that used `lib/business-mode.server.isDemoBusiness` or
+`lib/demo-business.isDemoBusinessId` now read the tri-state posture, and
+`app/api/meta-demo-read-posture.contract.test.ts` fails if either instrument is
+CALLED anywhere on the active Meta surface or if a caller of the tri-state read
+branches only on `demo` — see §6.2.
+
+Both instruments still exist and are still used outside that surface:
+`app/api/integrations/route.ts` (every provider, not Meta), `lib/archive/**`
+(preserved V1/V2 bodies), and the Google, SEO, Klaviyo and Shopify paths, which
+have their own posture question. Those are recorded rather than done, and the
+contract test's scope says so explicitly.
 
 ### 7.12 The history plan is executable, and still unexecuted
 
@@ -652,11 +766,31 @@ and index state.
 | No approval for the history rewrite | §7.8 | An explicit instruction. The plan, its verification and its preconditions are written; nothing in it has been run |
 | The Codex turn-diff refs hold the blob | §7.9 | A decision by whoever owns that tooling about whether those two refs may be deleted. Until then Phase B cannot deliver an unreachable blob, whatever it does to this branch |
 
-None of these can be closed by writing code.
+None of these can be closed by writing code. Closing §6.1 and §6.2 moved none
+of them, and no row above changed in this pass.
 
-**Not on this list, because they are not external:** §6.1 (account-level
-recommendations carry no physical account — a Phase H engine change), §6.2 /
-§7.11 (the two fail-open demo instruments still used on presentation paths), and
-§7.12 (the history plan, which waits for an instruction rather than for anyone
-outside this repository). Turning a local schema or authority gap into an
-"external blocker" is how a gap stops being worked on.
+**Production unknowns — not blockers, but not verified either.** These are
+statements this branch cannot check without production read-only access, and
+each is stated as an unknown rather than assumed:
+
+- whether `meta_ads_action_log` rows with a NULL `provider_account_id` exist in
+  production. If they do, they will stop appearing in account-scoped History and
+  in the operator-acted set, because an unattributable write is now failed
+  closed rather than attached through a shared `rec_id` — see §6.1.
+- whether any production business has more than one assigned Meta account, which
+  is the condition under which the collisions this pass closes are reachable at
+  all. Every proof is against seeded accounts on an ephemeral server.
+- how many legacy NULL-lineage snapshot, response and outcome rows exist, and
+  therefore how much evidence is attributed by the exact unique-entity inference
+  rather than by a stored account.
+
+**Not on this list, because they are not external:** §7.12 (the history plan,
+which waits for an instruction rather than for anyone outside this repository).
+Turning a local schema or authority gap into an "external blocker" is how a gap
+stops being worked on — which is why §6.1 and §6.2 were fixed here rather than
+moved into this table.
+
+**And market-ready still needs a live account.** Everything above is local
+closure. WP7, WP13, WP15 and WP18 remain BLOCKED, no provider write has been
+attempted, no production database has been read, and no live acceptance has been
+given. This branch must not be described as market-ready until that happens.

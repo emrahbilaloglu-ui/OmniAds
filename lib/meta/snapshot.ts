@@ -1076,6 +1076,18 @@ async function buildSnapshotRecommendations(input: {
   return {
     recommendations: await attachMetaEmpiricalOutcomeSummariesFromLogs({
       businessId: input.businessId,
+      /*
+       * The account THIS generation run is for (the outer binding from the top
+       * of this function, not the loop-local `accountId` a few lines above).
+       *
+       * Omitting it made the integration pass null, and null reads outcome
+       * history business-wide — so account A's recommendation carried account
+       * B's empirical evidence for the same rec type. Every other input to this
+       * function is narrowed per account (D-M011); this was the last one that
+       * was not, and it is the one an operator actually reads as "how this kind
+       * of decision has worked out here".
+       */
+      providerAccountId: accountId,
       recommendations: guardedRecommendations,
     }),
     lineage: {
@@ -1699,6 +1711,10 @@ export async function readLatestMetaDecisionSnapshot(input: {
   }).recommendations;
   const recommendations = await attachMetaEmpiricalOutcomeSummariesFromLogs({
     businessId: input.businessId,
+    // The same account this read already withholds rows by. Serving a row that
+    // belongs to this account with outcome evidence pooled across every account
+    // would reintroduce, in the evidence, exactly what the row filter removes.
+    providerAccountId: account,
     recommendations: guardedRecommendations,
   });
   const servedSnapshotDate = rows[0]?.snapshot_date ?? null;

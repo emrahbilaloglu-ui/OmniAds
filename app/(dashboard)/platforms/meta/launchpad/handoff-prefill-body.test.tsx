@@ -57,11 +57,6 @@ vi.mock("next/navigation", () => ({
 // The account scope has to be real for the wizard to mount at all: the surface
 // refuses to render it without an assigned account AND a currency, which is the
 // correct fail-closed behaviour and not something this file may weaken.
-vi.mock("@/lib/meta/history-client", () => ({
-  fetchMetaHistoryAccounts: vi.fn(async () => [
-    { id: "act_1", name: "Main", currency: "USD" },
-  ]),
-}));
 
 const { default: MetaLaunchpadPage } = await import("./legacy-page");
 
@@ -119,14 +114,41 @@ function decisionPrefill(
 beforeEach(() => {
   navigationState.query = "";
   appState.selectedBusinessId = "biz";
-  // The library/store reads are not what this file is about; they must simply
-  // not throw. No provider call is made by any of them.
+  // The first-load read is not what this file is about; it must simply answer
+  // and carry the assigned account. No provider call is made by any of it.
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({
+    vi.fn(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({}),
+      json: async () =>
+        String(url).startsWith("/api/launchpad/meta/workspace")
+          ? {
+              ok: true,
+              accounts: [{ id: "act_1", name: "Main", currency: "USD" }],
+              sections: Object.fromEntries(
+                [
+                  "accounts",
+                  "templates",
+                  "recentTemplates",
+                  "drafts",
+                  "intents",
+                  "recentAdActions",
+                  "targetCpa",
+                ].map((section) => [
+                  section,
+                  { status: "complete", errorCode: null, observedAt: "t" },
+                ]),
+              ),
+              capability: {},
+              templates: [],
+              recentTemplates: [],
+              drafts: [],
+              intents: [],
+              recentAdActions: [],
+              targetCpa: null,
+            }
+          : {},
     })) as unknown as typeof fetch,
   );
 });

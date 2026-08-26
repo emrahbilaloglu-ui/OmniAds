@@ -284,6 +284,30 @@ test.describe("first load does not fan out", () => {
           (repeated.length ? ` · repeated: ${repeated.join(", ")}` : ""),
       );
 
+      /*
+       * Over budget? Then NAME them.
+       *
+       * A recorded ceiling with no list behind it is what produced
+       * "meta-launchpad: 18, cause unattributed" — a number nobody could act on
+       * without re-running the harness first. Every surface above the plan's
+       * budget prints its own requests, grouped by path with the query dropped,
+       * so the next reader starts from an inventory rather than from a total.
+       */
+      if (measured.apiCalls.length > FIRST_LOAD_API_CALL_BUDGET) {
+        const byPath = new Map<string, number>();
+        for (const url of measured.apiCalls) {
+          const withoutQuery = url.split("?")[0]!;
+          byPath.set(withoutQuery, (byPath.get(withoutQuery) ?? 0) + 1);
+        }
+        console.log(
+          `  ${route.surfaceId} is over the budget of ${FIRST_LOAD_API_CALL_BUDGET}; every request:\n` +
+            [...byPath.entries()]
+              .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+              .map(([requestPath, count]) => `    ${String(count).padStart(2)}× ${requestPath}`)
+              .join("\n"),
+        );
+      }
+
       // The plan's budget, or the measured figure for a surface already over it.
       // Recording the number is not waiving it: the gate still fails the moment
       // a surface asks for one more than it asks for today.

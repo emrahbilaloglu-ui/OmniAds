@@ -80,7 +80,6 @@ import {
   type LaunchpadRecentAdAction,
 } from "@/lib/launchpad/recent-ad-actions";
 import { cn } from "@/lib/utils";
-import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import type {
   MetaLaunchIntent,
@@ -361,12 +360,12 @@ function stateFromPayloadAdSet(
  * One library read, with the difference between "the server said none" and
  * "the server did not say" preserved.
  *
- * This used to return `null` for every non-OK response, and `null` flows into
- * `isLaunchpadArrayPayload`, which answers `[]`. So a 403 became an empty
- * library — and 403 is the ordinary answer here, not an edge case: every one of
- * these four GETs goes through `requireLaunchpadBusinessAccess`, which is
- * hardcoded to `minRole: "collaborator"` (app/api/launchpad/meta/route-utils.ts
- * line 49). There is no guest-read contract for drafts, templates or intents.
+ * This used to return `null` for every non-OK response, and a null payload
+ * read out as `[]`. So a 403 became an empty library — and 403 is the ordinary
+ * answer here, not an edge case: the read goes through
+ * `requireLaunchpadBusinessAccess`, which is hardcoded to
+ * `minRole: "collaborator"` (app/api/launchpad/meta/route-utils.ts line 49).
+ * There is no guest-read contract for drafts, templates or intents.
  * A guest therefore got a page that said, in the same em dashes a real empty
  * account shows, that this workspace has no drafts and no receipts. That is a
  * refusal rendered as a measurement.
@@ -393,20 +392,6 @@ export const LAUNCHPAD_LIBRARY_REFUSED_MESSAGE =
 
 export const LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE =
   "Saved drafts, templates and receipts could not be read, so none are listed here.";
-
-/**
- * The sentence for a library that was not read. `null` means every read
- * answered, and only then does an empty table mean "there are none".
- */
-function libraryUnavailableMessage(reads: LaunchpadRead[]): string | null {
-  const refused = reads.find((read) => !read.ok) as
-    | Extract<LaunchpadRead, { ok: false }>
-    | undefined;
-  if (!refused) return null;
-  return refused.httpStatus === 401 || refused.httpStatus === 403
-    ? LAUNCHPAD_LIBRARY_REFUSED_MESSAGE
-    : LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE;
-}
 
 function launchpadReadPayload(read: LaunchpadRead): unknown {
   return read.ok ? read.payload : null;
@@ -444,79 +429,193 @@ function launchStoreCapabilityFromPayload(
   };
 }
 
-async function loadLaunchpadLibrary(
+/**
+ * Everything Launchpad needs at first load, in one request.
+ *
+ * This used to be four requests, and three more sat beside them: the assigned
+ * account list, recent ad actions, and the business target CPA. Seven requests
+ * asked the same question about the same account at the same instant, which is
+ * why the surface measured 18 first-load reads against a budget of 12.
+ * `/api/launchpad/meta/workspace` composes them server-side.
+ *
+ * What did NOT change:
+ *
+ * - **Scope.** The composed route resolves the account through the same
+ *   `resolveAssignedMetaLaunchAccount` the seven routes call, and the rows are
+ *   still filtered to `providerAccountId` here as they were before.
+ * - **Freshness.** Every folded read is `force-dynamic` and uncached, and so is
+ *   the composed one.
+ * - **Reporting.** The four §9 outcomes below keep their ids, their row counts
+ *   and their meaning. `resolveMetaSurfaceReadState` is still the only thing
+ *   that turns them into a state; this reports observations, as it always did.
+ *
+ * A section the server did not report on was NOT read — the route omits the
+ * account-scoped sections when no account resolves — and that is a failure to
+ * read, never an empty list.
+ */
+export interface LaunchpadWorkspaceRead {
+  accounts: MetaHistoryAccount[];
+  accountsRead: boolean;
+  accountBlocker: { code: string; message: string } | null;
+  readOutcomes: MetaSurfaceSource[];
+  unavailableMessage: string | null;
+  templates: LaunchTemplate[];
+  drafts: LaunchDraft[];
+  intents: MetaLaunchIntent[];
+  launchIntentCapability: MetaLaunchIntentCapability | null;
+  draftCapability: MetaLaunchStoreCapability | null;
+  templateCapability: MetaLaunchStoreCapability | null;
+  recentAdActions: LaunchpadRecentAdAction[];
+  targetCpa: number | null;
+}
+
+export async function loadLaunchpadWorkspace(
   businessId: string,
   providerAccountId: string,
-) {
-  const scope = `businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`;
-  const reads = await Promise.all([
-    readLaunchpadJson(`/api/launchpad/meta/templates?${scope}`),
-    readLaunchpadJson(`/api/launchpad/meta/templates/recent?${scope}`),
-    readLaunchpadJson(`/api/launchpad/meta/drafts?${scope}`),
-    readLaunchpadJson(`/api/launchpad/meta/intents?${scope}&limit=12`),
-  ]);
-  const [manual, recent, drafts, intents] = reads.map(launchpadReadPayload);
-  const manualTemplates = isLaunchpadArrayPayload(manual, "templates");
-  const recentTemplates = isLaunchpadArrayPayload(recent, "templates");
-  const draftRows = isLaunchpadArrayPayload(drafts, "drafts");
-  const intentRows = isLaunchpadArrayPayload(intents, "intents");
-  /**
-   * The four reads, reported as outcomes — not judged here.
-   *
-   * Launchpad fans out to four endpoints that no single route aggregates, so
-   * there is no server that can see all four answer. What this reports is
-   * observation: which requests returned and how many rows each carried. The
-   * STATE those facts add up to is decided by
-   * `resolveMetaSurfaceReadState`, the same function the pages and the
-   * decisions route call. That keeps one authority; a second set of rules here
-   * is what §9 exists to prevent, and the surface already had one — a private
-   * `unavailableMessage` that could not tell partial from degraded.
+): Promise<LaunchpadWorkspaceRead> {
+  const params = new URLSearchParams({ businessId });
+  if (providerAccountId) params.set("providerAccountId", providerAccountId);
+  const read = await readLaunchpadJson(
+    `/api/launchpad/meta/workspace?${params.toString()}`,
+  );
+  const payload = launchpadReadPayload(read);
+  const body =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : null;
+  const sections =
+    body &&
+    typeof body.sections === "object" &&
+    body.sections !== null &&
+    !Array.isArray(body.sections)
+      ? (body.sections as Record<
+          string,
+          { status?: unknown; errorCode?: unknown } | undefined
+        >)
+      : {};
+  const sectionRead = (key: string) => sections[key]?.status === "complete";
+  const httpStatus = read.ok ? null : read.httpStatus;
+  /*
+   * A refusal to read and a failure to read say different things to an
+   * operator, and always did. Two things can carry that difference: the
+   * transport status when the whole request was refused, and — because the
+   * account list is `guest`-readable while the library is not — the server's
+   * own per-section code on a 200 that carries both answers at once.
    */
-  const readOutcomes: MetaSurfaceSource[] = [
-    { id: "templates", read: reads[0]!, rows: manualTemplates.length + recentTemplates.length },
-    { id: "recent-templates", read: reads[1]!, rows: recentTemplates.length },
-    { id: "drafts", read: reads[2]!, rows: draftRows.length },
-    { id: "receipts", read: reads[3]!, rows: intentRows.length },
-  ].map(({ id, read, rows }) => ({
+  const transportFailureCode =
+    httpStatus === 401 || httpStatus === 403
+      ? ("capability_read_denied" as const)
+      : ("source_read_failed" as const);
+  const sectionFailureCode = (key: string) =>
+    sections[key]?.errorCode === "capability_read_denied"
+      ? ("capability_read_denied" as const)
+      : transportFailureCode;
+
+  const scoped = <T,>(key: string): T[] => {
+    const value = body?.[key];
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (row) =>
+        typeof row === "object" &&
+        row !== null &&
+        (row as { providerAccountId?: unknown }).providerAccountId ===
+          providerAccountId,
+    ) as T[];
+  };
+
+  const manualTemplates = scoped<LaunchTemplate>("templates");
+  const recentTemplates = scoped<LaunchTemplate>("recentTemplates");
+  const draftRows = scoped<LaunchDraft>("drafts");
+  const intentRows = scoped<MetaLaunchIntent>("intents");
+
+  const readOutcomes: MetaSurfaceSource[] = (
+    [
+      {
+        id: "templates",
+        section: "templates",
+        rows: manualTemplates.length + recentTemplates.length,
+      },
+      {
+        id: "recent-templates",
+        section: "recentTemplates",
+        rows: recentTemplates.length,
+      },
+      { id: "drafts", section: "drafts", rows: draftRows.length },
+      { id: "receipts", section: "intents", rows: intentRows.length },
+    ] as const
+  ).map(({ id, section, rows }) => ({
     id,
-    outcome: read.ok ? (rows > 0 ? ("served" as const) : ("empty" as const)) : ("failed" as const),
+    outcome: sectionRead(section)
+      ? rows > 0
+        ? ("served" as const)
+        : ("empty" as const)
+      : ("failed" as const),
     rowCount: rows,
-    failureCode: read.ok
-      ? undefined
-      : read.httpStatus === 401 || read.httpStatus === 403
-        ? ("capability_read_denied" as const)
-        : ("source_read_failed" as const),
+    failureCode: sectionRead(section) ? undefined : sectionFailureCode(section),
   }));
+
+  const capability =
+    body &&
+    typeof body.capability === "object" &&
+    body.capability !== null &&
+    !Array.isArray(body.capability)
+      ? (body.capability as Record<string, unknown>)
+      : {};
+  const rawAccounts = body?.accounts;
+  const blocker =
+    body &&
+    typeof body.accountBlocker === "object" &&
+    body.accountBlocker !== null &&
+    !Array.isArray(body.accountBlocker)
+      ? (body.accountBlocker as { code?: unknown; message?: unknown })
+      : null;
+  const targetCpa = body?.targetCpa;
+
   return {
+    accounts: Array.isArray(rawAccounts)
+      ? (rawAccounts as MetaHistoryAccount[])
+      : [],
+    accountsRead: sectionRead("accounts"),
+    accountBlocker:
+      typeof blocker?.code === "string" && typeof blocker.message === "string"
+        ? { code: blocker.code, message: blocker.message }
+        : null,
     readOutcomes,
-    // Non-null exactly when at least one of the four reads did not answer.
+    // Non-null exactly when at least one of the four sections was not read.
     // Carried beside the rows rather than folded into them, because an empty
     // array is the one thing this state must not be mistaken for.
-    unavailableMessage: libraryUnavailableMessage(reads),
-    templates: [...recentTemplates, ...manualTemplates].filter(
-      (row) =>
-        typeof row === "object" &&
-        row !== null &&
-        (row as { providerAccountId?: unknown }).providerAccountId ===
-          providerAccountId,
-    ) as LaunchTemplate[],
-    drafts: isLaunchpadArrayPayload(drafts, "drafts").filter(
-      (row) =>
-        typeof row === "object" &&
-        row !== null &&
-        (row as { providerAccountId?: unknown }).providerAccountId ===
-          providerAccountId,
-    ) as LaunchDraft[],
-    intents: isLaunchpadArrayPayload(intents, "intents").filter(
-      (row) =>
-        typeof row === "object" &&
-        row !== null &&
-        (row as { providerAccountId?: unknown }).providerAccountId ===
-          providerAccountId,
-    ) as MetaLaunchIntent[],
-    launchIntentCapability: launchIntentCapabilityFromPayload(intents),
-    draftCapability: launchStoreCapabilityFromPayload(drafts),
-    templateCapability: launchStoreCapabilityFromPayload(manual),
+    unavailableMessage: readOutcomes.every((source) => source.outcome !== "failed")
+      ? null
+      : readOutcomes.some(
+            (source) => source.failureCode === "capability_read_denied",
+          )
+        ? LAUNCHPAD_LIBRARY_REFUSED_MESSAGE
+        : LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE,
+    templates: [...recentTemplates, ...manualTemplates],
+    drafts: draftRows,
+    intents: intentRows,
+    launchIntentCapability: launchIntentCapabilityFromPayload({
+      capability: capability.intents,
+    }),
+    draftCapability: launchStoreCapabilityFromPayload({
+      capability: capability.drafts,
+    }),
+    templateCapability: launchStoreCapabilityFromPayload({
+      capability: capability.templates,
+    }),
+    recentAdActions: (Array.isArray(body?.recentAdActions)
+      ? (body.recentAdActions as LaunchpadRecentAdAction[])
+      : []
+    ).filter((action) => action.accountId === providerAccountId),
+    // Read, never derived. Anything that is not a positive finite number is
+    // absent, and an absent target hides the budget warning rather than
+    // guessing one.
+    targetCpa:
+      typeof targetCpa === "number" &&
+      Number.isFinite(targetCpa) &&
+      targetCpa > 0
+        ? targetCpa
+        : null,
   };
 }
 
@@ -624,50 +723,6 @@ export async function readLaunchpadDraftValidations(input: {
   } catch {
     return unavailable();
   }
-}
-
-/**
- * The business target pack's configured target CPA. It is the only served
- * cost-per-acquisition target this surface can reach; nothing here derives one
- * from creative history.
- */
-export async function readBusinessTargetCpa(
-  businessId: string,
-): Promise<number | null> {
-  const response = await fetch(
-    `/api/business-commercial-settings?businessId=${encodeURIComponent(businessId)}`,
-  );
-  if (!response.ok) return null;
-  const body = (await response.json().catch(() => null)) as {
-    snapshot?: { targetPack?: { targetCpa?: unknown } | null } | null;
-  } | null;
-  const targetCpa = body?.snapshot?.targetPack?.targetCpa;
-  return typeof targetCpa === "number" && Number.isFinite(targetCpa) && targetCpa > 0
-    ? targetCpa
-    : null;
-}
-
-async function loadRecentLaunchpadAdActions(
-  businessId: string,
-  providerAccountId: string,
-) {
-  const payload = await readLaunchpadJson(
-    `/api/launchpad/meta/recent-ad-actions?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
-  );
-  if (!payload || typeof payload !== "object" || Array.isArray(payload))
-    return [];
-  const actions = (payload as Record<string, unknown>).actions;
-  return Array.isArray(actions) ? (actions as LaunchpadRecentAdAction[]) : [];
-}
-
-function isLaunchpadArrayPayload(
-  payload: unknown,
-  key: "templates" | "drafts" | "intents",
-) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload))
-    return [];
-  const value = (payload as Record<string, unknown>)[key];
-  return Array.isArray(value) ? value : [];
 }
 
 function launchIntentCapabilityFromPayload(
@@ -1009,14 +1064,26 @@ export default function MetaLaunchpadPage({
   >({});
   const [expectedCpa, setExpectedCpa] = useState<number | null>(null);
 
+  /**
+   * One read for the whole surface.
+   *
+   * The assigned-account list is presentation only. It is the very set
+   * `resolveProviderAccountId` authorizes against, so reading it cannot widen
+   * scope — and it has to load even when the server resolved *no* account,
+   * otherwise a business with two or more assigned Meta ad accounts is shown
+   * "select one assigned Meta ad account" with nothing to select. The chosen id
+   * stays server-owned: `providerAccountId` above still reads
+   * `serverProviderAccountId` on the canonical route.
+   *
+   * The library, the recent ad actions and the target CPA arrive in the same
+   * response. They were four effects issuing seven requests at the same instant
+   * about the same account; `/api/launchpad/meta/workspace` answers all seven
+   * at once, in the same scope, with the same authorization and the same
+   * freshness. Nothing here decides anything those four did not already decide:
+   * `resolveMetaSurfaceReadState` is still the only authority over what the
+   * observed outcomes mean.
+   */
   useEffect(() => {
-    // The assigned-account list is presentation only. It is the very set
-    // `resolveProviderAccountId` authorizes against, so reading it cannot
-    // widen scope — and it has to load even when the server resolved *no*
-    // account, otherwise a business with two or more assigned Meta accounts
-    // is shown "select one assigned Meta ad account" with nothing to select.
-    // The chosen id stays server-owned: `providerAccountId` above still
-    // reads `serverProviderAccountId` on the canonical route.
     if (!businessId) {
       setProviderAccounts([]);
       setSelectedProviderAccountId("");
@@ -1025,16 +1092,35 @@ export default function MetaLaunchpadPage({
     let cancelled = false;
     setProviderAccountsLoading(true);
     setProviderAccountsError(null);
-    fetchMetaHistoryAccounts({ businessId })
-      .then((accounts) => {
+    if (providerAccountId) {
+      setLibraryLoading(true);
+    } else {
+      // With no account scope the account-scoped sections are not read at all,
+      // so the surface must not keep showing the previous account's rows. No
+      // read was attempted, so there is nothing to report as unread.
+      setTemplates([]);
+      setDrafts([]);
+      setLaunchIntents([]);
+      setLaunchIntentCapability(null);
+      setDraftCapability(null);
+      setTemplateCapability(null);
+      setLibraryUnavailableMessage(null);
+      setRecentAdActions([]);
+      setExpectedCpa(null);
+    }
+    loadLaunchpadWorkspace(businessId, providerAccountId)
+      .then((workspace) => {
         if (cancelled) return;
-        setProviderAccounts(accounts);
+        setProviderAccounts(workspace.accounts);
         setSelectedProviderAccountId((current) => {
-          if (current && accounts.some((account) => account.id === current))
+          if (
+            current &&
+            workspace.accounts.some((account) => account.id === current)
+          )
             return current;
           if (
             requestedProviderAccountId &&
-            accounts.some(
+            workspace.accounts.some(
               (account) => account.id === requestedProviderAccountId,
             )
           ) {
@@ -1042,26 +1128,78 @@ export default function MetaLaunchpadPage({
           }
           return "";
         });
+        setProviderAccountsError(
+          workspace.accountsRead
+            ? null
+            : "Assigned Meta accounts could not load.",
+        );
+        // The account-scoped half of the response is only meaningful when this
+        // read carried an account scope.
+        if (!providerAccountId) return;
+        setTemplates(workspace.templates);
+        setDrafts(workspace.drafts);
+        setLaunchIntents(workspace.intents);
+        setLaunchIntentCapability(workspace.launchIntentCapability);
+        setDraftCapability(workspace.draftCapability);
+        setTemplateCapability(workspace.templateCapability);
+        setLibraryUnavailableMessage(workspace.unavailableMessage);
+        setRecentAdActions(workspace.recentAdActions);
+        setExpectedCpa(workspace.targetCpa);
+        // Observed outcomes in, one shared decision out. See `readOutcomes`.
+        publishMetaSurfaceState(
+          "meta-launchpad",
+          resolveMetaSurfaceReadState({
+            businessId,
+            providerAccountId,
+            requiresProviderAccount: true,
+            permissions: {
+              role: viewer?.role ?? null,
+              reviewerReadOnly: viewer?.reviewerReadOnly === true,
+              demo: viewer?.demo === true,
+            },
+            capability: { canRead: true, canWrite: viewer?.canMutate === true },
+            sources: workspace.readOutcomes,
+          }),
+        );
       })
-      .catch((error: unknown) => {
+      .catch(() => {
+        // `loadLaunchpadWorkspace` reports a transport failure in its outcomes
+        // rather than throwing, so this is the defensive branch only.
         if (cancelled) return;
         setProviderAccounts([]);
         setSelectedProviderAccountId("");
-        setProviderAccountsError(
-          error instanceof Error
-            ? error.message
-            : "Assigned Meta accounts could not load.",
-        );
+        setProviderAccountsError("Assigned Meta accounts could not load.");
+        if (!providerAccountId) return;
+        setTemplates([]);
+        setDrafts([]);
+        setLaunchIntents([]);
+        setLaunchIntentCapability(null);
+        setDraftCapability(null);
+        setTemplateCapability(null);
+        setLibraryUnavailableMessage(LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE);
+        setRecentAdActions([]);
+        setExpectedCpa(null);
       })
       .finally(() => {
-        if (!cancelled) setProviderAccountsLoading(false);
+        if (cancelled) return;
+        setProviderAccountsLoading(false);
+        setLibraryLoading(false);
       });
     return () => {
       cancelled = true;
     };
     // freshnessRetryNonce is not read here; it is in the dependency list so the
     // freshness bar's retry re-runs this read.
-  }, [businessId, freshnessRetryNonce, requestedProviderAccountId]);
+  }, [
+    businessId,
+    providerAccountId,
+    freshnessRetryNonce,
+    requestedProviderAccountId,
+    viewer?.canMutate,
+    viewer?.demo,
+    viewer?.reviewerReadOnly,
+    viewer?.role,
+  ]);
 
   /**
    * The server-verified handoff, applied.
@@ -1210,28 +1348,6 @@ export default function MetaLaunchpadPage({
   }, [businessId, mode, providerAccountId, freshnessRetryNonce]);
 
   useEffect(() => {
-    if (!businessId || !providerAccountId) {
-      setRecentAdActions([]);
-      return;
-    }
-    let cancelled = false;
-    loadRecentLaunchpadAdActions(businessId, providerAccountId)
-      .then((actions) => {
-        if (!cancelled) {
-          setRecentAdActions(
-            actions.filter((action) => action.accountId === providerAccountId),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setRecentAdActions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, providerAccountId]);
-
-  useEffect(() => {
     if (!businessId || !providerAccountId || creatives.length === 0) {
       setDecisions([]);
       return;
@@ -1260,66 +1376,6 @@ export default function MetaLaunchpadPage({
       cancelled = true;
     };
   }, [businessId, creatives, providerAccountId]);
-
-  useEffect(() => {
-    if (!businessId || !providerAccountId) {
-      setTemplates([]);
-      setDrafts([]);
-      setLaunchIntents([]);
-      setLaunchIntentCapability(null);
-      setDraftCapability(null);
-      setTemplateCapability(null);
-      // No read was attempted, so there is nothing to report as unread.
-      setLibraryUnavailableMessage(null);
-      return;
-    }
-    let cancelled = false;
-    setLibraryLoading(true);
-    loadLaunchpadLibrary(businessId, providerAccountId)
-      .then((library) => {
-        if (cancelled) return;
-        setTemplates(library.templates);
-        setDrafts(library.drafts);
-        setLaunchIntents(library.intents);
-        setLaunchIntentCapability(library.launchIntentCapability);
-        setDraftCapability(library.draftCapability);
-        setTemplateCapability(library.templateCapability);
-        setLibraryUnavailableMessage(library.unavailableMessage);
-        // Observed outcomes in, one shared decision out. See `readOutcomes`.
-        publishMetaSurfaceState(
-          "meta-launchpad",
-          resolveMetaSurfaceReadState({
-            businessId,
-            providerAccountId,
-            requiresProviderAccount: true,
-            permissions: {
-              role: viewer?.role ?? null,
-              reviewerReadOnly: viewer?.reviewerReadOnly === true,
-              demo: viewer?.demo === true,
-            },
-            capability: { canRead: true, canWrite: viewer?.canMutate === true },
-            sources: library.readOutcomes,
-          }),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setTemplates([]);
-          setDrafts([]);
-          setLaunchIntents([]);
-          setLaunchIntentCapability(null);
-          setDraftCapability(null);
-          setTemplateCapability(null);
-          setLibraryUnavailableMessage(LAUNCHPAD_LIBRARY_UNAVAILABLE_MESSAGE);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLibraryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, providerAccountId]);
 
   // The Drafts table's Validation column is the server's verdict, never an
   // inference from the stored payload. One batched request for the whole page:
@@ -1352,35 +1408,14 @@ export default function MetaLaunchpadPage({
     };
   }, [businessId, drafts, providerAccountId]);
 
-  // "Expected CPA" is the operator's own configured target CPA from the
-  // business target pack, not a figure derived here. When no target is
-  // configured the budget warning stays hidden rather than guessing one. The
-  // read waits for an explicit account scope: the Budget step it feeds is
-  // unreachable before then, and this surface issues no reads while the scope
-  // is withheld.
-  useEffect(() => {
-    if (!businessId || !providerAccountId) {
-      setExpectedCpa(null);
-      return;
-    }
-    let cancelled = false;
-    readBusinessTargetCpa(businessId)
-      .then((targetCpa) => {
-        if (!cancelled) setExpectedCpa(targetCpa);
-      })
-      .catch(() => {
-        if (!cancelled) setExpectedCpa(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, providerAccountId]);
-
   async function refreshLibrary() {
     if (!businessId || !providerAccountId) return;
     setLibraryLoading(true);
     try {
-      const library = await loadLaunchpadLibrary(businessId, providerAccountId);
+      // The same composed read the first load uses. A refresh after a save
+      // re-reads recent actions and the target CPA too, which is free here and
+      // used to need two more requests.
+      const library = await loadLaunchpadWorkspace(businessId, providerAccountId);
       setTemplates(library.templates);
       setDrafts(library.drafts);
       setLaunchIntents(library.intents);
@@ -1388,6 +1423,8 @@ export default function MetaLaunchpadPage({
       setDraftCapability(library.draftCapability);
       setTemplateCapability(library.templateCapability);
       setLibraryUnavailableMessage(library.unavailableMessage);
+      setRecentAdActions(library.recentAdActions);
+      setExpectedCpa(library.targetCpa);
     } catch {
       setTemplates([]);
       setDrafts([]);

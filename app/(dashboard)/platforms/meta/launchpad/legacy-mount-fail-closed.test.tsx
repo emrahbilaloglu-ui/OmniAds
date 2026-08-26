@@ -22,7 +22,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mounts = vi.hoisted(() => ({
-  fetchAccounts: vi.fn(),
   fetchCreatives: vi.fn(),
   fetchDecisions: vi.fn(),
   query: "",
@@ -44,9 +43,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(mounts.query),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
-vi.mock("@/lib/meta/history-client", () => ({
-  fetchMetaHistoryAccounts: mounts.fetchAccounts,
-}));
 vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
   fetchCreativeDecisionEngineV3: mounts.fetchDecisions,
   fetchMetaCreatives: mounts.fetchCreatives,
@@ -62,9 +58,6 @@ const {
 beforeEach(() => {
   vi.clearAllMocks();
   mounts.query = "";
-  mounts.fetchAccounts.mockResolvedValue([
-    { id: "act_1", name: "Account One", currency: "USD", timezone: null },
-  ]);
   mounts.fetchCreatives.mockResolvedValue({ rows: [] });
   mounts.fetchDecisions.mockResolvedValue({ decisions: [] });
 });
@@ -75,42 +68,105 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** Every library GET answers, and answers empty. */
+const ASSIGNED_ACCOUNTS = [
+  { id: "act_1", name: "Account One", currency: "USD", timezone: null },
+];
+
+/** One section, read. The composed route stamps every section it reached. */
+const SECTION_READ = {
+  status: "complete",
+  errorCode: null,
+  observedAt: "2026-08-26T00:00:00.000Z",
+};
+
+/** The composed first-load read, answering everything, and answering empty. */
 function stubReadableLibrary() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      if (url.startsWith("/api/launchpad/meta/drafts"))
-        return { ok: true, json: async () => ({ drafts: [] }) };
-      if (url.startsWith("/api/launchpad/meta/templates"))
-        return { ok: true, json: async () => ({ templates: [] }) };
-      if (url.startsWith("/api/launchpad/meta/intents"))
-        return { ok: true, json: async () => ({ intents: [] }) };
-      if (url.startsWith("/api/launchpad/meta/recent-ad-actions"))
-        return { ok: true, json: async () => ({ actions: [] }) };
+      if (url.startsWith("/api/launchpad/meta/workspace"))
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            accounts: ASSIGNED_ACCOUNTS,
+            sections: {
+              accounts: SECTION_READ,
+              templates: SECTION_READ,
+              recentTemplates: SECTION_READ,
+              drafts: SECTION_READ,
+              intents: SECTION_READ,
+              recentAdActions: SECTION_READ,
+              targetCpa: SECTION_READ,
+            },
+            capability: {},
+            templates: [],
+            recentTemplates: [],
+            drafts: [],
+            intents: [],
+            recentAdActions: [],
+            targetCpa: null,
+          }),
+        };
       return { ok: true, json: async () => ({}) };
     }),
   );
 }
 
-/** The library GETs answer with `status`, and no body worth parsing. */
-function stubLibraryStatus(status: number) {
+/**
+ * The composed read as the server answers it for a viewer below `collaborator`.
+ *
+ * `/api/launchpad/meta/workspace` enforces two floors, because the routes it
+ * folded in do: the account list is `guest`-readable and the six library
+ * sections are not. So a refusal arrives as a 200 that carries the accounts and
+ * names the refusal per section — not as a 403 for the whole surface.
+ */
+function stubRefusedLibrary() {
+  stubWorkspace((section) => ({
+    status: "unavailable",
+    errorCode: "capability_read_denied",
+    observedAt: "2026-08-26T00:00:00.000Z",
+    section,
+  }));
+}
+
+/** The same shape, but the reads FAILED rather than being refused. */
+function stubUnavailableLibrary() {
+  stubWorkspace((section) => ({
+    status: "unavailable",
+    errorCode: `${section}_failed`,
+    observedAt: "2026-08-26T00:00:00.000Z",
+    section,
+  }));
+}
+
+function stubWorkspace(
+  librarySection: (section: string) => Record<string, unknown>,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      if (
-        url.startsWith("/api/launchpad/meta/drafts") ||
-        url.startsWith("/api/launchpad/meta/templates") ||
-        url.startsWith("/api/launchpad/meta/intents")
-      ) {
+      if (url.startsWith("/api/launchpad/meta/workspace"))
         return {
-          ok: false,
-          status,
-          json: async () => ({ error: { code: "auth_error" } }),
+          ok: true,
+          json: async () => ({
+            ok: true,
+            accounts: ASSIGNED_ACCOUNTS,
+            sections: {
+              accounts: SECTION_READ,
+              ...Object.fromEntries(
+                [
+                  "templates",
+                  "recentTemplates",
+                  "drafts",
+                  "intents",
+                  "recentAdActions",
+                  "targetCpa",
+                ].map((section) => [section, librarySection(section)]),
+              ),
+            },
+          }),
         };
-      }
-      if (url.startsWith("/api/launchpad/meta/recent-ad-actions"))
-        return { ok: true, json: async () => ({ actions: [] }) };
       return { ok: true, json: async () => ({}) };
     }),
   );
@@ -192,7 +248,7 @@ describe("a library that was not read is not a library that is empty", () => {
   // There is no guest-read contract for drafts, templates or intents — so a
   // guest was shown the same em dashes a genuinely empty account shows.
   it("says the library was refused instead of showing an empty table", async () => {
-    stubLibraryStatus(403);
+    stubRefusedLibrary();
     render(<MetaLaunchpadPage businessId="biz_1" providerAccountId="act_1" />);
 
     const empty = await screen.findByTestId("launchpad-draft-empty");
@@ -205,7 +261,7 @@ describe("a library that was not read is not a library that is empty", () => {
   // A 5xx is not a refusal and must not be reported as one — the operator is
   // told the read failed, not that they lack access.
   it("distinguishes an unavailable read from a refused one", async () => {
-    stubLibraryStatus(503);
+    stubUnavailableLibrary();
     render(<MetaLaunchpadPage businessId="biz_1" providerAccountId="act_1" />);
 
     const empty = await screen.findByTestId("launchpad-draft-empty");

@@ -4,7 +4,6 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  fetchAccounts: vi.fn(),
   fetchCreatives: vi.fn(),
   fetchDecisions: vi.fn(),
 }));
@@ -22,9 +21,6 @@ vi.mock("@/store/app-store", () => ({
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(""),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-}));
-vi.mock("@/lib/meta/history-client", () => ({
-  fetchMetaHistoryAccounts: mocks.fetchAccounts,
 }));
 vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
   fetchCreativeDecisionEngineV3: mocks.fetchDecisions,
@@ -63,14 +59,32 @@ function batchReply(verdict: { ok: boolean; blockers: unknown[]; warnings: unkno
 function stubEndpoints(validate: { ok: boolean; blockers: unknown[]; warnings: unknown[] }) {
   const validateCalls: unknown[] = [];
   const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
-    if (url.startsWith("/api/launchpad/meta/drafts"))
-      return json({ drafts: [DRAFT] });
-    if (url.startsWith("/api/launchpad/meta/templates"))
-      return json({ templates: [] });
-    if (url.startsWith("/api/launchpad/meta/intents"))
-      return json({ intents: [] });
-    if (url.startsWith("/api/launchpad/meta/recent-ad-actions"))
-      return json({ actions: [] });
+    if (url.startsWith("/api/launchpad/meta/workspace"))
+      return json({
+        ok: true,
+        accounts: [{ id: "act_1", name: "Account 1", currency: "USD" }],
+        sections: Object.fromEntries(
+          [
+            "accounts",
+            "templates",
+            "recentTemplates",
+            "drafts",
+            "intents",
+            "recentAdActions",
+            "targetCpa",
+          ].map((section) => [
+            section,
+            { status: "complete", errorCode: null, observedAt: "t" },
+          ]),
+        ),
+        capability: {},
+        templates: [],
+        recentTemplates: [],
+        drafts: [DRAFT],
+        intents: [],
+        recentAdActions: [],
+        targetCpa: 40,
+      });
     if (url.startsWith("/api/launchpad/meta/validate")) {
       const body = JSON.parse(init?.body ?? "null");
       validateCalls.push(body);
@@ -79,8 +93,6 @@ function stubEndpoints(validate: { ok: boolean; blockers: unknown[]; warnings: u
       );
       return json(batchReply(validate, keys));
     }
-    if (url.startsWith("/api/business-commercial-settings"))
-      return json({ snapshot: { targetPack: { targetCpa: 40 } } });
     throw new Error(`unexpected fetch: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -89,9 +101,6 @@ function stubEndpoints(validate: { ok: boolean; blockers: unknown[]; warnings: u
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.fetchAccounts.mockResolvedValue([
-    { id: "act_1", name: "Account 1", currency: "USD" },
-  ]);
   mocks.fetchCreatives.mockResolvedValue([]);
   mocks.fetchDecisions.mockResolvedValue({ decisions: [] });
 });

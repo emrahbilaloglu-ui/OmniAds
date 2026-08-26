@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const scopeMocks = vi.hoisted(() => ({
-  fetchAccounts: vi.fn(),
   fetchCreatives: vi.fn(),
   fetchDecisions: vi.fn(),
   replace: vi.fn(),
@@ -27,9 +26,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(scopeMocks.query),
   useRouter: () => ({ replace: scopeMocks.replace, push: vi.fn() }),
 }));
-vi.mock("@/lib/meta/history-client", () => ({
-  fetchMetaHistoryAccounts: scopeMocks.fetchAccounts,
-}));
 vi.mock("@/app/(dashboard)/platforms/meta/creatives/page-support", () => ({
   fetchCreativeDecisionEngineV3: scopeMocks.fetchDecisions,
   fetchMetaCreatives: scopeMocks.fetchCreatives,
@@ -44,10 +40,55 @@ const ASSIGNED_ACCOUNTS = [
   { id: "act_2", name: "Account Two", currency: "USD", timezone: null },
 ];
 
+const SECTION_READ = {
+  status: "complete",
+  errorCode: null,
+  observedAt: "2026-08-26T00:00:00.000Z",
+};
+
+/**
+ * The composed first-load read. The account list now arrives through the same
+ * response as the library, so this is where the assigned accounts come from —
+ * and the request's own query string is what proves which scope was asked for.
+ */
+function workspaceBody() {
+  return {
+    ok: true,
+    accounts: ASSIGNED_ACCOUNTS,
+    sections: Object.fromEntries(
+      [
+        "accounts",
+        "templates",
+        "recentTemplates",
+        "drafts",
+        "intents",
+        "recentAdActions",
+        "targetCpa",
+      ].map((section) => [section, SECTION_READ]),
+    ),
+    capability: {},
+    templates: [],
+    recentTemplates: [],
+    drafts: [],
+    intents: [],
+    recentAdActions: [],
+    targetCpa: null,
+  };
+}
+
+function stubWorkspace() {
+  const fetchMock = vi.fn(async (url: string) =>
+    String(url).startsWith("/api/launchpad/meta/workspace")
+      ? { ok: true, status: 200, json: async () => workspaceBody() }
+      : { ok: true, status: 200, json: async () => ({}) },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   scopeMocks.query = "providerAccountId=act_unassigned";
-  scopeMocks.fetchAccounts.mockResolvedValue(ASSIGNED_ACCOUNTS);
   scopeMocks.fetchCreatives.mockResolvedValue({ rows: [] });
   scopeMocks.fetchDecisions.mockResolvedValue({ decisions: [] });
 });
@@ -60,7 +101,7 @@ afterEach(() => {
 
 describe("Meta Launchpad authorized client scope", () => {
   it("does not restore an unassigned URL account or issue scoped reads when the server resolved null", async () => {
-    const providerFetch = vi.spyOn(globalThis, "fetch");
+    const providerFetch = stubWorkspace();
     const { container } = render(
       <MetaLaunchpadPage
         businessId="route_business"
@@ -81,11 +122,20 @@ describe("Meta Launchpad authorized client scope", () => {
     // nothing to select and Launchpad would be a dead end (see below).
     expect(scopeMocks.fetchCreatives).not.toHaveBeenCalled();
     expect(scopeMocks.fetchDecisions).not.toHaveBeenCalled();
-    expect(providerFetch).not.toHaveBeenCalled();
+    // The first-load read now carries the account list too, so the proof moved
+    // from "no request at all" to "no request carrying a scope". Every request
+    // this surface issues must be free of the id the server refused.
+    for (const call of providerFetch.mock.calls) {
+      const url = String(call[0]);
+      expect(url.startsWith("/api/launchpad/meta/workspace?")).toBe(true);
+      expect(url).not.toContain("providerAccountId");
+      expect(url).not.toContain("act_unassigned");
+    }
     expect(container.textContent).not.toContain("act_unassigned");
   });
 
   it("offers a multi-account business its assigned accounts and requests the choice through the URL", async () => {
+    stubWorkspace();
     render(
       <MetaLaunchpadPage
         businessId="route_business"
@@ -118,30 +168,11 @@ describe("Meta Launchpad authorized client scope", () => {
 });
 
 describe("Meta Launchpad reviewer write boundary", () => {
-  function stubLibraryEndpoints() {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (url.startsWith("/api/launchpad/meta/drafts"))
-          return { ok: true, json: async () => ({ drafts: [] }) };
-        if (url.startsWith("/api/launchpad/meta/templates"))
-          return { ok: true, json: async () => ({ templates: [] }) };
-        if (url.startsWith("/api/launchpad/meta/intents"))
-          return { ok: true, json: async () => ({ intents: [] }) };
-        if (url.startsWith("/api/launchpad/meta/recent-ad-actions"))
-          return { ok: true, json: async () => ({ actions: [] }) };
-        if (url.startsWith("/api/business-commercial-settings"))
-          return { ok: true, json: async () => ({ snapshot: {} }) };
-        return { ok: true, json: async () => ({}) };
-      }),
-    );
-  }
-
   async function renderWithViewer(
     viewer: ReturnType<typeof buildLaunchpadViewerEnvelope>,
   ) {
     scopeMocks.query = "";
-    stubLibraryEndpoints();
+    stubWorkspace();
     render(
       <MetaLaunchpadPage
         businessId="route_business"

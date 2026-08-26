@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   LaunchpadExactLanding,
-  readBusinessTargetCpa,
+  loadLaunchpadWorkspace,
   readLaunchpadDraftValidation,
 } from "./legacy-page";
 import type { MetaLaunchIntent } from "@/lib/launchpad/meta-launch-intent";
@@ -362,32 +362,177 @@ describe("readLaunchpadDraftValidation", () => {
   });
 });
 
-describe("readBusinessTargetCpa", () => {
+describe("loadLaunchpadWorkspace", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("returns the configured target CPA from the business target pack", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ snapshot: { targetPack: { targetCpa: 42.5 } } }),
-      }),
-    );
+  function workspace(body: Record<string, unknown>, ok = true, status = 200) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok,
+      status,
+      json: async () => body,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
 
-    await expect(readBusinessTargetCpa("biz_1")).resolves.toBe(42.5);
+  const COMPLETE = { status: "complete", errorCode: null, observedAt: "t" };
+
+  it("asks one endpoint for the whole first load", async () => {
+    const fetchMock = workspace({ ok: true, accounts: [], sections: {} });
+
+    await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url.startsWith("/api/launchpad/meta/workspace?")).toBe(true);
+    expect(url).toContain("businessId=biz_1");
+    expect(url).toContain("providerAccountId=act_1");
+  });
+
+  it("returns the configured target CPA from the business target pack", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: { targetCpa: COMPLETE },
+      targetCpa: 42.5,
+    });
+
+    await expect(
+      loadLaunchpadWorkspace("biz_1", "act_1").then((read) => read.targetCpa),
+    ).resolves.toBe(42.5);
   });
 
   it("returns null when no target CPA is configured", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ snapshot: { targetPack: { targetCpa: null } } }),
-      }),
-    );
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: { targetCpa: COMPLETE },
+      targetCpa: null,
+    });
 
-    await expect(readBusinessTargetCpa("biz_1")).resolves.toBeNull();
+    await expect(
+      loadLaunchpadWorkspace("biz_1", "act_1").then((read) => read.targetCpa),
+    ).resolves.toBeNull();
+  });
+
+  it("reports a section the server did not report on as unread, not as empty", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      // `drafts` complete, the other three never reached.
+      sections: { drafts: COMPLETE },
+      drafts: [],
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(
+      read.readOutcomes.map((source) => [source.id, source.outcome]),
+    ).toEqual([
+      ["templates", "failed"],
+      ["recent-templates", "failed"],
+      ["drafts", "empty"],
+      ["receipts", "failed"],
+    ]);
+    expect(read.unavailableMessage).not.toBeNull();
+  });
+
+  it("says nothing is unread when every section answered", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: {
+        accounts: COMPLETE,
+        templates: COMPLETE,
+        recentTemplates: COMPLETE,
+        drafts: COMPLETE,
+        intents: COMPLETE,
+      },
+      templates: [],
+      recentTemplates: [],
+      drafts: [],
+      intents: [],
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(read.unavailableMessage).toBeNull();
+    expect(read.accountsRead).toBe(true);
+    expect(read.readOutcomes.every((source) => source.outcome === "empty")).toBe(
+      true,
+    );
+  });
+
+  it("calls a refusal a refusal, not an empty workspace", async () => {
+    workspace({}, false, 403);
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(
+      read.readOutcomes.every(
+        (source) =>
+          source.outcome === "failed" &&
+          source.failureCode === "capability_read_denied",
+      ),
+    ).toBe(true);
+    expect(read.accountsRead).toBe(false);
+    expect(read.templates).toEqual([]);
+  });
+
+  it("keeps rows from another account out of this account's view", async () => {
+    workspace({
+      ok: true,
+      accounts: [],
+      sections: {
+        templates: COMPLETE,
+        recentTemplates: COMPLETE,
+        drafts: COMPLETE,
+        intents: COMPLETE,
+        recentAdActions: COMPLETE,
+      },
+      templates: [
+        { id: "t_1", providerAccountId: "act_1" },
+        { id: "t_2", providerAccountId: "act_other" },
+      ],
+      recentTemplates: [],
+      drafts: [{ id: "d_1", providerAccountId: "act_other" }],
+      intents: [{ id: "i_1", providerAccountId: "act_1" }],
+      recentAdActions: [
+        { resultingAdId: "a_1", accountId: "act_1" },
+        { resultingAdId: "a_2", accountId: "act_other" },
+      ],
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "act_1");
+
+    expect(read.templates.map((row) => row.id)).toEqual(["t_1"]);
+    expect(read.drafts).toEqual([]);
+    expect(read.intents.map((row) => row.id)).toEqual(["i_1"]);
+    expect(read.recentAdActions.map((row) => row.resultingAdId)).toEqual([
+      "a_1",
+    ]);
+  });
+
+  it("carries the server's account blocker instead of failing the whole read", async () => {
+    workspace({
+      ok: true,
+      accounts: [{ id: "act_1" }, { id: "act_2" }],
+      sections: { accounts: COMPLETE },
+      accountBlocker: {
+        code: "account_not_assigned",
+        message: "Select one assigned Meta ad account.",
+      },
+    });
+
+    const read = await loadLaunchpadWorkspace("biz_1", "");
+
+    expect(read.accounts).toHaveLength(2);
+    expect(read.accountsRead).toBe(true);
+    expect(read.accountBlocker).toEqual({
+      code: "account_not_assigned",
+      message: "Select one assigned Meta ad account.",
+    });
   });
 });

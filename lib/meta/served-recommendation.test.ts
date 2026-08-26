@@ -103,7 +103,42 @@ describe("acted, deferred and ignored need the CURRENT snapshot", () => {
     expect(call!.text).toContain("MAX(snapshot_date)");
     expect(call!.text).toContain("provider_account_id =");
     expect(call!.text).toContain("kind, 'recommendation'");
-    expect(call!.values).toEqual([BUSINESS, ACCOUNT, BUSINESS, ACCOUNT, REC]);
+    expect(call!.values).toEqual([
+      BUSINESS,
+      ACCOUNT,
+      BUSINESS,
+      ACCOUNT,
+      REC,
+      // ...and the assignment proof, in the SAME statement (D-M012).
+      BUSINESS,
+      ACCOUNT,
+    ]);
+  });
+
+  /*
+   * A snapshot row proves what was computed, not what the workspace still
+   * holds. An assignment revoked after the snapshot was built leaves its rows
+   * behind, and without this the operator could still answer them.
+   */
+  it("requires the account to be SELECTED now, in the same statement", async () => {
+    const calls = stubSql([[]]);
+
+    await expect(
+      readServedMetaRecommendation({
+        businessId: BUSINESS,
+        recId: REC,
+        action: "acted",
+        providerAccountId: ACCOUNT,
+      }),
+    ).resolves.toEqual({ status: "not_served" });
+
+    // One statement, not a read then a check: a selection revoked between the
+    // two would otherwise slip through.
+    expect(calls).toHaveLength(1);
+    const text = calls[0]!.text;
+    expect(text).toContain("FROM business_provider_accounts");
+    expect(text).toContain("bpa.is_selected");
+    expect(text).toContain("pa.external_account_id =");
   });
 
   /*
@@ -181,8 +216,15 @@ describe("undeferred needs an active prior deferral, not a served rec", () => {
     expect(text).not.toContain("meta_decision_snapshots_daily");
   });
 
-  it("does not need an account, because it is not a snapshot question", async () => {
-    stubSql([[{ "?column?": 1 }]]);
+  /*
+   * THE DEFECT THIS REPLACED. This case previously asserted that undeferred
+   * "does not need an account", and that was the hole: the predicate matched on
+   * business + rec id alone, so a deferral taken under account A authorized an
+   * undefer from account B. D-M011 makes that collision ordinary rather than
+   * theoretical, because two accounts may now hold the same rec id.
+   */
+  it("refuses with no account, and asks the source nothing", async () => {
+    const calls = stubSql([[{ "?column?": 1 }]]);
 
     await expect(
       readServedMetaRecommendation({
@@ -191,7 +233,24 @@ describe("undeferred needs an active prior deferral, not a served rec", () => {
         action: "undeferred",
         providerAccountId: null,
       }),
-    ).resolves.toEqual({ status: "served" });
+    ).resolves.toEqual({ status: "not_served" });
+    expect(calls).toEqual([]);
+  });
+
+  it("scopes the prior deferral to this account, and re-proves assignment", async () => {
+    const calls = stubSql([[{ "?column?": 1 }]]);
+
+    await readServedMetaRecommendation({
+      businessId: BUSINESS,
+      recId: REC,
+      action: "undeferred",
+      providerAccountId: ACCOUNT,
+    });
+
+    const text = calls[0]!.text;
+    expect(text).toContain("provider_account_id =");
+    expect(text).toContain("FROM business_provider_accounts");
+    expect(calls[0]!.values).toEqual([BUSINESS, ACCOUNT, REC, BUSINESS, ACCOUNT]);
   });
 });
 

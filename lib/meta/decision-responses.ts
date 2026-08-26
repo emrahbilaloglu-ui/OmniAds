@@ -142,6 +142,7 @@ export async function recordMetaDecisionResponseIfAuthorized(input: {
     INSERT INTO meta_decision_responses (
       rec_id,
       business_id,
+      provider_account_id,
       action,
       action_subtype,
       reappear_at
@@ -149,20 +150,44 @@ export async function recordMetaDecisionResponseIfAuthorized(input: {
     SELECT
       ${input.recId},
       ${input.businessId},
+      ${account},
       ${input.action},
       ${input.actionSubtype ?? null},
       ${normalizeTimestamp(input.reappearAt)}::timestamptz
     WHERE
-      CASE WHEN ${isUndefer}::boolean THEN
-        -- undeferred: the latest response for this rec must itself be an
-        -- unexpired deferral. Expiry has already lifted anything older, so
-        -- there would be nothing to undefer.
+      -- All four Intelligence actions are account-scoped. A response with no
+      -- physical account cannot be authorised: "the current snapshot" and "a
+      -- prior deferral" are both per-account facts, and a null here would make
+      -- one account's history answer for another.
+      ${account}::text IS NOT NULL
+      -- ...and the workspace must STILL have that account selected, proven in
+      -- the same statement as the insert. An old snapshot row is not authority:
+      -- a selection revoked after the snapshot was built leaves rows behind,
+      -- and answering them would record an operator decision about an account
+      -- this workspace no longer holds.
+      AND EXISTS (
+        SELECT 1
+        FROM business_provider_accounts bpa
+        INNER JOIN provider_accounts pa
+          ON pa.id = bpa.provider_account_ref_id
+        WHERE bpa.business_id = ${input.businessId}
+          AND bpa.provider = 'meta'
+          AND bpa.is_selected
+          AND pa.external_account_id = ${account}
+      )
+      AND CASE WHEN ${isUndefer}::boolean THEN
+        -- undeferred: the latest response for this rec IN THIS ACCOUNT must
+        -- itself be an unexpired deferral. Expiry has already lifted anything
+        -- older, so there would be nothing to undefer — and without the account
+        -- predicate a deferral taken under account A would authorise an
+        -- undefer from account B.
         EXISTS (
           SELECT 1
           FROM (
             SELECT action, reappear_at
             FROM meta_decision_responses
             WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${account}
               AND rec_id = ${input.recId}
             ORDER BY timestamp DESC
             LIMIT 1
@@ -172,10 +197,8 @@ export async function recordMetaDecisionResponseIfAuthorized(input: {
         )
       ELSE
         -- acted / deferred / ignored: the rec must be in the CURRENT served
-        -- snapshot for THIS physical account. A null account cannot authorize
-        -- one, because "the current snapshot" is a per-account fact.
-        ${account}::text IS NOT NULL
-        AND EXISTS (
+        -- snapshot for THIS physical account.
+        EXISTS (
           SELECT 1
           FROM meta_decision_snapshots_daily snapshot
           WHERE snapshot.business_id = ${input.businessId}
@@ -247,6 +270,7 @@ export async function runMetaDecisionIgnoredMarker(input?: {
     INSERT INTO meta_decision_responses (
       rec_id,
       business_id,
+      provider_account_id,
       action,
       action_subtype,
       timestamp
@@ -254,6 +278,12 @@ export async function runMetaDecisionIgnoredMarker(input?: {
     SELECT
       snapshot.rec_id,
       snapshot.business_id,
+      -- D-M012: carried from the row being stamped, so an automatic ignore is
+      -- attributable to the same account that produced the recommendation.
+      -- Legitimately NULL for rows written before D-M011 gave snapshots a
+      -- lineage; those keep the pre-change business-wide meaning rather than
+      -- being assigned an account this marker cannot prove.
+      snapshot.provider_account_id,
       'ignored',
       'auto_7d_no_response',
       ${now.toISOString()}::timestamptz
@@ -276,10 +306,15 @@ export async function runMetaDecisionIgnoredMarker(input?: {
         WHERE business.id = snapshot.business_id
           AND business.is_demo_business IS NOT TRUE
       )
+      -- Already answered? Per ACCOUNT, because two accounts may legitimately
+      -- carry the same rec id and a response to one is not a response to the
+      -- other. IS NOT DISTINCT FROM so a legacy NULL-lineage response still
+      -- suppresses the legacy NULL-lineage row it answered.
       AND NOT EXISTS (
         SELECT 1
         FROM meta_decision_responses response
         WHERE response.business_id = snapshot.business_id
+          AND response.provider_account_id IS NOT DISTINCT FROM snapshot.provider_account_id
           AND response.rec_id = snapshot.rec_id
       )
     RETURNING rec_id

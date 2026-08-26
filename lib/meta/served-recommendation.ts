@@ -39,9 +39,10 @@
  *   `undeferred` — the one action whose whole purpose is to reach BACKWARDS. It
  *   lifts a deferral taken days ago, and by then the rec may legitimately have
  *   left the current snapshot. So it is allowed only against a recommendation
- *   this business has a currently ACTIVE prior deferral for. An arbitrary older
- *   served rec is not undefer authority — that was the hole in "any row in 30
- *   days".
+ *   this business AND THIS ACCOUNT have a currently ACTIVE prior deferral for.
+ *   An arbitrary older served rec is not undefer authority — that was the hole
+ *   in "any row in 30 days" — and neither is another account's deferral, which
+ *   is why the account is required here too.
  *
  * "Currently active" means the LATEST response for that rec is `deferred`, not
  * merely that a `deferred` row exists: otherwise defer → undefer → undefer
@@ -50,6 +51,15 @@
  * and it is not active.
  *
  * ## One statement, not a read and then a write
+ *
+ * ## The account must still be assigned NOW
+ *
+ * A snapshot row proves what was computed, not what the workspace still holds:
+ * an assignment revoked afterwards leaves its rows behind, and answering one
+ * would record an operator decision about an account this workspace no longer
+ * has. So both predicates additionally require the account to be selected in
+ * `business_provider_accounts` at the moment of the check, in the same
+ * statement — a separate read would leave a window.
  *
  * `authorizeAndRecord` performs the authority check and the INSERT in a single
  * `INSERT ... SELECT`, so a snapshot rotation or a competing response landing
@@ -84,9 +94,9 @@ interface ServedInput {
   recId: string;
   action: MetaDecisionResponseAction;
   /**
-   * The physical account the caller is scoped to. Required for the three
-   * current-snapshot actions; an absent account cannot authorize one, because
-   * "the current snapshot" is a per-account fact.
+   * The physical account the caller is scoped to. Required for ALL FOUR
+   * actions: "the current snapshot" and "an active prior deferral" are both
+   * per-account facts, and an absent account cannot authorize either.
    */
   providerAccountId?: string | null;
 }
@@ -117,6 +127,11 @@ async function authorizes(input: ServedInput): Promise<boolean | "unreadable"> {
   const { businessId, recId, account, action } = normalize(input);
   const sql = getDb();
   try {
+    // No account, no answer — for every action. The current snapshot is a
+    // per-account fact, and so is a prior deferral: without the account a
+    // deferral taken under one account would authorize an undefer from
+    // another. This refuses rather than falling back to a business-wide read.
+    if (!account) return false;
     if (action === "undeferred") {
       /*
        * The LATEST response must itself be an unexpired deferral.
@@ -133,19 +148,27 @@ async function authorizes(input: ServedInput): Promise<boolean | "unreadable"> {
           SELECT action, reappear_at
           FROM meta_decision_responses
           WHERE business_id = ${businessId}
+            AND provider_account_id = ${account}
             AND rec_id = ${recId}
           ORDER BY timestamp DESC
           LIMIT 1
         ) latest
         WHERE latest.action = 'deferred'
           AND (latest.reappear_at IS NULL OR latest.reappear_at > NOW())
+          AND EXISTS (
+            SELECT 1
+            FROM business_provider_accounts bpa
+            INNER JOIN provider_accounts pa
+              ON pa.id = bpa.provider_account_ref_id
+            WHERE bpa.business_id = ${businessId}
+              AND bpa.provider = 'meta'
+              AND bpa.is_selected
+              AND pa.external_account_id = ${account}
+          )
       `) as Array<Record<string, unknown>>;
       return rows.length > 0;
     }
-    // The current-snapshot actions. Without an account there is no "current
-    // snapshot" to be in — the latest date is a per-account fact — so this
-    // refuses rather than falling back to a business-wide answer.
-    if (!account) return false;
+    // The current-snapshot actions.
     const rows = (await sql`
       WITH current_snapshot AS (
         SELECT MAX(snapshot_date) AS snapshot_date
@@ -161,6 +184,16 @@ async function authorizes(input: ServedInput): Promise<boolean | "unreadable"> {
         AND snapshot.rec_id = ${recId}
         AND snapshot.snapshot_date = current_snapshot.snapshot_date
         AND COALESCE(snapshot.kind, 'recommendation') = 'recommendation'
+        AND EXISTS (
+          SELECT 1
+          FROM business_provider_accounts bpa
+          INNER JOIN provider_accounts pa
+            ON pa.id = bpa.provider_account_ref_id
+          WHERE bpa.business_id = ${businessId}
+            AND bpa.provider = 'meta'
+            AND bpa.is_selected
+            AND pa.external_account_id = ${account}
+        )
       LIMIT 1
     `) as Array<{ snapshot_date?: unknown }>;
     return rows.length > 0;

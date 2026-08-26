@@ -72,14 +72,28 @@ describe("POST /api/meta/recommendations/respond", () => {
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "biz_1" } as never,
     });
-    vi.mocked(responses.recordMetaDecisionResponseIfAuthorized).mockResolvedValue({
-      recId: "rec_1",
-      businessId: "biz_1",
-      action: "deferred",
-      actionSubtype: "let_cook_24h",
-      timestamp: "2026-05-06T10:00:00.000Z",
-      reappearAt: "2026-05-07T10:00:00.000Z",
-    });
+    /*
+     * The stub obeys the real predicate's account rule.
+     *
+     * A flat `mockResolvedValue(row)` made every case pass, INCLUDING one that
+     * posted no `providerAccountId` — so the file's only positive case proved
+     * nothing about the account, while the real writer refuses a null one
+     * (D-M012). Answering `null` here for a missing account is what makes a
+     * case that forgets the account fail.
+     */
+    vi.mocked(responses.recordMetaDecisionResponseIfAuthorized).mockImplementation(
+      async (input) =>
+        input.providerAccountId?.trim()
+          ? {
+              recId: "rec_1",
+              businessId: "biz_1",
+              action: "deferred",
+              actionSubtype: "let_cook_24h",
+              timestamp: "2026-05-06T10:00:00.000Z",
+              reappearAt: "2026-05-07T10:00:00.000Z",
+            }
+          : null,
+    );
     vi.mocked(responses.recordMetaDecisionResponse).mockResolvedValue({
       recId: "rec_1",
       businessId: "biz_1",
@@ -94,10 +108,11 @@ describe("POST /api/meta/recommendations/respond", () => {
     // A proven live workspace, and an id the engine really served: the two
     // states in which this route is allowed to write at all.
     vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
-    vi.mocked(served.readServedMetaRecommendation).mockResolvedValue({
-      status: "served",
-      snapshotDate: "2026-05-06",
-    });
+    vi.mocked(served.readServedMetaRecommendation).mockImplementation(async (input) =>
+      input.providerAccountId?.trim()
+        ? { status: "served", snapshotDate: "2026-05-06" }
+        : { status: "not_served" },
+    );
   });
 
   it("validates required fields and action values", async () => {
@@ -125,6 +140,7 @@ describe("POST /api/meta/recommendations/respond", () => {
       body: JSON.stringify({
         businessId: "biz_1",
         recId: "rec_1",
+        providerAccountId: "act_1",
         action: "deferred",
         actionSubtype: "let_cook_24h",
         reappearAt: "2026-05-07T10:00:00.000Z",
@@ -144,7 +160,8 @@ describe("POST /api/meta/recommendations/respond", () => {
     expect(responses.recordMetaDecisionResponseIfAuthorized).toHaveBeenCalledWith({
       recId: "rec_1",
       businessId: "biz_1",
-      providerAccountId: null,
+      // The caller's account, threaded to the writer that scopes on it.
+      providerAccountId: "act_1",
       action: "deferred",
       actionSubtype: "let_cook_24h",
       reappearAt: "2026-05-07T10:00:00.000Z",
@@ -155,6 +172,30 @@ describe("POST /api/meta/recommendations/respond", () => {
       action: "deferred",
       actionSubtype: "let_cook_24h",
     });
+  });
+
+  /*
+   * The other half of the positive case. A body with no account reaches the
+   * writer — role, reviewer and demo all pass — and the writer refuses it,
+   * because "the current snapshot" is a per-account fact and a null would let
+   * one account's history answer for another.
+   */
+  it("refuses a response that names no physical account", async () => {
+    const response = await POST(
+      respondRequest({
+        businessId: "biz_1",
+        recId: "rec_1",
+        action: "deferred",
+        reappearAt: "2026-05-07T10:00:00.000Z",
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("recommendation_not_served");
+    expect(responses.recordMetaDecisionResponseIfAuthorized).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: null }),
+    );
+    expectNothingWritten();
   });
 
   it("returns auth errors without persistence", async () => {

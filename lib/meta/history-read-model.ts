@@ -103,6 +103,35 @@ creative_account_scope AS (
   HAVING COUNT(DISTINCT provider_account_id) = 1
      AND MIN(provider_account_id) = $2
 ),
+-- The same exact-and-unique inference creative_account_scope makes, for the
+-- two entity grains a v1 snapshot can be about.
+--
+-- It exists ONLY to attribute rows written before snapshots carried a lineage
+-- (D-M011). A legacy row names a campaign or an ad set; if that entity belongs
+-- to exactly ONE account in this business AND that account is the selected one,
+-- the row's account is proven rather than guessed. If the id appears under two
+-- accounts the inference is refused, and the row stays out of an account-scoped
+-- view — which is the whole point of HAVING COUNT(DISTINCT ...) = 1.
+campaign_account_scope AS (
+  SELECT
+    campaign_id,
+    MIN(provider_account_id) AS provider_account_id
+  FROM meta_campaign_dimensions
+  WHERE business_id = $1
+  GROUP BY campaign_id
+  HAVING COUNT(DISTINCT provider_account_id) = 1
+     AND MIN(provider_account_id) = $2
+),
+adset_account_scope AS (
+  SELECT
+    adset_id,
+    MIN(provider_account_id) AS provider_account_id
+  FROM meta_adset_dimensions
+  WHERE business_id = $1
+  GROUP BY adset_id
+  HAVING COUNT(DISTINCT provider_account_id) = 1
+     AND MIN(provider_account_id) = $2
+),
 creative_names AS (
   SELECT DISTINCT ON (creative_id)
     creative_id,
@@ -141,7 +170,19 @@ v1_scoped_snapshots AS NOT MATERIALIZED (
       WHEN snapshot.scope_type = 'campaign' THEN 'campaign'
       ELSE 'adset'
     END AS resolved_entity_type,
-    snapshot.scope_type || ':' || snapshot.scope_id || ':' || snapshot.snapshot_date::text || ':' || snapshot.rec_type AS persisted_id
+    -- The account is part of the identity (D-M011), because two assigned
+    -- accounts may legitimately hold the same scope, date and rec type — and
+    -- without it those two rows collapse to ONE id in a journal that uses this
+    -- as its source_id. A row with no lineage says so rather than borrowing the
+    -- selected account's name.
+    snapshot.scope_type || ':' || snapshot.scope_id || ':' || snapshot.snapshot_date::text || ':' || snapshot.rec_type
+      || ':' || COALESCE(snapshot.provider_account_id, 'unattributed') AS persisted_id,
+    -- How this row's account was established, carried through to the journal so
+    -- a reader is told which of the two it is looking at.
+    CASE
+      WHEN snapshot.provider_account_id IS NOT NULL THEN 'direct_provider_account_id'
+      ELSE 'unique_entity_key'
+    END AS account_scope_basis
   FROM meta_decision_snapshots_daily snapshot
   LEFT JOIN meta_campaign_dimensions campaign
     ON snapshot.scope_type = 'campaign'
@@ -153,7 +194,39 @@ v1_scoped_snapshots AS NOT MATERIALIZED (
    AND adset.business_id = snapshot.business_id
    AND adset.provider_account_id = $2
    AND adset.adset_id = snapshot.scope_id
+  LEFT JOIN campaign_account_scope campaign_scope
+    ON snapshot.scope_type = 'campaign'
+   AND campaign_scope.campaign_id = snapshot.scope_id
+  LEFT JOIN adset_account_scope adset_scope
+    ON snapshot.scope_type = 'adset'
+   AND adset_scope.adset_id = snapshot.scope_id
   WHERE snapshot.business_id = $1
+    /*
+     * The account, PROVEN, one of exactly two ways.
+     *
+     * Direct: the snapshot carries the lineage it was computed under (D-M011),
+     * and it must be the selected account. This is the only admission path for
+     * anything written since, and it is an equality rather than an inference.
+     *
+     * Legacy: the row predates the column. It is admitted only when its entity
+     * resolves to exactly ONE account in this business and that account is the
+     * selected one. A campaign id seen under two accounts proves nothing and is
+     * refused. The entity-name joins above are NOT this proof — they establish
+     * that an entity by that id exists under the selected account, not that it
+     * exists under no other.
+     *
+     * Nothing is admitted on a rec id. Rec ids may now repeat across accounts.
+     */
+    AND (
+      snapshot.provider_account_id = $2
+      OR (
+        snapshot.provider_account_id IS NULL
+        AND (
+          (snapshot.scope_type = 'campaign' AND campaign_scope.campaign_id IS NOT NULL)
+          OR (snapshot.scope_type = 'adset' AND adset_scope.adset_id IS NOT NULL)
+        )
+      )
+    )
     AND (
       (snapshot.scope_type = 'campaign' AND campaign.id IS NOT NULL)
       OR (snapshot.scope_type = 'adset' AND adset.id IS NOT NULL)
@@ -236,7 +309,7 @@ history_entries AS (
     NULL::text AS actor_id,
     NULL::text AS actor_name,
     'not_applicable'::text AS actor_availability,
-    'exact_entity_key'::text AS account_scope_basis,
+    snapshot.account_scope_basis::text AS account_scope_basis,
     'engine_snapshot'::text AS attribution,
     'unavailable'::text AS correlation_status,
     NULL::text AS correlation_key,
@@ -446,11 +519,33 @@ history_entries AS (
     FROM v1_scoped_snapshots scoped
     WHERE scoped.business_id = response.business_id
       AND scoped.rec_id = response.rec_id
+      -- The snapshot this response answered must be the SAME account's. A rec
+      -- id is not an account, and two accounts may now hold the same one, so
+      -- matching on it alone would show account A the response account B gave.
+      AND scoped.provider_account_id IS NOT DISTINCT FROM response.provider_account_id
       AND scoped.snapshot_date <= response.timestamp::date
     ORDER BY scoped.snapshot_date DESC, scoped.created_at DESC
     LIMIT 1
   ) snapshot ON TRUE
   WHERE response.business_id = $1
+    /*
+     * The response's OWN lineage decides, because it persists one (D-M012).
+     *
+     * A legacy response with no lineage is admitted only alongside a legacy
+     * snapshot with none either — and that snapshot reached this CTE only by
+     * the exact unique-entity inference above, so the pair is attributable
+     * without either half being assigned an account it never proved.
+     *
+     * A legacy response against a lineage-carrying snapshot is REFUSED: the rec
+     * id is the only thing linking them, and that is not proof.
+     */
+    AND (
+      response.provider_account_id = $2
+      OR (
+        response.provider_account_id IS NULL
+        AND snapshot.provider_account_id IS NULL
+      )
+    )
 
   UNION ALL
 
@@ -586,12 +681,29 @@ history_entries AS (
       scoped.engine_version
     FROM v1_scoped_snapshots scoped
     WHERE action_log.rec_id_origin IS NOT NULL
+      AND scoped.business_id = action_log.business_id::text
       AND scoped.rec_id = action_log.rec_id_origin
+      -- Same account, proven on both sides rather than assumed from the CTE's
+      -- own scoping: the decision a write is credited to must be one THIS
+      -- account was actually given.
+      AND scoped.provider_account_id IS NOT DISTINCT FROM action_log.provider_account_id
       AND scoped.snapshot_date <= action_log.requested_at::date
     ORDER BY scoped.snapshot_date DESC, scoped.created_at DESC
     LIMIT 1
   ) linked ON TRUE
   WHERE action_log.business_id::text = $1
+    /*
+     * Direct lineage. insertMetaAdsActionLog writes provider_account_id
+     * alongside provider_account_ref_id, so the account is a persisted fact
+     * here and does not have to be inferred from a dimension row — which would
+     * also be incomplete, because this log records campaign, ad-set and launch
+     * actions that no ad dimension resolves.
+     *
+     * A row whose lineage is null fails closed. Attaching it through
+     * rec_id_origin would credit one account with the other's write the first
+     * time a rec id repeats.
+     */
+    AND action_log.provider_account_id = $2
 
   UNION ALL
 
@@ -626,7 +738,10 @@ history_entries AS (
     NULL,
     NULL,
     CASE WHEN outcome_log.action_type = 'operator_response' THEN 'unavailable' ELSE 'not_applicable' END,
-    CASE WHEN outcome_log.provider_account_id = $2 THEN 'direct_provider_account_id' ELSE 'exact_snapshot_key' END,
+    CASE
+      WHEN outcome_log.provider_account_id = $2 THEN 'direct_provider_account_id'
+      ELSE 'unique_entity_key'
+    END,
     CASE
       WHEN outcome_log.action_type = 'outcome' THEN 'correlational_outcome'
       WHEN outcome_log.action_type = 'operator_response' THEN 'operator_recorded'
@@ -651,15 +766,32 @@ history_entries AS (
     SELECT scoped.*
     FROM v1_scoped_snapshots scoped
     WHERE outcome_log.rec_id IS NOT NULL
+      AND scoped.business_id = outcome_log.business_id
       AND scoped.rec_id = outcome_log.rec_id
+      AND scoped.provider_account_id IS NOT DISTINCT FROM outcome_log.provider_account_id
       AND scoped.snapshot_date <= outcome_log.occurred_at::date
     ORDER BY scoped.snapshot_date DESC, scoped.created_at DESC
     LIMIT 1
   ) linked ON TRUE
   WHERE outcome_log.business_id = $1
+    /*
+     * THE DEFECT THIS REPLACED. The old fallback admitted ANY null-lineage
+     * outcome whose rec id matched an account-scoped snapshot — so once two
+     * accounts could hold the same rec id (D-M011), an unattributed outcome
+     * about account B appeared inside account A's history as if it were A's.
+     *
+     * A null-lineage outcome is now admitted only against a null-lineage
+     * snapshot, which itself reached this CTE by exact unique-entity inference.
+     * Both halves are legacy, and the pair is attributable without either being
+     * assigned an account it never proved.
+     */
     AND (
       outcome_log.provider_account_id = $2
-      OR (outcome_log.provider_account_id IS NULL AND linked.rec_id IS NOT NULL)
+      OR (
+        outcome_log.provider_account_id IS NULL
+        AND linked.rec_id IS NOT NULL
+        AND linked.provider_account_id IS NULL
+      )
     )
 
   /* OPTIONAL_META_CREATIVE_BRIEFS_START */
@@ -1610,6 +1742,13 @@ export async function readMetaHistoryAccounts(
  */
 async function readRecordedActionsForAttribution(input: {
   businessId: string;
+  /**
+   * The selected account. A change observed in one account must never be
+   * attributed to a write recorded in another — the join downstream is on
+   * `entityId`, and the answer it produces is "we caused this" or "somebody
+   * else did", which is exactly the claim an unscoped read gets wrong.
+   */
+  providerAccountId: string;
 }): Promise<RecordedAction[]> {
   const readiness = await getDbSchemaReadiness({
     tables: ["meta_ads_action_log"],
@@ -1630,10 +1769,13 @@ async function readRecordedActionsForAttribution(input: {
              requested_by::text
       FROM meta_ads_action_log
       WHERE business_id::text = $1
+        -- Direct lineage, and null fails closed: an action we cannot place in
+        -- an account cannot be offered as the cause of that account's change.
+        AND provider_account_id = $2
       ORDER BY requested_at DESC
       LIMIT 500
     `,
-    [input.businessId],
+    [input.businessId, input.providerAccountId],
   )) as
     | Array<{
         entity_id: string;
@@ -1744,7 +1886,10 @@ export async function readMetaHistoryJournal(input: {
     (row) => row.source_key === "meta_campaign_config_history",
   );
   const recordedActions = needsAttribution
-    ? await readRecordedActionsForAttribution({ businessId: input.query.businessId })
+    ? await readRecordedActionsForAttribution({
+        businessId: input.query.businessId,
+        providerAccountId: input.query.providerAccountId,
+      })
     : [];
   const entries = visibleRows
     .map((row) => mapHistoryRow(row, input.account.currency, recordedActions))

@@ -220,6 +220,17 @@ export type MetaHistoryAccountScopeBasis =
   | "direct_provider_account_id"
   | "exact_entity_key"
   | "exact_snapshot_key"
+  /**
+   * A row written before its source carried a physical-account lineage, whose
+   * account was proven by its ENTITY resolving to exactly one account in this
+   * business. Sibling of `unique_creative_key`, for the campaign and ad-set
+   * grains a v1 snapshot can be about.
+   *
+   * It is a proof, not a guess: an entity id seen under two accounts fails the
+   * uniqueness test and the row is withheld from an account-scoped view rather
+   * than attributed. Rows that carry their own lineage never use this basis.
+   */
+  | "unique_entity_key"
   | "unique_creative_key";
 
 export interface MetaHistoryAccount {

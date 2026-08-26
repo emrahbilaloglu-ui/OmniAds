@@ -328,7 +328,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(document.querySelectorAll("[data-meta-exact-window]")).toHaveLength(
       0,
     );
-    expect(screen.getByRole("button", { name: "Run snapshot" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run a snapshot" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "+ New campaign" })).toBeTruthy();
     expect(screen.getByText("Spend · today")).toBeTruthy();
     expect(screen.getByText("ROAS · 28d")).toBeTruthy();
@@ -499,7 +499,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       // (`onCreativeReview`), so the caption names an action the control does not
       // perform — legible in context to a sighted operator, invisible to a screen
       // reader until the name said so. The visible caption is unchanged.
-      screen.getByRole("button", { name: /^Review evidence for / }),
+      screen.getByRole("button", { name: /^Review evidence — / }),
     );
     expect(onPrimary).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
@@ -693,7 +693,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       />,
     );
 
-    const search = screen.getByRole("textbox", { name: "Search creatives" });
+    const search = screen.getByRole("textbox", { name: "Find creatives" });
     expect((search as HTMLInputElement).value).toBe("hook");
     // The structure toolbar's lane pills and sort stay out: they act on
     // structure rows, so here they would be controls that change nothing.
@@ -815,7 +815,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Sort decisions" }), {
       target: { value: "age" },
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Search entities" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Find entities" }), {
       target: { value: "needle" },
     });
     fireEvent.click(
@@ -1085,7 +1085,7 @@ describe("a restored deep-link search is visible in the control that filtered", 
   it("shows the restored term in the search box", () => {
     renderExact({ initialQuery: "prospecting" });
     const input = root().querySelector<HTMLInputElement>(
-      'input[aria-label="Search entities"]',
+      'input[aria-label="Find entities"]',
     );
     expect(input).not.toBeNull();
     expect(input!.value).toBe("prospecting");
@@ -1094,7 +1094,7 @@ describe("a restored deep-link search is visible in the control that filtered", 
   it("leaves the box empty when the link carries no search", () => {
     renderExact();
     const input = root().querySelector<HTMLInputElement>(
-      'input[aria-label="Search entities"]',
+      'input[aria-label="Find entities"]',
     );
     expect(input).not.toBeNull();
     expect(input!.value).toBe("");

@@ -46,9 +46,19 @@ describe("every control can be reached and named without sight", () => {
   it("labels the free-text inputs it renders", () => {
     // The Decision Center's lane toolbar is the surface's only free text entry
     // plus a select; both are unlabelled visually, so the name has to be given.
+    /*
+     * The names now come from the copy catalogue rather than from literals, so
+     * this asserts the BINDING. A hardcoded English `aria-label` would have
+     * passed the old form and been unreadable in Turkish, which is what the
+     * catalogue exists to prevent — and `verify-locale-coverage.ts` cannot see
+     * a literal inside a JSX expression, so the check has to live here.
+     */
     const decisions = read("decisions");
-    expect(decisions).toContain('aria-label="Search entities"');
-    expect(decisions).toContain('aria-label="Sort decisions"');
+    expect(decisions).toContain("aria-label={copy.searchEntities}");
+    expect(decisions).toContain("aria-label={copy.searchCreatives}");
+    expect(decisions).toContain("aria-label={copy.sortDecisions}");
+    expect(decisions).toContain("aria-label={copy.filterByLevel}");
+    expect(decisions).toContain("aria-label={copy.closeEvidenceInspector}");
   });
 
   it("marks the search listbox and its options", () => {

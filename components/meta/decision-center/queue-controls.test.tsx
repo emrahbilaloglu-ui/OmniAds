@@ -99,7 +99,7 @@ describe("the search box answers the / key", () => {
   it("focuses the box from anywhere on the surface", () => {
     render(<MetaDecisionCenterExact viewModel={VIEW_MODEL} />);
 
-    const box = screen.getByRole("textbox", { name: "Search entities" });
+    const box = screen.getByRole("textbox", { name: "Find entities" });
     expect(box.getAttribute("data-ctl")).toBe("live:META-DEC-17 search");
 
     fireEvent.keyDown(document.querySelector("[data-screen-label]")!, {
@@ -111,7 +111,7 @@ describe("the search box answers the / key", () => {
   it("leaves / alone while the operator is typing", () => {
     render(<MetaDecisionCenterExact viewModel={VIEW_MODEL} />);
 
-    const box = screen.getByRole("textbox", { name: "Search entities" });
+    const box = screen.getByRole("textbox", { name: "Find entities" });
     box.focus();
     fireEvent.keyDown(box, { key: "/" });
     // `/` is a character in a search term, an entity name and a reason code.

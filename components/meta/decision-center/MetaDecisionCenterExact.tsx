@@ -2,6 +2,11 @@
 
 import { useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
+import {
+  useCopy,
+  useZeroBaseLanguage,
+} from "@/components/zero-base/i18n/copy-provider";
+
 import styles from "./MetaDecisionCenterExact.module.css";
 
 const EM_DASH = "—";
@@ -689,15 +694,32 @@ export interface MetaDecisionCenterExactProps {
 
 export type MetaDecisionCenterExactSort = "money" | "priority" | "age";
 
-const LANES: readonly { id: MetaDecisionCenterExactLane; label: string }[] = [
-  { id: "action", label: "Action Now" },
+/**
+ * The lanes, in order, keyed to the copy catalogue.
+ *
+ * The label is a KEY rather than a string: this table is module-level and a
+ * hook cannot run here, so the component resolves each one at render. That is
+ * also what makes the Turkish artboards render from the component instead of
+ * from a paragraph pasted into the frame registry.
+ */
+const LANES: readonly {
+  id: MetaDecisionCenterExactLane;
+  labelKey:
+    | "laneActionNow"
+    | "laneNeedsResolution"
+    | "laneWatching"
+    | "laneHealthy"
+    | "laneNonSales"
+    | "laneArchive";
+}[] = [
+  { id: "action", labelKey: "laneActionNow" },
   // Between the lane that promises an action and the one that promises none:
   // these rows have a verdict and no authority for it.
-  { id: "needsres", label: "Needs Resolution" },
-  { id: "watching", label: "Watching" },
-  { id: "healthy", label: "Healthy" },
-  { id: "nonsales", label: "Non-sales" },
-  { id: "archive", label: "Archive" },
+  { id: "needsres", labelKey: "laneNeedsResolution" },
+  { id: "watching", labelKey: "laneWatching" },
+  { id: "healthy", labelKey: "laneHealthy" },
+  { id: "nonsales", labelKey: "laneNonSales" },
+  { id: "archive", labelKey: "laneArchive" },
 ];
 
 const TONE_CLASS: Record<MetaDecisionCenterExactTone, string> = {
@@ -867,12 +889,11 @@ function QueueStaleDemoted({
   demoted?: boolean;
   reason?: MetaDecisionCenterExactDisplayValue;
 }) {
+  const copy = useCopy();
   if (!demoted) return null;
   return (
     <span className={styles.staleDemoted} data-el="stale-demoted">
-      {meaningfulDisplay(reason)
-        ? display(reason)
-        : "Confidence was capped for this row; the verdict is still served."}
+      {meaningfulDisplay(reason) ? display(reason) : copy.confidenceCappedStillServed}
     </span>
   );
 }
@@ -912,8 +933,9 @@ function QueueLineage({
  * `aria-current` on the row.
  */
 function QueueSelectedMarker({ selected }: { selected?: boolean }) {
+  const copy = useCopy();
   if (!selected) return null;
-  return <span className={styles.selectedMarker}>Inspecting</span>;
+  return <span className={styles.selectedMarker}>{copy.inspecting}</span>;
 }
 
 function ExactKpiBand({
@@ -931,11 +953,12 @@ function ExactKpiBand({
    */
   activeWindow: string;
 }) {
+  const copy = useCopy();
   const modeChips = slots(kpis?.mode?.chips, 2);
   return (
     <div className={styles.kpiGrid} data-meta-exact-section="kpis">
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>Spend · today</p>
+        <p className={styles.kpiLabel}>{copy.spendToday}</p>
         <p className={styles.kpiValue}>
           {display(kpis?.spend?.value)}{" "}
           <span className={styles.spendDelta}>
@@ -992,7 +1015,7 @@ function ExactKpiBand({
       </article>
 
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>Snapshot</p>
+        <p className={styles.kpiLabel}>{copy.snapshot}</p>
         <span className={styles.freshnessPill}>
           {display(kpis?.snapshot?.freshness)}
         </span>
@@ -1002,7 +1025,7 @@ function ExactKpiBand({
       </article>
 
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>Labels</p>
+        <p className={styles.kpiLabel}>{copy.labels}</p>
         <p className={styles.kpiValue}>
           {display(kpis?.labels?.coverage)}{" "}
           <span className={styles.labelPercentage}>
@@ -1015,7 +1038,7 @@ function ExactKpiBand({
       </article>
 
       <article className={styles.kpiCard}>
-        <p className={styles.kpiLabel}>Mode</p>
+        <p className={styles.kpiLabel}>{copy.kpiModeLabel}</p>
         <p className={styles.modeValue}>{display(kpis?.mode?.value)}</p>
         <div className={styles.modeChips}>
           {modeChips.map((chip, index) => (
@@ -1063,15 +1086,19 @@ function LanePaging({
   onLoadMore?: () => void;
   label: string;
 }) {
+  const copy = useCopy();
   const complete = shown >= served;
   return (
     <p className={styles.lanePaging} data-meta-exact-lane-paging={label}>
       <span data-lane-count="">
-        Showing {shown} of {served} served {served === 1 ? "row" : "rows"}
+        {copy.showingOfServedRows
+          .replace("{shown}", String(shown))
+          .replace("{served}", String(served))}
       </span>
       {complete ? (
         <span data-lane-paging-complete="">
-          {" · "}All {served} served {served === 1 ? "row is" : "rows are"} shown
+          {" · "}
+          {copy.allServedRowsShown.replace("{served}", String(served))}
         </span>
       ) : (
         <button
@@ -1080,7 +1107,7 @@ function LanePaging({
           onClick={onLoadMore}
           type="button"
         >
-          Show more
+          {copy.showMore}
         </button>
       )}
     </p>
@@ -1105,11 +1132,11 @@ function LanePaging({
  */
 const LEVEL_OPTIONS: readonly {
   id: MetaDecisionCenterExactLevel;
-  label: string;
+  labelKey: "levelCampaign" | "levelAdSet" | "levelAd";
 }[] = [
-  { id: "campaign", label: "Campaign" },
-  { id: "adset", label: "Ad set" },
-  { id: "ad", label: "Ad" },
+  { id: "campaign", labelKey: "levelCampaign" },
+  { id: "adset", labelKey: "levelAdSet" },
+  { id: "ad", labelKey: "levelAd" },
 ];
 
 function LevelFilter({
@@ -1121,15 +1148,16 @@ function LevelFilter({
   scope: MetaDecisionCenterExactScope;
   onLevelsChange?: (levels: MetaDecisionCenterExactLevel[]) => void;
 }) {
+  const copy = useCopy();
   const served: readonly MetaDecisionCenterExactLevel[] =
     scope === "creatives" ? ["ad"] : ["campaign", "adset"];
   const value =
     levels.length === 0 ? "all" : levels.length === 1 ? levels[0]! : "multiple";
   return (
     <label className={styles.levelFilter} data-meta-exact-level-filter={value}>
-      <span className={styles.levelFilterLabel}>Level</span>
+      <span className={styles.levelFilterLabel}>{copy.level}</span>
       <select
-        aria-label="Filter decisions by level"
+        aria-label={copy.filterByLevel}
         data-ctl="live:META-DEC-02 level"
         data-level-filter="select"
         disabled={!onLevelsChange}
@@ -1143,7 +1171,7 @@ function LevelFilter({
         }}
         value={value}
       >
-        <option value="all">All levels</option>
+        <option value="all">{copy.allLevels}</option>
         {LEVEL_OPTIONS.map((option) => {
           const unavailable = !served.includes(option.id);
           return (
@@ -1152,18 +1180,20 @@ function LevelFilter({
               key={option.id}
               value={option.id}
             >
-              {option.label}
+              {copy[option.labelKey]}
               {unavailable
-                ? scope === "creatives"
-                  ? " — campaigns and ad sets are in the other scope"
-                  : " — ads are in the Creatives scope"
+                ? ` — ${
+                    scope === "creatives"
+                      ? copy.structuresAreInOtherScope
+                      : copy.adsAreInCreativesScope
+                  }`
                 : ""}
             </option>
           );
         })}
         {value === "multiple" ? (
           <option value="multiple">
-            {levels.length} levels — from the link that opened this view
+            {levels.length} {copy.levelsFromTheLink}
           </option>
         ) : null}
       </select>
@@ -1186,6 +1216,7 @@ function LevelFilter({
  * rather than the link.
  */
 function ShareViewControl() {
+  const copy = useCopy();
   const [state, setState] = useState<
     { kind: "idle" } | { kind: "copied" } | { kind: "manual"; url: string }
   >({ kind: "idle" });
@@ -1212,17 +1243,17 @@ function ShareViewControl() {
         onClick={() => void share()}
         type="button"
       >
-        Copy link to this view
+        {copy.copyLinkToThisView}
       </button>
       {state.kind === "copied" ? (
         <span data-meta-exact-share-copied="" role="status">
-          Link copied. It reproduces this account, lane, level and window.
+          {copy.linkCopiedReproducesView}
         </span>
       ) : null}
       {state.kind === "manual" ? (
         <span role="status">
           <label>
-            Copy this link
+            {copy.copyThisLink}
             <input
               data-meta-exact-share-manual=""
               onFocus={(event) => event.currentTarget.select()}
@@ -1262,6 +1293,7 @@ function ActionLane({
   emptyReason: string;
   onLoadMore?: () => void;
 }) {
+  const copy = useCopy();
   const page = rows.slice(0, shown);
   if (rows.length === 0) {
     return <LaneEmpty lane="action" reason={emptyReason} />;
@@ -1318,7 +1350,7 @@ function ActionLane({
           <span
             className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}
           >
-            {display(row.confidence)} confidence
+            {display(row.confidence)} {copy.confidence.toLowerCase()}
           </span>
           <button
             aria-label={unservedActionName(
@@ -1375,6 +1407,7 @@ function NeedsResolutionLane({
   emptyReason: string;
   onLoadMore?: () => void;
 }) {
+  const copy = useCopy();
   const page = rows.slice(0, shown);
   if (rows.length === 0) {
     return (
@@ -1427,7 +1460,7 @@ function NeedsResolutionLane({
           <span
             className={`${styles.confidencePill} ${toneClass(row.confidenceTone)}`}
           >
-            {display(row.confidence)} confidence
+            {display(row.confidence)} {copy.confidence.toLowerCase()}
           </span>
           {/*
             The blocker, in the server's words. This is the whole point of the
@@ -1467,6 +1500,7 @@ function WatchingLane({
   segments: readonly MetaDecisionCenterExactWatchSegmentViewModel[];
   rows: readonly MetaDecisionCenterExactWatchingRowViewModel[];
 }) {
+  const copy = useCopy();
   return (
     <>
       <div className={styles.watchSegments}>
@@ -1514,7 +1548,7 @@ function WatchingLane({
             onClick={row.onReview}
             type="button"
           >
-            Review
+            {copy.review}
           </button>
         </article>
       ))}
@@ -1637,15 +1671,16 @@ function ArchiveLane({
   // column is a claim about which days were summed.
   windowLabel: string;
 }) {
+  const copy = useCopy();
   return (
     <article className={styles.archiveCard} data-meta-exact-archive>
       <table className={styles.archiveTable}>
         <thead>
           <tr>
-            <th>Entity</th>
-            <th>Status</th>
+            <th>{copy.entity}</th>
+            <th>{copy.status}</th>
             <th>{`Spend · ${windowLabel}`}</th>
-            <th>Note</th>
+            <th>{copy.note}</th>
             <th aria-label="Action" />
           </tr>
         </thead>
@@ -1670,7 +1705,7 @@ function ArchiveLane({
                     onClick={row.onResume}
                     type="button"
                   >
-                    Resume
+                    {copy.resume}
                   </button>
                 ) : null}
               </td>
@@ -1693,6 +1728,7 @@ function CreativeCard({
 }: {
   row: MetaDecisionCenterExactCreativeDecisionViewModel;
 }) {
+  const copy = useCopy();
   const stripeA = row.stripeA?.trim() || "#F1F4F9";
   const stripeB = row.stripeB?.trim() || "#F7F9FC";
   return (
@@ -1761,7 +1797,7 @@ function CreativeCard({
         ) : null}
       </div>
       <div className={styles.creativeSparkBlock}>
-        <p className={styles.creativeSparkLabel}>CTR · 28d</p>
+        <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
         <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
           <path
             d={row.sparkPath ?? ""}
@@ -1795,7 +1831,7 @@ function CreativeCard({
       <button
         aria-label={
           row.onPrimary
-            ? `Review evidence for ${display(row.name)}`
+            ? `${copy.reviewEvidence} — ${display(row.name)}`
             : `Evidence unavailable for ${display(row.name)}`
         }
         className={`${styles.primaryAction} ${toneClass(row.actionTone)}`}
@@ -1804,7 +1840,7 @@ function CreativeCard({
         onClick={(event) => callWithPropagationStopped(event, row.onPrimary)}
         type="button"
       >
-        Review evidence
+        {copy.reviewEvidence}
       </button>
       <span
         className={styles.evidenceLink}
@@ -1901,6 +1937,7 @@ function SourceProvenancePanel({
    */
   defaultOpen?: boolean;
 }) {
+  const copy = useCopy();
   if (!model) return null;
   return (
     <details
@@ -1910,7 +1947,7 @@ function SourceProvenancePanel({
       open={defaultOpen}
     >
       <summary className={styles.provenanceSummary}>
-        <span className={styles.provenanceEyebrow}>Decision source</span>
+        <span className={styles.provenanceEyebrow}>{copy.decisionSource}</span>
         <span
           className={`${styles.provenanceHeadline} ${toneClass(model.tone)}`}
           data-meta-exact-source-authority
@@ -1943,24 +1980,24 @@ function SourceProvenancePanel({
       <SourceFactGroup
         facts={model.coverage}
         group="coverage"
-        heading="Coverage"
+        heading={copy.coverage}
       />
       <SourceFactGroup
         facts={model.suppression}
         group="suppression"
-        heading="Withheld from queue"
+        heading={copy.withheldFromQueue}
       />
       <SourceFactGroup
         facts={model.limitations}
         group="limitations"
-        heading="Limitations"
+        heading={copy.limitations}
       />
       {model.capabilityGaps && model.capabilityGaps.length > 0 ? (
         <div
           className={styles.provenanceGroup}
           data-meta-exact-source-group="capabilities"
         >
-          <p className={styles.provenanceHeading}>Capability gaps</p>
+          <p className={styles.provenanceHeading}>{copy.capabilityGaps}</p>
           <ul className={styles.provenanceCapabilities}>
             {model.capabilityGaps.map((gap) => (
               <li
@@ -2082,6 +2119,7 @@ function WorkflowMenu({
 }: {
   workflow: MetaDecisionCenterExactWorkflow;
 }) {
+  const copy = useCopy();
   const [open, setOpen] = useState(false);
   const [collecting, setCollecting] =
     useState<MetaDecisionCenterExactWorkflowAction | null>(null);
@@ -2133,7 +2171,7 @@ function WorkflowMenu({
         ref={triggerRef}
         type="button"
       >
-        ⋯ Workflow
+        ⋯ {copy.workflow}
       </button>
       {refused ? (
         <p className={styles.inspectorMeta} data-workflow-menu-refusal>
@@ -2142,7 +2180,7 @@ function WorkflowMenu({
       ) : null}
       {workflow.pending ? (
         <p className={styles.inspectorMeta} role="status">
-          Recording…
+          {copy.recordingEllipsis}
         </p>
       ) : null}
       {open && !refused ? (
@@ -2215,7 +2253,7 @@ function WorkflowMenu({
           <p className={styles.inspectorSectionLabel}>{collecting.label}</p>
           {(collecting.requires ?? []).includes("assignee") ? (
             <label>
-              Assign to (member id)
+              {copy.assignToMemberId}
               <input
                 onChange={(event) =>
                   setValues((v) => ({ ...v, assigneeUserId: event.target.value }))
@@ -2227,7 +2265,7 @@ function WorkflowMenu({
           ) : null}
           {(collecting.requires ?? []).includes("snoozeUntil") ? (
             <label>
-              Let cook until
+              {copy.letCookUntilLabel}
               <input
                 onChange={(event) =>
                   setValues((v) => ({ ...v, snoozeUntil: event.target.value }))
@@ -2240,7 +2278,7 @@ function WorkflowMenu({
           ) : null}
           {(collecting.requires ?? []).includes("reasonCode") ? (
             <label>
-              Reason code
+              {copy.reasonCode}
               <input
                 onChange={(event) =>
                   setValues((v) => ({ ...v, reasonCode: event.target.value }))
@@ -2251,9 +2289,9 @@ function WorkflowMenu({
             </label>
           ) : null}
           <span className={styles.workflowFormActions}>
-            <button type="submit">Record {collecting.label.toLowerCase()}</button>
+            <button type="submit">{collecting.label}</button>
             <button onClick={() => close(true)} type="button">
-              Cancel
+              {copy.cancel}
             </button>
           </span>
         </form>
@@ -2279,9 +2317,10 @@ function WorkflowConflictDialog({
 }: {
   conflict: MetaDecisionCenterExactWorkflowConflict;
 }) {
+  const copy = useCopy();
   return (
     <div
-      aria-label="This decision changed while you were reading it"
+      aria-label={copy.decisionChangedWhileReading}
       aria-modal="false"
       className={styles.conflictDialog}
       data-el="conflict-dialog"
@@ -2290,14 +2329,14 @@ function WorkflowConflictDialog({
       <p className={styles.conflictMessage}>{display(conflict.message)}</p>
       <dl className={styles.conflictFacts}>
         <div>
-          <dt>Server now</dt>
+          <dt>{copy.serverNow}</dt>
           <dd data-meta-exact-conflict-current>
             {display(conflict.currentStateLabel)} · version{" "}
             {conflict.currentVersion}
           </dd>
         </div>
         <div>
-          <dt>You tried</dt>
+          <dt>{copy.youTried}</dt>
           <dd data-meta-exact-conflict-attempted>
             {display(conflict.attemptedLabel)} · from version{" "}
             {conflict.attemptedFromVersion}
@@ -2313,14 +2352,14 @@ function WorkflowConflictDialog({
           }
           type="button"
         >
-          Keep mine — re-apply against version {conflict.currentVersion}
+          {copy.keepMineReapplyAgainstVersion} {conflict.currentVersion}
         </button>
         <button
           data-ctl="live:META-WF-11 reapply"
           onClick={conflict.onTakeServer}
           type="button"
         >
-          Take the server&apos;s state
+          {copy.takeTheServersState}
         </button>
       </span>
       {conflict.keepRefusedReason ? (
@@ -2339,6 +2378,7 @@ function EvidenceInspector({
   model?: MetaDecisionCenterExactInspectorViewModel | null;
   onClose?: () => void;
 }) {
+  const copy = useCopy();
   const reasons = (model?.reasons ?? []).filter(meaningfulDisplay);
   const evidence = (model?.evidence ?? []).filter(
     (item) => meaningfulDisplay(item.label) && meaningfulDisplay(item.value),
@@ -2364,13 +2404,13 @@ function EvidenceInspector({
       data-meta-exact-inspector
     >
       <div className={styles.inspectorHeader}>
-        <span className={styles.inspectorEyebrow}>Evidence inspector</span>
+        <span className={styles.inspectorEyebrow}>{copy.evidenceInspector}</span>
         <span className={`${styles.inspectorDecision} ${inspectorTone}`}>
           {display(model?.decisionLabel)}
         </span>
         {onClose ? (
           <button
-            aria-label="Close the evidence inspector"
+            aria-label={copy.closeEvidenceInspector}
             className={styles.inspectorClose}
             data-ctl="live:close"
             onClick={onClose}
@@ -2386,15 +2426,15 @@ function EvidenceInspector({
           <p className={styles.inspectorMeta}>{display(model?.entityMeta)}</p>
         </div>
         <div className={styles.contractCard}>
-          <p className={styles.inspectorSectionLabel}>Decision contract</p>
+          <p className={styles.inspectorSectionLabel}>{copy.decisionContract}</p>
           <p className={styles.contractCopy}>
-            Server verdict: <b>{display(model?.serverVerdict)}</b>
+            {copy.serverVerdict}: <b>{display(model?.serverVerdict)}</b>
             {hasContractDetail ? `. ${display(model?.contractDetail)}` : null}
           </p>
         </div>
         {reasons.length > 0 ? (
           <div>
-            <p className={styles.reasonHeading}>Engine reasoning</p>
+            <p className={styles.reasonHeading}>{copy.engineReasoning}</p>
             {reasons.map((reason, index) => (
               <p className={styles.reasonRow} key={`reason-${index}`}>
                 <span />
@@ -2405,7 +2445,7 @@ function EvidenceInspector({
         ) : null}
         <div className={styles.moneyImpact}>
           <p className={styles.inspectorSectionLabel}>
-            Money impact · ROAS vs target
+            {copy.moneyImpactVsTarget}
           </p>
           <p className={styles.inspectorMoneyValue}>
             {display(model?.moneyValue)}
@@ -2446,7 +2486,7 @@ function EvidenceInspector({
           <span
             className={`${styles.inspectorMiniTile} ${styles.confidenceTile}`}
           >
-            <span className={styles.inspectorMiniLabel}>Confidence</span>
+            <span className={styles.inspectorMiniLabel}>{copy.confidence}</span>
             <span className={styles.inspectorMiniValue}>
               {display(model?.confidence)}
             </span>
@@ -2454,7 +2494,7 @@ function EvidenceInspector({
           <span
             className={`${styles.inspectorMiniTile} ${styles.readinessTile}`}
           >
-            <span className={styles.inspectorMiniLabel}>Readiness</span>
+            <span className={styles.inspectorMiniLabel}>{copy.readiness}</span>
             <span className={styles.inspectorMiniValue}>
               {display(model?.readiness)}
             </span>
@@ -2462,7 +2502,7 @@ function EvidenceInspector({
         </div>
         {hasBlockers ? (
           <div>
-            <p className={styles.blockersHeading}>Blockers</p>
+            <p className={styles.blockersHeading}>{copy.blockers}</p>
             <p
               className={`${styles.blockersCopy} ${toneClass(model?.blockerTone)}`}
             >
@@ -2472,7 +2512,7 @@ function EvidenceInspector({
         ) : null}
         {hasAdvisories ? (
           <div>
-            <p className={styles.blockersHeading}>Advisories</p>
+            <p className={styles.blockersHeading}>{copy.advisories}</p>
             <p className={`${styles.blockersCopy} ${toneClass("neutral")}`}>
               {display(model?.advisories)}
             </p>
@@ -2491,18 +2531,18 @@ function EvidenceInspector({
         meaningfulDisplay(model?.evidenceWindow) ? (
           <dl className={styles.evidenceProvenance}>
             <div>
-              <dt>As of</dt>
+              <dt>{copy.asOf}</dt>
               <dd data-el="asof-row">{display(model?.asOf)}</dd>
             </div>
             <div>
-              <dt>Evidence window</dt>
+              <dt>{copy.evidenceWindow}</dt>
               <dd data-el="evidence-window">{display(model?.evidenceWindow)}</dd>
             </div>
           </dl>
         ) : null}
         {(model?.provenanceGaps ?? []).filter(meaningfulDisplay).length > 0 ? (
           <div>
-            <p className={styles.blockersHeading}>Not served at this grain</p>
+            <p className={styles.blockersHeading}>{copy.notServedAtThisGrain}</p>
             <p className={styles.provenanceGap} data-el="provenance-gap">
               {(model?.provenanceGaps ?? [])
                 .filter(meaningfulDisplay)
@@ -2531,7 +2571,7 @@ function EvidenceInspector({
             >
               {meaningfulDisplay(model.manualAction.label)
                 ? display(model.manualAction.label)
-                : "Open manual action"}
+                : copy.openManualAction}
             </button>
             {model.manualAction.refusalReason ? (
               <span
@@ -2553,7 +2593,7 @@ function EvidenceInspector({
               >
                 {meaningfulDisplay(model.brief.label)
                   ? display(model.brief.label)
-                  : "Open the brief"}
+                  : copy.openTheBrief}
               </a>
             ) : (
               <span
@@ -2569,7 +2609,7 @@ function EvidenceInspector({
         ) : null}
         {model?.workflow ? (
           <div data-meta-exact-workflow data-workflow-state={model.workflow.state}>
-            <p className={styles.inspectorSectionLabel}>Workflow</p>
+            <p className={styles.inspectorSectionLabel}>{copy.workflow}</p>
             {model.workflow.unavailableReason ? (
               /*
                 A failed read is said, not defaulted. Rendering "open" here
@@ -2656,6 +2696,17 @@ export function MetaDecisionCenterExact({
   initialQuery = "",
   onOpenCreativeStudio,
 }: MetaDecisionCenterExactProps) {
+  const copy = useCopy();
+  /*
+   * The active language, for one marker.
+   *
+   * P06 and P07 are the Turkish artboards and their `turkish-strings` marker
+   * used to come from a paragraph pasted into the frame registry, which the
+   * anatomy gate (a substring match on the rendered HTML) could not tell from a
+   * component that had actually been translated. Emitted here, it means what it
+   * says: this header is rendering the catalogue's Turkish.
+   */
+  const language = useZeroBaseLanguage();
   const [internalScope, setInternalScope] =
     useState<MetaDecisionCenterExactScope>(defaultScope);
   const [internalLane, setInternalLane] =
@@ -2708,15 +2759,21 @@ export function MetaDecisionCenterExact({
    * and a level selected is telling them the account is empty when it is not.
    */
   const activeFilters = [
-    query.trim() ? `the search “${query.trim()}”` : null,
+    query.trim() ? copy.theSearchTerm.replace("{term}", query.trim()) : null,
     levels.length > 0
-      ? `${levels.length === 1 ? "the level" : "the levels"} ${levels.join(", ")}`
+      ? (levels.length === 1 ? copy.theLevel : copy.theLevels).replace(
+          "{levels}",
+          levels.join(", "),
+        )
       : null,
   ].filter((value): value is string => Boolean(value));
   const laneEmptyReason =
     activeFilters.length > 0
-      ? `No served row in this lane matches ${activeFilters.join(" and ")}.`
-      : "No rows were served in this lane for this account and snapshot.";
+      ? copy.noRowMatchesFilters.replace(
+          "{filters}",
+          activeFilters.join(" · "),
+        )
+      : copy.laneServedNoRows;
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
@@ -2768,13 +2825,16 @@ export function MetaDecisionCenterExact({
       }}
       ref={rootRef}
     >
-      <div className={styles.pageHeader}>
+      <div
+        className={styles.pageHeader}
+        data-el={language === "tr" ? "turkish-strings" : undefined}
+      >
         <div>
           <p className={styles.pageEyebrow}>
             Meta · {display(identity?.accountLabel)} ·{" "}
             {display(identity?.currency)}
           </p>
-          <h1>Decision Center</h1>
+          <h1>{copy.decisionCenter}</h1>
           <p className={styles.asOfLine} data-meta-exact-source-identity>
             {display(identity?.syncedLabel)} ·{" "}
             {display(identity?.snapshotLabel)} ·{" "}
@@ -2795,7 +2855,7 @@ export function MetaDecisionCenterExact({
             onClick={onRunSnapshot}
             type="button"
           >
-            Run snapshot
+            {copy.runSnapshot}
           </button>
           <button
             className={styles.newCampaignButton}
@@ -2803,7 +2863,7 @@ export function MetaDecisionCenterExact({
             onClick={onNewCampaign}
             type="button"
           >
-            + New campaign
+            {copy.newCampaign}
           </button>
         </div>
       </div>
@@ -2824,7 +2884,7 @@ export function MetaDecisionCenterExact({
             data-meta-exact-scope="structure"
             {...controlProps(() => selectScope("structure"))}
           >
-            Campaigns &amp; Ad sets
+            {copy.campaignsAndAdSets}
             <span>{display(counts?.structure)}</span>
           </span>
           <span
@@ -2835,13 +2895,13 @@ export function MetaDecisionCenterExact({
             data-meta-exact-scope="creatives"
             {...controlProps(() => selectScope("creatives"))}
           >
-            Creatives
+            {copy.creatives}
             <span>{display(counts?.creatives)}</span>
           </span>
         </span>
         <p data-meta-exact-queue-snapshot>
-          queue reflects {display(identity?.snapshotLabel)} — the date range
-          scopes metrics, not decisions
+          queue reflects {display(identity?.snapshotLabel)} —{" "}
+          {copy.queueReflectsSnapshot}
         </p>
         {/*
           Beside the controls that scope the list, not after every row: the link
@@ -2860,7 +2920,7 @@ export function MetaDecisionCenterExact({
             (`live:lane`) had nothing to bind to.
           */}
           <span
-            aria-label="Decision lanes"
+            aria-label={copy.decisionLanes}
             className={styles.laneGroup}
             data-ctl="live:lane"
             onKeyDown={(event) => {
@@ -2900,13 +2960,13 @@ export function MetaDecisionCenterExact({
                 role="radio"
                 tabIndex={activeLane === item.id ? 0 : -1}
               >
-                {item.label}
+                {copy[item.labelKey]}
                 <span>{display(counts?.[item.id])}</span>
               </span>
             ))}
           </span>
           <span className={styles.deferredPill}>
-            Deferred {display(counts?.deferred)}
+            {copy.deferred} {display(counts?.deferred)}
           </span>
           <span className={styles.toolbarSpacer} />
           <LevelFilter
@@ -2915,7 +2975,7 @@ export function MetaDecisionCenterExact({
             scope={activeScope}
           />
           <select
-            aria-label="Sort decisions"
+            aria-label={copy.sortDecisions}
             onChange={(event) => {
               const next = event.target.value as MetaDecisionCenterExactSort;
               setSort(next);
@@ -2923,18 +2983,18 @@ export function MetaDecisionCenterExact({
             }}
             value={sort}
           >
-            <option value="money">Sort: Money at stake</option>
-            <option value="priority">Sort: Priority</option>
-            <option value="age">Sort: Age</option>
+            <option value="money">{copy.sortMoneyAtStake}</option>
+            <option value="priority">{copy.sortPriority}</option>
+            <option value="age">{copy.sortAge}</option>
           </select>
           <input
-            aria-label="Search entities"
+            aria-label={copy.searchEntities}
             data-ctl="live:META-DEC-17 search"
             onChange={(event) => {
               setQuery(event.target.value);
               onSearchChange?.(event.target.value);
             }}
-            placeholder="Search entities…"
+            placeholder={`${copy.searchEntities}…`}
             ref={searchRef}
             value={query}
           />
@@ -2970,13 +3030,13 @@ export function MetaDecisionCenterExact({
             scope={activeScope}
           />
           <input
-            aria-label="Search creatives"
+            aria-label={copy.searchCreatives}
             data-ctl="live:META-DEC-17 search"
             onChange={(event) => {
               setQuery(event.target.value);
               onSearchChange?.(event.target.value);
             }}
-            placeholder="Search creatives…"
+            placeholder={`${copy.searchCreatives}…`}
             ref={searchRef}
             value={query}
           />
@@ -2995,8 +3055,8 @@ export function MetaDecisionCenterExact({
       {activeScope === "structure" ? (
         <p className={styles.inactiveStrip} data-meta-exact-inactive-strip>
           <span>
-            Inactive assets {display(counts?.archive)} — outside the decision
-            lanes, and advisory only.
+            {copy.inactiveAssets} {display(counts?.archive)} —{" "}
+            {copy.outsideDecisionLanesAdvisory}
           </span>
           <button
             className={styles.inactiveStripOpen}
@@ -3004,7 +3064,7 @@ export function MetaDecisionCenterExact({
             onClick={() => selectLane("archive")}
             type="button"
           >
-            Open the inactive-assets detail
+            {copy.openInactiveAssetsDetail}
           </button>
           {adsManagerHref ? (
             <a
@@ -3014,9 +3074,9 @@ export function MetaDecisionCenterExact({
               rel="noopener noreferrer"
               target="_blank"
             >
-              Open Meta Ads Manager
+              {copy.openMetaAdsManager}
               <span className={styles.adsManagerNote}>
-                Opens Meta in a new tab. Nothing here is executed.
+                {copy.opensMetaNothingExecuted}
               </span>
             </a>
           ) : null}

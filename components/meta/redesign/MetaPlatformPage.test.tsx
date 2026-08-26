@@ -614,8 +614,8 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-meta-exact-workspace="true"');
     expect(html).toContain('data-meta-exact-inspector="true"');
     expect(html).toContain('aria-label="Sort decisions"');
-    expect(html).toContain('aria-label="Search entities"');
-    expect(html).toContain("Run snapshot");
+    expect(html).toContain('aria-label="Find entities"');
+    expect(html).toContain("Run a snapshot");
     expect(html).toContain("+ New campaign");
     expect(html).not.toContain('data-testid="meta-business-strip"');
     expect(html).not.toContain('data-testid="meta-overnight-digest"');
@@ -2413,7 +2413,7 @@ describe("decision row sort and search", () => {
       />,
     );
     expect(html).toContain('aria-label="Sort decisions"');
-    expect(html).toContain('aria-label="Search entities"');
+    expect(html).toContain('aria-label="Find entities"');
     expect(html).not.toContain('data-testid="meta-row-sort"');
     expect(html).not.toContain('data-testid="meta-row-search"');
   });
@@ -3523,7 +3523,7 @@ describe("workspace posture banners", () => {
       'data-meta-exact-action-row="pause-rec"',
     );
     expect(row).toMatch(/<button[^>]*disabled=""[^>]*>—<\/button>/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Run snapshot<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Run a snapshot<\/button>/);
     expect(html).toMatch(
       /<button[^>]*disabled=""[^>]*>\+ New campaign<\/button>/,
     );

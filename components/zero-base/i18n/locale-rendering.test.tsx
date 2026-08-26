@@ -74,6 +74,7 @@ describe("non-translatable terms survive on a Turkish surface", () => {
 import { IntegrationsView, TeamView } from "@/components/zero-base/manage/manage-views";
 import { ReportLibraryView } from "@/components/zero-base/reports/report-views";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
+import { MetaDecisionCenterExact } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import { OpsRepairPanel } from "@/components/zero-base/ops/repair-panel";
 
 const NO_WRITE = { pending: null, error: null, confirmed: null };
@@ -126,6 +127,22 @@ describe("every surface family renders EN and TR", () => {
       name: "agency",
       key: "whyAgencyNoTotals",
       node: <WithheldExplainer />,
+    },
+    {
+      /*
+       * The mounted Meta Decision Center.
+       *
+       * The one body in this list that an operator reaches on a canonical
+       * route: every other family here is a zero-base surface. It is included
+       * because the Turkish artboards P06/P07 grade THIS body, and their
+       * `turkish-strings` marker used to come from a paragraph pasted into the
+       * frame registry — which the anatomy gate, a substring match over the
+       * rendered HTML, cannot tell from a component that has actually been
+       * translated. This can.
+       */
+      name: "meta/decisions",
+      key: "decisionCenter",
+      node: <MetaDecisionCenterExact viewModel={{}} />,
     },
     {
       name: "ops",

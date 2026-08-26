@@ -16,7 +16,7 @@ for everything:
 | unit suite, typecheck, lint, whitespace, build, zero-base gates | `b964cd9b1`, then re-run at `d56c32bc8` — see §5.5 |
 | runtime harness, FULL (388 checks) | `b964cd9b1`. **Not re-run since.** |
 | runtime harness, FILTERED (19 checks + 312 route cases) | `d56c32bc8` — the account-isolation spec only, and not a substitute for the full sweep |
-| the account-isolation work (§6.1, §6.2) | `ef6fdc12f`..`d56c32bc8` and the empirical-outcome commit after it — see §5.5 |
+| the account-isolation work (§6.1, §6.2) | `ef6fdc12f`..`81c21e80c` — see §5.5 |
 | frame evidence (92/92) | `b749db52f`, which is what the manifest records |
 | screenshot set (131 checks) | `b749db52f` |
 | the history-plan facts in §7.8 / §7.9 | re-measured at `daac86815` |
@@ -130,8 +130,11 @@ rec ids never appear in a snapshot — but `lib/triage-events.ts` writes to
 of `/api/meta/recommendations/respond` is the Intelligence controls client. An
 exemption would have been a hole with no traffic through it.
 
-**Account scope for account-LEVEL recommendations is still not expressible.**
-See §6.1. It is an architecture gap, not an external blocker.
+**Account scope for account-LEVEL recommendations was the one gap this pass
+could not close, and a later pass on this branch did.** See §6.1, which records
+it as closed: identity now includes `provider_account_id`, and the engine
+computes one batch per assigned account. It was an architecture gap, never an
+external blocker.
 
 ---
 
@@ -376,21 +379,21 @@ findings and nothing else**. §7.1 is why the repoint did not land.
 
 ### 5.5 The account-isolation pass, measured at `d56c32bc8` and after
 
-Seven commits close §6.1 and §6.2: `ef6fdc12f` (schema and both ADRs),
+Twelve commits close §6.1 and §6.2: `ef6fdc12f` (schema and both ADRs),
 `d9d9ca6c5` (per-account generation), `37f4f7cfc` (read posture),
 `6a5ee9c39` (operator-response lineage), `41326d871` (runtime seeds),
 `5ccdacb3c` (the real-PostgreSQL identity seam), `defed14c0` (the nine read
 routes and the read-posture contract), `8b1c9b584` (the last two generation
-inputs and a manual refresh's account), then `77a21df45` / `43dd42345` /
+inputs and a manual refresh's account), `77a21df45` / `43dd42345` /
 `d56c32bc8` (outcome accrual, History correlations, the collision proofs), and
-the empirical-outcome forwarding on top.
+`81c21e80c` (empirical-outcome forwarding, and this document).
 
 | Command | Result |
 |---|---|
 | `npm run test:whitespace` | **PASS** — working tree, index, and `843b6e9c8..d56c32bc8` |
 | `npm run typecheck` | **PASS** |
 | `npm run lint` | **PASS** |
-| `npx vitest run` | **PASS** — 13 221 passed, 144 skipped, 63 todo (13 428) across 1 089 files, 0 failed. Run at `d56c32bc8`; the empirical-outcome commit after it ran only the focused suites |
+| `npx vitest run` | **PASS** — 13 221 passed, 144 skipped, 63 todo (13 428) across 1 089 files, 0 failed. Run at `d56c32bc8`; `81c21e80c` ran only the focused suites |
 | `npm run build` | **PASS** |
 | `npm run test:migrations-from-zero` | **PASS** — the new columns and the identity index build from zero and stay idempotent |
 | `npm run test:schema-upgrade-seam` | **PASS** — U7, P1/P2/P3 |

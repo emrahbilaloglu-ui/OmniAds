@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaCanonicalOverviewTrends } from "@/lib/meta/canonical-overview";
-import { isDemoBusinessId, getDemoMetaTrends } from "@/lib/demo-business";
+import { getDemoMetaTrends } from "@/lib/demo-business";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 
 export interface MetaTrendsRouteResponse
   extends Awaited<ReturnType<typeof getMetaCanonicalOverviewTrends>> {}
@@ -15,9 +17,11 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  if (isDemoBusinessId(businessId)) {
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture === "demo") {
     return NextResponse.json({ ...getDemoMetaTrends(), isPartial: false, notReadyReason: null });
   }
+  if (posture !== "live") return metaPostureUnavailable("meta_trends");
 
   if (!startDate || !endDate) {
     return NextResponse.json(

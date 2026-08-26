@@ -3,6 +3,18 @@ import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/recommendations/route";
 import { assertMetaRecommendationsPageContract } from "@/lib/meta/page-route-contract.test-helpers";
 
+/*
+ * The tri-state posture read, at its one database read.
+ *
+ * The route no longer asks `isDemoBusiness`, which manufactured "live" from a
+ * database it could not read. It asks `readMetaBusinessDataPosture`, which
+ * reads `businesses.is_demo_business` through this module and answers
+ * `unverified` when it cannot — and `getDb()` throws under vitest, so without
+ * this the route would correctly refuse every case in this file.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
@@ -98,6 +110,7 @@ vi.mock("@/lib/meta/recommendations", async (importOriginal) => {
   };
 });
 
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const campaignsSource = await import("@/lib/meta/campaigns-source");
@@ -115,6 +128,7 @@ describe("GET /api/meta/recommendations", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
@@ -172,6 +186,25 @@ describe("GET /api/meta/recommendations", () => {
         fallbackReason: "meta_engine_v1_snapshot",
       },
     });
+  });
+
+  it("withholds recommendations when the workspace posture cannot be read", async () => {
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
+      "unverified",
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-04-01&endDate=2026-04-03",
+      ),
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("workspace_posture_unverified");
+    // Nothing was read on the way to the refusal — not the snapshot, not the
+    // campaign windows, not the breakdowns.
+    expect(snapshot.readMetaDecisionSnapshotForRange).not.toHaveBeenCalled();
+    expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
   });
 
   it("reads persisted snapshot recommendations by default", async () => {

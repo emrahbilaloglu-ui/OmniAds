@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -109,7 +110,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const demoBusiness = await isDemoBusiness(businessId);
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture !== "live" && posture !== "demo") {
+    return metaPostureUnavailable("meta_recommendations");
+  }
+  const demoBusiness = posture === "demo";
 
   if (demoBusiness) {
     const demoCampaigns = getDemoMetaCampaigns().rows as MetaCampaignRow[];

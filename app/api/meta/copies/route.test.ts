@@ -3,6 +3,18 @@ import { NextRequest } from "next/server";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { GET } from "@/app/api/meta/copies/route";
 
+/*
+ * The tri-state posture read, at its one database read.
+ *
+ * The route no longer asks `isDemoBusiness`, which manufactured "live" from a
+ * database it could not read. It asks `readMetaBusinessDataPosture`, which
+ * reads `businesses.is_demo_business` through this module and answers
+ * `unverified` when it cannot — and `getDb()` throws under vitest, so without
+ * this the route would correctly refuse every case in this file.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
 }));
@@ -25,6 +37,7 @@ vi.mock("@/lib/db", async (importOriginal) => {
   return { ...actual, getDb: vi.fn() };
 });
 
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const creativesApi = await import("@/lib/meta/creatives-api");
@@ -132,6 +145,7 @@ describe("GET /api/meta/copies", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
     mockWarehouseObservedAt(null);
   });
 
@@ -787,7 +801,7 @@ describe("GET /api/meta/copies — associated_ads_count", () => {
   it("counts the demo branch under the same law, though it merges nothing", async () => {
     // The demo payload serves one row per ad and ignores groupBy, so several
     // rows can carry one copy. The column has to mean the same thing there.
-    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
     vi.mocked(demoBusiness.getDemoMetaCopies).mockReturnValue({
       status: "ok",
       rows: [

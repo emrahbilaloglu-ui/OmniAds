@@ -59,7 +59,9 @@ import {
   buildProviderSurfaces,
 } from "@/lib/provider-readiness";
 import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/provider-platform-date";
-import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
+import { getDemoMetaStatus } from "@/lib/demo-business";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import {
   assertRuntimeContractStartup,
@@ -342,9 +344,11 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  if (isDemoBusinessId(businessId)) {
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture === "demo") {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
+  if (posture !== "live") return metaPostureUnavailable("meta_status");
   const buildResponse = async () => {
   const [
     integration,

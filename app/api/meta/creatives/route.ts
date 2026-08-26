@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoMetaCreatives, getDemoProviderAccounts } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
@@ -80,7 +81,11 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
 
-  if (await isDemoBusiness(businessId)) {
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture !== "live" && posture !== "demo") {
+    return metaPostureUnavailable("meta_creatives");
+  }
+  if (posture === "demo") {
     const demoPayload = getDemoMetaCreatives();
     const accountScope = resolveMetaCreativesAccountScope({
       assignedAccountIds: getDemoProviderAccounts("meta").map((account) => account.id),

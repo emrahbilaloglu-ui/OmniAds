@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoMetaStatus, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoMetaStatus } from "@/lib/demo-business";
+import {
+  readMetaBusinessDataPosture,
+  type MetaBusinessDataPosture,
+} from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 import { getMetaAccountContext } from "@/lib/meta/account-context";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
 import { dayCountInclusive } from "@/lib/meta/history";
@@ -143,8 +148,17 @@ async function buildMetaPageStatus(input: {
   businessId: string;
   startDate: string | null;
   endDate: string | null;
+  /*
+   * Read once by the handler and passed down, rather than read again here.
+   *
+   * It is also read BEFORE the cache, which is the point: a posture check
+   * inside this builder would be skipped entirely on a cache hit, and a
+   * workspace whose flag stopped being readable would keep being served the
+   * live payload the last readable request produced.
+   */
+  posture: MetaBusinessDataPosture;
 }): Promise<MetaStatusResponse> {
-  if (isDemoBusinessId(input.businessId)) {
+  if (input.posture === "demo") {
     return getDemoMetaStatus() as MetaStatusResponse;
   }
 
@@ -629,11 +643,17 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture !== "live" && posture !== "demo") {
+    return metaPostureUnavailable("meta_page_status");
+  }
+
   const load = () =>
     buildMetaPageStatus({
       businessId,
       startDate,
       endDate,
+      posture,
     });
   const payload = shouldBypassMetaPageStatusCache()
     ? await load()

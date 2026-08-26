@@ -2,6 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/creatives/route";
 
+/*
+ * The tri-state posture read, at its one database read.
+ *
+ * The route no longer asks `isDemoBusiness`, which manufactured "live" from a
+ * database it could not read. It asks `readMetaBusinessDataPosture`, which
+ * reads `businesses.is_demo_business` through this module and answers
+ * `unverified` when it cannot — and `getDb()` throws under vitest, so without
+ * this the route would correctly refuse every case in this file.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
 }));
@@ -33,6 +45,7 @@ vi.mock("@/lib/perf", () => ({
   logPerfEvent: vi.fn(),
 }));
 
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const demoBusiness = await import("@/lib/demo-business");
@@ -47,6 +60,25 @@ describe("GET /api/meta/creatives", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
+  });
+
+  /*
+   * §6.2. The refusal is BEFORE the payload read, so an unreadable workspace
+   * flag never becomes a provider read whose answer is then served as live.
+   */
+  it("withholds creatives when the workspace posture cannot be read", async () => {
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue(
+      "unverified",
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/creatives?businessId=biz"),
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("workspace_posture_unverified");
+    expect(creativesApi.getMetaCreativesApiPayload).not.toHaveBeenCalled();
   });
 
   it("uses snapshot-first creatives payload for the main surface", async () => {
@@ -194,7 +226,7 @@ describe("GET /api/meta/creatives", () => {
   });
 
   it("requires explicit account scope for a multi-account demo business", async () => {
-    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
 
     const response = await GET(
       new NextRequest("http://localhost/api/meta/creatives?businessId=demo"),
@@ -209,7 +241,7 @@ describe("GET /api/meta/creatives", () => {
   });
 
   it("filters demo rows to the requested account and exact creative", async () => {
-    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
 
     const response = await GET(
       new NextRequest(
@@ -230,7 +262,7 @@ describe("GET /api/meta/creatives", () => {
   });
 
   it("rejects an unassigned demo account", async () => {
-    vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(true);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("demo");
 
     const response = await GET(
       new NextRequest(

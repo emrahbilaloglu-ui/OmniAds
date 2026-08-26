@@ -27,6 +27,16 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
  */
 
 vi.mock("@/lib/business-mode.server", () => ({ isDemoBusiness: vi.fn() }));
+/*
+ * The copies route now reads the tri-state posture instead of the boolean, and
+ * that read reaches the database. `getDb()` throws under vitest, so an
+ * unmocked read answers `unverified` and the route correctly refuses — which
+ * would make every case here a 503 about the workspace rather than a test of
+ * the copies payload.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/demo-business", () => ({
   getDemoMetaCopies: vi.fn(() => ({ status: "ok", rows: [] })),

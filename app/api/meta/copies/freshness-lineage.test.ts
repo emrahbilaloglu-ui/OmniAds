@@ -23,6 +23,18 @@ import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
  * because those are the network, not the logic.
  */
 
+/*
+ * The tri-state posture read, at its one database read.
+ *
+ * The route no longer asks `isDemoBusiness`, which manufactured "live" from a
+ * database it could not read. It asks `readMetaBusinessDataPosture`, which
+ * reads `businesses.is_demo_business` through this module and answers
+ * `unverified` when it cannot — and `getDb()` throws under vitest, so without
+ * this the route would correctly refuse every case in this file.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/business-mode.server", () => ({ isDemoBusiness: vi.fn() }));
 vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/demo-business", () => ({
@@ -44,6 +56,7 @@ const { resolveCopiesRowsObservedAt } = await import(
 const { resolveCopiesFreshness } = await import(
   "@/app/(dashboard)/platforms/meta/copies/page-support"
 );
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const creativesApi = await import("@/lib/meta/creatives-api");
@@ -154,6 +167,7 @@ beforeEach(() => {
     membership: {} as never,
   } as never);
   vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
   // The warehouse genuinely has a write instant for this window. Whether the
   // surface may READ it as the rows' age is the whole question.
   vi.mocked(db.getDb).mockReturnValue({

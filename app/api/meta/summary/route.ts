@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaCanonicalOverviewSummary } from "@/lib/meta/canonical-overview";
-import { isDemoBusinessId, getDemoMetaSummary } from "@/lib/demo-business";
+import { getDemoMetaSummary } from "@/lib/demo-business";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 
 export interface MetaSummaryRouteResponse
   extends Awaited<ReturnType<typeof getMetaCanonicalOverviewSummary>> {}
@@ -15,9 +17,16 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  if (isDemoBusinessId(businessId)) {
+  /*
+   * Tri-state, not the id comparison. `isDemoBusinessId` never reads the
+   * column, so every workspace that is not the well-known demo id fell through
+   * to the live branch — including one whose flag could not be read at all.
+   */
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture === "demo") {
     return NextResponse.json({ ...getDemoMetaSummary(), isPartial: false, notReadyReason: null });
   }
+  if (posture !== "live") return metaPostureUnavailable("meta_summary");
 
   if (!startDate || !endDate) {
     return NextResponse.json(

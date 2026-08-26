@@ -2,6 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/page-status/route";
 
+/*
+ * The tri-state posture read, at its one database read.
+ *
+ * The route no longer asks `isDemoBusiness`, which manufactured "live" from a
+ * database it could not read. It asks `readMetaBusinessDataPosture`, which
+ * reads `businesses.is_demo_business` through this module and answers
+ * `unverified` when it cannot — and `getDb()` throws under vitest, so without
+ * this the route would correctly refuse every case in this file.
+ */
+vi.mock("@/app/api/launchpad/meta/demo-write-authority", () => ({
+  readLaunchpadWriteAuthority: vi.fn(async () => "live"),
+}));
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
@@ -39,6 +51,7 @@ vi.mock("@/lib/sync/meta-sync", () => ({
   getMetaSelectedRangeTruthReadiness: vi.fn(),
 }));
 
+const demoAuthority = await import("@/app/api/launchpad/meta/demo-write-authority");
 const access = await import("@/lib/access");
 const demoBusiness = await import("@/lib/demo-business");
 const accountContext = await import("@/lib/meta/account-context");
@@ -58,6 +71,7 @@ describe("GET /api/meta/page-status", () => {
       membership: {} as never,
     });
     vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
+    vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
     vi.mocked(accountContext.getMetaAccountContext).mockResolvedValue({
       businessId: "biz",
       connected: true,

@@ -46,6 +46,15 @@ export interface IntelligenceSource {
     enabled: boolean;
     refusalCode?: MetaFailureCode | null;
     refusalMessage?: string | null;
+    /**
+     * What a respond control may act on — served ids, never composed here.
+     *
+     * The route writes one row per `rec_id` and has no foreign key, so an id
+     * this view invented would record an operator decision against a
+     * recommendation that does not exist. No targets means no action: the
+     * server says why, and the control is disabled.
+     */
+    targets?: ReadonlyArray<{ recId: string; label: string }>;
   };
   reason: string | null;
   observedAt: string | null;
@@ -80,12 +89,24 @@ export function IntelligenceView({
   /** Absent when the actor cannot queue a run; the control states why. */
   snapshot?: { canRun: boolean; reason: string | null; queued: boolean };
   onRunSnapshot?: () => void;
-  onRespond?: (sourceKey: string, response: string) => void;
+  /**
+   * Called with a SERVED recommendation id and one of the route's four
+   * actions. The id comes from `control.targets`; this view never makes one.
+   */
+  onRespond?: (recId: string, response: string) => void;
 }) {
   const copy = useCopy();
   // Declared above the early return so the hook order never depends on whether
   // the surface could be composed.
   const [tab, setTab] = useState<TabId>("sources");
+  /**
+   * Which recommendation each respond control is aimed at, keyed by section.
+   *
+   * Absent means "the first the server served" — a default, not a decision:
+   * the list itself is the server's, and an operator who changes it changes
+   * only which served id the action is recorded against.
+   */
+  const [respondTargets, setRespondTargets] = useState<Record<string, string>>({});
   /**
    * Run-now's state, from the section that owns it.
    *
@@ -193,37 +214,87 @@ export function IntelligenceView({
                   validates against, and the control appears only where the
                   server said there is one.
                 */}
-                {row.control?.kind === "respond" ? (
-                  <label
-                    style={{ display: "grid", gap: 3, color: "var(--ledger-ink-tertiary)" }}
-                    data-section-control="respond"
-                    data-section-control-enabled={row.control.enabled ? "" : undefined}
-                    data-section-control-refusal={row.control.refusalCode ?? undefined}
-                  >
-                    <span>{copy.recordResponse}</span>
-                    <select
-                      data-ctl="live:META-INTEL-07 respond"
-                      aria-label={`${copy.recordResponse} — ${row.label}`}
-                      defaultValue=""
-                      disabled={!row.control.enabled || !onRespond}
-                      title={row.control.refusalMessage ?? undefined}
-                      onChange={(event) => onRespond?.(row.key, event.target.value)}
-                      style={{ minHeight: 32, padding: "3px 7px" }}
-                    >
-                      <option value="">—</option>
-                      {META_DECISION_RESPONSE_ACTIONS.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                    {row.control.enabled ? null : (
-                      <span data-section-control-reason="respond" style={{ color: "var(--ledger-ink-tertiary)" }}>
-                        {row.control.refusalMessage}
-                      </span>
-                    )}
-                  </label>
-                ) : null}
+                {row.control?.kind === "respond"
+                  ? (() => {
+                      /*
+                       * The recommendation is chosen before the action, and
+                       * both come from the server: the ids are the snapshot's
+                       * own `rec_id` values, and the vocabulary is the module
+                       * the route validates against. This used to be an action
+                       * select with no subject, which is why the handler could
+                       * only tell the operator to go somewhere else.
+                       */
+                      const targets = row.control.targets ?? [];
+                      const selected =
+                        respondTargets[row.key] ?? targets[0]?.recId ?? "";
+                      const actionable =
+                        row.control.enabled && Boolean(onRespond) && selected !== "";
+                      return (
+                        <div
+                          style={{ display: "grid", gap: 6, color: "var(--ledger-ink-tertiary)" }}
+                          data-section-control="respond"
+                          data-section-control-enabled={row.control.enabled ? "" : undefined}
+                          data-section-control-refusal={row.control.refusalCode ?? undefined}
+                          data-respond-target-count={String(targets.length)}
+                          data-respond-target={selected || undefined}
+                        >
+                          {targets.length > 0 ? (
+                            <label style={{ display: "grid", gap: 3 }}>
+                              <span>{copy.respondToWhich}</span>
+                              <select
+                                data-ctl="live:META-INTEL-07 respond-target"
+                                aria-label={`${copy.respondToWhich} — ${row.label}`}
+                                value={selected}
+                                disabled={!row.control.enabled}
+                                onChange={(event) =>
+                                  setRespondTargets((current) => ({
+                                    ...current,
+                                    [row.key]: event.target.value,
+                                  }))
+                                }
+                                style={{ minHeight: 32, padding: "3px 7px" }}
+                              >
+                                {targets.map((target) => (
+                                  <option key={target.recId} value={target.recId}>
+                                    {target.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+                          <label style={{ display: "grid", gap: 3 }}>
+                            <span>{copy.recordResponse}</span>
+                            <select
+                              data-ctl="live:META-INTEL-07 respond"
+                              aria-label={`${copy.recordResponse} — ${row.label}`}
+                              defaultValue=""
+                              disabled={!actionable}
+                              title={row.control.refusalMessage ?? undefined}
+                              onChange={(event) =>
+                                onRespond?.(selected, event.target.value)
+                              }
+                              style={{ minHeight: 32, padding: "3px 7px" }}
+                            >
+                              <option value="">—</option>
+                              {META_DECISION_RESPONSE_ACTIONS.map((value) => (
+                                <option key={value} value={value}>
+                                  {value}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {row.control.enabled ? null : (
+                            <span
+                              data-section-control-reason="respond"
+                              style={{ color: "var(--ledger-ink-tertiary)" }}
+                            >
+                              {row.control.refusalMessage}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()
+                  : null}
               </article>
             ))}
           </div>

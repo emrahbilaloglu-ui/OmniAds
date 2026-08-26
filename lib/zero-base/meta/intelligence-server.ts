@@ -169,10 +169,41 @@ export interface SectionControl {
   /** Which control this is, so the view renders the right one rather than guessing. */
   kind: "respond" | "run-snapshot";
   enabled: boolean;
-  /** Non-null exactly when `enabled` is false. */
+  /**
+   * The §9.1 code when the refusal is one of the dictionary's, and null when it
+   * is not.
+   *
+   * A control can be unusable for a reason that is not a failure: a snapshot
+   * that served no recommendations leaves the respond control with nothing to
+   * act on, and calling that `source_read_failed` — or inventing a code for it
+   * — would report a measured zero as a defect. In that case the code is null
+   * and `refusalMessage` still carries the served sentence.
+   */
   refusalCode: MetaFailureCode | null;
-  /** The dictionary's sentence for that code. Never composed here. */
+  /** The sentence for that refusal. Set whenever `enabled` is false. */
   refusalMessage: string | null;
+  /**
+   * What a `respond` control may act ON — the served recommendation ids, each
+   * with the title the snapshot gave it.
+   *
+   * `/api/meta/recommendations/respond` writes one row per `recId` and has no
+   * foreign key, so a client that invented an id would silently record an
+   * operator decision against a recommendation that does not exist. The ids
+   * therefore come from the same snapshot read that produced the count, and a
+   * control with no targets is a control the view must refuse rather than
+   * point elsewhere.
+   *
+   * Undefined for `run-snapshot`, which acts on the business, not on a row.
+   */
+  targets?: ReadonlyArray<RespondTarget>;
+}
+
+/** One recommendation a respond control may be used on. */
+export interface RespondTarget {
+  /** The `rec_id` the respond route writes, verbatim from the snapshot. */
+  recId: string;
+  /** The snapshot's own title for it. Never composed here. */
+  label: string;
 }
 
 /**
@@ -1090,13 +1121,48 @@ export async function readMetaIntelligence(input: {
             control: { kind: "respond" as const, ...control },
           } satisfies SectionOutcome;
         }
+        /*
+         * The ids, carried rather than counted away.
+         *
+         * This read already held every recommendation and kept only
+         * `.length`, so the control WP9 asks for had nothing real to act on
+         * and the view said "open Decision Center" instead — which is not a
+         * gated action, it is a redirection. These are the same `rec_id`
+         * values `/api/meta/recommendations/respond` writes, so responding
+         * here records against a recommendation that exists.
+         */
+        const targets = model.recommendations
+          .map((recommendation) => ({
+            recId: asServedText(recommendation.id) ?? "",
+            label:
+              asServedText(recommendation.title) ??
+              asServedText(recommendation.decision) ??
+              "Untitled recommendation",
+          }))
+          .filter((target) => target.recId.length > 0);
         return {
           facts: [
-            { label: "Recommendations", value: count(model.recommendations.length) },
+            { label: "Recommendations", value: count(model.recommendations) },
             { label: "Snapshot date", value: asServedText(model.snapshotDate) ?? "Not recorded" },
           ],
           observedAt: model.snapshotCreatedAt ?? model.snapshotDate ?? null,
-          control: { kind: "respond" as const, ...control },
+          /*
+           * A snapshot that served no recommendation leaves the control with
+           * nothing to act on, and that is a §9.1 refusal in its own right —
+           * not a disabled button with no sentence, and not an instruction to
+           * go somewhere else.
+           */
+          control:
+            targets.length > 0
+              ? { kind: "respond" as const, ...control, targets }
+              : {
+                  kind: "respond" as const,
+                  enabled: false,
+                  refusalCode: null,
+                  refusalMessage:
+                    "This snapshot served no recommendations, so there is nothing to respond to.",
+                  targets: [],
+                },
         } satisfies SectionOutcome;
       })(),
 

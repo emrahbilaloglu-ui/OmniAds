@@ -32,7 +32,7 @@
  * outside" and stopped there. That was true of a browser and false of the
  * composer, and it was being used as a reason not to try.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { Client } from "pg";
 
 import { openSurface, runtimeHandle } from "../helpers/meta-runtime";
@@ -296,6 +296,14 @@ test.describe("a refused source is never counted as one that answered", () => {
  * because a browser cannot change who is signed in without signing in as
  * somebody else.
  */
+/** The sentence a refused control renders beside itself, or "" when it has none. */
+async function reasonOf(control: Locator): Promise<string> {
+  const reason = control.locator("[data-section-control-reason]");
+  return (await reason.count()) > 0
+    ? ((await reason.first().textContent()) ?? "").trim()
+    : "";
+}
+
 test.describe("the two control sections carry their gate to the screen", () => {
   test("respond and run-now are rendered, and say whether they may be used", async ({
     page,
@@ -317,11 +325,22 @@ test.describe("the two control sections carry their gate to the screen", () => {
       const enabled = await control.getAttribute("data-section-control-enabled");
       const refusal = await control.getAttribute("data-section-control-refusal");
       expect(
-        enabled !== null || refusal !== null,
+        enabled !== null || refusal !== null || (await reasonOf(control)) !== "",
         "a control that is neither offered nor refused",
       ).toBe(true);
       if (enabled === null) {
-        expect(refusal, "a refused control with no §9.1 code").toBeTruthy();
+        /*
+         * A refused control must SAY why. Usually that is a §9.1 code, but not
+         * always: a snapshot that served no recommendations leaves the respond
+         * control with nothing to act on, and calling a measured zero a
+         * failure would report an absence as a defect. Either way the operator
+         * gets a sentence — an unusable control with no reason is the state
+         * this test exists to forbid.
+         */
+        expect(
+          refusal || (await reasonOf(control)),
+          "a refused control that gives no reason at all",
+        ).toBeTruthy();
       }
     }
   });
@@ -339,5 +358,101 @@ test.describe("the two control sections carry their gate to the screen", () => {
       .allTextContents();
     const offered = options.map((value) => value.trim()).filter((value) => value && value !== "—");
     expect(offered.sort()).toEqual(["acted", "deferred", "ignored", "undeferred"]);
+  });
+});
+
+/**
+ * WP9's respond control, all the way to the row it writes.
+ *
+ * The control was rendered and gated and led nowhere: the composer read every
+ * recommendation, kept only `.length`, and the handler answered a click by
+ * telling the operator to open Decision Center. This drives the mounted
+ * control and then asks the database what it recorded — a 200 is not evidence
+ * that anything was written, and `meta_decision_responses` is where the answer
+ * actually lives.
+ */
+test.describe("responding to a recommendation records a row", () => {
+  test("the served id reaches meta_decision_responses, and nothing else does", async ({
+    page,
+  }) => {
+    await openSurface(page, handle, INTELLIGENCE);
+
+    const respond = page.locator('[data-section-control="respond"]');
+    await expect(respond).toHaveCount(1);
+    const targetCount = Number(
+      (await respond.getAttribute("data-respond-target-count")) ?? "0",
+    );
+
+    if (targetCount === 0) {
+      /*
+       * The fixture's snapshot served no recommendation. That is a real state
+       * and the law still holds: the control refuses, says why in the server's
+       * own words, and offers no subject to act on.
+       */
+      expect(await respond.getAttribute("data-section-control-enabled")).toBeNull();
+      expect(await reasonOf(respond)).toContain("nothing to respond to");
+      await expect(
+        page.locator('[data-ctl="live:META-INTEL-07 respond-target"]'),
+      ).toHaveCount(0);
+      return;
+    }
+
+    // The id the SERVER offered. Nothing in this test composes one.
+    const recId = await respond.getAttribute("data-respond-target");
+    expect(recId, "an offered target with no id").toBeTruthy();
+
+    const before = await withDb(async (client) =>
+      Number(
+        (
+          await client.query(
+            "SELECT count(*)::int AS n FROM meta_decision_responses WHERE business_id = $1 AND rec_id = $2",
+            [handle.businesses.oneAccount, recId],
+          )
+        ).rows[0].n,
+      ),
+    );
+
+    await page
+      .locator('[data-ctl="live:META-INTEL-07 respond"]')
+      .selectOption("deferred");
+
+    await expect(page.locator("[data-intelligence-control-notice]")).toContainText(
+      String(recId),
+    );
+
+    const rows = await withDb(async (client) =>
+      (
+        await client.query(
+          "SELECT rec_id, business_id, action FROM meta_decision_responses WHERE business_id = $1 AND rec_id = $2 ORDER BY timestamp DESC",
+          [handle.businesses.oneAccount, recId],
+        )
+      ).rows,
+    );
+
+    expect(rows.length).toBe(before + 1);
+    expect(rows[0]).toMatchObject({
+      rec_id: recId,
+      business_id: handle.businesses.oneAccount,
+      action: "deferred",
+    });
+  });
+
+  test("reaches no provider", async ({ page }) => {
+    const provider: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (/facebook\.com|graph\.facebook|googleapis\.com/.test(url)) provider.push(url);
+    });
+
+    await openSurface(page, handle, INTELLIGENCE);
+    const respond = page.locator('[data-section-control="respond"]');
+    if ((await respond.getAttribute("data-section-control-enabled")) !== null) {
+      await page
+        .locator('[data-ctl="live:META-INTEL-07 respond"]')
+        .selectOption("acted");
+      await expect(page.locator("[data-intelligence-control-notice]")).toBeVisible();
+    }
+
+    expect(provider, "a provider call from an operator response").toEqual([]);
   });
 });

@@ -77,26 +77,81 @@ export function IntelligenceControlsClient({
     }
   }, [businessId, busy, snapshotControl]);
 
+  /**
+   * One served recommendation, one served action, one route.
+   *
+   * `recId` arrives from the server's `control.targets` — the same `rec_id`
+   * values the snapshot wrote — so the route records against a recommendation
+   * that exists. It is never composed here, and an empty one posts nothing:
+   * the route would answer `missing_params`, and the server has already said
+   * why there is nothing to act on.
+   */
   const onRespond = useCallback(
-    async (_sourceKey: string, action: string) => {
-      if (!action || busy || !respondControl?.control?.enabled) return;
-      /*
-       * `/api/meta/recommendations/respond` needs a `recId`, and a section key
-       * is not one.
-       *
-       * The section reports how many recommendations are in scope; responding
-       * to a SPECIFIC one is done from the Decision Center, which lists them
-       * with their ids. Rather than invent an id or post a request the route
-       * would refuse with `missing_params`, this states where the action lives.
-       * That is a smaller product than WP9 describes, and it is the honest
-       * shape of what this section can offer without a per-recommendation list
-       * on the screen.
-       */
-      setNotice(
-        `Responding "${action}" is recorded against one recommendation. Open the decision in Decision Center to record it there — this section reports how many are in scope, not which.`,
-      );
+    async (recId: string, action: string) => {
+      if (!recId || !action || busy || !respondControl?.control?.enabled) return;
+      setBusy(true);
+      setNotice(null);
+      try {
+        const response = await fetch("/api/meta/recommendations/respond", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recId, businessId, action }),
+        });
+        const payload = (await response.json().catch(() => null)) as {
+          ok?: unknown;
+          error?: unknown;
+          message?: unknown;
+          response?: { action?: unknown; timestamp?: unknown } | null;
+        } | null;
+        if (!response.ok || payload?.ok !== true) {
+          /*
+           * The route and the access layer answer in two different envelopes —
+           * `{ok:false,error:{code,message}}` and `{error,message}` — so both
+           * are read, and neither is paraphrased. When the server said nothing
+           * readable, this says that rather than inventing a reason.
+           */
+          const nested =
+            payload && typeof payload.error === "object" && payload.error !== null
+              ? (payload.error as { message?: unknown }).message
+              : null;
+          const served =
+            typeof nested === "string" && nested.trim()
+              ? nested.trim()
+              : typeof payload?.message === "string" && payload.message.trim()
+                ? payload.message.trim()
+                : null;
+          setNotice(
+            served ??
+              "The response was not recorded, and the server gave no reason that could be read.",
+          );
+          return;
+        }
+        /*
+         * The server's own row, read back. A 200 is not an observation of what
+         * was written, and the operator is told the action and the instant the
+         * database stamped — not the one this browser hoped for.
+         */
+        const recorded = payload.response;
+        const recordedAction =
+          typeof recorded?.action === "string" ? recorded.action : action;
+        const recordedAt =
+          typeof recorded?.timestamp === "string" ? recorded.timestamp : null;
+        setNotice(
+          recordedAt
+            ? `Recorded "${recordedAction}" against ${recId} at ${recordedAt}.`
+            : `Recorded "${recordedAction}" against ${recId}. The server returned no timestamp, so when it was written is unknown.`,
+        );
+      } catch {
+        setNotice(
+          "The decision service could not be reached, so nothing was recorded.",
+        );
+      } finally {
+        setBusy(false);
+      }
     },
-    [busy, respondControl],
+    [businessId, busy, respondControl],
   );
 
   return (
@@ -106,7 +161,7 @@ export function IntelligenceControlsClient({
         unavailableReason={unavailableReason}
         window={windowProp}
         onRunSnapshot={() => void onRunSnapshot()}
-        onRespond={(key, action) => void onRespond(key, action)}
+        onRespond={(recId, action) => void onRespond(recId, action)}
       />
       {notice ? (
         <p

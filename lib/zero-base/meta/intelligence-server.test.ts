@@ -1029,6 +1029,93 @@ describe("the two control sections carry a server-authored gate", () => {
     expect(section!.control?.refusalCode).toBe("reviewer_read_only");
   });
 
+  /*
+   * WP9 asks the respond control to lead to a real gated action. It could not:
+   * the composer read every recommendation and kept only `.length`, so the
+   * view had a select with no subject and its handler told the operator to go
+   * to Decision Center instead. These cases hold the ids on the wire.
+   */
+  it("carries the served recommendation ids the respond route writes against", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce({
+      status: "ok" as const,
+      summary: {},
+      recommendations: [
+        { id: "rec_a", title: "Scale the winning ad set" },
+        { id: "rec_b", decision: "Hold spend" },
+      ],
+      snapshotDate: "2026-08-11",
+      snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+    } as never);
+
+    const result = await read({ actor: ADMIN_ACTOR });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    expect(section!.control?.targets).toEqual([
+      { recId: "rec_a", label: "Scale the winning ad set" },
+      // No title, so the snapshot's decision text — never a composed sentence.
+      { recId: "rec_b", label: "Hold spend" },
+    ]);
+    expect(section!.control?.enabled).toBe(true);
+  });
+
+  it("counts the recommendations rather than reporting them as unreported", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce({
+      status: "ok" as const,
+      summary: {},
+      recommendations: [{ id: "rec_a" }, { id: "rec_b" }, { id: "rec_c" }],
+      snapshotDate: "2026-08-11",
+      snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+    } as never);
+
+    const result = await read({ actor: ADMIN_ACTOR });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    // `count()` takes the array. It was handed `.length`, so this fact read
+    // "Not reported" on every load — a served three reported as unknown.
+    expect(
+      section!.facts?.find((fact) => fact.label === "Recommendations")?.value,
+    ).toBe("3");
+  });
+
+  it("refuses the respond control when the snapshot served nothing to respond to", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce({
+      status: "ok" as const,
+      summary: {},
+      recommendations: [],
+      snapshotDate: "2026-08-11",
+      snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+    } as never);
+
+    const result = await read({ actor: ADMIN_ACTOR });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    expect(section!.control?.enabled).toBe(false);
+    expect(section!.control?.targets).toEqual([]);
+    // A measured zero is not a §9.1 failure, so there is no code — and the
+    // sentence still says why the control cannot be used.
+    expect(section!.control?.refusalCode).toBeNull();
+    expect(section!.control?.refusalMessage).toBe(
+      "This snapshot served no recommendations, so there is nothing to respond to.",
+    );
+  });
+
+  it("drops a recommendation with no id rather than composing one", async () => {
+    readLatestMetaDecisionSnapshot.mockResolvedValueOnce({
+      status: "ok" as const,
+      summary: {},
+      recommendations: [{ id: "", title: "No id" }, { id: "rec_a", title: "Real" }],
+      snapshotDate: "2026-08-11",
+      snapshotCreatedAt: "2026-08-11T05:00:00.000Z",
+    } as never);
+
+    const result = await read({ actor: ADMIN_ACTOR });
+    const section = result.sections.find((item) => item.key === "recommendations");
+
+    expect(section!.control?.targets).toEqual([
+      { recId: "rec_a", label: "Real" },
+    ]);
+  });
+
   it("never leaks a refusal into a reading section", async () => {
     // The gate belongs to the two sections that own controls. A reading
     // section that reported `refused` would be claiming the actor may not read

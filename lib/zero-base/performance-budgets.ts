@@ -79,15 +79,17 @@ export const FIRST_LOAD_API_CALL_DEBT: Readonly<Record<string, number>> = {
   // worse.
   "meta-decisions": 14, //      13–14 observed
   /*
-   * 18, measured three times in a row with no variance. It was recorded as a
-   * 16–17 band, and the surface has gained one read since that measurement
-   * which this pass did not attribute to any change it made: no Launchpad code
-   * was touched, and re-measuring at the earlier commit would need a rebuild
-   * and a full harness run to answer a question the gate already answers going
-   * forward. Recorded as what it measures rather than as what it used to, and
-   * the gate still fails at 19.
+   * `meta-launchpad` is GONE from this map, and that is the point of removing
+   * an entry rather than lowering one.
+   *
+   * It measured 18 with no variance and the cause was recorded as
+   * "unattributed". Instrumenting the spec named every request: nine belong to
+   * the shell and are the same nine every Meta surface pays, and seven of the
+   * other nine asked one question about one account at one instant.
+   * `/api/launchpad/meta/workspace` composes those seven. The surface now
+   * measures 11 on two consecutive runs, inside the budget, so it needs no
+   * ceiling of its own and the gate holds it to 12 like everything else.
    */
-  "meta-launchpad": 18, //      18 observed, three consecutive runs
   "manage-integrations": 18, // 17–18 observed
   "creative-studio": 15, //     14–15 observed
   "creative-copies": 13, //     12–13 observed

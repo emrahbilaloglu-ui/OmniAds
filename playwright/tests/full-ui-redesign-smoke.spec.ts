@@ -511,6 +511,7 @@ async function seedMetaDecisionDemoData() {
          scope_type,
          scope_id,
          business_id,
+         provider_account_id,
          snapshot_date,
          rec_id,
          rec_type,
@@ -536,6 +537,10 @@ async function seedMetaDecisionDemoData() {
          'adset',
          $1,
          $2,
+         -- D-M011 lineage. The seeded ad set belongs to the account seeded
+         -- above it, and the surface now scopes its read by this column, so a
+         -- row without it is computed by nobody and served to nobody.
+         $10,
          $3::date,
          $4,
          'adset_cut_spend',
@@ -558,7 +563,10 @@ async function seedMetaDecisionDemoData() {
          $8::jsonb,
          $9::jsonb
        )
-       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type)
+       -- Five columns, not four: the primary key was replaced by a unique
+       -- index that includes the account (D-M011), and inferring the old key
+       -- matches no constraint.
+       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type, provider_account_id)
        DO UPDATE SET
          business_id = EXCLUDED.business_id,
          rec_id = EXCLUDED.rec_id,
@@ -591,6 +599,7 @@ async function seedMetaDecisionDemoData() {
         JSON.stringify(recommendation.evidenceTrail),
         JSON.stringify(recommendation.calibrationScope),
         JSON.stringify(recommendation.signalQuality),
+        providerAccountId,
       ],
     );
   } finally {

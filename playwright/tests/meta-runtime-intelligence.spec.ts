@@ -383,17 +383,29 @@ test.describe("the two control sections carry their gate to the screen", () => {
  */
 const SEEDED_REC_ID = "runtime_evidence_rec_1";
 
+/**
+ * The row identity these seeds must name (D-M011).
+ *
+ * The four-column primary key was replaced by a five-column unique index that
+ * includes `provider_account_id`, so two assigned accounts can hold a row of
+ * the same type on the same day. An `ON CONFLICT` inferring the OLD four
+ * columns matches no constraint and fails with 42P10 — which is why the target
+ * is written once here rather than repeated at each seed.
+ */
+const SNAPSHOT_IDENTITY_CONFLICT =
+  "ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type, provider_account_id)";
+
 async function seedRecommendation() {
   await withDb(async (client) => {
     await client.query(
       `INSERT INTO meta_decision_snapshots_daily
-         (scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
-          level, decision_state, confidence_score, recommended_action,
-          reasoning, engine_version, kind)
-       VALUES ('account', $1, $2, CURRENT_DATE, $3, 'runtime_evidence',
+         (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+          rec_id, rec_type, level, decision_state, confidence_score,
+          recommended_action, reasoning, engine_version, kind)
+       VALUES ('account', $1, $2, $1, CURRENT_DATE, $3, 'runtime_evidence',
           'account', 'act', 0.9, 'Hold spend while the evidence settles.',
           'Seeded by the runtime evidence harness.', 'runtime-evidence', 'recommendation')
-       ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+       ${SNAPSHOT_IDENTITY_CONFLICT} DO NOTHING`,
       [handle.accounts.one, handle.businesses.oneAccount, SEEDED_REC_ID],
     );
   });
@@ -537,13 +549,13 @@ test.describe("responding to a recommendation records a row", () => {
     await withDb(async (client) => {
       await client.query(
         `INSERT INTO meta_decision_snapshots_daily
-           (scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
-            level, decision_state, confidence_score, recommended_action,
-            reasoning, engine_version, kind)
-         VALUES ('account', $1, $1, CURRENT_DATE, $2, 'runtime_evidence_foreign',
+           (scope_type, scope_id, business_id, provider_account_id, snapshot_date,
+            rec_id, rec_type, level, decision_state, confidence_score,
+            recommended_action, reasoning, engine_version, kind)
+         VALUES ('account', $1, $1, NULL, CURRENT_DATE, $2, 'runtime_evidence_foreign',
             'account', 'act', 0.9, 'Hold spend.', 'Seeded for a scope test.',
             'runtime-evidence', 'recommendation')
-         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+         ${SNAPSHOT_IDENTITY_CONFLICT} DO NOTHING`,
         [handle.businesses.otherTenant, foreign],
       );
     });
@@ -648,7 +660,7 @@ test.describe("recommendations are scoped to one physical account", () => {
          VALUES ('account', $1, $1, $2, CURRENT_DATE - ($3::int), $4, $5,
             'account', 'act', 0.9, 'Hold spend.', 'Seeded by the runtime harness.',
             'runtime-evidence', 'recommendation')
-         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+         ${SNAPSHOT_IDENTITY_CONFLICT} DO NOTHING`,
         [input.business, input.account, input.daysAgo ?? 0, input.recId, input.recType],
       );
     });

@@ -1,6 +1,38 @@
 # Meta Decision Center Context Snapshot
 
-Last updated: 2026-05-16
+Last updated: 2026-08-26
+
+## Latest Local Update — 2026-08-26 (D-M009, D-M010)
+
+Two decision-model contracts changed. Both are recorded in `DECISION_LOG.md`
+and both keep old snapshot readers working.
+
+- **D-M009, physical account lineage.** `meta_decision_snapshots_daily` gained a
+  nullable `provider_account_id`, populated at generation time from the campaign
+  and ad-set rows the engine already reads. `readLatestMetaDecisionSnapshot`
+  takes an optional account and WITHHOLDS rows whose lineage cannot be proven.
+  Account Intelligence passes it; History, lane classification and the
+  ignored-marker sweep are business-scoped and pass nothing, so they are
+  unchanged. Nothing is inferred from `scope_id`, which holds the BUSINESS id
+  for account-level rows. Legacy rows stay NULL and are not backfilled.
+  STILL OPEN: an account-level recommendation for a multi-account business is
+  unattributable, because the engine runs per business. Making those per-account
+  is a Phase H change to `runMetaSnapshotForBusiness`, not a column.
+- **D-M010, per-action response authority.** `POST
+  /api/meta/recommendations/respond` authorizes the `recId` in the same
+  statement that inserts it. `acted`/`deferred`/`ignored` require the rec to be
+  in the CURRENT snapshot for the authorized account; `undeferred` requires a
+  currently active prior deferral. A fixed 30-day window was tried first and was
+  wrong — the mounted control serves the latest snapshot only.
+- **Server demo authority, plan-wide.** Fourteen Meta write boundaries now
+  refuse a confirmed demo workspace AND an unreadable demo flag before their
+  first durable side effect, and
+  `app/api/meta-demo-write-authority.contract.test.ts` walks the route tree so a
+  new one cannot land without it. `getMetaWriteBlockState` was verified
+  fail-closed and the shared-handler wrappers were deliberately NOT given
+  redundant gates.
+
+
 Owner: Codex/Claude collaborative planning context
 Status: canonical local context document for the Meta + Creative decision-model workstream
 

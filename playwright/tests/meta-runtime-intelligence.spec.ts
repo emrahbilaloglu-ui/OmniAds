@@ -481,6 +481,111 @@ test.describe("responding to a recommendation records a row", () => {
     });
   });
 
+  /**
+   * The identifier is the SERVER's to verify, and this proves it against a
+   * real database rather than a mock.
+   *
+   * `meta_decision_responses.rec_id` has no foreign key — `lib/triage-events.ts`
+   * is a second writer whose ids are synthetic and never have a snapshot row —
+   * so until the route checked, a caller could record an operator decision
+   * against any string, and `lib/meta/outcome-accrual.ts` would later read that
+   * row back as evidence that an operator acted.
+   */
+  test("the server refuses an id it never served, and writes no row", async ({
+    page,
+  }) => {
+    await openSurface(page, handle, INTELLIGENCE);
+
+    const invented = "runtime_evidence_never_served_1";
+    const posted = await page.evaluate(
+      async ({ businessId, recId }) => {
+        const response = await fetch("/api/meta/recommendations/respond", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ businessId, recId, action: "acted" }),
+        });
+        return { status: response.status, body: (await response.text()).slice(0, 400) };
+      },
+      { businessId: handle.businesses.oneAccount, recId: invented },
+    );
+
+    expect(posted.status).toBe(404);
+    expect(posted.body).toContain("recommendation_not_served");
+
+    const rows = await withDb(async (client) =>
+      Number(
+        (
+          await client.query(
+            "SELECT count(*)::int AS n FROM meta_decision_responses WHERE rec_id = $1",
+            [invented],
+          )
+        ).rows[0].n,
+      ),
+    );
+    expect(rows, "a refused response still reached the table").toBe(0);
+  });
+
+  test("the server refuses another workspace's recommendation", async ({ page }) => {
+    await openSurface(page, handle, INTELLIGENCE);
+
+    /*
+     * The id IS served — to a different business. Scope is the property being
+     * tested, so the row exists and only `business_id` differs.
+     */
+    const foreign = "runtime_evidence_foreign_rec_1";
+    await withDb(async (client) => {
+      await client.query(
+        `INSERT INTO meta_decision_snapshots_daily
+           (scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
+            level, decision_state, confidence_score, recommended_action,
+            reasoning, engine_version, kind)
+         VALUES ('account', $1, $1, CURRENT_DATE, $2, 'runtime_evidence_foreign',
+            'account', 'act', 0.9, 'Hold spend.', 'Seeded for a scope test.',
+            'runtime-evidence', 'recommendation')
+         ON CONFLICT (scope_type, scope_id, snapshot_date, rec_type) DO NOTHING`,
+        [handle.businesses.otherTenant, foreign],
+      );
+    });
+
+    try {
+      const posted = await page.evaluate(
+        async ({ businessId, recId }) => {
+          const response = await fetch("/api/meta/recommendations/respond", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ businessId, recId, action: "acted" }),
+          });
+          return { status: response.status, body: (await response.text()).slice(0, 400) };
+        },
+        { businessId: handle.businesses.oneAccount, recId: foreign },
+      );
+
+      expect(posted.status).toBe(404);
+      expect(posted.body).toContain("recommendation_not_served");
+
+      const rows = await withDb(async (client) =>
+        Number(
+          (
+            await client.query(
+              "SELECT count(*)::int AS n FROM meta_decision_responses WHERE rec_id = $1",
+              [foreign],
+            )
+          ).rows[0].n,
+        ),
+      );
+      expect(rows).toBe(0);
+    } finally {
+      await withDb(async (client) => {
+        await client.query(
+          "DELETE FROM meta_decision_snapshots_daily WHERE rec_id = $1",
+          [foreign],
+        );
+      });
+    }
+  });
+
   test("reaches no provider", async ({ page }) => {
     const provider: string[] = [];
     page.on("request", (request) => {

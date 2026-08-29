@@ -512,6 +512,18 @@ export default function MetaHistoryView() {
       (limitation) => limitation.code === "optional_source_unavailable",
     ) ?? false;
 
+  /**
+   * A demo workspace records no provider-action journal, so its zero rows are
+   * an absence of evidence rather than a measured zero. The route says so, but
+   * saying it only inside the collapsed limits disclosure let the page render
+   * "0 shown · end of results" and "No journal entries match" — the exact
+   * false-zero claim the limitation exists to deny.
+   */
+  const demoJournalNotRecorded =
+    payload?.limitations.find(
+      (limitation) => limitation.code === "demo_journal_not_recorded",
+    ) ?? null;
+
   // One freshness contract across every Tier-0 surface. Derived from the
   // state this surface already has, so it cannot drift from what is on screen.
   useTierZeroFreshness({
@@ -880,6 +892,16 @@ export default function MetaHistoryView() {
         />
       )}
 
+      {demoJournalNotRecorded ? (
+        <section className={styles.noticeBand} role="status">
+          <AlertTriangle size={15} aria-hidden="true" />
+          <div>
+            <strong>Demo journal is not recorded</strong>
+            <p>{demoJournalNotRecorded.message}</p>
+          </div>
+        </section>
+      ) : null}
+
       {payload ? (
         <details className={styles.limitations}>
           <summary>
@@ -908,7 +930,13 @@ export default function MetaHistoryView() {
           </div>
           {payload ? (
             <span className={styles.resultCount}>
-              {payload.page.returned} shown · {payload.page.nextCursor ? "more available" : "end of results"} · page {newerPageCursors.length + 1}
+              {payload.page.returned} shown ·{" "}
+              {payload.page.nextCursor
+                ? "more available"
+                : payload.page.total === null
+                  ? "total unavailable"
+                  : "end of results"}{" "}
+              · page {newerPageCursors.length + 1}
             </span>
           ) : null}
         </div>
@@ -935,12 +963,18 @@ export default function MetaHistoryView() {
           <div className={styles.emptyState}>
             <Clock3 size={22} aria-hidden="true" />
             <strong>
-              {mode === "replay" ? "No persisted snapshot for this date" : "No journal entries match"}
+              {demoJournalNotRecorded
+                ? "Demo journal is not recorded"
+                : mode === "replay"
+                  ? "No persisted snapshot for this date"
+                  : "No journal entries match"}
             </strong>
             <p>
-              {mode === "replay"
-                ? "Replay does not compute missing history or reconstruct live state."
-                : "The selected account and filters returned no keyed persisted rows."}
+              {demoJournalNotRecorded
+                ? demoJournalNotRecorded.message
+                : mode === "replay"
+                  ? "Replay does not compute missing history or reconstruct live state."
+                  : "The selected account and filters returned no keyed persisted rows."}
             </p>
           </div>
         ) : null}

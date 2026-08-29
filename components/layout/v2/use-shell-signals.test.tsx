@@ -7,6 +7,7 @@ import {
   useConfirmedShellBusinessId,
   useWorkspaceSyncState,
 } from "./use-shell-signals";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 const state = vi.hoisted(() => ({
   app: {
@@ -174,7 +175,7 @@ describe("workspace sync topbar state", () => {
     );
     expect(result.current).toEqual({
       tone: "unknown",
-      label: "Synced —",
+      label: SYNC_AGE_UNKNOWN_LABEL,
       freshnessState: "unknown",
     });
   });
@@ -264,7 +265,7 @@ describe("the business the shell chrome is allowed to name", () => {
     // the pill says unknown rather than reporting the previous workspace's age.
     expect(result.current).toEqual({
       tone: "unknown",
-      label: "Synced —",
+      label: SYNC_AGE_UNKNOWN_LABEL,
       freshnessState: "unknown",
     });
   });

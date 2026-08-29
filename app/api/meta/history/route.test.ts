@@ -5,6 +5,19 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+// These cases are the proven-live path. D071 gates this route on posture, so a
+// live posture is pinned here; the demo and unverified branches are covered in
+// app/api/meta/history/accounts/demo-posture-parity.test.ts.
+vi.mock("@/lib/meta/business-data-posture", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/meta/business-data-posture")
+  >();
+  return {
+    ...actual,
+    readMetaBusinessDataPosture: vi.fn(async () => "live" as const),
+  };
+});
+
 vi.mock("@/lib/meta/history-read-model", () => ({
   readMetaHistoryAccounts: vi.fn(),
   readMetaHistoryAssignedAccountIds: vi.fn(),

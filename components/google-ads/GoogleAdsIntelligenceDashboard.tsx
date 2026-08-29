@@ -127,6 +127,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 function getGoogleAdsSyncEmptyState(
   status: GoogleAdsStatusResponse | undefined,
@@ -384,7 +385,7 @@ function resolveExactGoogleFreshness(status: GoogleAdsStatusResponse | undefined
   advisorTone: GoogleAdvisorSyncTone;
 } {
   if (!status) {
-    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+    return { label: SYNC_AGE_UNKNOWN_LABEL, overviewState: "unavailable", advisorTone: "neutral" };
   }
   if (status.state === "syncing") {
     return { label: "Syncing now", overviewState: "syncing", advisorTone: "warning" };
@@ -393,7 +394,7 @@ function resolveExactGoogleFreshness(status: GoogleAdsStatusResponse | undefined
     return { label: "Reconnect required", overviewState: "stale", advisorTone: "negative" };
   }
   if (status.freshness?.evidenceAvailable === false) {
-    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+    return { label: SYNC_AGE_UNKNOWN_LABEL, overviewState: "unavailable", advisorTone: "neutral" };
   }
 
   const observedAt = newestObservation(
@@ -401,7 +402,7 @@ function resolveExactGoogleFreshness(status: GoogleAdsStatusResponse | undefined
   );
   const timestamp = observedAt ? Date.parse(observedAt) : Number.NaN;
   if (!Number.isFinite(timestamp)) {
-    return { label: "Synced —", overviewState: "unavailable", advisorTone: "neutral" };
+    return { label: SYNC_AGE_UNKNOWN_LABEL, overviewState: "unavailable", advisorTone: "neutral" };
   }
 
   const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
@@ -597,14 +598,14 @@ export function GoogleAdsIntelligenceDashboard({
 
   const syncPill = useMemo<{ tone: "pos" | "warn" | "neg" | "neutral"; label: string }>(() => {
     const status = baseStatusQuery.data;
-    if (!status) return { tone: "neutral", label: "Synced —" };
+    if (!status) return { tone: "neutral", label: SYNC_AGE_UNKNOWN_LABEL };
     if (status.state === "syncing") return { tone: "warn", label: "Syncing now" };
     if (status.state === "action_required") {
       return { tone: "neg", label: "Reconnect required" };
     }
     const finishedAt = status.latestSync?.finishedAt;
     const at = finishedAt ? Date.parse(finishedAt) : Number.NaN;
-    if (!Number.isFinite(at)) return { tone: "neutral", label: "Synced —" };
+    if (!Number.isFinite(at)) return { tone: "neutral", label: SYNC_AGE_UNKNOWN_LABEL };
     const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
     if (minutes < 1) return { tone: "pos", label: "Synced just now" };
     if (minutes < 60) return { tone: "pos", label: `Synced ${minutes}m ago` };

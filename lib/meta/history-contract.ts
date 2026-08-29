@@ -350,7 +350,14 @@ export interface MetaHistoryResponse {
       | "shared_creative_rows_omitted"
       | "missing_join_unavailable"
       | "optional_source_unavailable"
-      | "structure_inventory_explicit_filter";
+      | "structure_inventory_explicit_filter"
+      /**
+       * D071: a confirmed demo workspace has no recorded provider-action
+       * journal, and inventing one is forbidden. The response therefore returns
+       * zero entries *with this limitation present*, so an empty journal is
+       * never read as proven zero activity.
+       */
+      | "demo_journal_not_recorded";
     message: string;
   }>;
 }

@@ -4,6 +4,7 @@ import type {
   GoogleAdvisorResponse,
   GoogleRecommendation,
 } from "@/lib/google-ads/growth-advisor-types";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 const EMPTY = "—";
 const ACTION_CONTRACT_VERSION = "google_ads_advisor_action_v2";
@@ -332,7 +333,10 @@ export function buildGoogleAdvisorExactViewModel(
 
   return {
     eyebrow: eyebrow(identity),
-    syncLabel: textOrDash(identity.syncLabel) === EMPTY ? "Synced —" : textOrDash(identity.syncLabel),
+    syncLabel:
+      textOrDash(identity.syncLabel) === EMPTY
+        ? SYNC_AGE_UNKNOWN_LABEL
+        : textOrDash(identity.syncLabel),
     tiles: [
       {
         key: "do-now",

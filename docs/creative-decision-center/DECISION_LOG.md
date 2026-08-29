@@ -3057,3 +3057,192 @@ rationale, relates to D013 and findings G0-F2/G0-F3); ratified into this log
 predicate was already implemented in the tree at HEAD `843b6e9c8`, so
 ratification changes standing, not behaviour: it stops an ADR marked `Proposed`
 from being cited as settled authority.
+
+## D071 - Demo Posture Is Resolved Before Every Live Read On The Three Meta Assignment Routes
+
+Decision: `GET /api/meta/history/accounts`, `GET /api/meta/history`, and
+`GET /api/meta/decisions-workspace` each resolve
+`readMetaBusinessDataPosture` before any live read, and each answers according
+to that posture. What they answer is **not** the same on all three:
+
+- **Demo accounts picker** — served from the committed demo provider-account
+  manifest: the intersection of `getDemoProviderAccounts("meta")` with
+  `getDemoMetaStatus().assignedAccountIds`. No database read.
+- **Demo History** — served from that same manifest for scope, with zero
+  entries, `page.total: null`, and an explicit `demo_journal_not_recorded`
+  limitation. The committed fixture records no provider actions and none are
+  invented. An unassigned demo catalog account is refused 404, exactly as a
+  live one is.
+- **Demo Decisions workspace** — posture is resolved immediately after access,
+  and the request is refused with 503 `demo_workspace_envelope_unavailable`
+  before any live read. **The committed fixture is not a Decisions read
+  authority.** No truthful workspace envelope can be built; see below.
+- **Live** — `business_provider_accounts` and the existing persisted read paths
+  remain canonical on all three and behave exactly as before.
+- **Unverified** — all three withhold through `metaPostureUnavailable` and
+  never degrade into empty, unassigned, ready, or live.
+
+The atomic boundary is **when posture is resolved**, not what each route then
+serves. All three had to change together because posture-blindness in any one
+of them reproduces the original defect: the picker would offer an account the
+next read refuses. Before this ADR, `/api/meta/status` resolved posture and
+served `getDemoMetaStatus()` while all three of these read the database, so
+Integrations reported "Connected · 1 account · fresh 0m ago" for the demo
+business while Decisions reported "No assigned account" in the same session.
+
+Reason: an assignment answer that depends on which route was asked is not an
+assignment answer. The defect was not data and not the demo fixture; it was
+that posture was resolved by nine Meta routes and by none of these three.
+
+### Why Decisions fails closed rather than serving the fixture
+
+The committed fixture can produce a canonical decision inventory through
+`readDemoNativeCanonicalDecisionInventory`, but that is not enough to serve
+this route, and the gap was not bridged.
+
+Two things block it, and only the second is decisive:
+
+1. Every exported path into `MetaDecisionsWorkspaceReadModel` requires
+   persisted `snapshotRows` and validates their lineage through
+   `validateMetaNativeDecisionGenerationBundle`. The fixture produces
+   fully-formed `MetaCanonicalDecision` values instead, one level further in.
+   Reaching the live builder would mean fabricating snapshot rows with passing
+   lineage — inventing the provenance that validation exists to protect.
+2. Even with a decision inventory in hand, the route must return a
+   `MetaDecisionsWorkspacePayload`, whose `pulse` requires
+   `pacing.mtdSpend`, `pacing.dayPace` and `roas.selected/d7/d14/d28` as
+   non-nullable numbers with no unavailable representation. Emitting zeros
+   there converts source absence into a measured value, which INVARIANTS
+   forbids. Its sources, `app/api/meta/account-pulse/route.ts` and
+   `app/api/meta/lane-classify/route.ts`, are not posture-aware and read the
+   database and provider credentials directly.
+
+An earlier revision of this ADR added a demo-only composition seam for (1).
+It was removed: it had no production caller, because (2) still refused the
+request before it could be used. **This ADR claims no production composition
+seam.** Serving a truthful demo Decisions workspace requires making the pulse
+and lane sources posture-aware, which is the shared posture layer deferred
+below.
+
+### All-or-nothing fixture rule
+
+`readDemoNativeCanonicalDecisionInventory` validates the committed fixture's
+manifest, hash, engine epoch, count and identity all-or-nothing: any drift
+makes the whole inventory unavailable rather than partly served. That contract
+is unchanged by this ADR and continues to serve the Creative briefing route.
+No Meta Decisions surface consumes it, because Decisions fails closed for the
+reason above.
+
+### Failure semantics
+
+- unverified posture: `metaPostureUnavailable` (503) on all three routes,
+  returned before any live read.
+- demo, unassigned account requested: 404 `provider_account_not_assigned` on
+  the journal, the same refusal a live workspace gives.
+- demo, decisions workspace: **503 `demo_workspace_envelope_unavailable`**,
+  returned immediately after access and before every live read.
+- live, assignment read fails: unchanged 500 `meta_history_accounts_unavailable`
+  on the accounts route and `meta_history_unavailable` on the journal. A failed
+  read is still never an empty one.
+
+### Demo history is not a proven-zero journal
+
+The committed fixture is a decision inventory and records no provider actions.
+Inventing entries, actors, outcomes, or timestamps is forbidden, so the demo
+journal returns zero entries together with a new
+`demo_journal_not_recorded` limitation on the existing `limitations` contract.
+The History view already renders limitations, so an empty demo journal states
+why it is empty instead of implying proven zero activity.
+
+### Surface coverage — what this ADR does and does not reach
+
+This ADR changes three API routes. It reaches a screen only insofar as that
+screen reads through them, and one important screen does not.
+
+`/platforms/meta/history` is a compatibility shim. Under `ZERO_BASE_UI_MODE=off`
+— which is also what an unset variable parses to — it serves the legacy body
+`app/(dashboard)/platforms/meta/history/history-view.tsx`, which reads through
+`GET /api/meta/history` and therefore carries this ADR's demo branch and the
+`demo_journal_not_recorded` rendering.
+
+`lib/meta/surface-registry.ts` is explicit about which body is which: for
+`meta-history` it declares `canonicalRoute: "/c/[businessId]/meta/history"`,
+`legacyRedirect: ["/platforms/meta/history"]` and
+`mountedBody: "components/zero-base/meta/history/history-view.tsx"`. The body
+this ADR's rendering change corrected is therefore the legacy one, and the
+registry's declared mounted body for this surface does not carry it.
+
+Under a canonical mode the same URL resolves to
+`app/c/[businessId]/meta/history/page.tsx`, which does **not** read through this
+route. It calls `readMetaHistoryAccounts`, `readMetaHistoryAssignedAccountIds`
+and `readMetaHistoryJournal` directly in the server component. A source scan on
+this tree finds `readMetaBusinessDataPosture` called zero times in all five
+canonical `/c/**/meta/*` pages.
+
+Measured against the database rather than inferred: the demo business has
+`is_demo_business = true` and zero rows in `business_provider_accounts`. The
+canonical page therefore takes its `assignedAccounts.length === 0` branch and
+renders "No Meta account is assigned to this business, so there is no journal to
+read.", while `/api/meta/status` reports the same business as connected with one
+assigned account. **That is the original Gate A contradiction, still present on
+the canonical surface.** Because that branch returns before `HistoryClient`
+mounts, the corrected journal response is never even requested there.
+
+Nothing in this ADR introduced or altered that behaviour; the canonical body is
+untouched. It is stated here so the ADR is not read as a product-wide claim.
+Closing it means making the canonical server pages posture-aware, which is the
+shared posture layer this ADR defers — it is not a documentation gap that can be
+closed by wording.
+
+### Authority and compatibility
+
+This grants no provider or write authority. Demo decisions remain
+`demo_synthetic_review_only` with null authorized actions and
+`actionEligible: false`, and the central Meta write guard still rejects demo
+businesses independently of presentation. No decision is computed at request
+time, no live native-decision persistence is read in the demo branch, no
+resolver behaviour changes, no route URL changes, and no schema changes.
+Persisted V1/operator/V2 snapshots remain readable through their existing
+paths, which are untouched.
+
+### Rollback
+
+Remove the posture branch from the three routes; the live paths are unchanged
+beneath them and resume being the only paths. `demo_journal_not_recorded` and
+`demo_workspace_envelope_unavailable` are additive union members no live
+response emits, and the History view's demo branch is inert without the
+limitation code. No migration, no persisted state.
+
+### Rejected alternatives
+
+- **Align only `history/accounts`.** The originally proposed one-route change.
+  Rejected because `decisions-workspace` (403) and `history` (404) are
+  posture-blind, so the picker would have offered an account both reads refuse
+  — reintroducing exactly the defect the accounts intersection was written to
+  prevent, and leaving the demo Decisions page empty by a more confusing route.
+- **Remove `assignedAccountIds` from `getDemoMetaStatus`.** Truthful and
+  smaller, but it makes the demo narrative internally weaker and conflicts with
+  D064's binding of the fixture to a physical provider account.
+- **A shared posture layer across all Meta routes.** The durable fix and the
+  only one that prevents recurrence by construction, but it touches nine
+  further routes and needs its own migration and rollback plan. Deferred, not
+  rejected on merit.
+
+### Zero live reads, proven at runtime
+
+`GET /api/meta/decisions-workspace` resolves posture immediately after
+`requireBusinessAccess`, before the end-date resolver, commercial targets,
+current-Ad read, campaign contexts, decision digest, and the account-pulse and
+lane-classify upstreams. A confirmed demo request and an unverified request
+reach none of them.
+
+`app/api/meta/decisions-workspace/posture-isolation.test.ts` proves this at
+runtime: it mocks every direct live dependency, invokes the real handler, and
+asserts a zero call count on each. Five of its six tests fail when the posture
+check is moved back inside `canonicalDecisionReadModel`, which is where an
+earlier revision placed it.
+
+A confirmed demo request refuses with 503
+`demo_workspace_envelope_unavailable`. Failing closed was chosen over
+weakening the invariant, so the demo Decisions workspace is explicitly
+unavailable rather than partially served.

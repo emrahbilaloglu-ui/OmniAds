@@ -12,6 +12,9 @@ import { describe, expect, it } from "vitest";
  * have — the same class of defect as a missing metric rendering as 0, and it
  * silently undid the per-surface freshness binding the creative work added.
  *
+ * The unknown branch now uses the shared `SYNC_AGE_UNKNOWN_LABEL`, because the
+ * previous "Synced —" still asserted that a sync had completed.
+ *
  * Pinned on the source because the defect is a missing branch: every value the
  * hook returned was individually true, it was simply answering about the wrong
  * subject.
@@ -25,7 +28,7 @@ describe("the freshness pill never borrows another subject's age", () => {
       source.indexOf("const ages = ["),
     );
     expect(block).toContain('tone: "unknown"');
-    expect(block).toContain('label: "Synced —"');
+    expect(block).toContain("label: SYNC_AGE_UNKNOWN_LABEL");
     expect(block).toContain('freshnessState: "unknown"');
   });
 

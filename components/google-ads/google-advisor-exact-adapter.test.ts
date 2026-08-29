@@ -7,6 +7,7 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 
 import { buildGoogleAdvisorExactViewModel } from "./google-advisor-exact-adapter";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 function actionCard(
   overrides: Partial<GoogleAdvisorActionCard> = {},
@@ -358,6 +359,20 @@ describe("buildGoogleAdvisorExactViewModel", () => {
 
     expect(view.tiles.map((tile) => tile.value)).toEqual(["—", "—", "—", "—"]);
     expect(view.cards).toEqual([]);
+    // An absent sync label must not claim a completed sync.
+    expect(view.syncLabel).toBe(SYNC_AGE_UNKNOWN_LABEL);
+    expect(view.syncLabel).not.toContain("Synced");
+  });
+
+  it("passes a real sync label through untouched", () => {
+    const view = buildGoogleAdvisorExactViewModel(null, {
+      accountId: "493-118-2201",
+      currencyCode: "USD",
+      windowLabel: "28d",
+      syncLabel: "Synced 26m ago",
+    });
+
+    expect(view.syncLabel).toBe("Synced 26m ago");
   });
 
   it("omits suppressed rows overlaid onto a cached snapshot from the active exact list", () => {

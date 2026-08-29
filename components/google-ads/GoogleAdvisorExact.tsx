@@ -22,6 +22,7 @@ export {
   type GoogleAdvisorExactIdentity,
   type GoogleAdvisorExactViewModel,
 } from "./google-advisor-exact-adapter";
+import { isUnknownSyncAgeLabel } from "@/lib/provider-sync-vocabulary";
 
 const MOBILE_READ_ONLY_QUERY = "(max-width: 1023px)";
 
@@ -114,7 +115,7 @@ export function GoogleAdvisorExact({
   const dismissEnabled =
     !readOnly && !mobileReadOnly && dismissAuthority === "allowed" && Boolean(onDismiss);
   const resolvedSyncTone =
-    syncTone ?? (!syncLabel || syncLabel.includes("—") ? "neutral" : "positive");
+    syncTone ?? (isUnknownSyncAgeLabel(syncLabel) ? "neutral" : "positive");
 
   return (
     <section
@@ -130,7 +131,10 @@ export function GoogleAdvisorExact({
         </div>
         <div className={styles.headerStatus}>
           <span className={styles.guardCopy}>—</span>
-          <span className={`${styles.syncPill} ${styles[`sync-${resolvedSyncTone}`]}`}>
+          <span
+            className={`${styles.syncPill} ${styles[`sync-${resolvedSyncTone}`]}`}
+            data-sync-tone={resolvedSyncTone}
+          >
             <span className={styles.syncDot} aria-hidden="true" />
             {view.syncLabel}
           </span>

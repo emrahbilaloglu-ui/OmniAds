@@ -12,6 +12,7 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 
 import { GoogleAdvisorExact, type GoogleAdvisorExactProps } from "./GoogleAdvisorExact";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 function actionCard(
   overrides: Partial<GoogleAdvisorActionCard> = {},
@@ -193,6 +194,26 @@ describe("GoogleAdvisorExact", () => {
     expect(surface.textContent).not.toContain("Opportunity Queue");
     expect(surface.textContent).not.toContain("Account decisions");
     expect(surface.textContent).not.toContain("Lifecycle");
+  });
+
+  it("keeps a real sync age positive and an unknown age neutral", () => {
+    const fresh = render(<GoogleAdvisorExact {...exactProps()} />);
+    const freshPill = fresh.container.querySelector("[data-sync-tone]") as HTMLElement;
+    expect(freshPill.getAttribute("data-sync-tone")).toBe("positive");
+    expect(freshPill.textContent).toContain("Synced 26m ago");
+    cleanup();
+
+    // A missing sync label must not inherit the success tone the pill used to
+    // apply to every state.
+    const unknown = render(
+      <GoogleAdvisorExact {...exactProps({ syncLabel: undefined })} />,
+    );
+    const unknownPill = unknown.container.querySelector(
+      "[data-sync-tone]",
+    ) as HTMLElement;
+    expect(unknownPill.getAttribute("data-sync-tone")).toBe("neutral");
+    expect(unknownPill.textContent).toContain(SYNC_AGE_UNKNOWN_LABEL);
+    expect(unknownPill.textContent).not.toContain("Synced");
   });
 
   it("renders exact header, native card anatomy, blocked state, and truthful closing field", () => {

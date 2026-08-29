@@ -5,6 +5,10 @@ import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry"
 import type { OverviewMetricCardData } from "@/src/types/models";
 import { AdvSparkline } from "./adv-sparkline";
 import { formatOverviewMetricValue, formatOverviewSparklineValue } from "./metric-format";
+import {
+  SYNC_AGE_UNKNOWN_LABEL,
+  isUnknownSyncAgeLabel,
+} from "@/lib/provider-sync-vocabulary";
 
 const PROVIDER_META: Record<string, { label: string; logo: string; href: string; cta: string }> = {
   meta: {
@@ -48,7 +52,7 @@ export function formatProviderSyncLabel(
 ) {
   const completed = /^(succeeded|success|completed|complete|ready)$/i.test(status?.trim() ?? "");
   const timestamp = finishedAt ? Date.parse(finishedAt) : Number.NaN;
-  if (!completed || !Number.isFinite(timestamp)) return "Synced —";
+  if (!completed || !Number.isFinite(timestamp)) return SYNC_AGE_UNKNOWN_LABEL;
   const minutes = Math.max(0, Math.round((now - timestamp) / 60_000));
   if (minutes < 1) return "Synced just now";
   if (minutes < 60) return `Synced ${minutes}m ago`;
@@ -75,6 +79,11 @@ export function PlatformMiniDashboard({
   const meta = PROVIDER_META[provider];
   const label = meta?.label ?? title;
   const syncLabel = formatProviderSyncLabel(latestSync?.finishedAt, latestSync?.status);
+  // The pill used to be success-green for every status, so a failed, missing or
+  // unparseable sync still looked like a completed one. Tone follows the label
+  // the card actually renders: only a completed sync with a valid timestamp is
+  // positive.
+  const syncTone = isUnknownSyncAgeLabel(syncLabel) ? "neutral" : "positive";
   const stats = PLATFORM_STAT_SLOTS.map((slot) => ({
     ...slot,
     metric: metricForSlot(metrics, slot),
@@ -101,7 +110,13 @@ export function PlatformMiniDashboard({
         </span>
         <span
           className="inline-flex items-center rounded-full text-[11px] font-semibold"
-          style={{ gap: 5, padding: "2px 9px", background: "#E7F6F0", color: "#0b7954" }}
+          data-sync-tone={syncTone}
+          style={{
+            gap: 5,
+            padding: "2px 9px",
+            background: syncTone === "positive" ? "#E7F6F0" : "#EEF1F6",
+            color: syncTone === "positive" ? "#0b7954" : "#555d6d",
+          }}
         >
           <span className="h-[5px] w-[5px] rounded-full bg-current" />
           {syncLabel}

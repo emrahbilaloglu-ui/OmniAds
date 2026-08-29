@@ -51,6 +51,9 @@ import {
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { isReviewerEmail } from "@/lib/reviewer-access";
 import { getCachedValue } from "@/lib/server-cache";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { META_FAILURES } from "@/lib/meta/read-state-contract";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
 
 export const dynamic = "force-dynamic";
 
@@ -1131,6 +1134,49 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  /**
+   * D071: posture is resolved here, before any other work.
+   *
+   * Everything below this point reads live sources — workspace end date,
+   * commercial targets, current Ads, campaign contexts, the decision digest,
+   * and the account-pulse and lane-classify upstreams. A confirmed demo or an
+   * unverified workspace must reach none of them, so both return here rather
+   * than being filtered further in. Resolving posture once, at the top, is
+   * also what stops a lower function re-resolving it differently.
+   */
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture !== "live") {
+    if (posture !== "demo") {
+      return metaPostureUnavailable("meta_decisions_workspace");
+    }
+    /**
+     * A confirmed demo workspace cannot be served a truthful workspace
+     * envelope today, so it fails closed instead of being weakened.
+     *
+     * The committed fixture could supply a decision inventory, but it cannot
+     * supply `MetaDecisionsWorkspacePayload.pulse`, whose `pacing.mtdSpend`,
+     * `pacing.dayPace` and `roas.selected/d7/d14/d28` are required numbers with
+     * no unavailable representation: emitting zeros there would convert source
+     * absence into a measured value, which INVARIANTS forbids. Its two sources,
+     * `account-pulse` and `lane-classify`, are not posture-aware and read the
+     * database and provider credentials directly.
+     *
+     * Making them posture-aware is the shared posture layer D071 defers. Until
+     * then this is a refusal, not an empty success.
+     */
+    return NextResponse.json(
+      {
+        error: "demo_workspace_envelope_unavailable",
+        message: META_FAILURES.demo_workspace_envelope_unavailable.message,
+        isPartial: true,
+        notReadyReason:
+          META_FAILURES.demo_workspace_envelope_unavailable.message,
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const viewer = workspaceViewer({
     role: access.membership.role,
     email: access.session.user.email,

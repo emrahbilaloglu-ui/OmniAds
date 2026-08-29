@@ -10,6 +10,7 @@ import type { GoogleAdvisorResponse } from "@/src/services/google";
 import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 import { useAppStore } from "@/store/app-store";
 import { useTierZeroFreshnessStore } from "@/store/tier-zero-freshness-store";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 /**
  * The one business the shell chrome is allowed to name — or `null`.
@@ -166,7 +167,7 @@ function minutesSince(iso: string | null | undefined, now: number) {
 }
 
 export function formatSyncAge(minutes: number | null): string {
-  if (minutes === null) return "Synced —";
+  if (minutes === null) return SYNC_AGE_UNKNOWN_LABEL;
   if (minutes < 1) return "Synced just now";
   if (minutes < 60) return `Synced ${minutes}m ago`;
   const hours = Math.round(minutes / 60);
@@ -265,7 +266,7 @@ export function useWorkspaceSyncState(
     // unknown, using the vocabulary this hook already has.
     return {
       tone: "unknown",
-      label: "Synced —",
+      label: SYNC_AGE_UNKNOWN_LABEL,
       freshnessState: "unknown",
     };
   }
@@ -300,7 +301,7 @@ export function useWorkspaceSyncState(
         }
       : {
           tone: "unknown",
-          label: "Synced —",
+          label: SYNC_AGE_UNKNOWN_LABEL,
           freshnessState: "unknown",
         };
   }

@@ -289,6 +289,8 @@ const SECTION_RECEIPT_IS_NOT_DRAWN =
 const PACING_FIELD_MENTIONS: Record<string, string> = {
   "app/api/meta/account-pulse/route.ts":
     "produces all four (:775 the extrapolation, :817-822 the served object)",
+  "app/api/meta/decisions-workspace/route.ts":
+    "D071 names `pacing.mtdSpend` and `pacing.dayPace` in prose only, to state why a confirmed demo workspace is refused with 503 instead of served: they are non-nullable numbers with no unavailable representation, so emitting zeros would turn source absence into a measured value. It renders nothing and computes nothing - naming the fields is how the refusal stays auditable",
   "components/meta/redesign/types.ts":
     "declares them on MetaPulsePayload.pacing",
   "components/meta/redesign/test-fixtures.ts":

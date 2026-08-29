@@ -8298,12 +8298,19 @@
   /*
    * The topbar's sync chip reserves the width of its widest state.
    *
-   * Its label is a live status — "Synced —", then "Sync needs attention", then
-   * "Syncing now" — and the widest of those is 40px wider than the narrowest.
-   * At 1280 that difference is enough to wrap the avatar onto a third row and
-   * back within about 130 ms, which moves `main` 40px down and up again. It
-   * measures CLS 0.536 on the mounted routes, five times the 0.1 budget, and it
-   * is the only layout shift either surface produces.
+   * Its label is a live status — "Sync age unknown", then "Sync needs
+   * attention", then "Syncing now" — and the widest of those is 40px wider than
+   * the narrowest. At 1280 that difference is enough to wrap the avatar onto a
+   * third row and back within about 130 ms, which moves `main` 40px down and up
+   * again. It measures CLS 0.536 on the mounted routes, five times the 0.1
+   * budget, and it is the only layout shift either surface produces.
+   *
+   * The unknown state read "Synced —" until the sync vocabulary stopped
+   * claiming a completed sync. The 156px reservation is unchanged, measured
+   * rather than assumed: at the chip's computed 600 12px Instrument Sans, plus
+   * its 32px of padding, dot and gap, "Sync age unknown" totals 138.2px and the
+   * still-widest "Sync needs attention" totals 151.7px. The longer unknown
+   * label therefore stays inside the reserved width.
    *
    * Reserving the space is the fix rather than truncating the label: the status
    * is the point of the chip.

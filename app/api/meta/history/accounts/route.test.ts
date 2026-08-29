@@ -10,13 +10,22 @@ vi.mock("@/lib/meta/history-read-model", () => ({
   readMetaHistoryAssignedAccountIds: vi.fn(),
 }));
 
+// These cases are the proven-live path. D071 gates the route on posture, so a
+// live posture is pinned here and the demo/unverified branches are covered in
+// demo-posture-parity.test.ts.
+vi.mock("@/lib/meta/business-data-posture", () => ({
+  readMetaBusinessDataPosture: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const readModel = await import("@/lib/meta/history-read-model");
+const posture = await import("@/lib/meta/business-data-posture");
 const route = await import("@/app/api/meta/history/accounts/route");
 
 describe("GET /api/meta/history/accounts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(posture.readMetaBusinessDataPosture).mockResolvedValue("live");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "business_1" } as never,

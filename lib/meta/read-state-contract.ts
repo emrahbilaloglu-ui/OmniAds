@@ -87,6 +87,10 @@ export const META_MUTATION_STATES = [
  * kullanıcı mesajını ve testini de içermelidir".
  */
 export const META_FAILURE_CODES = [
+  // D071 contracts the codes its demo branches emit, so the uncontracted
+  // ratchet holds rather than being raised.
+  "demo_journal_not_recorded",
+  "demo_workspace_envelope_unavailable",
   "provider_account_not_assigned",
   "provider_account_scope_unverified",
   "account_required",
@@ -148,6 +152,18 @@ interface FailureDescriptor {
 }
 
 export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>> = {
+  demo_workspace_envelope_unavailable: {
+    message:
+      "This demo workspace serves committed decision evidence, but the pacing and lane sources behind this screen are not part of the demo, so the workspace was withheld rather than served with invented figures.",
+    state: "degraded",
+    operatorActionable: false,
+  },
+  demo_journal_not_recorded: {
+    message:
+      "This is a demo workspace. It serves committed decision evidence and records no provider actions, so no journal was written for it. This is not a proven-zero history.",
+    state: "degraded",
+    operatorActionable: false,
+  },
   provider_account_not_assigned: {
     message:
       "That ad account is not assigned to this workspace, so nothing was read for it. Choose one of the assigned accounts, or assign it in Integrations.",

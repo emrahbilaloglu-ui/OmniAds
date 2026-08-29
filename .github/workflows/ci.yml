@@ -39,6 +39,19 @@ jobs:
           npx tsc --noEmit
 
       - name: Verify release authority preflight
+        # The preflight refuses to pass while ZERO_BASE_UI_MODE is unset, on
+        # purpose: unset parses as `off`, and `off` routes every canonical
+        # surface back to its legacy owner, so shipping it by omission is the
+        # failure that gate exists to stop.
+        #
+        # CI is not a deployment target and this value reaches no server. The
+        # production mode lives in the host env file and is written only by
+        # `zero-base-production-rollout.yml`. `off` is declared here because it
+        # is what an unset variable already parses to, so this makes the
+        # declaration explicit without changing what CI verifies. It is scoped
+        # to this step so it cannot leak into any other job step.
+        env:
+          ZERO_BASE_UI_MODE: "off"
         run: npm run release:authority:preflight
 
   test:

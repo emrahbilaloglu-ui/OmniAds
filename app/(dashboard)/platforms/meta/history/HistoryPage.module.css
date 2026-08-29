@@ -1,4 +1,14 @@
 .page {
+  /*
+   * The persistent rail takes ~258px, so viewport width is the wrong signal:
+   * at a 1280 viewport this page is 1022 wide and the filter band gets 902,
+   * while the band's one-row grid needs 998. The viewport-based 1180px
+   * fallback therefore never fired and Apply rendered past the viewport edge.
+   * Sizing the page as a container lets the rules below ask what is actually
+   * available.
+   */
+  container-type: inline-size;
+  container-name: history;
   --history-bg: #f6f7f7;
   --history-surface: #ffffff;
   --history-surface-muted: #f0f2f2;
@@ -62,6 +72,7 @@
 .replayControls,
 .limitations,
 .journalSection,
+.noticeBand,
 .errorBand {
   width: min(100%, 1440px);
   margin-inline: auto;
@@ -422,6 +433,36 @@
   border-radius: 6px;
   color: var(--history-danger);
   background: var(--history-danger-bg);
+}
+
+/*
+ * A limitation that changes what the rows on screen mean has to be readable
+ * without opening anything. The collapsed "Identity and join limits"
+ * disclosure is the right home for join/identity caveats; it is the wrong home
+ * for "these zero rows are not a measured zero", because the reader who most
+ * needs that sentence is the one who already believes the empty list.
+ */
+.noticeBand {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--history-caution-line);
+  border-radius: 6px;
+  color: var(--history-caution);
+  background: var(--history-caution-bg);
+}
+
+.noticeBand strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.noticeBand p {
+  margin: 3px 0 0;
+  font-size: 12px;
 }
 
 .limitations {
@@ -1120,4 +1161,58 @@
   .modeSwitch button {
     justify-content: flex-start;
   }
+}
+
+/*
+ * Measured, not guessed. The one-row filter grid's intrinsic minimum is 998px
+ * (scrollWidth at a 1280 viewport, where the band is 902 wide). Below 1000px of
+ * available width it cannot fit, so the existing three-column fallback engages
+ * on container width. At a 1366 viewport the band still only gets 988, which is
+ * why a viewport breakpoint could not fix this; above that the dense one-row
+ * layout is kept because it genuinely fits.
+ *
+ * Lower-bounded at 561px because three 150px columns plus gaps need ~480px.
+ * Below that the existing narrow viewport rules own the layout, and this rule
+ * must not override them — it is declared after them in the cascade.
+ */
+@container history (min-width: 561px) and (max-width: 1000px) {
+  .filterBand {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+
+  .searchField {
+    grid-column: span 2;
+  }
+
+  .filterCommands {
+    justify-content: flex-end;
+  }
+}
+
+/*
+ * The results header put the account identity and the count on one row. At a
+ * 390 viewport the header has 330px, so the identity was squeezed to 54px wide
+ * and 104px tall — a vertical strip — while the count overflowed to 369.77 and
+ * was clipped by `.journalSection { overflow: hidden }`.
+ *
+ * Identity (~230px) plus count (~260px) plus the 16px gap and 28px padding need
+ * about 534px, so below 560px each takes its own full-width row.
+ */
+@container history (max-width: 560px) {
+  .resultsHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .resultCount {
+    align-self: flex-start;
+  }
+}
+
+/* Above that threshold the identity shares the row, but must still be allowed
+ * to shrink to its own text rather than being squeezed into a column of
+ * fragments. */
+.resultsHeader > div:first-child {
+  min-width: 0;
 }

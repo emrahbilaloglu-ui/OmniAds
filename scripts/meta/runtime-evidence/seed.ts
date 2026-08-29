@@ -598,9 +598,17 @@ function hash(value: string): number {
 /**
  * One ad dimension and three action-log rows, for the one-account business.
  *
- * The journal joins an action row to a dimension row to name the entity and to
- * scope it to a provider account, so both halves are needed or the rows exist
- * and reach no screen.
+ * The journal joins an action row to a dimension row to name the entity, so
+ * both halves are needed or the rows exist and reach no screen.
+ *
+ * The action row must also carry its OWN `provider_account_id`. Since
+ * `43dd42345` the writes correlation matches on `action_log.provider_account_id`
+ * directly and a null fails closed — the dimension join proves an entity by
+ * that id exists under the selected account, not that it exists under no other,
+ * so it was never account proof. Production persists the column on both write
+ * paths in `lib/meta/ads-action-log.ts`; a fixture that omitted it was
+ * describing a row shape the product no longer writes, and the surface
+ * correctly rendered nothing for it.
  *
  * Dated three days back, not `now()`. The default evidence window is the last
  * 28 days ENDING YESTERDAY, so rows written at `now() - 3 hours` were inside it
@@ -634,16 +642,24 @@ async function seedHistoryJournal(client: Client): Promise<void> {
     offset += 1;
     await client.query(
       `INSERT INTO meta_ads_action_log
-         (business_id, ad_id, action, source, requested_at, status, error_code,
-          payload_request, payload_response, verified_at)
-       VALUES ($1, $2, $3, 'ui_manual',
+         (business_id, provider_account_id, ad_id, action, source, requested_at,
+          status, error_code, payload_request, payload_response, verified_at)
+       VALUES ($1, $7, $2, $3, 'ui_manual',
                now() - interval '3 days' - ($4 || ' hours')::interval, $5, $6,
                jsonb_build_object('scope_type', 'ad'),
                jsonb_build_object('accepted', true),
                CASE WHEN $5 = 'success'
                     THEN now() - interval '3 days' - ($4 || ' hours')::interval
                     ELSE NULL END)`,
-      [BUSINESS_ONE_ACCOUNT, JOURNAL_AD_ID, row.action, String(offset), row.status, row.errorCode],
+      [
+        BUSINESS_ONE_ACCOUNT,
+        JOURNAL_AD_ID,
+        row.action,
+        String(offset),
+        row.status,
+        row.errorCode,
+        ACCOUNT_ONE,
+      ],
     );
   }
 }

@@ -9,6 +9,7 @@ import type {
   AgencyTodayRow,
   ClientSeverity,
 } from "@/lib/agency-today-read-model";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 interface AgencyTodayResponse {
   startDate: string;
@@ -80,7 +81,7 @@ function ClientRow({ row }: { row: AgencyTodayRow }) {
         {row.severityReasons.length > 0
           ? row.severityReasons.join(" · ")
           : row.freshness === "unknown"
-            ? "Sync age unknown"
+            ? SYNC_AGE_UNKNOWN_LABEL
             : "No open issues"}
       </span>
     </Link>

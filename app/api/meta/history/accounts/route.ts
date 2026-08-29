@@ -4,6 +4,10 @@ import {
   readMetaHistoryAccounts,
   readMetaHistoryAssignedAccountIds,
 } from "@/lib/meta/history-read-model";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
+import { getDemoMetaStatus } from "@/lib/demo-business";
+import { getDemoProviderAccounts } from "@/lib/demo-business-support";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +34,33 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  // D071: this list is the account picker, and the picker must answer from the
+  // same authority the reads behind it use. A confirmed demo workspace answers
+  // from the committed demo manifest; a proven-live workspace answers from
+  // persisted assignments; an unconfirmed posture withholds rather than
+  // reporting "no assigned account", which would present an unverified
+  // workspace as an empty one.
+  const posture = await readMetaBusinessDataPosture(businessId);
+  if (posture === "demo") {
+    const assigned = new Set(getDemoMetaStatus().assignedAccountIds);
+    return NextResponse.json(
+      {
+        mode: "read_only",
+        businessId,
+        accounts: getDemoProviderAccounts("meta")
+          .filter((account) => assigned.has(account.id))
+          .map((account) => ({
+            id: account.id,
+            name: account.name,
+            currency: account.currency,
+            timezone: account.timezone,
+          })),
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
+  if (posture !== "live") return metaPostureUnavailable("meta_history_accounts");
 
   try {
     // The same intersection the journal endpoint applies, for the same reason:

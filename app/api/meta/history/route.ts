@@ -9,6 +9,11 @@ import {
   readMetaHistoryAssignedAccountIds,
   readMetaHistoryJournal,
 } from "@/lib/meta/history-read-model";
+import { readMetaBusinessDataPosture } from "@/lib/meta/business-data-posture";
+import { metaPostureUnavailable } from "@/app/api/meta/read-posture";
+import { META_FAILURES } from "@/lib/meta/read-state-contract";
+import { getDemoMetaStatus } from "@/lib/demo-business";
+import { getDemoProviderAccounts } from "@/lib/demo-business-support";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +44,79 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  // D071: the journal answers from the same authority as the picker in front of
+  // it, so an account the picker offers is never refused here.
+  const posture = await readMetaBusinessDataPosture(query.businessId);
+  if (posture === "demo") {
+    const assigned = new Set(getDemoMetaStatus().assignedAccountIds);
+    const account = getDemoProviderAccounts("meta").find(
+      (item) => item.id === query.providerAccountId && assigned.has(item.id),
+    );
+    // An unassigned demo catalog account is refused exactly as an unassigned
+    // live account is.
+    if (!account) {
+      return jsonError(
+        404,
+        "provider_account_not_assigned",
+        "providerAccountId is not assigned to this business.",
+      );
+    }
+    // The committed demo fixture is a decision inventory. It records no
+    // provider actions, and inventing entries, actors, outcomes or timestamps
+    // is forbidden. Zero entries are therefore returned *with* an explicit
+    // limitation rather than as an ordinary empty journal.
+    return NextResponse.json(
+      {
+        mode: "read_only",
+        scope: {
+          businessId: query.businessId,
+          providerAccountId: account.id,
+          providerAccountName: account.name,
+          currency: account.currency,
+          timezone: account.timezone,
+        },
+        filters: {
+          businessId: query.businessId,
+          providerAccountId: account.id,
+          kind: query.kind,
+          entity: query.entity,
+          label: query.label,
+          outcome: query.outcome,
+          from: query.from,
+          to: query.to,
+          q: query.q,
+        },
+        entries: [],
+        page: {
+          limit: query.limit,
+          returned: 0,
+          // Null, not 0: this read counted nothing, so it states no exact
+          // total. A 0 here would be the proven-zero claim the limitation
+          // below exists to deny.
+          total: null,
+          nextCursor: null,
+        },
+        identityContract: {
+          canonicalDecisionIdAvailable: false,
+          grouping: "persisted_source_rows",
+          limitation:
+            "The demo workspace serves a committed decision fixture and records no provider-action journal.",
+        },
+        limitations: [
+          {
+            code: "demo_journal_not_recorded",
+            // Single source. The code is registered in the shared failure
+            // dictionary, so its operator sentence comes from there too — a
+            // local copy would drift the moment either side is edited.
+            message: META_FAILURES.demo_journal_not_recorded.message,
+          },
+        ],
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
+  if (posture !== "live") return metaPostureUnavailable("meta_history");
 
   try {
     // `providerAccountId` arrives from the caller, so it is a REQUEST, never an

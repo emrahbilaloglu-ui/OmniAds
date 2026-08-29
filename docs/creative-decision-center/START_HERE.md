@@ -81,10 +81,11 @@ controlled treatment. They must not be restated as an untried replay task.
 6. [GOLDEN_CASES.md](./GOLDEN_CASES.md)
 7. [INVARIANTS.md](./INVARIANTS.md)
 8. [CONTRACTS.md](./CONTRACTS.md)
-9. [MIGRATION_PLAN.md](./MIGRATION_PLAN.md)
-10. [PR_SEQUENCE.md](./PR_SEQUENCE.md)
-11. [RISK_REGISTER.md](./RISK_REGISTER.md)
-12. [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
+9. [EXPERIENCE_STATE_CONTRACT.md](./EXPERIENCE_STATE_CONTRACT.md)
+10. [MIGRATION_PLAN.md](./MIGRATION_PLAN.md)
+11. [PR_SEQUENCE.md](./PR_SEQUENCE.md)
+12. [RISK_REGISTER.md](./RISK_REGISTER.md)
+13. [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
 
 Before implementing resolver changes, read `DECISION_LOG.md`, `DATA_READINESS.md`, `GOLDEN_CASES.md`, and `INVARIANTS.md`.
 

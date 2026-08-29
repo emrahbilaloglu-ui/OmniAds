@@ -4,6 +4,7 @@ import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OverviewMetricCardData } from "@/src/types/models";
+import { SYNC_AGE_UNKNOWN_LABEL } from "@/lib/provider-sync-vocabulary";
 
 const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }));
 
@@ -124,7 +125,58 @@ describe("PlatformMiniDashboard", () => {
       />
     );
 
-    expect(screen.getByText("Synced —")).toBeTruthy();
+    expect(screen.getByText(SYNC_AGE_UNKNOWN_LABEL)).toBeTruthy();
+  });
+
+  /**
+   * The pill was success-green for every status, so a failed, missing or
+   * unparseable sync still read as a completed one after the copy was fixed.
+   * Tone is asserted through `data-sync-tone` rather than colour alone, so the
+   * contract survives a palette change.
+   */
+  it.each([
+    ["a failed completion", { finishedAt: "2026-08-17T12:00:00.000Z", status: "failed" }],
+    ["a null sync", null],
+    ["an unparseable timestamp", { finishedAt: "not-a-date", status: "completed" }],
+    ["a missing timestamp", { finishedAt: null, status: "completed" }],
+  ])("renders %s as a neutral pill, not a positive one", (_case, latestSync) => {
+    const { container } = render(
+      <PlatformMiniDashboard
+        provider="meta"
+        title="Meta Ads"
+        currencySymbol="$"
+        metrics={[]}
+        latestSync={latestSync as never}
+      />
+    );
+
+    const pill = container.querySelector("[data-sync-tone]") as HTMLElement;
+    expect(pill.getAttribute("data-sync-tone")).toBe("neutral");
+    expect(pill.textContent).toContain(SYNC_AGE_UNKNOWN_LABEL);
+    expect(pill.textContent).not.toContain("Synced");
+    // Neutral must not reuse the success fill or ink.
+    expect(pill.style.background).not.toBe("rgb(231, 246, 240)");
+    expect(pill.style.color).not.toBe("rgb(11, 121, 84)");
+  });
+
+  it("still renders a genuinely completed sync as a positive pill", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T12:26:00.000Z"));
+    const { container } = render(
+      <PlatformMiniDashboard
+        provider="google"
+        title="Google"
+        currencySymbol="$"
+        metrics={[]}
+        latestSync={{ finishedAt: "2026-08-17T12:00:00.000Z", status: "completed" }}
+      />
+    );
+
+    const pill = container.querySelector("[data-sync-tone]") as HTMLElement;
+    expect(pill.getAttribute("data-sync-tone")).toBe("positive");
+    expect(pill.textContent).toContain("Synced 26m ago");
+    expect(pill.style.background).toBe("rgb(231, 246, 240)");
+    expect(pill.style.color).toBe("rgb(11, 121, 84)");
   });
 
   it("keeps all five shells and uses em dashes when provider fields are absent", () => {
@@ -143,6 +195,6 @@ describe("PlatformMiniDashboard", () => {
     expect(screen.getAllByText("—")).toHaveLength(4);
     expect(screen.queryByText("$999")).toBeNull();
     expect(screen.getAllByLabelText(/Google Ads .* trend/)).toHaveLength(5);
-    expect(screen.getByText("Synced —")).toBeTruthy();
+    expect(screen.getByText(SYNC_AGE_UNKNOWN_LABEL)).toBeTruthy();
   });
 });

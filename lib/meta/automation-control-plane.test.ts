@@ -116,6 +116,7 @@ describe("meta automation control plane", () => {
     expect(payload.businessControl.guardrails.perActionSpendCeilingMinor).toBe(
       7500,
     );
+    expect(payload.businessControl.guardrails.perActionSpendCeilingValid).toBe(true);
     expect(payload.businessControl.guardrails.maxBudgetIncreasePct).toBe(10);
     expect(payload.promotionRecords).toHaveLength(1);
     expect(payload.readCompleteness?.promotionRecords).toBe("complete");
@@ -133,6 +134,41 @@ describe("meta automation control plane", () => {
     expect(actionLedgerQuery).toContain("meta_campaign_dimensions");
     expect(actionLedgerQuery).toContain("meta_adset_dimensions");
     expect(actionLedgerQuery).toContain("meta_launch_intents");
+  });
+
+  it.each([
+    ["an explicit clear", {
+      perActionSpendCeilingMinor: null,
+      perActionSpendCeilingCurrency: null,
+    }, true],
+    ["a half-persisted pair", {
+      perActionSpendCeilingMinor: null,
+      perActionSpendCeilingCurrency: "TRY",
+    }, false],
+  ])("preserves %s instead of replacing it with a default", async (
+    _label,
+    guardrailsJson,
+    valid,
+  ) => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        business_id: BUSINESS_ID,
+        kill_switch_engaged: false,
+        auto_execution_enabled: false,
+        guardrails_json: guardrailsJson,
+      }])
+      .mockResolvedValue([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const payload = await getMetaAutomationControlPlane({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+    });
+
+    expect(payload.businessControl.guardrails.perActionSpendCeilingMinor).toBeNull();
+    expect(payload.businessControl.guardrails.perActionSpendCeilingCurrency)
+      .toBe(valid ? null : "TRY");
+    expect(payload.businessControl.guardrails.perActionSpendCeilingValid).toBe(valid);
   });
 
   it("marks promotion records unavailable when that collection read fails", async () => {

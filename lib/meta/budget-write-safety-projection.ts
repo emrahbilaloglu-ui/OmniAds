@@ -46,12 +46,16 @@ export interface ProjectionSafetyFacts {
 export interface BudgetPolicySafetyFacts {
   currentAmountMinor: number | null;
   intendedAmountMinor: number;
+  currency: string | null;
   nowMs: number;
   policy: {
     maxChangePercent: number | null;
     minHoursBetweenChanges: number | null;
     maxChangesPer7d: number | null;
     maxAccountConcentrationPercent: number | null;
+    maxAmountMinor: number | null;
+    currency: string | null;
+    spendCeilingValid: boolean;
   };
   history: {
     lastChangeAtMs: number | null;
@@ -95,6 +99,14 @@ export function projectBudgetPolicySafety(
   const minHoursValid = policy.minHoursBetweenChanges !== null
     && Number.isFinite(policy.minHoursBetweenChanges)
     && policy.minHoursBetweenChanges >= 0;
+  const spendCeilingCleared = policy.spendCeilingValid === true
+    && policy.maxAmountMinor === null
+    && policy.currency === null;
+  const spendCeilingSet = policy.spendCeilingValid === true
+    && Number.isSafeInteger(policy.maxAmountMinor)
+    && (policy.maxAmountMinor ?? 0) > 0
+    && typeof policy.currency === "string"
+    && /^[A-Z]{3}$/.test(policy.currency);
 
   let cooldown: SafetyFlag;
   if (!nowValid || !minHoursValid || history === null) {
@@ -130,6 +142,9 @@ export function projectBudgetPolicySafety(
     && policy.maxAccountConcentrationPercent !== null
     && Number.isFinite(policy.maxAccountConcentrationPercent)
     && policy.maxAccountConcentrationPercent > 0
+    && (spendCeilingCleared || spendCeilingSet)
+    && typeof facts.currency === "string"
+    && /^[A-Z]{3}$/.test(facts.currency)
     && history !== null
     && Number.isInteger(history.changesInLast7d)
     && history.changesInLast7d >= 0
@@ -159,10 +174,19 @@ export function projectBudgetPolicySafety(
           + `${policy.maxAccountConcentrationPercent}%`,
       );
     }
+    if (spendCeilingSet) {
+      if (facts.currency !== policy.currency) {
+        breaches.push(`request currency ${facts.currency} differs from ceiling currency ${policy.currency}`);
+      } else if (facts.intendedAmountMinor > policy.maxAmountMinor!) {
+        breaches.push(
+          `${facts.intendedAmountMinor} minor units exceeds ${policy.maxAmountMinor} ${policy.currency}`,
+        );
+      }
+    }
     cap = measuredPolicyFlag(
       breaches.length > 0,
       facts.nowMs,
-      breaches.length > 0 ? breaches.join("; ") : "magnitude, frequency, and concentration are within policy",
+      breaches.length > 0 ? breaches.join("; ") : "magnitude, spend ceiling, frequency, and concentration are within policy",
     );
   }
 

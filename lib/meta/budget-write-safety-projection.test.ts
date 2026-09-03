@@ -8,12 +8,16 @@ function facts(over: Record<string, unknown> = {}) {
   return {
     currentAmountMinor: 100_000,
     intendedAmountMinor: 120_000,
+    currency: "TRY",
     nowMs: NOW,
     policy: {
       maxChangePercent: 25,
       minHoursBetweenChanges: 12,
       maxChangesPer7d: 3,
       maxAccountConcentrationPercent: 40,
+      maxAmountMinor: 500_000,
+      currency: "TRY",
+      spendCeilingValid: true,
     },
     history: {
       lastChangeAtMs: NOW - 13 * 3_600_000,
@@ -55,6 +59,16 @@ describe("budget policy safety projection", () => {
       changesInLast7d: 1,
       accountConcentrationPercent: 41,
     } }],
+    ["monetary ceiling", { policy: {
+      maxChangePercent: 25,
+      minHoursBetweenChanges: 12,
+      maxChangesPer7d: 3,
+      maxAccountConcentrationPercent: 40,
+      maxAmountMinor: 110_000,
+      currency: "TRY",
+      spendCeilingValid: true,
+    } }],
+    ["ceiling currency", { currency: "USD" }],
   ])("engages the cap for a measured %s breach", (_name, over) => {
     expect(projectBudgetPolicySafety(facts(over)).cap.state).toBe("engaged");
   });
@@ -70,5 +84,27 @@ describe("budget policy safety projection", () => {
         accountConcentrationPercent: 10,
       },
     })).cooldown.state).toBe("unknown");
+  });
+
+  it("allows an explicitly cleared ceiling but rejects a half-persisted pair", () => {
+    const cleared = facts({
+      policy: {
+        ...facts().policy,
+        maxAmountMinor: null,
+        currency: null,
+        spendCeilingValid: true,
+      },
+    });
+    expect(projectBudgetPolicySafety(cleared).cap.state).toBe("clear");
+
+    const invalid = facts({
+      policy: {
+        ...facts().policy,
+        maxAmountMinor: null,
+        currency: "TRY",
+        spendCeilingValid: false,
+      },
+    });
+    expect(projectBudgetPolicySafety(invalid).cap.state).toBe("unknown");
   });
 });

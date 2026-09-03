@@ -256,6 +256,7 @@ const readersFor = (shape: Shape, journal: ReturnType<typeof makeJournal>) => ({
       policy: {
         maxChangePercent: 25, minHoursBetweenChanges: 12, maxChangesPer7d: 3,
         maxAccountConcentrationPercent: 40, maxBaselineAgeMinutes: 60,
+        maxAmountMinor: 500000, currency: "TRY",
       },
       history: {
         lastChangeAtMs: null, changesInLast7d: 0, accountConcentrationPercent: 10,

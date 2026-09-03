@@ -298,6 +298,8 @@ const controlPayload = (over: Record<string, unknown> = {}) => ({
     guardrails: {
       ...DEFAULT_META_AUTOMATION_GUARDRAILS,
       maxBudgetIncreasePct: 25,
+      perActionSpendCeilingMinor: 500_000,
+      perActionSpendCeilingCurrency: "TRY",
       dryRunOnly: false,
       budgetMinHoursBetweenChanges: 12,
       budgetMaxChangesPer7d: 3,

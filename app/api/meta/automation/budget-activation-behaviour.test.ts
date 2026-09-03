@@ -79,6 +79,9 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
   if (text.includes("INSERT INTO meta_automation_business_controls")) {
     return [{ guardrails_json: {} }];
   }
+  if (text.includes("UPDATE meta_automation_business_controls")) {
+    return [{ business_id: BUSINESS_ID }];
+  }
   return [];
 };
 
@@ -155,7 +158,8 @@ const post = (body: Record<string, unknown>) => POST(
 
 const activationWrite = () =>
   statements.find((entry) =>
-    entry.sql.includes("INSERT INTO meta_automation_business_controls")) ?? null;
+    entry.sql.includes("INSERT INTO meta_automation_business_controls")
+    || entry.sql.includes("UPDATE meta_automation_business_controls")) ?? null;
 
 describe("PRE-DEPLOY — the automation master switch, exercised", () => {
   beforeEach(() => {
@@ -193,8 +197,11 @@ describe("PRE-DEPLOY — the automation master switch, exercised", () => {
     const write = activationWrite();
     expect(write).not.toBeNull();
     // business, enabled, decidedBy, activated account — in that order.
-    expect(write!.params).toEqual([BUSINESS_ID, true, ADMIN, ACCOUNT]);
+    expect(write!.params).toEqual([
+      BUSINESS_ID, true, ADMIN, ACCOUNT, "2026-09-03T00:00:00.000Z",
+    ]);
     expect(write!.sql).toContain("auto_execution_provider_account_id");
+    expect(write!.sql).toContain("updated_at = $5::timestamptz");
   });
 
   it("the WRONG phrase refuses, and writes nothing", async () => {
@@ -208,6 +215,24 @@ describe("PRE-DEPLOY — the automation master switch, exercised", () => {
     expect(response.status).toBe(409);
     expect(payload.error?.code).toBe("confirmation_phrase_mismatch");
     expect(activationWrite()).toBeNull();
+  });
+
+  it("a later fail-safe STOP wins over enablement using stale readiness", async () => {
+    query.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      statements.push({ sql: String(sql), params });
+      if (String(sql).includes("UPDATE meta_automation_business_controls")) return [];
+      return baseQuery(sql, params);
+    });
+
+    const response = await post({
+      action: "set_budget_auto_execution",
+      enabled: true,
+      confirmationPhrase: BUDGET_ACTIVATION_CONFIRMATION_PHRASE,
+    });
+    const payload = await response.json() as { error?: { code?: string } };
+
+    expect(response.status).toBe(409);
+    expect(payload.error?.code).toBe("budget_auto_execution_state_changed");
   });
 
   it("a NOT-READY workspace refuses to enable, and names why", async () => {

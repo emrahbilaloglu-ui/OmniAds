@@ -38,6 +38,7 @@ export interface ClaimedExecutionDeps {
   proposal: MetaAutomationProposal;
   claimToken: string;
   actorUserId: string;
+  executionKind: "manual" | "scheduled";
   /**
    * Stamped SYNCHRONOUSLY, immediately before the provider POST.
    *
@@ -54,6 +55,16 @@ export interface ClaimedExecutionDeps {
     status: ClaimedSettleStatus; decidedBy: string;
     receipt: BudgetProposalExecutionResult["receipt"];
   }): Promise<MetaAutomationProposal | null>;
+  /** Last-resort durable hold when the normal terminal settlement is lost. */
+  forceReconcile(input: {
+    businessId: string; proposalId: string; claimToken: string;
+  }): Promise<boolean>;
+  /** Append the in-memory receipt when the normal settlement did not land. */
+  recordReconciliation(input: {
+    proposal: MetaAutomationProposal;
+    claimToken: string;
+    receipt: BudgetProposalExecutionResult["receipt"];
+  }): Promise<boolean>;
   recordLedger(input: ClaimedLedgerEntry): Promise<void>;
   execute(
     beforeProviderPost: () => Promise<boolean>,
@@ -71,6 +82,12 @@ export interface ClaimedExecutionResult {
   reconcile: boolean;
   rollbackRequested: false;
   lostTheRow: boolean;
+  /** The normal terminal compare-and-set threw or matched no row. */
+  settlementFailed: boolean;
+  /** Whether the fallback status-only reconcile update landed. */
+  reconciliationHeld: boolean;
+  /** Whether the append-only reconciliation receipt landed. */
+  reconciliationRecorded: boolean;
   /** The settled row, so a caller does not settle a second time to see it. */
   settled: MetaAutomationProposal | null;
   /** True when the pre-POST marker could not be written, so nothing was sent. */
@@ -134,19 +151,54 @@ export async function runClaimedProposalExecution(
     A marker that could not be written vetoed the POST, so the outcome is a
     definite non-attempt, not an unknown one.
   */
-  const reconcile = (outcome.reconcile === true || threw) && !markerFailed;
-  const settledStatus: ClaimedSettleStatus = reconcile
+  const outcomeNeedsReconcile = (outcome.reconcile === true || threw) && !markerFailed;
+  let settledStatus: ClaimedSettleStatus = outcomeNeedsReconcile
     ? "reconcile"
     : outcome.ok ? "approved" : "failed";
 
-  const settled = await deps.settle({
-    businessId: deps.businessId,
-    proposalId: deps.proposal.id,
-    claimToken: deps.claimToken,
-    status: settledStatus,
-    decidedBy: deps.actorUserId,
-    receipt: outcome.receipt,
-  }).catch(() => null);
+  const receipt = {
+    ...outcome.receipt,
+    executionKind: deps.executionKind,
+  };
+  let settled: MetaAutomationProposal | null = null;
+  let settlementFailed = false;
+  try {
+    settled = await deps.settle({
+      businessId: deps.businessId,
+      proposalId: deps.proposal.id,
+      claimToken: deps.claimToken,
+      status: settledStatus,
+      decidedBy: deps.actorUserId,
+      receipt,
+    });
+    settlementFailed = settled === null;
+  } catch {
+    settlementFailed = true;
+  }
+
+  /*
+    A provider write whose terminal row could not be persisted is not a
+    success, even when the provider answer itself was verified. Hold the claim
+    in `reconcile` through the minimal post-dispatch path so neither the manual
+    response nor the scheduler can count it as applied or offer it again.
+  */
+  const settlementNeedsReconcile = settlementFailed && providerDispatchStarted;
+  let reconciliationHeld = false;
+  let reconciliationRecorded = false;
+  if (settlementNeedsReconcile) {
+    reconciliationHeld = await deps.forceReconcile({
+      businessId: deps.businessId,
+      proposalId: deps.proposal.id,
+      claimToken: deps.claimToken,
+    }).catch(() => false);
+    reconciliationRecorded = await deps.recordReconciliation({
+      proposal: deps.proposal,
+      claimToken: deps.claimToken,
+      receipt,
+    }).catch(() => false);
+    settledStatus = "reconcile";
+  }
+  const reconcile = outcomeNeedsReconcile || settlementNeedsReconcile;
 
   const entity = deps.proposal.entityLabel ?? deps.proposal.scopeId;
   await deps.recordLedger({
@@ -166,7 +218,7 @@ export async function runClaimedProposalExecution(
       recId: deps.proposal.recId,
       decisionKey: deps.proposal.decisionKey,
       providerAccountId: deps.providerAccountId,
-      receipt: outcome.receipt,
+      receipt,
       // Three separate facts, never one boolean.
       providerDispatchStarted,
       providerOutcomeKnown: providerDispatchStarted && !reconcile,
@@ -176,7 +228,7 @@ export async function runClaimedProposalExecution(
   }).catch(() => undefined);
 
   return {
-    ok: outcome.ok && !reconcile && !markerFailed,
+    ok: outcome.ok && providerDispatchStarted && !reconcile && !markerFailed,
     contract: CLAIMED_EXECUTION_CONTRACT,
     markerFailed,
     settledStatus,
@@ -185,8 +237,11 @@ export async function runClaimedProposalExecution(
     reconcile,
     rollbackRequested: false,
     lostTheRow: settled === null,
+    settlementFailed,
+    reconciliationHeld,
+    reconciliationRecorded,
     settled,
-    receipt: outcome.receipt,
+    receipt,
     journalId: outcome.journalId,
   };
 }

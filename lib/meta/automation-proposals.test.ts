@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(),
+  runDbTransaction: vi.fn(async (run: () => Promise<unknown>) => run()),
+}));
 vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(async () => ({ ready: true })),
 }));
@@ -18,6 +21,7 @@ import {
   META_AUTOMATION_PROPOSAL_TTL_HOURS,
   META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
   NO_PROVIDER_DISPATCH,
+  claimScheduledMetaAutomationProposal,
   evaluateProposalTransition,
   providerDispatchFacts,
   isProposalExpired,
@@ -57,6 +61,31 @@ function recordingDb(rows: Array<Array<Record<string, unknown>>>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("scheduled proposal claims reserve the daily cap atomically", () => {
+  it("locks, counts in-flight/reconcile reservations, and refuses a claim at cap", async () => {
+    const { tagged, calls } = recordingDb([[], [{ used: 1 }]]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    const result = await claimScheduledMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      proposalId: RULE_ID,
+      claimedBy: "22222222-2222-4222-8222-222222222222",
+      dailyAutoActionCap: 1,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ status: "cap_reached" });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.text).toContain("pg_advisory_xact_lock");
+    expect(calls[1]!.text).toContain("status = 'claimed'");
+    expect(calls[1]!.text).toContain("status = 'reconcile'");
+    expect(calls[1]!.text).toContain("receipt_json->>'executionKind' = 'scheduled'");
+    expect(calls.some(({ text }) => text.includes("SET status = 'claimed'")))
+      .toBe(false);
+  });
 });
 
 describe("which engine decisions may become a proposal", () => {

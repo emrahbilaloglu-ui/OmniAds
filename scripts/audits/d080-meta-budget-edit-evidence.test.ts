@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 
 import { createHash } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ACCEPTED_CONFIDENCE_CLASSES,
@@ -133,6 +133,14 @@ import {
   type RoleRow,
   type SchemaContract,
 } from "./d080-meta-budget-edit-evidence";
+
+// This file deliberately re-seals and independently verifies a large frozen
+// evidence package for every adversarial mutation. A clean two-core CI runner
+// measured one verification at roughly 9.8s and compound cases at 19-29s, so
+// the repository-wide 15s UI/unit-test liveness bound is not appropriate here.
+// Set a finite file-only bound before collection, then restore the worker
+// config at EOF; assertions and coverage are unchanged.
+vi.setConfig({ testTimeout: 120_000 });
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -3247,3 +3255,7 @@ describe("C10 — every stable dependency-cell field is bound to the ledger and 
     expect(broken.result.failures.join(" ")).toContain("dependency_cell_projection_mismatch");
   }, 300_000);
 });
+
+// Every test above captured the D080-specific timeout during collection. Reset
+// immediately so another file reusing this worker keeps the global 15s bound.
+vi.resetConfig();

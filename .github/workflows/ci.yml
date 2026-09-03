@@ -59,18 +59,24 @@ jobs:
     runs-on: ubuntu-latest
     # PR #272 proved that one clean Linux runner cannot complete the growing
     # suite inside a useful bounded release gate. Split files deterministically
-    # across two runners: every test still runs exactly once, assertions and
-    # per-test timeouts are unchanged, and only two shards run concurrently.
+    # across four runners: every test still runs exactly once and assertions
+    # remain unchanged. Four is deliberately bounded and keeps the slowest
+    # shard comfortably inside the finite job timeout.
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
-        shard: [1, 2]
-        total: [2]
+        shard: [1, 2, 3, 4]
+        total: [4]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # D077 proves the cumulative release inventory against its pinned
+          # pre-release base SHA. A depth-1 PR checkout cannot resolve that
+          # commit and would fail before evaluating the manifest contract.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4

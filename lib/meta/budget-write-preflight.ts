@@ -32,6 +32,8 @@ export const BUDGET_WRITE_PREFLIGHT_BLOCKERS = [
   "compare_and_set_mismatch",
   "policy_unknown",
   "policy_magnitude_exceeded",
+  "policy_spend_ceiling_exceeded",
+  "policy_spend_ceiling_currency_mismatch",
   "policy_cooldown_active",
   "policy_change_frequency_exceeded",
   "policy_account_concentration_exceeded",
@@ -73,6 +75,9 @@ export interface BudgetWritePolicy {
   maxChangesPer7d: number;
   maxAccountConcentrationPercent: number;
   maxBaselineAgeMinutes: number;
+  /** Absolute intended budget ceiling, in the named minor-unit currency. */
+  maxAmountMinor: number | null;
+  currency: string | null;
 }
 
 export interface BudgetWriteHistory {
@@ -198,11 +203,19 @@ export function evaluateBudgetWritePreflight(
   // --- policy --------------------------------------------------------------
   const policy = isRecord(input?.policy) ? (input.policy as BudgetWritePolicy) : null;
   const history = isRecord(input?.history) ? (input.history as BudgetWriteHistory) : null;
+  const spendCeilingCleared = policy?.maxAmountMinor === null
+    && policy?.currency === null;
+  const spendCeilingSet = policy !== null
+    && Number.isSafeInteger(policy.maxAmountMinor)
+    && (policy.maxAmountMinor ?? 0) > 0
+    && typeof policy.currency === "string"
+    && /^[A-Z]{3}$/.test(policy.currency);
   let changePercent: number | null = null;
   if (!policy
     || !finite(policy.maxChangePercent) || !finite(policy.minHoursBetweenChanges)
     || !finite(policy.maxChangesPer7d) || !finite(policy.maxAccountConcentrationPercent)
-    || !finite(policy.maxBaselineAgeMinutes)) {
+    || !finite(policy.maxBaselineAgeMinutes)
+    || (!spendCeilingCleared && !spendCeilingSet)) {
     add("policy_unknown");
   }
   if (!history || !finite(history.changesInLast7d)
@@ -217,6 +230,14 @@ export function evaluateBudgetWritePreflight(
     );
     if (finite(policy.maxChangePercent) && changePercent > policy.maxChangePercent) {
       add("policy_magnitude_exceeded");
+    }
+  }
+  if (policy && request && spendCeilingSet) {
+    if (request.currency !== policy.currency) {
+      add("policy_spend_ceiling_currency_mismatch");
+    } else if (Number.isSafeInteger(policy.maxAmountMinor)
+      && request.intendedAmountMinor > policy.maxAmountMinor!) {
+      add("policy_spend_ceiling_exceeded");
     }
   }
   if (policy && history) {

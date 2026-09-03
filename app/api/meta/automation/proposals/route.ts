@@ -617,6 +617,7 @@ async function approve(input: {
           proposal: runtimeInput.proposal,
           claimToken: claim.claimToken,
           actorUserId: input.access.session.user.id,
+          executionKind: "manual",
           markDispatchStarted: async (marked) =>
             Boolean(await markMetaAutomationProposalDispatchStarted({
               businessId: marked.businessId,
@@ -631,7 +632,28 @@ async function approve(input: {
             decisionNote: null,
             receipt: settleInput.receipt,
             claimToken: settleInput.claimToken,
-          }).catch(() => null),
+          }),
+          forceReconcile: (reconcileInput) =>
+            forceMetaAutomationProposalReconcile(reconcileInput),
+          recordReconciliation: async ({ proposal, claimToken, receipt }) => {
+            const recorded = await appendMetaAutomationReconciliationReceipt({
+              businessId: proposal.businessId,
+              proposalId: proposal.id,
+              providerAccountId: proposal.providerAccountId,
+              decisionKey: proposal.decisionKey,
+              proposedAction: proposal.proposedAction,
+              claimToken,
+              reason: "settle_failed_after_dispatch",
+              facts: providerDispatchFacts({
+                dispatchStarted: true,
+                outcomeKnown: false,
+                ok: false,
+                dryRun: receipt.dryRun === true,
+              }),
+              receipt,
+            });
+            return recorded.status !== "unavailable";
+          },
           recordLedger: async (entry) => {
             await recordProposalLedgerEntry({
               businessId: input.businessId,
@@ -717,6 +739,45 @@ async function approve(input: {
       manual route and the scheduled sweep enter. Settling again would move the
       row a second time and write a second ledger row for one attempt.
     */
+    if (lifecycle.settlementFailed) {
+      const postDispatch = lifecycle.providerDispatchStarted;
+      const anythingDurable = lifecycle.reconciliationHeld
+        || lifecycle.reconciliationRecorded;
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: postDispatch
+              ? anythingDurable
+                ? "proposal_reconciliation_required"
+                : "reconciliation_recording_failed"
+              : "proposal_claim_lost",
+            message: postDispatch
+              ? anythingDurable
+                ? "This approval reached Meta but its terminal proposal row could not be recorded. It was not reported as applied and must be reconciled before any retry."
+                : "This approval reached Meta, but neither the terminal proposal row nor the reconciliation record could be persisted. Use the receipt key below to reconcile before any retry."
+              : "The proposal claim could not be settled. Nothing reached Meta; read the fresh queue state before retrying.",
+          },
+          receipt: lifecycle.receipt,
+          receiptKey: claim.claimToken,
+          proposalStatus: postDispatch
+            ? lifecycle.reconciliationHeld ? "reconcile" : "claimed"
+            : null,
+          reconciliation: {
+            required: postDispatch,
+            held: lifecycle.reconciliationHeld,
+            recorded: lifecycle.reconciliationRecorded,
+            errorCode: postDispatch && !lifecycle.reconciliationRecorded
+              ? "reconciliation_receipt_write_failed"
+              : null,
+          },
+          providerDispatchStarted: lifecycle.providerDispatchStarted,
+          providerOutcomeKnown: lifecycle.providerOutcomeKnown,
+          providerWriteVerified: false,
+        },
+        { status: postDispatch ? anythingDurable ? 502 : 500 : 409 },
+      );
+    }
     return queueResponse({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,

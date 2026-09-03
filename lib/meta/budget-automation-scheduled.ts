@@ -21,11 +21,15 @@ import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-se
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
 import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
-  claimMetaAutomationProposal,
+  claimScheduledMetaAutomationProposal,
+  forceMetaAutomationProposalReconcile,
   markMetaAutomationProposalDispatchStarted,
-  readMetaAutomationProposal,
   settleMetaAutomationProposal,
+  type MetaAutomationProposal,
+  providerDispatchFacts,
 } from "@/lib/meta/automation-proposals";
+import { appendMetaAutomationReconciliationReceipt }
+  from "@/lib/meta/automation-reconciliation";
 import { writeActivityLedgerRow } from "@/lib/meta/automation-control-plane";
 import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
 
@@ -55,7 +59,7 @@ export const BUDGET_SWEEP_ACTOR_USER = BUDGET_SWEEP_ACTOR;
 export async function runMetaBudgetAutomationSweepIfDue(
   now = new Date(),
 ): Promise<BudgetAutomationJobResult> {
-  void now;
+  const nowIso = Number.isFinite(now.getTime()) ? now.toISOString() : null;
   const gates = readMetaReleaseGates(process.env);
   if (gates.automationLiveWrites !== true) {
     return { skipped: true, reason: "release_gate_closed" };
@@ -99,28 +103,6 @@ export async function runMetaBudgetAutomationSweepIfDue(
     if (!row.provider_account_id) continue;
     const providerAccountId = row.provider_account_id;
 
-    /*
-      D088 C2, still true with one exact account per business: `id::text`
-      only, `provider_account_id` no longer needs to travel with each row —
-      the WHERE clause below already scoped every row in this page to the
-      one bound account, so there is nothing left to group by.
-    */
-    const pending = (await getDb().query(
-      `SELECT id::text AS id
-         FROM meta_automation_proposals
-        WHERE business_id = $1::uuid
-          AND provider_account_id = $2
-          AND proposed_action = 'budget'
-          AND status = 'pending'
-          AND expires_at > now()
-        ORDER BY created_at
-        LIMIT 100`,
-      [row.business_id, providerAccountId],
-    ).catch(() => null)) as Array<{ id: string }> | null;
-    // An unread queue is unknown, and unknown does nothing.
-    if (pending === null) continue;
-    const proposalIds = pending.map((proposal) => proposal.id);
-
     const writeContext = await buildMetaBudgetWriteContextForProposal({
       businessId: row.business_id, providerAccountId,
     });
@@ -135,9 +117,9 @@ export async function runMetaBudgetAutomationSweepIfDue(
         contract: BUDGET_SWEEP_CONTRACT,
         ran: false,
         blockers: ["write_context_unavailable"],
-        considered: proposalIds.length,
+        considered: 0,
         executed: 0,
-        skipped: proposalIds.length,
+        skipped: 0,
         withheld: 0,
         failed: 0,
       });
@@ -183,14 +165,101 @@ export async function runMetaBudgetAutomationSweepIfDue(
         ran: false,
         blockers: [!UUID_PATTERN.test(enablingActor)
           ? "enabling_actor_absent" : "account_not_activated"],
-        considered: proposalIds.length,
+        considered: 0,
         executed: 0,
-        skipped: proposalIds.length,
+        skipped: 0,
         withheld: 0,
         failed: 0,
       });
       continue;
     }
+
+    const dailyCap = verdict.dailyAutoActionCap;
+    if (!Number.isSafeInteger(dailyCap) || (dailyCap ?? 0) <= 0 || nowIso === null) {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["daily_auto_action_cap_unavailable"],
+        considered: 0,
+        executed: 0,
+        skipped: 0,
+        withheld: 0,
+        failed: 0,
+      });
+      continue;
+    }
+    /*
+      Approved scheduled receipts are the durable source. Current claims and
+      recent reconciliation holds also reserve capacity, so a second cron run
+      cannot treat an in-flight or ambiguous write as an empty slot. The claim
+      helper repeats this count under a transaction-scoped advisory lock; this
+      first read only bounds the page and provides an early, named refusal.
+    */
+    const usageRows = (await getDb().query(
+      `SELECT count(*)::int AS used
+         FROM meta_automation_proposals
+        WHERE business_id = $1::uuid
+          AND provider_account_id = $2
+          AND proposed_action = 'budget'
+          AND (
+            (status = 'approved'
+              AND decided_at >= $3::timestamptz - interval '24 hours'
+              AND receipt_json->>'executionKind' = 'scheduled')
+            OR status = 'claimed'
+            OR (status = 'reconcile'
+              AND COALESCE(decided_at, claimed_at, updated_at)
+                >= $3::timestamptz - interval '24 hours')
+          )`,
+      [row.business_id, providerAccountId, nowIso],
+    ).catch(() => null)) as Array<{ used: number }> | null;
+    const used = usageRows === null ? null : Number(usageRows[0]?.used);
+    if (!Number.isSafeInteger(used) || (used ?? -1) < 0) {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["daily_auto_action_cap_unavailable"],
+        considered: 0,
+        executed: 0,
+        skipped: 0,
+        withheld: 0,
+        failed: 0,
+      });
+      continue;
+    }
+    const remaining = Math.max(0, dailyCap! - used!);
+    if (remaining === 0) {
+      reports.push({
+        contract: BUDGET_SWEEP_CONTRACT,
+        ran: false,
+        blockers: ["daily_auto_action_cap_reached"],
+        considered: 0,
+        executed: 0,
+        skipped: 0,
+        withheld: 0,
+        failed: 0,
+      });
+      continue;
+    }
+    /*
+      The database page itself is bounded by the remaining allowance. This is
+      before claim and before provider contact; a cap of three cannot turn
+      into a hundred attempted money-changing actions in one sweep.
+    */
+    const pending = (await getDb().query(
+      `SELECT id::text AS id
+         FROM meta_automation_proposals
+        WHERE business_id = $1::uuid
+          AND provider_account_id = $2
+          AND proposed_action = 'budget'
+          AND status = 'pending'
+          AND expires_at > now()
+        ORDER BY created_at
+        LIMIT $3`,
+      [row.business_id, providerAccountId, remaining],
+    ).catch(() => null)) as Array<{ id: string }> | null;
+    // An unread queue is unknown, and unknown does nothing.
+    if (pending === null) continue;
+    const proposalIds = pending.map((proposal) => proposal.id);
 
     const readers = createBudgetServerReaders({
       businessId: row.business_id,
@@ -200,6 +269,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
     });
     const runtime = createBudgetProposalServerRuntime(readers);
 
+    const claimedProposals = new Map<string, MetaAutomationProposal>();
     reports.push(await runBudgetAutomationSweep({
       businessId: row.business_id,
       providerAccountId,
@@ -208,15 +278,19 @@ export async function runMetaBudgetAutomationSweepIfDue(
       dryRunOnly: verdict.dryRunOnly !== false,
       listEligibleProposals: async () => proposalIds.map((id) => ({ id })),
       claim: async (proposalId) => {
-        const claim = await claimMetaAutomationProposal({
+        const claim = await claimScheduledMetaAutomationProposal({
           businessId: row.business_id,
           providerAccountId,
           proposalId,
           // The enabling admin holds the claim: `claimed_by` is a UUID
           // column and the authority for this write is theirs.
           claimedBy: enablingActor,
+          dailyAutoActionCap: dailyCap!,
+          now,
         }).catch(() => null);
-        return claim?.status === "claimed" ? claim.claimToken : null;
+        if (claim?.status !== "claimed") return null;
+        claimedProposals.set(claim.claimToken, claim.proposal);
+        return claim.claimToken;
       },
       /*
         The SAME lifecycle manual approval runs: mark, execute, settle,
@@ -224,9 +298,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
         row as `claimed` with no receipt anybody could read.
       */
       executeProposal: async ({ proposalId, claimToken }) => {
-        const proposal = await readMetaAutomationProposal({
-          businessId: row.business_id, providerAccountId, proposalId,
-        }).catch(() => null);
+        const proposal = claimedProposals.get(claimToken) ?? null;
         if (!proposal) {
           return { ok: false, receipt: { withheld: "proposal_absent" } };
         }
@@ -236,6 +308,7 @@ export async function runMetaBudgetAutomationSweepIfDue(
           proposal,
           claimToken,
           actorUserId: enablingActor,
+          executionKind: "scheduled",
           markDispatchStarted: async (marked) =>
             Boolean(await markMetaAutomationProposalDispatchStarted({
               businessId: marked.businessId,
@@ -253,7 +326,28 @@ export async function runMetaBudgetAutomationSweepIfDue(
             decisionNote: null,
             receipt: settleInput.receipt,
             claimToken: settleInput.claimToken,
-          }).catch(() => null),
+          }),
+          forceReconcile: (reconcileInput) =>
+            forceMetaAutomationProposalReconcile(reconcileInput),
+          recordReconciliation: async ({ proposal, claimToken, receipt }) => {
+            const recorded = await appendMetaAutomationReconciliationReceipt({
+              businessId: proposal.businessId,
+              proposalId: proposal.id,
+              providerAccountId: proposal.providerAccountId,
+              decisionKey: proposal.decisionKey,
+              proposedAction: proposal.proposedAction,
+              claimToken,
+              reason: "settle_failed_after_dispatch",
+              facts: providerDispatchFacts({
+                dispatchStarted: true,
+                outcomeKnown: false,
+                ok: false,
+                dryRun: receipt.dryRun === true,
+              }),
+              receipt,
+            });
+            return recorded.status !== "unavailable";
+          },
           recordLedger: async (entry) => {
             await writeActivityLedgerRow({
               businessId: row.business_id,

@@ -332,6 +332,7 @@ export function buildD088Replay(root: string): D088ReplayReport {
               policy: {
                 maxChangePercent: 25, minHoursBetweenChanges: 12, maxChangesPer7d: 3,
                 maxAccountConcentrationPercent: 40, maxBaselineAgeMinutes: 60,
+                maxAmountMinor: 500000, currency: "TRY",
               },
               history: sources.changeHistory,
               nowMs: cutoffMs,

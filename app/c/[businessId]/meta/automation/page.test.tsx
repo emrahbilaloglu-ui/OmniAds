@@ -154,6 +154,7 @@ const control: MetaAutomationControlPlane = {
       dailyAutoActionCap: 3,
       perActionSpendCeilingMinor: null,
       perActionSpendCeilingCurrency: null,
+      perActionSpendCeilingValid: true,
       notificationPolicy: "every_auto_action",
       maxBudgetIncreasePct: 20,
       maxDailyBudgetChangeMinor: null,

@@ -34,8 +34,11 @@ const deps = (over: Partial<ClaimedExecutionDeps> = {}): ClaimedExecutionDeps =>
   proposal: proposal(),
   claimToken: CLAIM,
   actorUserId: "22222222-2222-4222-8222-222222222222",
+  executionKind: "manual",
   markDispatchStarted: async () => true,
   settle: async () => proposal(),
+  forceReconcile: async () => true,
+  recordReconciliation: async () => true,
   recordLedger: async () => undefined,
   execute: async (beforeProviderPost) => {
     // The executor is what reaches the provider, so it is what fires the
@@ -140,6 +143,37 @@ describe("D088 C2 — one lifecycle, shared by both entry points", () => {
     }));
     expect(ledger).toHaveLength(1);
     expect(result.lostTheRow).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.settledStatus).toBe("reconcile");
+  });
+
+  it("overrides a verified provider success when terminal settlement throws", async () => {
+    const forced: string[] = [];
+    const reconciled: string[] = [];
+    const ledger: string[] = [];
+    const result = await runClaimedProposalExecution(deps({
+      settle: async () => { throw new Error("database unavailable"); },
+      forceReconcile: async ({ claimToken }) => {
+        forced.push(claimToken);
+        return true;
+      },
+      recordReconciliation: async ({ claimToken }) => {
+        reconciled.push(claimToken);
+        return true;
+      },
+      recordLedger: async (entry) => { ledger.push(entry.activityType); },
+    }));
+
+    expect(forced).toEqual([CLAIM]);
+    expect(reconciled).toEqual([CLAIM]);
+    expect(result.ok).toBe(false);
+    expect(result.reconcile).toBe(true);
+    expect(result.settledStatus).toBe("reconcile");
+    expect(result.providerOutcomeKnown).toBe(false);
+    expect(result.settlementFailed).toBe(true);
+    expect(result.reconciliationHeld).toBe(true);
+    expect(result.reconciliationRecorded).toBe(true);
+    expect(ledger).toEqual(["automation_proposal_reconcile"]);
   });
 });
 

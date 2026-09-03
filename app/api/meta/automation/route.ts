@@ -69,7 +69,32 @@ async function persistBudgetAutoExecution(row: {
   providerAccountId: string;
   enabled: boolean;
   decidedBy: string;
+  expectedControlUpdatedAt?: string | null;
 }): Promise<void> {
+  if (row.enabled) {
+    if (!row.expectedControlUpdatedAt) {
+      throw new BudgetAutoExecutionStateChangedError();
+    }
+    const updated = await getDb().query<{ business_id: string }>(
+      `UPDATE meta_automation_business_controls
+          SET auto_execution_enabled = $2::boolean,
+              auto_execution_provider_account_id = $4,
+              updated_at = now(),
+              updated_by = $3::uuid
+        WHERE business_id = $1::uuid
+          AND auto_execution_enabled = FALSE
+          AND kill_switch_engaged = FALSE
+          AND updated_at = $5::timestamptz
+        RETURNING business_id::text AS business_id`,
+      [row.businessId, true, row.decidedBy, row.providerAccountId,
+        row.expectedControlUpdatedAt],
+    );
+    if (updated.length !== 1) {
+      throw new BudgetAutoExecutionStateChangedError();
+    }
+    return;
+  }
+
   await getDb().query(
     `INSERT INTO meta_automation_business_controls
        (business_id, auto_execution_enabled,
@@ -83,6 +108,13 @@ async function persistBudgetAutoExecution(row: {
     [row.businessId, row.enabled, row.decidedBy,
       row.enabled ? row.providerAccountId : null],
   );
+}
+
+class BudgetAutoExecutionStateChangedError extends Error {
+  constructor() {
+    super("The automation control changed after readiness was evaluated.");
+    this.name = "BudgetAutoExecutionStateChangedError";
+  }
 }
 
 async function resolveAutomationAccountScope(input: {
@@ -546,7 +578,7 @@ export async function POST(request: NextRequest) {
         return jsonError(400, "invalid_budget_auto_execution",
           "enabled must be true or false.");
       }
-      const { readiness } = await readBudgetActivationServerRead({
+      const { readiness, controlUpdatedAt } = await readBudgetActivationServerRead({
         businessId: access.membership.businessId,
         providerAccountId: accountScope.providerAccountId,
         env: process.env,
@@ -573,8 +605,21 @@ export async function POST(request: NextRequest) {
           turned off, so the scheduler and the runtime can refuse an account
           nobody activated.
         */
-        persist: persistBudgetAutoExecution,
+        persist: (row) => persistBudgetAutoExecution({
+          ...row,
+          expectedControlUpdatedAt: controlUpdatedAt,
+        }),
+      }).catch((error: unknown) => {
+        if (error instanceof BudgetAutoExecutionStateChangedError) return null;
+        throw error;
       });
+      if (result === null) {
+        return jsonError(
+          409,
+          "budget_auto_execution_state_changed",
+          "Automation controls changed while readiness was being checked. Enablement was not persisted; review the fresh state before acting again.",
+        );
+      }
       if (!result.ok) {
         return NextResponse.json(
           {

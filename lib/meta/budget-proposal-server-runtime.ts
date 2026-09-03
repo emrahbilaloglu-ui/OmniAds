@@ -62,6 +62,8 @@ export interface BudgetServerRuntimeReaders {
     enablingActorUserId?: string | null;
     /** The account the enablement was proven for. */
     enabledProviderAccountId?: string | null;
+    /** Persisted business cap for unattended writes in a rolling 24h window. */
+    dailyAutoActionCap?: number | null;
   }>;
   /** The D087 executor's dependencies, bound to the real journal and adapter. */
   writeDeps(input: {

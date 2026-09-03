@@ -1,25 +1,25 @@
 {
- "manifestHash": "434cb01349c6c2d99d219b84433864a03fa662104e94179ba9e5ec1595c57d36",
+ "manifestHash": "0afdd5131af1b2050f89c08940d6910c82a039144946174f804e4466ab9991a2",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-03T22:32:50.976Z",
+ "generatedAtUtc": "2026-09-03T23:55:37.273Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "7c039edb8256e36ace77b96eec1d6a415c5622b2",
+ "head": "06dcd44db9fa2865faf2deff2cbe98f22f7b19d0",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 2,
+  "aheadOfOriginMain": 3,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 2,
- "releaseDiffEntryCountIncludingSelf": 509,
- "expandedOnDiskCandidateFileCountIncludingSelf": 509,
- "pinnedNonSelfFileCount": 508,
+ "gitPorcelainEntryCount": 35,
+ "releaseDiffEntryCountIncludingSelf": 510,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 510,
+ "pinnedNonSelfFileCount": 509,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 183,
+  "tests_only": 184,
   "runtime": 171,
   "runtime_deletion": 2,
   "deploy_config": 1,
@@ -70,7 +70,7 @@
    "path": ".github/workflows/ci.yml",
    "git": "M",
    "class": "runtime",
-   "sha256": "b541262551b59dbf8b7ca6273249a1e033b65d5de25906d4d230740ab091905d"
+   "sha256": "93e674ec7f627f24b37217fc0dcbda5ab3692f95bd38c187208abfd7aa759043"
   },
   {
    "path": ".gitignore",
@@ -136,7 +136,7 @@
    "path": "app/(dashboard)/platforms/meta/automation/page.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "3eeb2c8a6fa323301057945b99bd4df3e5486e194123a638f69cba558f764a7a"
+   "sha256": "4ed571f95efd25b18f1d5792f539559e094471b1f759d4e24737ceecee9dfd97"
   },
   {
    "path": "app/(dashboard)/platforms/meta/automation/state-history-recovery-section.test.tsx",
@@ -262,13 +262,13 @@
    "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "d987f32e98618cd6ae1b26e6e761241458a25dbfcf3c5deda85efa4dc8665fda"
+   "sha256": "748662a364c3c77b8d727079a2523ce68d7889c307ba3b945a422d43d394bebb"
   },
   {
    "path": "app/api/meta/automation/budget-activation-route.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "2777767a3331820c11fdae99a3764930d6d060fda1230532fc57b561ba9e1158"
+   "sha256": "03a2c0e449bb42fa6a44393cc9508fee1c4ee3c770a2120565682fd276b7777d"
   },
   {
    "path": "app/api/meta/automation/budget-preparation-route.test.ts",
@@ -280,7 +280,7 @@
    "path": "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "52ad87bc8870f03c2fba7fd01cdd297f7e96ac9241d405d0b7b6aa881ee671d1"
+   "sha256": "3017f70e5b5641df02878d5ef22a150971b2cec31c6b9684d391d7aaa464dc4f"
   },
   {
    "path": "app/api/meta/automation/proposals/route.test.ts",
@@ -292,19 +292,19 @@
    "path": "app/api/meta/automation/proposals/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "3a6a6c4fe193df4264d79a20a75832f09ac4577ee589e082442347b4a6429054"
+   "sha256": "180786815271b794e49a912b9f4f6ae7899709523d2ce4b5c8c1846ab2f62a77"
   },
   {
    "path": "app/api/meta/automation/route.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "c01e75aa5f8ff36dc2ff03e65652a38d255a4f7d12b69f8ffdea5203fa13a998"
+   "sha256": "0496e777700d248318a4d293a336208a46b15d394210226e9e81b7be44538a4c"
   },
   {
    "path": "app/api/meta/automation/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "0108728e8721709673fbc13d03430cab93fecdb30fbbc70d3bdb031a13d881f4"
+   "sha256": "ba1c54b176eb77032e4f6c82a093a47458cbf015d69fc9016f7895d7a0a77d36"
   },
   {
    "path": "app/api/meta/campaign-labels/route.test.ts",
@@ -400,7 +400,7 @@
    "path": "app/c/[businessId]/meta/automation/page.test.tsx",
    "git": "M",
    "class": "tests_only",
-   "sha256": "535476d123f9f17ffea657b150a9c6cfdbafd5048a300dcd6a6a6bc42f68f576"
+   "sha256": "08dcccb86ebe8a44dc828692dc90b77a28a522ae071ec509fbaabc2b813ec4ae"
   },
   {
    "path": "app/c/[businessId]/meta/automation/page.tsx",
@@ -910,7 +910,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "fd45949e2a4e373483bb4a4fb219e09a1bc8236d8f6a5955497953ea0ac6ef03"
+   "sha256": "a6e2a4328130bb9f57f0cfb78f3b3d6ea4be8523a5c31d07e8c557583cebb178"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -1612,7 +1612,7 @@
    "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "eddc0c37300c7cf299986ba9d256c90410357057d110937ba6f0a6ea5cae0e01"
+   "sha256": "bcdb154e9b544d5728178f4ce8f2991fb005b5993642225c5ffb5dc2e8bd2548"
   },
   {
    "path": "lib/meta/__tests__/d078-matrix-contract.test.ts",
@@ -1714,13 +1714,13 @@
    "path": "lib/meta/automation-control-plane.test.ts",
    "git": "M",
    "class": "tests_only",
-   "sha256": "4391ef165b83b5feb11f3f03ca5c1db7f2ca5f89c2336d69421e318884074e3e"
+   "sha256": "b2e4f54bc0f3e53ba2e410fa11ccf867fa8cce6c9ad0fa0ff10f8b3d6b25f3b0"
   },
   {
    "path": "lib/meta/automation-control-plane.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "31acf441d30b75ee4cbdf93aba0e5256c6d9b7499b1194f88d363d55e222db7a"
+   "sha256": "acb0aa79f36ddd1c066d1dc401f7f529eca33b37076d5560d2897398796872b9"
   },
   {
    "path": "lib/meta/automation-master-gate.test.ts",
@@ -1741,10 +1741,16 @@
    "sha256": "4100fb85ac6b5f285252a0b6b4417b27dc718851d02d7632c41693b5a2508f08"
   },
   {
+   "path": "lib/meta/automation-proposals.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "18c02a532618eb77376044220ad720df765cfa6211eb0c0a725e39fbe63e8879"
+  },
+  {
    "path": "lib/meta/automation-proposals.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "2e7a921a503b81c04deafa7f96692451ba44e01ba9a433fcda86ab70133e565a"
+   "sha256": "5a0416402c719310964473fbf71b9c2891deb62399e9fba05d82e4072ce0fb82"
   },
   {
    "path": "lib/meta/automation-readiness.test.ts",
@@ -1774,7 +1780,7 @@
    "path": "lib/meta/budget-activation-readiness-server.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "4804fa1a5c9a1319464724543e80e690934a8918093f339ca6accd5282282f27"
+   "sha256": "04e6e5fda01e4af96d5bbf477d586f3cb8f50af30180fdd60f0b70112b61c3e4"
   },
   {
    "path": "lib/meta/budget-activation.ts",
@@ -1810,13 +1816,13 @@
    "path": "lib/meta/budget-automation-scheduled.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "7c83d7700cbee58a34176021f273798a06f6fa66110ddfb0eb907ef7688927d8"
+   "sha256": "907e3fcbdba9830fe4a6688f26cd9db5bd1ec822c4253f54fe0615cff29e9901"
   },
   {
    "path": "lib/meta/budget-automation-worker.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "6e7a78abd30b4961fe8aa403ad9c9e9969687be8e1fb35d5dabf73e5c40fae0d"
+   "sha256": "0b5d132c2c9bceda0ac5ae0d538508941a3e808984e2c728405b9743e77327f0"
   },
   {
    "path": "lib/meta/budget-decision-evidence-panel.test.ts",
@@ -1876,13 +1882,13 @@
    "path": "lib/meta/budget-execution-lifecycle.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "9e90ba8a8416a70b8ace05cfea388631223118aa194966bd293c60961b32c78d"
+   "sha256": "c2013ea7265ee0b80dcd462dd553420b12e6ca05dbd7f1f209a3d7ad90b7fb0c"
   },
   {
    "path": "lib/meta/budget-execution-lifecycle.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "fbb079f8ca25afe9f995bb4729ff9e7a3a7ca41393175ab16d0e58f01a104c56"
+   "sha256": "6418b4ca73730301147af0b361f9eea0763ca24f54cf5225511b8b638d6b3183"
   },
   {
    "path": "lib/meta/budget-fact.test.ts",
@@ -1942,7 +1948,7 @@
    "path": "lib/meta/budget-production-path.c3.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "ec91a38b4e412df445cc0cb8b4149c3d16d5c6f1f587c71b628fef26d46f01a0"
+   "sha256": "58b3abef26930b2d1a8eaf61f7365287e6cc408c7e15d75608a129f69cee60af"
   },
   {
    "path": "lib/meta/budget-proposal-dry-run.authorized.test.ts",
@@ -1972,31 +1978,31 @@
    "path": "lib/meta/budget-proposal-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "acb29c6fa766477b4f902ee7e8d630e267bc7a7602b0435ac1ae3d5d00e90077"
+   "sha256": "e3d147d6e29d6316a180a90a6e19b72660f89bd1875762e91ab0b84155571027"
   },
   {
    "path": "lib/meta/budget-proposal-server-readers.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "b9bb89b9086da5d44dcd8b7f591342d56ad16a8e6b33eb397a70a529efbc5e49"
+   "sha256": "ccc3befcf8a9f6a11d7983972256a3aaae7160d747aaa3be53333250615d307f"
   },
   {
    "path": "lib/meta/budget-proposal-server-runtime.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "9a8caae1a881235e7b0dceb696de4cc1a800330f3d34987de997dbfd99d4bfca"
+   "sha256": "d82f9d2b7efd8d1ee9480bd8abdbb79d95b286d179f90bbf6f8c05bb22e39548"
   },
   {
    "path": "lib/meta/budget-proposal-server-runtime.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "3762f7228e383e2cc2dbd1f816aa28c37969bd90a8a3ed7275495d1a23569167"
+   "sha256": "ecff3eea3dd4ededf90786b6d7a33444e52bb7355798c79324e874228079ec7a"
   },
   {
    "path": "lib/meta/budget-proposal-source-loader.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "bd1b481708a6e9d29d579a39cc4e999eec5101e19300060f57c09db50043af71"
+   "sha256": "0371d29322095de28384dc433c85e0957bf03e1ffa92f9b5aecc1c7b85fceaaf"
   },
   {
    "path": "lib/meta/budget-proposal-write-context.test.ts",
@@ -2062,13 +2068,13 @@
    "path": "lib/meta/budget-write-contract.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "bf5610977fb9ab7de91560dd89e179edded3dc3548e93ab9ccff3c8b3d747ff5"
+   "sha256": "5d839ad0845e7bfa6f82eab0930849af15e4680cbdacf18b1137dd3e790eae83"
   },
   {
    "path": "lib/meta/budget-write-execution.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "19100ac89eb3685a83fd5fcc99d946c65f9a3c0581c991b6ffc012566036a35b"
+   "sha256": "ae654182e43e26c2a1f9841c2dbf4d627ec3ced18aea994022fb85d68c30b00c"
   },
   {
    "path": "lib/meta/budget-write-execution.ts",
@@ -2080,7 +2086,7 @@
    "path": "lib/meta/budget-write-preflight.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "372e19d59de45e85533aabc3bd62f0ab7d575d6de88f661dc1b890d078e0b482"
+   "sha256": "10e0862e2235967b171d948e2ceef0d1b37b8c2546d37e70b8155fe365e6f9d0"
   },
   {
    "path": "lib/meta/budget-write-readiness-server.ts",
@@ -2104,13 +2110,13 @@
    "path": "lib/meta/budget-write-safety-projection.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "2cf0a74860ad83967d98eb838c8f7f48984938c3fabb5698cbb060671e27791b"
+   "sha256": "84f54c9b42e6337b9375f128ceb83d5570635a9d0d38bff6d66f00f8c7277075"
   },
   {
    "path": "lib/meta/budget-write-safety-projection.ts",
    "git": "A",
    "class": "runtime",
-   "sha256": "00b5c964adab6751499c06699c03c6a1680e8ea428a1cb28ec81fd4d8f26c02a"
+   "sha256": "721c643e99ec7a4acfc95fbdf96be45bec7ee541c59fb7fd73cd8c1d7e63eea4"
   },
   {
    "path": "lib/meta/campaign-label-guard.test.ts",
@@ -2692,7 +2698,7 @@
    "path": "scripts/audits/d080-meta-budget-edit-evidence.test.ts",
    "git": "A",
    "class": "tests_only",
-   "sha256": "4b81994ce105302d0b2386210723eda31f02075b4eeb40f872b17645e8420ce4"
+   "sha256": "8db6e54bb663dc1716c0f811a22815e482a7398dd366f962c5e417388e7311ee"
   },
   {
    "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",
@@ -2836,7 +2842,7 @@
    "path": "scripts/audits/d087-budget-write-simulation.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "8f540c9238f603ea5e7a7c83e51e4a6b5c2d319b9ca266fc74fae4a29332c580"
+   "sha256": "2d6261ffce1520976981344126009ec939531d0c7ffa1144e8a7ccb935d55562"
   },
   {
    "path": "scripts/audits/d088-budget-counterfactual-replay.test.ts",
@@ -2848,7 +2854,7 @@
    "path": "scripts/audits/d088-budget-counterfactual-replay.ts",
    "git": "A",
    "class": "audit_script_non_runtime",
-   "sha256": "66c5f49738f6bfd5c180e4da9d2d218f49ea2b3fba3eab84a6f5916e0a2d98fd"
+   "sha256": "d9eff273798ce2dd7612e8ff9973f546ccc2303c2cdfa9e412d15b3b2f0e9162"
   },
   {
    "path": "scripts/audits/serving-freshness-current-preflight.ts",

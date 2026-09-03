@@ -20,6 +20,8 @@ import { campaignContextAuthorityResolverVersion }
 export interface BudgetActivationServerRead {
   readiness: BudgetActivationReadinessInput;
   verdict: BudgetActivationReadinessVerdict;
+  /** Optimistic version of the exact control row used for this verdict. */
+  controlUpdatedAt: string | null;
 }
 
 async function readRows<T extends Record<string, unknown>>(
@@ -128,5 +130,6 @@ export async function readBudgetActivationServerRead(input: {
   return {
     readiness,
     verdict: evaluateBudgetAutomationReadiness(readiness),
+    controlUpdatedAt: control?.businessControl.updatedAt ?? null,
   };
 }

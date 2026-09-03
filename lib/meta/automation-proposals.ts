@@ -46,7 +46,7 @@
  * in this table means exactly one thing: an operator may approve it, and
  * approving calls the existing guarded handler.
  */
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
@@ -190,6 +190,8 @@ export interface MetaAutomationProposalReceipt {
    * other attempt's key.
    */
   receiptKey?: string | null;
+  /** Which authorization path produced this receipt. */
+  executionKind?: "manual" | "scheduled";
   /**
    * Set when the dispatch started and no provider answer was obtained. An
    * ambiguous attempt is never presented as PAUSED or as success.
@@ -1164,6 +1166,77 @@ export type ClaimMetaAutomationProposalResult =
   | { status: "conflict"; current: MetaAutomationProposal | null }
   | { status: "migration_required" }
   | { status: "unavailable" };
+
+export type ClaimScheduledMetaAutomationProposalResult =
+  | ClaimMetaAutomationProposalResult
+  | { status: "cap_reached" }
+  | { status: "cap_unavailable" };
+
+/**
+ * Reserve one unattended budget action under the business/account daily cap.
+ *
+ * The advisory transaction lock makes the count and `pending -> claimed`
+ * transition one serial operation across web/worker processes. Without this,
+ * two cron invocations could both observe one remaining slot and both claim a
+ * proposal. Current claims and recent reconcile rows count conservatively as
+ * reservations until their provider outcome is safe to ignore.
+ */
+export async function claimScheduledMetaAutomationProposal(input: {
+  businessId: string;
+  providerAccountId: string;
+  proposalId: string;
+  claimedBy: string;
+  dailyAutoActionCap: number;
+  now?: Date;
+}): Promise<ClaimScheduledMetaAutomationProposalResult> {
+  const now = input.now ?? new Date();
+  if (!Number.isSafeInteger(input.dailyAutoActionCap)
+    || input.dailyAutoActionCap <= 0
+    || !Number.isFinite(now.getTime())) {
+    return { status: "cap_unavailable" };
+  }
+  if (!(await proposalsReady())) return { status: "unavailable" };
+
+  return runDbTransaction(async () => {
+    await getDb().query(
+      `SELECT pg_advisory_xact_lock(
+         hashtext('meta_budget_daily_cap'),
+         hashtext($1::text || ':' || $2::text)
+       )`,
+      [input.businessId, input.providerAccountId],
+    );
+    const rows = await getDb().query<{ used: number }>(
+      `SELECT count(*)::int AS used
+         FROM meta_automation_proposals
+        WHERE business_id = $1::uuid
+          AND provider_account_id = $2
+          AND proposed_action = 'budget'
+          AND (
+            (status = 'approved'
+              AND decided_at >= $3::timestamptz - interval '24 hours'
+              AND receipt_json->>'executionKind' = 'scheduled')
+            OR status = 'claimed'
+            OR (status = 'reconcile'
+              AND COALESCE(decided_at, claimed_at, updated_at)
+                >= $3::timestamptz - interval '24 hours')
+          )`,
+      [input.businessId, input.providerAccountId, now.toISOString()],
+    );
+    const used = Number(rows[0]?.used);
+    if (!Number.isSafeInteger(used) || used < 0) {
+      return { status: "cap_unavailable" };
+    }
+    if (used >= input.dailyAutoActionCap) return { status: "cap_reached" };
+
+    return claimMetaAutomationProposal({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      proposalId: input.proposalId,
+      claimedBy: input.claimedBy,
+      now,
+    });
+  });
+}
 
 /**
  * Take the row, atomically, BEFORE anything reaches a provider.

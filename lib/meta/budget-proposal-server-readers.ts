@@ -340,6 +340,7 @@ export function createBudgetServerReaders(
         return {
           releaseGateOpen: false, autoExecutionEnabled: false, dryRunOnly: true,
           enablingActorUserId: null, enabledProviderAccountId: null,
+          dailyAutoActionCap: null,
         };
       }
       /*
@@ -394,6 +395,7 @@ export function createBudgetServerReaders(
         enablingActorUserId: activation?.[0]?.updated_by ?? null,
         enabledProviderAccountId:
           activation?.[0]?.auto_execution_provider_account_id ?? null,
+        dailyAutoActionCap: control.businessControl.guardrails.dailyAutoActionCap,
       };
     },
 
@@ -546,7 +548,11 @@ export function createBudgetServerReaders(
           minHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
           maxChangesPer7d: guardrails.budgetMaxChangesPer7d,
           maxAccountConcentrationPercent: guardrails.budgetMaxAccountConcentrationPct,
+          maxAmountMinor: guardrails.perActionSpendCeilingMinor,
+          currency: guardrails.perActionSpendCeilingCurrency,
+          spendCeilingValid: guardrails.perActionSpendCeilingValid,
         },
+        currency: baseline.ok ? baseline.currency : null,
         history,
       });
       const flagFor = (clear: boolean, why: string) => ({
@@ -869,12 +875,23 @@ function policyFromGuardrails(
   if (guardrails.budgetMinHoursBetweenChanges === null) return null;
   if (guardrails.budgetMaxChangesPer7d === null) return null;
   if (guardrails.budgetMaxAccountConcentrationPct === null) return null;
+  if (guardrails.perActionSpendCeilingValid !== true) return null;
+  const spendCeilingCleared = guardrails.perActionSpendCeilingMinor === null
+    && guardrails.perActionSpendCeilingCurrency === null;
+  const spendCeilingSet = Number.isSafeInteger(
+    guardrails.perActionSpendCeilingMinor,
+  ) && (guardrails.perActionSpendCeilingMinor ?? 0) > 0
+    && typeof guardrails.perActionSpendCeilingCurrency === "string"
+    && /^[A-Z]{3}$/.test(guardrails.perActionSpendCeilingCurrency);
+  if (!spendCeilingCleared && !spendCeilingSet) return null;
   return {
     maxChangePercent: guardrails.maxBudgetIncreasePct,
     minHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
     maxChangesPer7d: guardrails.budgetMaxChangesPer7d,
     maxAccountConcentrationPercent: guardrails.budgetMaxAccountConcentrationPct,
     maxBaselineAgeMinutes: 60,
+    maxAmountMinor: guardrails.perActionSpendCeilingMinor,
+    currency: guardrails.perActionSpendCeilingCurrency,
   };
 }
 

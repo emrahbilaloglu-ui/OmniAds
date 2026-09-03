@@ -107,8 +107,11 @@ describe("D088 C1 — the activation route", () => {
     expect(helper).toContain("auto_execution_provider_account_id");
     // Disabling always CLEARS the bound account.
     expect(helper).toContain("row.enabled ? row.providerAccountId : null");
-    // And exactly two callers, one per path.
-    expect(ROUTE.split("persist: persistBudgetAutoExecution").length - 1).toBe(2);
+    // Both paths use the same writer. Enable wraps it only to carry the
+    // optimistic version read with readiness; disable calls it directly.
+    expect(ROUTE).toContain("persist: persistBudgetAutoExecution");
+    expect(ROUTE).toContain("persist: (row) => persistBudgetAutoExecution");
+    expect(ROUTE).toContain("expectedControlUpdatedAt: controlUpdatedAt");
   });
 
   it("the STOP path runs BEFORE account resolution and readiness", () => {

@@ -55,6 +55,7 @@ const payload: MetaAutomationControlPlane = {
       dailyAutoActionCap: 3,
       perActionSpendCeilingMinor: 5000,
       perActionSpendCeilingCurrency: "EUR",
+      perActionSpendCeilingValid: true,
       notificationPolicy: "every_auto_action",
       maxBudgetIncreasePct: 15,
       maxDailyBudgetChangeMinor: null,

@@ -239,12 +239,16 @@ export async function loadBudgetCompositionSourcesForCandidate(
   const policySafety = projectBudgetPolicySafety({
     currentAmountMinor: baseline?.amountMinor ?? null,
     intendedAmountMinor: candidate.targetAmountMinor,
+    currency: baseline?.currency ?? null,
     nowMs,
     policy: {
       maxChangePercent: guardrails.maxBudgetIncreasePct,
       minHoursBetweenChanges: guardrails.budgetMinHoursBetweenChanges,
       maxChangesPer7d: guardrails.budgetMaxChangesPer7d,
       maxAccountConcentrationPercent: guardrails.budgetMaxAccountConcentrationPct,
+      maxAmountMinor: guardrails.perActionSpendCeilingMinor,
+      currency: guardrails.perActionSpendCeilingCurrency,
+      spendCeilingValid: guardrails.perActionSpendCeilingValid,
     },
     history,
   });

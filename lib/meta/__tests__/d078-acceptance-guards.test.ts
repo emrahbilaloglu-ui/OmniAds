@@ -360,8 +360,12 @@ describe("D078 R2 — secret/residue guard", () => {
     return out;
   }
 
+  const OPTIONAL_LAUNCH_CONFIG = join(ROOT, ".claude/launch.json");
   const SCAN_TARGETS = [
-    join(ROOT, ".claude/launch.json"),
+    // The D078 launch entry was removed. A developer may still have an
+    // unrelated ignored launch file locally, but a clean CI checkout has no
+    // `.claude/launch.json`; absence is the compliant state, not a read error.
+    ...(existsSync(OPTIONAL_LAUNCH_CONFIG) ? [OPTIONAL_LAUNCH_CONFIG] : []),
     ...filesUnder(join(ROOT, "scripts/audits")),
     ...filesUnder(join(ROOT, "docs/audits")),
   ];

@@ -36,6 +36,8 @@ export interface MetaAutomationGuardrails {
   dailyAutoActionCap: number;
   perActionSpendCeilingMinor: number | null;
   perActionSpendCeilingCurrency: string | null;
+  /** False only for a corrupt or half-persisted ceiling pair. */
+  perActionSpendCeilingValid: boolean;
   notificationPolicy: "every_auto_action" | "none";
   maxBudgetIncreasePct: number;
   maxDailyBudgetChangeMinor: number | null;
@@ -434,6 +436,7 @@ export const DEFAULT_META_AUTOMATION_GUARDRAILS: MetaAutomationGuardrails = {
   dailyAutoActionCap: 3,
   perActionSpendCeilingMinor: 5000,
   perActionSpendCeilingCurrency: "EUR",
+  perActionSpendCeilingValid: true,
   notificationPolicy: "every_auto_action",
   maxBudgetIncreasePct: 15,
   maxDailyBudgetChangeMinor: null,
@@ -575,6 +578,30 @@ function normalizeGuardrails(
   policy: ControlDbRow,
 ): MetaAutomationGuardrails {
   const record = isRecord(value) ? value : {};
+  const hasCeilingMinor = Object.prototype.hasOwnProperty.call(
+    record,
+    "perActionSpendCeilingMinor",
+  );
+  const hasCeilingCurrency = Object.prototype.hasOwnProperty.call(
+    record,
+    "perActionSpendCeilingCurrency",
+  );
+  const ceilingAbsent = !hasCeilingMinor && !hasCeilingCurrency;
+  const ceilingCleared = hasCeilingMinor && hasCeilingCurrency
+    && record.perActionSpendCeilingMinor === null
+    && record.perActionSpendCeilingCurrency === null;
+  const ceilingMinor = ceilingAbsent
+    ? DEFAULT_META_AUTOMATION_GUARDRAILS.perActionSpendCeilingMinor
+    : Number.isSafeInteger(record.perActionSpendCeilingMinor)
+      && (record.perActionSpendCeilingMinor as number) > 0
+      ? record.perActionSpendCeilingMinor as number
+      : null;
+  const ceilingCurrency = ceilingAbsent
+    ? DEFAULT_META_AUTOMATION_GUARDRAILS.perActionSpendCeilingCurrency
+    : toCurrencyOrNull(record.perActionSpendCeilingCurrency);
+  const ceilingValid = ceilingAbsent || ceilingCleared || (
+    ceilingMinor !== null && ceilingCurrency !== null
+  );
   return {
     minRoasFloor: toFiniteNumberOrNull(policy.min_roas_floor),
     quietHours: toQuietHours(policy),
@@ -591,12 +618,9 @@ function normalizeGuardrails(
     dailyAutoActionCap:
       toPositiveNumberOrNull(record.dailyAutoActionCap) ??
       DEFAULT_META_AUTOMATION_GUARDRAILS.dailyAutoActionCap,
-    perActionSpendCeilingMinor:
-      toPositiveNumberOrNull(record.perActionSpendCeilingMinor) ??
-      DEFAULT_META_AUTOMATION_GUARDRAILS.perActionSpendCeilingMinor,
-    perActionSpendCeilingCurrency:
-      toCurrencyOrNull(record.perActionSpendCeilingCurrency) ??
-      DEFAULT_META_AUTOMATION_GUARDRAILS.perActionSpendCeilingCurrency,
+    perActionSpendCeilingMinor: ceilingMinor,
+    perActionSpendCeilingCurrency: ceilingCurrency,
+    perActionSpendCeilingValid: ceilingValid,
     notificationPolicy: toNotificationPolicy(record.notificationPolicy),
     maxBudgetIncreasePct:
       toPositiveNumberOrNull(record.maxBudgetIncreasePct) ??

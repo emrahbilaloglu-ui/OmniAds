@@ -272,6 +272,8 @@ const preflightInput = (over: Record<string, unknown> = {}) => ({
     maxChangesPer7d: 3,
     maxAccountConcentrationPercent: 40,
     maxBaselineAgeMinutes: 60,
+    maxAmountMinor: 500000,
+    currency: "TRY",
   },
   history: { lastChangeAtMs: null, changesInLast7d: 0, accountConcentrationPercent: 10 },
   nowMs: Date.parse("2026-08-30T10:00:00.000Z"),
@@ -337,6 +339,12 @@ describe("D087 preflight — refusal is the default answer", () => {
     ["a magnitude above the policy limit",
       { policy: { ...preflightInput().policy, maxChangePercent: 5 } },
       "policy_magnitude_exceeded"],
+    ["an intended amount above the monetary ceiling",
+      { policy: { ...preflightInput().policy, maxAmountMinor: 299999 } },
+      "policy_spend_ceiling_exceeded"],
+    ["a monetary ceiling in another currency",
+      { policy: { ...preflightInput().policy, currency: "USD" } },
+      "policy_spend_ceiling_currency_mismatch"],
     ["a change inside the cooldown",
       { history: { ...preflightInput().history, lastChangeAtMs: Date.parse("2026-08-30T04:00:00.000Z") } },
       "policy_cooldown_active"],
@@ -362,6 +370,32 @@ describe("D087 preflight — refusal is the default answer", () => {
     for (const blocker of verdict.blockers) {
       expect(BUDGET_WRITE_PREFLIGHT_BLOCKERS).toContain(blocker);
     }
+  });
+
+  it("treats an explicitly cleared spend ceiling as no ceiling", () => {
+    const policy = {
+      ...preflightInput().policy,
+      maxAmountMinor: null,
+      currency: null,
+    };
+    const verdict = evaluateBudgetWritePreflight(
+      preflightInput({ automationEnabled: true, policy }),
+    );
+    expect(verdict.ok, JSON.stringify(verdict.blockers)).toBe(true);
+    expect(verdict.blockers).not.toContain("policy_unknown");
+  });
+
+  it("fails closed on a half-persisted spend ceiling pair", () => {
+    const verdict = evaluateBudgetWritePreflight(preflightInput({
+      automationEnabled: true,
+      policy: {
+        ...preflightInput().policy,
+        maxAmountMinor: null,
+        currency: "TRY",
+      },
+    }));
+    expect(verdict.ok).toBe(false);
+    expect(verdict.blockers).toContain("policy_unknown");
   });
 
   it("is TOTAL: a hostile input object still refuses rather than throwing", () => {

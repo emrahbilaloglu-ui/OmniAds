@@ -95,8 +95,10 @@ vi.mock("@/lib/meta/automation-proposals", async (importOriginal) => {
       proposals: [], readCompleteness: { proposals: "complete" as const },
     })),
     claimMetaAutomationProposal: vi.fn(),
+    claimScheduledMetaAutomationProposal: vi.fn(),
     markMetaAutomationProposalDispatchStarted: vi.fn(),
     settleMetaAutomationProposal: vi.fn(),
+    forceMetaAutomationProposalReconcile: vi.fn(async () => true),
     countMetaAutomationProposalHolds: vi.fn(async () => 0),
   };
 });
@@ -327,6 +329,10 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
       : [{ business_id: BIZ, provider_account_id: boundAccount }];
   }
   if (text.includes("FROM meta_automation_proposals")
+    && text.includes("receipt_json->>'executionKind'")) {
+    return [{ used: scheduledUsed }];
+  }
+  if (text.includes("FROM meta_automation_proposals")
     && text.includes("proposed_action = 'budget'")) {
     /*
       The queue page, with the real predicate applied: business, THEN the exact
@@ -342,7 +348,8 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
         a.provider_account_id.localeCompare(b.provider_account_id)
         || a.created_at.localeCompare(b.created_at))
       : [...scoped].sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return ordered.slice(0, 100).map((row) => ({
+    const limit = text.includes("LIMIT $3") ? Number(params[2]) : 100;
+    return ordered.slice(0, limit).map((row) => ({
       id: row.id, provider_account_id: row.provider_account_id,
     }));
   }
@@ -374,6 +381,7 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: () => ({ query: (sql: string, params?: unknown[]) => query(sql, params) }),
+  runDbTransaction: (run: () => Promise<unknown>) => run(),
 }));
 
 let activatedAccount: string | null = null;
@@ -383,6 +391,7 @@ let boundAccount: string | null = ACCOUNT;
 let pendingRows: Array<{
   id: string; provider_account_id: string; created_at: string;
 }> = [];
+let scheduledUsed = 0;
 
 const access = await import("@/lib/access");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
@@ -452,6 +461,8 @@ const controlPayload = () => ({
     guardrails: {
       ...DEFAULT_META_AUTOMATION_GUARDRAILS,
       maxBudgetIncreasePct: 25, dryRunOnly: false,
+      perActionSpendCeilingMinor: 500_000,
+      perActionSpendCeilingCurrency: "TRY",
       budgetMinHoursBetweenChanges: 12, budgetMaxChangesPer7d: 3,
       budgetMaxAccountConcentrationPct: 60,
     },
@@ -573,6 +584,29 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     expect(vi.mocked(store.settleMetaAutomationProposal)).toHaveBeenCalledTimes(1);
   });
 
+  it("never reports success when the verified write cannot be settled", async () => {
+    vi.mocked(store.settleMetaAutomationProposal)
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(node(CBO.intended));
+
+    const response = await approve();
+    const payload = await response.json() as {
+      ok?: boolean; error?: { code?: string }; reconciliation?: { required?: boolean };
+    };
+
+    expect(response.status).toBe(502);
+    expect(payload.ok).toBe(false);
+    expect(payload.error?.code).toBe("proposal_reconciliation_required");
+    expect(payload.reconciliation?.required).toBe(true);
+    expect(calls("POST")).toHaveLength(1);
+    expect(store.forceMetaAutomationProposalReconcile).toHaveBeenCalledTimes(1);
+  });
+
   it("a failed final CAS writes no dispatch marker and sends no POST", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(node(CBO.current))
@@ -656,6 +690,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       id: PROPOSAL_ID, provider_account_id: ACCOUNT,
       created_at: "2026-08-31T11:00:00.000Z",
     }];
+    scheduledUsed = 0;
     vi.stubGlobal("fetch", vi.fn());
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
@@ -674,6 +709,11 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     vi.mocked(store.readMetaAutomationProposal).mockResolvedValue(proposal() as never);
     vi.mocked(store.claimMetaAutomationProposal).mockResolvedValue({
       status: "claimed", claimToken: CLAIM,
+      proposal: proposal({ status: "claimed", claimToken: CLAIM }),
+    } as never);
+    vi.mocked(store.claimScheduledMetaAutomationProposal).mockResolvedValue({
+      status: "claimed", claimToken: CLAIM,
+      proposal: proposal({ status: "claimed", claimToken: CLAIM }),
     } as never);
     vi.mocked(store.markMetaAutomationProposalDispatchStarted)
       .mockResolvedValue(true as never);
@@ -689,6 +729,8 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
   });
 
   it("executes with EXACT-account enablement: one POST, settled once", async () => {
+    vi.mocked(store.readMetaAutomationProposal)
+      .mockRejectedValueOnce(new Error("post-claim reread must not happen"));
     vi.mocked(fetch)
       .mockResolvedValueOnce(node(CBO.current))
       .mockResolvedValueOnce(node(CBO.current))
@@ -703,18 +745,41 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     expect(journalRows[0]!.result_class).toBe("verified");
     // The claim, the settle and the journal all name the enabling ADMIN.
     expect(journalRows[0]!.actor_user_id).toBe(ADMIN);
-    expect(vi.mocked(store.claimMetaAutomationProposal).mock.calls[0]![0])
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal).mock.calls[0]![0])
       .toMatchObject({ claimedBy: ADMIN });
+    // The proposal returned by the atomic claim is the execution input. A
+    // second post-claim read could fail and strand the claimed row.
+    expect(vi.mocked(store.readMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(store.settleMetaAutomationProposal).mock.calls[0]![0])
       .toMatchObject({ decidedBy: ADMIN, status: "approved" });
     expect(vi.mocked(store.settleMetaAutomationProposal)).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a post-dispatch settlement failure as failed, never executed", async () => {
+    vi.mocked(store.settleMetaAutomationProposal)
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(node(CBO.intended));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.reports[0]).toMatchObject({ executed: 0, failed: 1 });
+    }
+    expect(calls("POST")).toHaveLength(1);
+    expect(store.forceMetaAutomationProposalReconcile).toHaveBeenCalledTimes(1);
   });
 
   it("an activation proven for ANOTHER account claims nothing", async () => {
     activatedAccount = "act_999";
     const result = await runMetaBudgetAutomationSweepIfDue();
     expect(result.skipped).toBe(false);
-    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
     if (!result.skipped) {
       expect(result.reports[0]!.blockers).toEqual(["account_not_activated"]);
@@ -732,13 +797,13 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       expect(result.reports[0]).toMatchObject({
         ran: false,
         blockers: ["write_context_unavailable"],
-        considered: 1,
+        considered: 0,
         executed: 0,
-        skipped: 1,
+        skipped: 0,
         failed: 0,
       });
     }
-    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(store.settleMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
   });
@@ -776,7 +841,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     const result = await runMetaBudgetAutomationSweepIfDue();
 
     expect(result.skipped, JSON.stringify(result)).toBe(false);
-    const claims = vi.mocked(store.claimMetaAutomationProposal).mock.calls;
+    const claims = vi.mocked(store.claimScheduledMetaAutomationProposal).mock.calls;
     expect(claims).toHaveLength(1);
     expect(claims[0]![0]).toMatchObject({
       proposalId: PROPOSAL_ID, providerAccountId: ACCOUNT,
@@ -790,13 +855,15 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
 
     const queueCall = query.mock.calls.find(([sql]) =>
       String(sql).includes("FROM meta_automation_proposals")
-      && String(sql).includes("proposed_action = 'budget'"));
+      && String(sql).includes("status = 'pending'"));
     expect(queueCall, "the queue query was never issued").toBeDefined();
     const [sql, params] = queueCall as [string, unknown[]];
     expect(sql).toContain("provider_account_id = $2");
     expect(params[1]).toBe(ACCOUNT);
     // Order matters: a filter after the limit would not be a filter.
     expect(sql.indexOf("provider_account_id = $2")).toBeLessThan(sql.indexOf("LIMIT"));
+    expect(sql).toContain("LIMIT $3");
+    expect(params[2]).toBe(3);
     // And the page is no longer selected across accounts.
     expect(sql).not.toContain("ORDER BY provider_account_id");
   });
@@ -811,7 +878,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     // No queue query, no claim, no provider call.
     expect(query.mock.calls.some(([sql]) =>
       String(sql).includes("FROM meta_automation_proposals"))).toBe(false);
-    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
   });
 
@@ -831,7 +898,7 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       expect(result.reports[0]!.blockers).toEqual(["account_not_activated"]);
       expect(result.reports[0]!.executed).toBe(0);
     }
-    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
   });
 
@@ -847,11 +914,37 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
       return baseQuery(sql, params);
     });
     const result = await runMetaBudgetAutomationSweepIfDue();
-    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
     if (!result.skipped) {
       expect(result.reports[0]!.blockers).toEqual(["enabling_actor_absent"]);
     }
     query.mockImplementation(baseQuery);
+  });
+
+  it("bounds the queue by the remaining daily automatic-action allowance", async () => {
+    scheduledUsed = 2;
+    pendingRows = [
+      { id: PROPOSAL_ID, provider_account_id: ACCOUNT,
+        created_at: "2026-08-31T10:00:00.000Z" },
+      { id: "22222222-2222-4222-8222-222222222222",
+        provider_account_id: ACCOUNT,
+        created_at: "2026-08-31T11:00:00.000Z" },
+    ];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(node(CBO.intended));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    expect(vi.mocked(store.claimScheduledMetaAutomationProposal)).toHaveBeenCalledTimes(1);
+    const queueCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("FROM meta_automation_proposals")
+      && String(sql).includes("LIMIT $3"));
+    expect(queueCall?.[1]?.[2]).toBe(1);
   });
 });

@@ -167,6 +167,8 @@ export interface BudgetProposalExecutionReceipt {
   endpoint: string | null;
   withheld: BudgetProposalWithheldReason | null;
   receiptKey: string | null;
+  /** Persisted by the shared lifecycle; absent on pre-D088 receipts. */
+  executionKind?: "manual" | "scheduled";
 }
 
 export interface BudgetProposalExecutionResult {

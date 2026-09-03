@@ -53,6 +53,8 @@ export const D087_SIMULATION_POLICY: BudgetWritePolicy = Object.freeze({
   maxChangesPer7d: 3,
   maxAccountConcentrationPercent: 40,
   maxBaselineAgeMinutes: 60,
+  maxAmountMinor: 500000,
+  currency: "TRY",
 });
 
 interface CensusBusiness {

@@ -24,6 +24,8 @@ export const BUDGET_SWEEP_BLOCKERS = [
   "account_not_activated",
   "enabling_actor_absent",
   "write_context_unavailable",
+  "daily_auto_action_cap_unavailable",
+  "daily_auto_action_cap_reached",
 ] as const;
 export type BudgetSweepBlocker = (typeof BUDGET_SWEEP_BLOCKERS)[number];
 

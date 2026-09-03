@@ -181,6 +181,15 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
     reported green here and failed at runtime as a broken readiness read.
   */
   { table: "meta_entity_state_history", column: "budget_shape_support" },
+  /*
+    PR #272 review: the scheduled budget sweep now SELECTs this column in its
+    enablement query and scopes the whole queue page to it, so a database
+    missing that one ALTER would fail the sweep at runtime rather than here.
+  */
+  {
+    table: "meta_automation_business_controls",
+    column: "auto_execution_provider_account_id",
+  },
   { table: "meta_campaign_label_history", column: "state_hash" },
   { table: "meta_campaign_label_history", column: "business_ref_id" },
   {

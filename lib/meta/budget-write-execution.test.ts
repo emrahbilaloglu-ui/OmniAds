@@ -94,6 +94,8 @@ const deps = (over: Record<string, unknown> = {}) => ({
   governance: {
     verified: true, writeBlocked: false, killSwitchEngaged: false, blockReason: null,
   },
+  // The account's VERIFIED currency, as the write context carries it.
+  accountCurrency: "TRY",
   automationEnabled: true,
   capability: D087_BUDGET_TRANSPORT_CAPABILITY,
   policy: {
@@ -498,5 +500,81 @@ describe("D087 rollback — guarded, exact, and refused on any intervening chang
     } as never, { journalId: "journal-1", actorUserId: ACTOR });
     expect(result.ok).toBe(false);
     expect(result.resultClass).toBe("refused_scope");
+  });
+});
+
+/**
+ * PR #272 review — the currency the adapter verifies against is the ACCOUNT's,
+ * and a request cannot vouch for its own.
+ */
+describe("budget currency: verified account value, not the request's claim", () => {
+  it("hands the adapter deps.accountCurrency, never request.currency", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const d = deps({
+      accountCurrency: "TRY",
+      writeBudget: async (write: Record<string, unknown>) => {
+        seen.push(write);
+        return {
+          ok: true as const,
+          scope: "campaign" as const,
+          entityId: "c_100",
+          budgetField: "daily_budget" as const,
+          verifiedAmountMinor: 300000,
+          verifiedCurrency: "TRY",
+          previousAmountMinor: 250000,
+          responsePayload: { success: true },
+          verificationPayload: { id: "c_100", daily_budget: "300000" },
+        };
+      },
+    });
+
+    const result = await executeBudgetWrite(d as never, rawRequest());
+
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.expectedCurrency).toBe("TRY");
+
+    // The value travelled from the deps, not from the request body: with a
+    // different verified account currency the adapter is told THAT one.
+    const source = (await import("node:fs"))
+      .readFileSync("lib/meta/budget-write-execution.ts", "utf8");
+    expect(source).not.toContain("expectedCurrency: request.currency");
+    expect(source).toContain("expectedCurrency: deps.accountCurrency");
+  });
+
+  it("REFUSES with ZERO provider writes when the request's currency is not the account's", async () => {
+    let writes = 0;
+    const d = deps({
+      // The account really holds TRY; the baseline read reports the same
+      // verified value, because it is now sourced from the account profile.
+      accountCurrency: "TRY",
+      writeBudget: async () => { writes += 1; throw new Error("must not run"); },
+    });
+
+    // A proposal that believes the account is in USD.
+    const result = await executeBudgetWrite(d as never, rawRequest({ currency: "USD" }));
+
+    expect(result.ok).toBe(false);
+    expect(result.resultClass).toBe("refused_preflight");
+    expect(result.blockers).toContain("provider_baseline_currency_mismatch");
+    expect(writes).toBe(0);
+  });
+
+  it("REFUSES with ZERO provider writes when the account currency is unknown", async () => {
+    let writes = 0;
+    const d = deps({
+      accountCurrency: "",
+      // No verified currency means no baseline either — the read that would
+      // have produced one refuses first.
+      readProviderBaseline: async () => null,
+      writeBudget: async () => { writes += 1; throw new Error("must not run"); },
+    });
+
+    const result = await executeBudgetWrite(d as never, rawRequest());
+
+    expect(result.ok).toBe(false);
+    expect(result.resultClass).toBe("refused_preflight");
+    expect(result.blockers).toContain("provider_baseline_unknown");
+    expect(writes).toBe(0);
   });
 });

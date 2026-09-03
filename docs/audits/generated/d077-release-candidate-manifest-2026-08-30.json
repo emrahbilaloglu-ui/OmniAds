@@ -1,34 +1,77 @@
 {
- "manifestHash": "cb4c4eeb968270063724e59236f3431731294387217f49352131658292064287",
+ "manifestHash": "8486ec50bca88f78955b8cc7a2e5b7cafdab70cda8cf36495e8d76b6c85ac671",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-03T19:54:28.929Z",
+ "generatedAtUtc": "2026-09-03T21:26:49.621Z",
  "branch": "codex/meta-disabled-readiness-20260829",
- "head": "babf158e150fd33057117b39b175da044ac62d2e",
+ "head": "5172235ad3d7deb70de1b88d9a6124742fe25390",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "remoteDivergence": {
-  "aheadOfOriginMain": 0,
+  "aheadOfOriginMain": 1,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 378,
- "expandedOnDiskCandidateFileCountIncludingSelf": 503,
- "pinnedNonSelfFileCount": 502,
+ "gitPorcelainEntryCount": 30,
+ "releaseDiffEntryCountIncludingSelf": 509,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 509,
+ "pinnedNonSelfFileCount": 508,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "runtime": 169,
-  "tests_only": 179,
+  "tests_only": 183,
+  "runtime": 171,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 39,
-  "migration": 2,
-  "script_ops_non_request_path": 31,
   "generated_evidence": 55,
-  "audit_script_non_runtime": 24
+  "migration": 2,
+  "audit_script_non_runtime": 24,
+  "script_ops_non_request_path": 31
  },
  "entries": [
+  {
+   "path": ".github/scripts/automation-capability-env-harness.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "b92d83eb3246edb601f311072413d7b68d5c1defd0e977d7ff3c7327efb7f292"
+  },
+  {
+   "path": ".github/scripts/automation-capability-env.sh",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "8b039e07d08d5b7c85683ae1f5559e310f5844a7dd57a743245976a8ea883477"
+  },
+  {
+   "path": ".github/scripts/automation-capability-remote.sh",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "2f652a813c28fa55f2b85df7e079e08e9dd54ff257f1acfac628777f11076364"
+  },
+  {
+   "path": ".github/workflows/automation-capability-toggle-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "373c93d7973520a4bdfa1064c831178d8ef5dea9b5550174fe9f0009044ebd91"
+  },
+  {
+   "path": ".github/workflows/automation-capability-toggle-integration.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "61e21dff68697f3a0fd20c293eab9619dabddc17699fe20fbcf15044aa5add59"
+  },
+  {
+   "path": ".github/workflows/automation-capability-toggle.yml",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "6e591fef099bb3c86173ba9e8d029da7a89863f904bb5cc968d679021dc9aead"
+  },
+  {
+   "path": ".github/workflows/ci.yml",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "5fc8c46081f268e572516340ae04f091e851718d53468202075a2c6140fd2715"
+  },
   {
    "path": ".gitignore",
    "git": "M",
@@ -48,6 +91,42 @@
    "sha256": "558dfcfb32daf040d8f7c1adc056d729860e3575e004451a908f28166d2d8519"
   },
   {
+   "path": "app/(dashboard)/platforms/meta/automation/budget-master-switch-mutation-controls.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "05540f2aa02f60cda7347330e9ae8548ca7625fc4ecd85b15f90c775d31ab72d"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form-interaction.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "6d506ef15faccc8948fca494e184bd5b46e216cc425c8e0b6b1bd81287dc5e0b"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "b3f1738633046d2ce5b42377faa6b232988d5b505878a2df4add0181d3386650"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/budget-readiness-section.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "79891339250ea64dd8942afd6953c883a83ace915108639c6466234763c47611"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/budget-write-readiness-section.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "97e771fbe8e705ceb1f6a2918bcd47cfe7634d3b876df70f43421f3f778f3158"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/automation/legacy-page.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "600861b541f7a02db35187a54627dd3804a5f968a10e6a6fd3e8aec9332b6a87"
+  },
+  {
    "path": "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
    "git": "M",
    "class": "runtime",
@@ -60,16 +139,16 @@
    "sha256": "3eeb2c8a6fa323301057945b99bd4df3e5486e194123a638f69cba558f764a7a"
   },
   {
+   "path": "app/(dashboard)/platforms/meta/automation/state-history-recovery-section.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4594455346b2f35f4d0a64636b41a9ae23a2cf82509d063dd2f54bb0d86c942f"
+  },
+  {
    "path": "app/(dashboard)/platforms/meta/automation/viewer-envelope.ts",
    "git": "M",
    "class": "runtime",
    "sha256": "9f2a05093049acdd11202cbb75b7007f8e04ab844d1c343975009c2014874e2d"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/history/HistoryPage.module.css",
-   "git": "M",
-   "class": "runtime",
-   "sha256": "558b37c60b4f561dd661fef8d9020fa83e540f1331ad42178c24ed51c95a5af1"
   },
   {
    "path": "app/(dashboard)/platforms/meta/history/demo-journal-render.test.tsx",
@@ -78,10 +157,22 @@
    "sha256": "165a2c2f64df9d953ab350658a44df06e16b713ca61e65a8950b0dd2de4b4591"
   },
   {
+   "path": "app/(dashboard)/platforms/meta/history/historical-account-scope.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2351c1f001ee68cf72b94ca726cde190c359e020e4751f30b08fd5bd7cc02c0a"
+  },
+  {
    "path": "app/(dashboard)/platforms/meta/history/history-view.tsx",
    "git": "M",
    "class": "runtime",
    "sha256": "1c5dc5c743ea81dd6add0b4e1e6924bc1ac2cb053b220e105aa9c603aca8eb3f"
+  },
+  {
+   "path": "app/(dashboard)/platforms/meta/history/HistoryPage.module.css",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "558b37c60b4f561dd661fef8d9020fa83e540f1331ad42178c24ed51c95a5af1"
   },
   {
    "path": "app/(dashboard)/platforms/meta/history/page.test.tsx",
@@ -168,6 +259,30 @@
    "sha256": "ac6174890954e67784e7bd791aa55ffb172ac63cd7e413dac3a5a1380bfcfe3b"
   },
   {
+   "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "d987f32e98618cd6ae1b26e6e761241458a25dbfcf3c5deda85efa4dc8665fda"
+  },
+  {
+   "path": "app/api/meta/automation/budget-activation-route.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2777767a3331820c11fdae99a3764930d6d060fda1230532fc57b561ba9e1158"
+  },
+  {
+   "path": "app/api/meta/automation/budget-preparation-route.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "49a2921b59cc5290eb32554158197fd337509b475e00d9efcd558f159d69a192"
+  },
+  {
+   "path": "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "52ad87bc8870f03c2fba7fd01cdd297f7e96ac9241d405d0b7b6aa881ee671d1"
+  },
+  {
    "path": "app/api/meta/automation/proposals/route.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -177,7 +292,7 @@
    "path": "app/api/meta/automation/proposals/route.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "3447fc332062bad1778b01170fcdf476e9efb2b68f551dccf30960e6e72dc060"
+   "sha256": "3a6a6c4fe193df4264d79a20a75832f09ac4577ee589e082442347b4a6429054"
   },
   {
    "path": "app/api/meta/automation/route.test.ts",
@@ -202,6 +317,18 @@
    "git": "M",
    "class": "runtime",
    "sha256": "2370d5f6e2710f79a3910f61e452306f09aef698cbde58b2ae5da8ec94fa61da"
+  },
+  {
+   "path": "app/api/meta/decisions-workspace/drawer-cta.db.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "97e6a60dc10650549b8d006bc8bcfda35addbc849d65aff1d59dcded6beb175c"
+  },
+  {
+   "path": "app/api/meta/decisions-workspace/route.lattice-cta.db.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "0c9ae713b7906eced3f16071b606d1b6ca201ff0292621276c17328ab81367c2"
   },
   {
    "path": "app/api/meta/decisions-workspace/route.test.ts",
@@ -252,6 +379,12 @@
    "sha256": "53d5ff4a78b8f6b8f581a5591f617cb5ebbf97634be37492f05b531c82ea35ca"
   },
   {
+   "path": "app/api/meta/page-status/route.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "a7fc2bc84aac2c9d103c40708d98d692be97c672316a477bd9d6c87da9151656"
+  },
+  {
    "path": "app/api/route-authority.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -276,18 +409,6 @@
    "sha256": "a117f1556967f2916b46bb2dfcb70351729d7b980038fd0010106e91f9b2b582"
   },
   {
-   "path": "components/commercial-truth/CommercialTruthExact.test.tsx",
-   "git": "M",
-   "class": "tests_only",
-   "sha256": "dd4d4ad09e91c861f4c181a25977e640ea84e98b9567ed7348b99106cff4967b"
-  },
-  {
-   "path": "components/commercial-truth/CommercialTruthExact.tsx",
-   "git": "M",
-   "class": "runtime",
-   "sha256": "589c7a8deaa61db9dfa1c8ab03f08f9da944a0dc2dbbe82febaa2cefec431208"
-  },
-  {
    "path": "components/commercial-truth/commercial-truth-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -306,6 +427,18 @@
    "sha256": "933ed94f7d7667adc0ec00ff708c5c801eaad33329c0355f347ace54b43dd016"
   },
   {
+   "path": "components/commercial-truth/CommercialTruthExact.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "dd4d4ad09e91c861f4c181a25977e640ea84e98b9567ed7348b99106cff4967b"
+  },
+  {
+   "path": "components/commercial-truth/CommercialTruthExact.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "589c7a8deaa61db9dfa1c8ab03f08f9da944a0dc2dbbe82febaa2cefec431208"
+  },
+  {
    "path": "components/common/briefing/InsightsPanel.test.tsx",
    "git": "M",
    "class": "tests_only",
@@ -318,10 +451,16 @@
    "sha256": "36ec68cf69bfa3abb870bb3703ea5993594b3f63857381e15944f96a78967116"
   },
   {
-   "path": "components/creatives/CreativeEngineV3EvidenceSection.tsx",
+   "path": "components/creatives/briefing/action-authority.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "06c448008d07b5025ccfea8bc70eda7083ed21668037aac3c38f5270c8c12393"
+   "sha256": "9eb1089a494744f1576011f511fdd144ad5f3e3372d85e3bbdfeb294b4455176"
+  },
+  {
+   "path": "components/creatives/briefing/action-handlers.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "6f4d8a27a98ac18d5efd961f9a5b364cec8bc2decb21661ae111796921c03427"
   },
   {
    "path": "components/creatives/briefing/ActionNowCard.test.tsx",
@@ -346,6 +485,24 @@
    "git": "M",
    "class": "runtime",
    "sha256": "a7a1ba62d8d77666e546e5394f8aaf3b73b411a3fd11771e8a9f2e08379ee70d"
+  },
+  {
+   "path": "components/creatives/briefing/bulk-actions.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "1cc2c589fb625f3ae44eec531f357bb72b72027c944a15a6c0a60c62375572fb"
+  },
+  {
+   "path": "components/creatives/briefing/card-utils.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "12e6169a52e9fc0110edba764c6253151c0d21a554ed668d51fc9494c5870c55"
+  },
+  {
+   "path": "components/creatives/briefing/card-utils.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "5525f96d3f911fd2592fb3eb8df651e19d4d9eae704f1f15741db7f77ed17517"
   },
   {
    "path": "components/creatives/briefing/CompareDrawerHost.test.tsx",
@@ -378,42 +535,6 @@
    "sha256": "e27ba77786aef8e0832722d404a5f5ebd0db3dfdf4518112f12a2535a79fff44"
   },
   {
-   "path": "components/creatives/briefing/WatchingCard.test.tsx",
-   "git": "M",
-   "class": "tests_only",
-   "sha256": "816039c12a6b3e9fb43518aea6237c1e72a790dc85f60ac49710fb18f7f6c6c3"
-  },
-  {
-   "path": "components/creatives/briefing/action-authority.ts",
-   "git": "M",
-   "class": "runtime",
-   "sha256": "9eb1089a494744f1576011f511fdd144ad5f3e3372d85e3bbdfeb294b4455176"
-  },
-  {
-   "path": "components/creatives/briefing/action-handlers.test.ts",
-   "git": "M",
-   "class": "tests_only",
-   "sha256": "6f4d8a27a98ac18d5efd961f9a5b364cec8bc2decb21661ae111796921c03427"
-  },
-  {
-   "path": "components/creatives/briefing/bulk-actions.test.ts",
-   "git": "M",
-   "class": "tests_only",
-   "sha256": "1cc2c589fb625f3ae44eec531f357bb72b72027c944a15a6c0a60c62375572fb"
-  },
-  {
-   "path": "components/creatives/briefing/card-utils.test.tsx",
-   "git": "M",
-   "class": "tests_only",
-   "sha256": "12e6169a52e9fc0110edba764c6253151c0d21a554ed668d51fc9494c5870c55"
-  },
-  {
-   "path": "components/creatives/briefing/card-utils.tsx",
-   "git": "M",
-   "class": "runtime",
-   "sha256": "5525f96d3f911fd2592fb3eb8df651e19d4d9eae704f1f15741db7f77ed17517"
-  },
-  {
    "path": "components/creatives/briefing/launchpad-bridge.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -432,6 +553,12 @@
    "sha256": "4b94b0c10309ad1a8c286d7674ac6e28d1799de04bdd59ac3cc659a341ce03dd"
   },
   {
+   "path": "components/creatives/briefing/WatchingCard.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "816039c12a6b3e9fb43518aea6237c1e72a790dc85f60ac49710fb18f7f6c6c3"
+  },
+  {
    "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -444,22 +571,46 @@
    "sha256": "74af5c07853741a2c836f5938f75c03efc5047e18c83e882482aba99f884ac2c"
   },
   {
-   "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
+   "path": "components/creatives/CreativeEngineV3EvidenceSection.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "2beec068364608632e77d425849bc25490f885c73026443337040f5592f8ed98"
+   "sha256": "06c448008d07b5025ccfea8bc70eda7083ed21668037aac3c38f5270c8c12393"
   },
   {
-   "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-   "git": "M",
+   "path": "components/meta/decision-center/account-coverage-strip.test.tsx",
+   "git": "A",
    "class": "tests_only",
-   "sha256": "d4154c26adf2c9854eee67f37c6692f18b0648ac2fd41cba4eb2ee26c7a16471"
+   "sha256": "6a19ae46ca2981388c3f52599bf5905da515d1bf7e3e90c958fac18669de9363"
   },
   {
-   "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-   "git": "M",
+   "path": "components/meta/decision-center/assigned-account-tri-state-adapter.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "cc8c6026ba967fcbf68f6d0150d964ad47115a8150bf2e6d907332b0c8b07582"
+  },
+  {
+   "path": "components/meta/decision-center/BudgetDecisionEvidencePanel.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "879d04affc46d3aa484fe40f967d5a09b4aa0ed23123166ceee06878f65a5808"
+  },
+  {
+   "path": "components/meta/decision-center/BudgetDecisionEvidencePanel.tsx",
+   "git": "A",
    "class": "runtime",
-   "sha256": "21718f493beb5202e3df54cc7d9bf89e4276d28f3264077cf5280f7e010b1170"
+   "sha256": "4fc469efd96adb0815aa99aaac9ec18567b85860abbf4173fc02abeab7e4604c"
+  },
+  {
+   "path": "components/meta/decision-center/BudgetDryRunPanel.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "27e94d93942a547c4b0383a7c4f22d1d2bd5cd3c1be20d237ad61fd71ab838e9"
+  },
+  {
+   "path": "components/meta/decision-center/BudgetDryRunPanel.tsx",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "3d3e639f0ff1b9be573918ade8b131be30f6229ad836930dba7b90f4a3c09d25"
   },
   {
    "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
@@ -480,10 +631,46 @@
    "sha256": "ba29f6632fe138895deeb00b81a5939aed9fe8d10dc2f22d655ef7ed94d8b4dd"
   },
   {
+   "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "2beec068364608632e77d425849bc25490f885c73026443337040f5592f8ed98"
+  },
+  {
+   "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "d4154c26adf2c9854eee67f37c6692f18b0648ac2fd41cba4eb2ee26c7a16471"
+  },
+  {
+   "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "21718f493beb5202e3df54cc7d9bf89e4276d28f3264077cf5280f7e010b1170"
+  },
+  {
    "path": "components/meta/decision-center/served-field-probe.ts",
    "git": "M",
    "class": "runtime",
    "sha256": "4c0bfbd70212f91625b609a35dccd99d2cbde0d0fe15806d4be8f5debe9d32ce"
+  },
+  {
+   "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "a567e3cf95eb7e9f2e741fb8867cd1ecbd688063e070ba2778e0f1d7c7b3aed5"
+  },
+  {
+   "path": "components/meta/redesign/meta-native-ad-pause.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "d076728085b4b43a6202a0d7b28c985fe2dee03cb8c1bd8ff5b8ba8e0e5ef797"
+  },
+  {
+   "path": "components/meta/redesign/meta-native-ad-pause.ts",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "9304b966ee2469b7b1aabf4dc683680ab2a75ef3ce91a7e6996cca02db74074b"
   },
   {
    "path": "components/meta/redesign/MetaActionCard.tsx",
@@ -522,16 +709,10 @@
    "sha256": "ef5fd752ad5f9f620a0e6b22c327de1101feb9fe97e2de6d233655c558e74bd6"
   },
   {
-   "path": "components/meta/redesign/meta-native-ad-pause.test.ts",
-   "git": "M",
+   "path": "components/meta/redesign/mobile-budget-evidence-projection.test.tsx",
+   "git": "A",
    "class": "tests_only",
-   "sha256": "d076728085b4b43a6202a0d7b28c985fe2dee03cb8c1bd8ff5b8ba8e0e5ef797"
-  },
-  {
-   "path": "components/meta/redesign/meta-native-ad-pause.ts",
-   "git": "M",
-   "class": "runtime",
-   "sha256": "9304b966ee2469b7b1aabf4dc683680ab2a75ef3ce91a7e6996cca02db74074b"
+   "sha256": "6e2c8d8256bb6d070da341a63f017316f3f261a9d1bf907688ba8ade068d417d"
   },
   {
    "path": "components/meta/redesign/types.ts",
@@ -564,6 +745,492 @@
    "sha256": "72cda4830f8577a5e570acd9b7f0dff6acfaa58918689d5950cb304af58210f8"
   },
   {
+   "path": "docs/audits/AUTOMATION_OFF_READBACK_2026-09-03.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "010ce4da7283f78aedb5ed3ec981de627b23371761a83cf33ede4c0beac2e095"
+  },
+  {
+   "path": "docs/audits/AUTOMATION_RELEASE_POSTURE_2026-09-03.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "bf2974e9412bc0d605aa8e2eb73bd3424cfb8f5d4c81df3962569813f81a5e9c"
+  },
+  {
+   "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "d6842e6a2c677a9a1e098b16ff7af0ed1b15cb0743254b197048345699671502"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "ddea5e6cacc4d5991603add8db0ee02a9bab57ea781490d2b10324f66f76e66d"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "fac881de3bf4e7285fdca5fe25b6d26d103c61171e0ebfdc0a69002c2f504d9d"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_1_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "5d9e8de06ec098ee7a1e0e6e8590977f417e719678b6f75efa1f8d79873a3cef"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_2_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "da22e9b9e110109f8574627d6ab0fc3d91619681f5ff4a816395f7fbd2ab9b07"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_3_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "0c1599943ee9967ef65f0c1b484e9aa45518ef2568362f941ec7454451a00574"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_4_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "968366de896909ac0895339aa35bd4013d546cc16f637be13f85e7d889adf1db"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_5_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "464997c5d0ef892c1271ba42d0a7a6cb678a65aea412010c1a0c108f67f23f45"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_6_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "4257f116659dd7f383bca6d7509bec298d263cf7e301b132bedfd4a397d5d10c"
+  },
+  {
+   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_7_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "3e402717474920eb8a91f64fc628984a339150ff22c1d2f1bd9131ba3729b85a"
+  },
+  {
+   "path": "docs/audits/D077_STATE_HISTORY_COMPACTION_HARDENING_ACCEPTANCE_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "090098ae7fcad93c653015e7adb6aba9fbeeadc0515651a8a4c53b9b7903822d"
+  },
+  {
+   "path": "docs/audits/D078_CORRECTION_3_CODEX_INDEPENDENT_ACCEPTANCE_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "99f6f1fbd736e7a03030335aa964dc3031cf1be1a818bbc2c85f2a94549e5368"
+  },
+  {
+   "path": "docs/audits/D078_SIX_BUSINESS_META_DECISION_UI_READINESS_ACCEPTANCE_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "80fb1d9221eb2d70b5c8ff39d89f53d5c27f3ab052844bc66867674dfa711c32"
+  },
+  {
+   "path": "docs/audits/D080_META_BUDGET_EDIT_EVIDENCE_AND_CONTRACT_2026-08-31.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "9dc0b385538d683ada7d9e0cfec2684b8540c0eafa87d583e929781de6bc1f3e"
+  },
+  {
+   "path": "docs/audits/D080B_META_BUDGET_POLICY_SIMULATION_2026-09-01.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "1b06d998e15714c99d6c14158871f2de1da3e4f993eb3e673b2bf939f76dd063"
+  },
+  {
+   "path": "docs/audits/D081_META_BUDGET_CAPABILITY_FOUNDATIONS_2026-09-01.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "cbe02fc153bcf91000a97f430e6079f092361db4d815e8c26928e2f2a8722f85"
+  },
+  {
+   "path": "docs/audits/D082_META_ROLE_PROVENANCE_REPLAY_2026-09-01.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "5340fc545c2771f87524b6850cca4b6d3668d4cdc6def10142487e738914bd2b"
+  },
+  {
+   "path": "docs/audits/D083_META_BUDGET_FACT_OBSERVATION_2026-09-01.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "53efe423220e5b876f0ff9676038ec486cddeea7b6c3f94070a24a39eb931390"
+  },
+  {
+   "path": "docs/audits/GENERALIZED_PIT_REPLAY_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "81f0ba6434bdf2ee0d07be640e3ddd5618859b7b3d53b92209a522549bf2019e"
+  },
+  {
+   "path": "docs/audits/generated/commercial-anchor-counterfactual-2026-08-31.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "33aad581fc578c863880cc2710428ed1c0500957ed986ba2b99c1cf0ab03f8f8"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-08-30.log",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "a55e9f431112c557e2c3c41c6d06b4f70ab5e0b929239288243cf91575cec880"
+  },
+  {
+   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653"
+  },
+  {
+   "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "e499297d50712514e06af27c3cf2f42924c5ced4be4965df7b9c3211978f17df"
+  },
+  {
+   "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "fdec4f3eb4e064067e6015914399af5658d8f20dd9e619e617d8000231094b2c"
+  },
+  {
+   "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "eb9c94fb37a6eea131de16e5866206b21c6b22fabe805bb7faa7b4056f5a1cd1"
+  },
+  {
+   "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "fd45949e2a4e373483bb4a4fb219e09a1bc8236d8f6a5955497953ea0ac6ef03"
+  },
+  {
+   "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "c08c95a12a66d04ea0f56822041d25e3c43ef8c00ecfe57c6a0c472fb1074ee8"
+  },
+  {
+   "path": "docs/audits/generated/d078-local-ui-acceptance-matrix-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "dd210e78b5ea572e1f24afa0f86f10515183348e77b07f4f6cde81eca540d388"
+  },
+  {
+   "path": "docs/audits/generated/d078-six-business-evidence-bundle-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "9c0d83aa4541849b43096056b95f686c9673169c461d8ebb97ebb3dd86db7b47"
+  },
+  {
+   "path": "docs/audits/generated/d080-meta-budget-edit-evidence-2026-08-31.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "d4a1898aba14bcb2a37ae60a335f207eb668df13d37619bdffb44330da4d7a69"
+  },
+  {
+   "path": "docs/audits/generated/d080b-meta-budget-policy-simulation-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "b46e6aa80c75aec0ebc724f2b8fcc288cda611353e9924a85504d3e498d155df"
+  },
+  {
+   "path": "docs/audits/generated/d081-meta-budget-capability-foundations-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "5514023bbad12923651b1a59810bf1ce2684f4361cac8bfcb0148033bbb402b3"
+  },
+  {
+   "path": "docs/audits/generated/d082-meta-role-provenance-replay-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "bc4d06d0ea2b2e1ef22d8016e7f4a5191ad633657140564b21c3adb48480868e"
+  },
+  {
+   "path": "docs/audits/generated/d083-meta-budget-fact-observation-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "af8f8a9e1ea7e609af067f42b51a2a7950ffede7b4479ed49ce77769af214584"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r2.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "2d2f3f3796689e2b081424fcb23c53d8268946a21cd822481581e4013b8a822a"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r3.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "b13c108eaf859062b2b3dd5d31387db2c65781fe659e119ded3b773ef5a99df5"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r4.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "bf857fb178927b59f2f3a748f7ffeb485fb95b4a7bf62cadd3f614d976278ddd"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r5.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "d7395b1c0ca4d824de3e7cf2d127d340af67466645a32510f1b290b89e7ee840"
+  },
+  {
+   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r6.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "517780847ea93128d16406e75751e203034f7990fa5fbe34550d3f5c9f8c5b23"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "4f728bef6c91ac5345d4f3b7c44c262c647f734d2c12547cef7dc4343bf4d18c"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r10.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "3c73cc02866f1b39b3deacfc46bb2b669bb34f4d6ab93109b71c886825342185"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r11.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "245dcfac0ef48eae9e9962774edbabce3c8fb0567805646f0a99d0de6f025d00"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r12.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "7c992a40267142d959d1ee0786e7d15cf6414a685a5d2a76f236883da249070d"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r13.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "150277bab191a92ea68a82bf6cb258cbc8d87b9e116947679c5d1864365342cc"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r14.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "4ae8676b7a65bab4306e4960625c5c075a137c9dd91bd7363069fa0b5f1625dd"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r15.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "26523fcb7ab1ec09a469b6ec6777f2c93c1068033348745c456af85c6aee0862"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r16.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r2.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "0495c156fcc2cf84eacf6c1a93b0efd7ac5fda2bcaed1159c5696181732af86d"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r3.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "2848f8423b1875ddc2ab9d6910ce64172e2a29fc1478b53cb4246b50c45a4220"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r4.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "992f0a599a6ddf41131511023b20112973fd502a9c2db8acffa13d1035b65dc9"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r5.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "a55a091ac3cb157b5389bbc65e418129cb54fffe800d41ded0e3902da2c6799f"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r6.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "6771eb63574ba8d410809c62fc54394d93606622c2153adbf5e30d4abd311d32"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r7.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "b9e65b3d885fe2eb852c6ad2ed181a420cf66c2a6a33b29cab543ab7dd592c02"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r8.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "6652bc4b599f3281ae1f4fde63a8584f23835ad2fce09208908ae2c59d98e260"
+  },
+  {
+   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r9.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "3442f8c5ff506ee036ac549317702c6f7ff7c3f68a19abbfc94b4d77aae1565a"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "d6216d89ceade39d1a16a393bfda4f677c537931190fbfdde0f913e51a23a522"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r2.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "1915eb3841a81f9546fed71a2b29f475a521e0dc4e54095a605a6cff99e27517"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r3.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "cb7dded3085ecc38f127fa3eff421d3aa396091b0a680f2f6e9b3238fe731d5b"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r4.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "4c572c9ec9357da307bdc319aa2a2d8cfa936a6c759134029541d5a70b6dea4c"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r5.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "6aa7f005009f64c4ff7df72f6c50868222c179fcea2fdc910db49280165b1430"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r6.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "9cd35ee3316a680e0e1a77838c86edb688132cb12657cf1a67b9e7dacbb2a03a"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r7.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "c1a2b954ae983ee398118aa53a867bf36ce3f6f1a2e7ecea5cdd824ccdeb0b91"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r8.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "34841229bd1aa07de587d1c241eca6a97fb603b8a7c5fcbacb32893747166270"
+  },
+  {
+   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r9.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "3317ab7425f9adba7e5664a8dbb8a566bc1d27e2fff4c7e54d9bca7048706ffe"
+  },
+  {
+   "path": "docs/audits/generated/d086-live-census-2026-09-02.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "4f3519bc8badb311aeae7ff7f37730a8527e5fa1065856c0d247ea0f60abd8cb"
+  },
+  {
+   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "6340a0d72620facf7b11ce80e1ed3f8269cc3075286bbfd42616cd9a96616477"
+  },
+  {
+   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r2.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "80e5670a95c3ea3d37667d43f4145afcd0f044bcfed65a6121c5edb93f7add29"
+  },
+  {
+   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r3.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "5da7c564154d0e5b92a0df387e44df2ccb5b4d0005d92bf0aca683382f9f2a32"
+  },
+  {
+   "path": "docs/audits/generated/generalized-pit-replay-evidence-2026-08-30.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "56f4472ba94363987a0c9854d3a20dbcd23a89dc9e9037f773e822e2be4ddfe1"
+  },
+  {
+   "path": "docs/audits/generated/serving-freshness-current-preflight-2026-09-03.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "b5a5ef7d05cb8e4af8e20a178cf78f8ba67c78eedf685be9269162753f180687"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_CLAUDE_CROSS_REVIEW_2026-08-29.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "445b6a36cc0a7827bbf927dcf99b16ba5cb330ff83125c02583a385f3e3fc5b7"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_CLAUDE_INDEPENDENT_2026-08-29.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "2de7204623d1dfcc5baddbf6c45d695009fad04eaa14a0f9885f424fd3795d26"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_CODEX_CROSS_REVIEW_2026-08-29.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "6d8c94959b3745fbd034c922e936f13938fa9e3448a6a14934613b41a77da749"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_CODEX_INDEPENDENT_2026-08-29.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "55a461c016a24e06cce981a1032959f8b94b2c2ad8fbf7cafcad99c36adec173"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_RECONCILED_2026-08-29.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "a6251607b05c37edfe442da0b04267f5ee847d25cb0b3995ecff3a41b2986f08"
+  },
+  {
+   "path": "docs/audits/META_DECISION_SYSTEM_RETROSPECTIVE_COMPLETENESS_AUDIT_2026-08-30.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "6c0d7c62123fd682779cc976dc81a7f100889f9d5149c6c4cfab62c1b658a9d6"
+  },
+  {
+   "path": "docs/audits/PRE_DEPLOY_RELEASE_MANIFEST_2026-09-03.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "d0453c731306bac1bb99594d7db90965e37177ff8a5b9b9337d5e9d40a244daa"
+  },
+  {
+   "path": "docs/creative-decision-center/AUTOMATIC_CAMPAIGN_CONTEXT_SHADOW_ACCOUNT_SCOPED_2026-06-01_TO_2026-08-21.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "6255dd6a5c9830a81c3ba310343bc4521436f2040472f583a4a5d90e4b587953"
+  },
+  {
    "path": "docs/creative-decision-center/AUTOMATIC_CAMPAIGN_CONTEXT_SPEC_2026-07-06.md",
    "git": "M",
    "class": "docs",
@@ -588,10 +1255,40 @@
    "sha256": "db97aea91a062bf565a2d1f9721b189c8d0075dc2beee4f602a1f3ca574cbc95"
   },
   {
+   "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "f27f6cbe6437c2c8ecd3dff93ea24f9d91356403057d5253a17abc30b91cf13f"
+  },
+  {
+   "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-eval.json",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "a99bd6c7cc0a11f57b48408ddfa6c7cab45ea505cfe58ec28842af2bc7ab4585"
+  },
+  {
+   "path": "docs/creative-decision-center/generated/h11b-train-diagnosis.md",
+   "git": "A",
+   "class": "generated_evidence",
+   "sha256": "01da97e8475153176545ab1fde9cb02606c5c6b9093d66ec40e4fa728be87138"
+  },
+  {
    "path": "docs/creative-decision-center/GOLDEN_CASES.md",
    "git": "M",
    "class": "docs",
    "sha256": "104abafeb1d9242e27dcfe733fb8a1bf585dca1c068a564191c38f4bb5092b67"
+  },
+  {
+   "path": "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_V2_POSTHOC_REGRESSION_2025-12-01_TO_2026-07-05.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "4173828805aa4365e42287f25b94085dfc27350b0705036572770b4520f65880"
+  },
+  {
+   "path": "docs/creative-decision-center/H11B_CONTEXT_LIFECYCLE_CHALLENGER_2026-06-15_TO_2026-08-22.md",
+   "git": "A",
+   "class": "docs",
+   "sha256": "723b5490d8697c93613e80e278c5cb292a171fedc1d86a54e5251160ae60fb85"
   },
   {
    "path": "docs/creative-decision-center/INVARIANTS.md",
@@ -664,6 +1361,24 @@
    "git": "M",
    "class": "tests_only",
    "sha256": "36978e1ed1fadf5a3b9a0ebe0b0cf7058207767b02585e5b1bbc4cf88ed8e7d6"
+  },
+  {
+   "path": "lib/creative-decision-engine/__tests__/anchor-profile-fixture.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "5306d233c3ac7ac3fc0de3ab717a634bf87435f9c274ae28fdd9a4a22e5ec65a"
+  },
+  {
+   "path": "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "5673a2d073335b9a1b02ca4d5dadc4df04775466cc7909364aafeaa69fbcdd43"
+  },
+  {
+   "path": "lib/creative-decision-engine/__tests__/campaign-context-resolver-v3.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4ee890a6183b5c3e4d81a1ae707ea0c81c9c2c64d1c1a54e45a3a356db36eaa4"
   },
   {
    "path": "lib/creative-decision-engine/__tests__/campaign-context-source.test.ts",
@@ -744,10 +1459,22 @@
    "sha256": "366423c6397a38ea209a8effec7cdb73d4ae4976061bb60afaf70cb14cd71485"
   },
   {
+   "path": "lib/creative-decision-engine/campaign-context/d081-name-authority.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e5c5c21206ce636c79f0d7d6cfafbaa58da3476008b881770254286addce613e"
+  },
+  {
    "path": "lib/creative-decision-engine/campaign-context/data.ts",
    "git": "M",
    "class": "runtime",
    "sha256": "548b6d5e51513c530392f50641e32c6116bf5756e2bf5e148009a0a2048e7715"
+  },
+  {
+   "path": "lib/creative-decision-engine/campaign-context/resolver-v3.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "19a5990b975dd63c17fe850132ab5f2eecff1014381ad76aa938053c4288ca8b"
   },
   {
    "path": "lib/creative-decision-engine/campaign-context/resolver.ts",
@@ -772,6 +1499,18 @@
    "git": "M",
    "class": "runtime",
    "sha256": "74b4cf10280ec0eed5484dec647b334b91ff0552a89575087ec32af110872f4f"
+  },
+  {
+   "path": "lib/creative-decision-engine/commercial-anchor.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "286a7e81809b6fe0cd8888ebd2fce1b7e975bedaa27ff75da857fdefcfbd2a5e"
+  },
+  {
+   "path": "lib/creative-decision-engine/commercial-anchor.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "643a65a4210a6c1d619640f0d431000a45ba3badfc4fbec54a35577eada39b63"
   },
   {
    "path": "lib/creative-decision-engine/data-source.ts",
@@ -840,10 +1579,136 @@
    "sha256": "c43807e5de594cddfdef7609751b310590feccdceb115f43388cab6d325fd405"
   },
   {
+   "path": "lib/currency/iso-4217-minor-units.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "87f558d1ea1a82dd9f5b796550dac72547024d968d3d7e83482cb513db2c654f"
+  },
+  {
+   "path": "lib/currency/iso-4217-minor-units.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "f858aa11a2a9358a38836d8fccbbd28fe7cedc3261a13a2180b9043b18f6cb1a"
+  },
+  {
+   "path": "lib/meta/__tests__/campaign-labels-isolation.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2ad0674f0270684d8061cdb9ed82b87cf3f73f48a4fefa42b4aaa5d7bf895c69"
+  },
+  {
+   "path": "lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "47d6420551dab0cf4b020140e61559914cc2aa2bfb073d53826395b2c2b7228b"
+  },
+  {
+   "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "825f7b0b1e461b5414412a3f8a210dba2563626a8b7d22cc7f38a812d06285f8"
+  },
+  {
+   "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "eddc0c37300c7cf299986ba9d256c90410357057d110937ba6f0a6ea5cae0e01"
+  },
+  {
+   "path": "lib/meta/__tests__/d078-matrix-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e8474ff0b7fd574d35b5893923f7d470dfe61901b0738df303a6cacc0f1de4aa"
+  },
+  {
+   "path": "lib/meta/__tests__/observation-receipt-occurrence.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "b620ab2aed4728b3a757c48748f33c4a2c6ee491ff2edd2f16fe33ff4f8341c9"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-compaction-counts.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "7573ce9bf91d12d88ef3312f0ff73f2b4d98bbea2c79c70781c23e6fea2b2d63"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-compaction-hash-binding.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "15fafff8c6ad1bcc590616b17408e4c8d2b7a0f419619e3451a9391568183f94"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-compaction-isolation.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "a853c3a2dedd53c5a79647c20d966f6ec25f70dbeffdfd96745b27eb3b4bdb2b"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-compaction-planner-counts.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "c53c78822e30aea66ef38fc21ea1be41061264ab2389e801856e12344fdb43ee"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-compaction-readiness.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "ea711b8ee64fee74b9a51cf786d8c4b9b95ab7a27d36e9f0a77f7a41093cb1c1"
+  },
+  {
+   "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "5ea297cbfd6e0deabf798b7f8894b37aff621eded1b9f57f27c3bb57f4359f73"
+  },
+  {
+   "path": "lib/meta/account-context.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "c37641ddd4c27d77688be9ce26227d6e918405a2640d9ceff453c0a8feb1d777"
+  },
+  {
+   "path": "lib/meta/account-context.ts",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "effe90fdfc6ea7db7c6e772df8860fdd4ec1ca4f7c4a2caef592a2f659f73c13"
+  },
+  {
    "path": "lib/meta/ads-write.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "0098b25dc9fbe59bd04effdb3738cf73c09c552b0866cca7ff1a5686e811b246"
+   "sha256": "f80b174a22bf873aed635ed24ec5ef393d4bac232ac20be47e80bc5886d551f7"
+  },
+  {
+   "path": "lib/meta/assigned-account-states.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "3b5fe6f19b6a60afe1386632e838c75c8e084e50fd8b20639daebaeb19b53be6"
+  },
+  {
+   "path": "lib/meta/automation-capability-orchestrator.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "8be2300c3be2821fdec5ebeac5efa291768d1e24909eb61a88119a12fb25406a"
+  },
+  {
+   "path": "lib/meta/automation-capability-orchestrator.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "f903197869cb1ee7dd9dad7a759da15b318bdfe6c41398de310f67a82f28b3a4"
+  },
+  {
+   "path": "lib/meta/automation-capability-preflight.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e852bffc9a38abf650c1a9182b111cf27b64daadd687f817ca5bd54ede6130f6"
+  },
+  {
+   "path": "lib/meta/automation-capability-preflight.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "9ca186a32adf2aa5e0414f64d17466c2dba0f8816a10b066996dd8bcd83179b5"
   },
   {
    "path": "lib/meta/automation-control-plane.test.ts",
@@ -856,6 +1721,12 @@
    "git": "M",
    "class": "runtime",
    "sha256": "31acf441d30b75ee4cbdf93aba0e5256c6d9b7499b1194f88d363d55e222db7a"
+  },
+  {
+   "path": "lib/meta/automation-master-gate.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "3bf4a03f399bcde93c74b1380fa787f10ca87fe6dc89976087a232c1705e1df3"
   },
   {
    "path": "lib/meta/automation-proposal-execution.test.ts",
@@ -888,6 +1759,360 @@
    "sha256": "feb2d049b5e3d95f5d00a81d52c229489ed1d5ed2c4f599cb26e42c366f5dc2a"
   },
   {
+   "path": "lib/meta/automation-release-posture.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "148efcfc14cd7e82c22ee55aa048661d1d4ccbb5c9596f798568f80a2974f8b6"
+  },
+  {
+   "path": "lib/meta/automation-release-posture.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "f97f5300a28e874e5fbe7151347215393591ace61e7ebfe9e5260a9c2b0a4280"
+  },
+  {
+   "path": "lib/meta/budget-activation-readiness-server.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "4804fa1a5c9a1319464724543e80e690934a8918093f339ca6accd5282282f27"
+  },
+  {
+   "path": "lib/meta/budget-activation.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "5b9118249e3b9e3fccbb3f4dd50833e8a688999e46521a21c85fe9c8980671ab"
+  },
+  {
+   "path": "lib/meta/budget-automation-config-contract.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "264899587b92fadfcfe996e5209691f5104f9fc3a11336dd5bf042d96846ec32"
+  },
+  {
+   "path": "lib/meta/budget-automation-configuration.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "508eacd1e1eb1ca0b5e1de662bc3919e92fd808d8257022d6b10a8cac7c1a585"
+  },
+  {
+   "path": "lib/meta/budget-automation-configuration.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "8c6619a87a20940c29809e1b69cd1a5f7157b1a8c5be9f155770d6755fb96e15"
+  },
+  {
+   "path": "lib/meta/budget-automation-runtime.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "02c34fc10967cf2fb0a90dcb8ce5ce7e5a36f7f351dbaf1204840d4dbfcedc5a"
+  },
+  {
+   "path": "lib/meta/budget-automation-scheduled.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "7c83d7700cbee58a34176021f273798a06f6fa66110ddfb0eb907ef7688927d8"
+  },
+  {
+   "path": "lib/meta/budget-automation-worker.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "6e7a78abd30b4961fe8aa403ad9c9e9969687be8e1fb35d5dabf73e5c40fae0d"
+  },
+  {
+   "path": "lib/meta/budget-decision-evidence-panel.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e8373c9c67f40acacaef39790a3e22b88267d5c65b8396e10cf000ec7ae3a0c7"
+  },
+  {
+   "path": "lib/meta/budget-decision-evidence-panel.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "0fc891281bc325667ab3cfc6aca4390d19ff0a1d26d92fea5e827925f7517eba"
+  },
+  {
+   "path": "lib/meta/budget-decision-gates.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "30221fa0176ea76ed622c53b38f63a492ac3bb8f95051d07ff3464f2d0f016f0"
+  },
+  {
+   "path": "lib/meta/budget-decision-gates.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "b2c1940252d1c4ace1f484c75d5432f244dc3c3ed33960385a33476bdb3a5dbe"
+  },
+  {
+   "path": "lib/meta/budget-decision-workspace-adapter.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "d79b644e61e6cd1bd12f0fd568fbc2df6da0e95ec26ff9ef83b643ae7faeef0b"
+  },
+  {
+   "path": "lib/meta/budget-decision-workspace-adapter.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "ae260d603b8b845863c85a4dc7c6fbd1a357bdbb754e2af728dd65027237f60e"
+  },
+  {
+   "path": "lib/meta/budget-dry-run-panel.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "83f1c8384f5e69e5d9810cd666fb76907183b7ace446a700d33448e83f9fc6df"
+  },
+  {
+   "path": "lib/meta/budget-execution-composition.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "ff8f3ba6df20f96f4b53d1d2040969860ff9e6b4da1da126247235a38012ad6e"
+  },
+  {
+   "path": "lib/meta/budget-execution-composition.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "414dbb21d1187a1009fd34e30212f85fae2c6f4e0a01ab43ccf1d4d30b609eee"
+  },
+  {
+   "path": "lib/meta/budget-execution-lifecycle.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "9e90ba8a8416a70b8ace05cfea388631223118aa194966bd293c60961b32c78d"
+  },
+  {
+   "path": "lib/meta/budget-execution-lifecycle.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "fbb079f8ca25afe9f995bb4729ff9e7a3a7ca41393175ab16d0e58f01a104c56"
+  },
+  {
+   "path": "lib/meta/budget-fact.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "c2c8c8c1a766edcd490d6edc40f85a26f5d7ef542e69d23a288a9279871e5f48"
+  },
+  {
+   "path": "lib/meta/budget-fact.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "baa38be8ff6e3ad581387ed6d7513617f1fd3f106fd00bd8b7b7edd9654164a9"
+  },
+  {
+   "path": "lib/meta/budget-intent-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "c790da751a7a1132cf84110000d2a8fdaa7363a0b427d629a6b2f795dbf246cc"
+  },
+  {
+   "path": "lib/meta/budget-intent-contract.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "e674b77e3b907ca9926454238e22af5a55d3f340898931daaf6152eab29e1a08"
+  },
+  {
+   "path": "lib/meta/budget-no-fabricated-defaults.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "a4fda7fc7f8da3b642092cc4ab059e7a128a4ef3c3f27c3c5fcc9fab5d8fbd57"
+  },
+  {
+   "path": "lib/meta/budget-observation-projection.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "0d5d9de5c0d7c2cacb982034b5796bd7f123defb06746c8e8c1f0889f94977c9"
+  },
+  {
+   "path": "lib/meta/budget-preparation-contract.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "1ff038fc48a89214e136025cc5d5020c346c6888e596bdcf0156add7d7db340d"
+  },
+  {
+   "path": "lib/meta/budget-preparation-read.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "93f63ddcc42d07871d31693abf58b57e521ac84c5b9c6ec0ba45033dd79e571e"
+  },
+  {
+   "path": "lib/meta/budget-preparation-read.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "14263546b512c2aec0a5db9673085e5caf1fd394f6e4f3aae75301988aa421ff"
+  },
+  {
+   "path": "lib/meta/budget-production-path.c3.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "ec91a38b4e412df445cc0cb8b4149c3d16d5c6f1f587c71b628fef26d46f01a0"
+  },
+  {
+   "path": "lib/meta/budget-proposal-dry-run.authorized.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "6804dfdf1b60e2133be524941d4922cd7d12a351f8426f38961c5be7e7cdc602"
+  },
+  {
+   "path": "lib/meta/budget-proposal-dry-run.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "10d14aa1b90d5eb8dbdf74b7cf90106c9781d22a8b1002b83affb193551c1e18"
+  },
+  {
+   "path": "lib/meta/budget-proposal-dry-run.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "63bfc9ae94a51d1c6532610f76a381f04bec37795694ed9eb6e18afbd2222e59"
+  },
+  {
+   "path": "lib/meta/budget-proposal-producer.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "e096d90b85200a7dd5cfb2a94a5c01f7463dedebd6c3187675133bd45a3369ea"
+  },
+  {
+   "path": "lib/meta/budget-proposal-runtime.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "acb29c6fa766477b4f902ee7e8d630e267bc7a7602b0435ac1ae3d5d00e90077"
+  },
+  {
+   "path": "lib/meta/budget-proposal-server-readers.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "b9bb89b9086da5d44dcd8b7f591342d56ad16a8e6b33eb397a70a529efbc5e49"
+  },
+  {
+   "path": "lib/meta/budget-proposal-server-runtime.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "9a8caae1a881235e7b0dceb696de4cc1a800330f3d34987de997dbfd99d4bfca"
+  },
+  {
+   "path": "lib/meta/budget-proposal-server-runtime.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "3762f7228e383e2cc2dbd1f816aa28c37969bd90a8a3ed7275495d1a23569167"
+  },
+  {
+   "path": "lib/meta/budget-proposal-source-loader.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "bd1b481708a6e9d29d579a39cc4e999eec5101e19300060f57c09db50043af71"
+  },
+  {
+   "path": "lib/meta/budget-proposal-write-context.test.ts",
+   "git": "??",
+   "class": "tests_only",
+   "sha256": "801ef966bf65443e2deb76475632ebf108ced9f712d839944b408e2b80f359ee"
+  },
+  {
+   "path": "lib/meta/budget-proposal-write-context.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "9eb37c3ad29af440aa48a7776ff973e10a45eec66126dc7daf41af0edf763b30"
+  },
+  {
+   "path": "lib/meta/budget-readiness-read-model.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "686e5578a284ce1682b7fe0ff2b0acbe1bb9d7ed246a7bfb3b99b98d14d83ebf"
+  },
+  {
+   "path": "lib/meta/budget-readiness-retention.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "97ce53051839fcc4e1c0ca9c6e4145fc22f66f49822d0a77af7c718d2e532a29"
+  },
+  {
+   "path": "lib/meta/budget-readiness-retention.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "2fed5f61905515d1acf07d5e64b2bb94119091d8dadcc3250ea41966ddc4df23"
+  },
+  {
+   "path": "lib/meta/budget-schema-verification.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "074d3ea86ebabb70997fe1bca04d1018c73c2244a5eeb9e40d288d9e4a07b2b2"
+  },
+  {
+   "path": "lib/meta/budget-schema-verification.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "3defbf4d2a2377fbb0590cab8c64ba6290310789e538d2c5e1cf655a184321a7"
+  },
+  {
+   "path": "lib/meta/budget-write-adapter.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e7b5a80b649ac9e6f83038aafeaad21599bb355275ece15f956fed1fdc04db9c"
+  },
+  {
+   "path": "lib/meta/budget-write-authority.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "fe7fe0be48ccd7d9697c196b6b5039b116edd81aa11193a29152d8840172f1ba"
+  },
+  {
+   "path": "lib/meta/budget-write-capability.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "7f4403a22dc183f8f2f5cc05afa02d29bb2f431c082dae6265dda4fb179e335e"
+  },
+  {
+   "path": "lib/meta/budget-write-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "bf5610977fb9ab7de91560dd89e179edded3dc3548e93ab9ccff3c8b3d747ff5"
+  },
+  {
+   "path": "lib/meta/budget-write-execution.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "19100ac89eb3685a83fd5fcc99d946c65f9a3c0581c991b6ffc012566036a35b"
+  },
+  {
+   "path": "lib/meta/budget-write-execution.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "c2f233dd4bb0822aecbedee70530cf55d996d478ec6ae4e991b260af1aabd7d9"
+  },
+  {
+   "path": "lib/meta/budget-write-preflight.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "372e19d59de45e85533aabc3bd62f0ab7d575d6de88f661dc1b890d078e0b482"
+  },
+  {
+   "path": "lib/meta/budget-write-readiness-server.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "511dd5ee77ad9682132e5198938f83b4d198b2319f974891e4c62465acb1ebd9"
+  },
+  {
+   "path": "lib/meta/budget-write-readiness.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "a41aa28b38e708a07f07c327a14397751d8142bd6722b6db1e8f3f8353fd6e0e"
+  },
+  {
+   "path": "lib/meta/budget-write-request.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "78f3198dc030f547d550eb237d4454b7731b87f7f57556afc37f359f493f84be"
+  },
+  {
+   "path": "lib/meta/budget-write-safety-projection.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2cf0a74860ad83967d98eb838c8f7f48984938c3fabb5698cbb060671e27791b"
+  },
+  {
+   "path": "lib/meta/budget-write-safety-projection.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "00b5c964adab6751499c06699c03c6a1680e8ea428a1cb28ec81fd4d8f26c02a"
+  },
+  {
    "path": "lib/meta/campaign-label-guard.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -918,10 +2143,40 @@
    "sha256": "8c43c6e76a1265b4731be838591c3ce9783b45dce99ed3ff2cb1a3ae56212c55"
   },
   {
+   "path": "lib/meta/campaign-role-authority.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "dbaa4e2bc19f0bd7fc329b5937ee32af58c922a77c02a24369376a6358a68156"
+  },
+  {
+   "path": "lib/meta/campaign-role-authority.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "041c7249837965f15f11c4275001351c89b567b2ab23f2dbc2790e935bd9ffea"
+  },
+  {
+   "path": "lib/meta/commercial-anchor-panel.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2e14237e8803a9bad7d5eaacd9532fb4284afc4bc08d12533f8c0af6e9df0b88"
+  },
+  {
+   "path": "lib/meta/commercial-anchor-panel.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "a03e6c50e09f47c38394afcaf0f5b6076f9ecf936a2303e5b2c272a5db7b14cb"
+  },
+  {
    "path": "lib/meta/commercial-targets.ts",
    "git": "M",
    "class": "runtime",
    "sha256": "f1fe607bf68904aebf6421458272e5753154baa73696c93bbabcda1474b80e0c"
+  },
+  {
+   "path": "lib/meta/d081-runtime-consumers.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4a014cfdd30d221b88950491fa6e77d03f24e483672f2706374cecf7c0a5b49e"
   },
   {
    "path": "lib/meta/decision-ctr-scalar-units.test.ts",
@@ -940,6 +2195,18 @@
    "git": "M",
    "class": "runtime",
    "sha256": "e5d014cc17c0f859e43ca530857a512f5dbd0e445e2eacb9a13f56b1d964c5ba"
+  },
+  {
+   "path": "lib/meta/decision-pipeline-health.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "792bfcad8923a07506a739ffa2ac97530ddada7c751ebe861c25a4d012792fe9"
+  },
+  {
+   "path": "lib/meta/decision-pipeline-health.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "e0a33eb567f5f0f33d5a49aacce49f55d374b067fce2963091afcc5ce2c9da4d"
   },
   {
    "path": "lib/meta/decision-semantics.test.ts",
@@ -1008,10 +2275,16 @@
    "sha256": "78e24c71aa2c8f0362121601fc92b8b83fa77b794bed103d0d4b28a98dc3cb8a"
   },
   {
+   "path": "lib/meta/entity-state-history.test.ts",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "a2054c2bdd98a5133637fb473186030f57e5b71d7a40149cd5157ecb6554e5a9"
+  },
+  {
    "path": "lib/meta/entity-state-history.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "8716bb716bcabb94f6ca68c54fc86faf1f9bc5267e63ae259093c940a411af2c"
+   "sha256": "3408274081de2acf1839c108fb7791e089581d5cb6762bcb990326fb11410c62"
   },
   {
    "path": "lib/meta/funnel-cohort.ts",
@@ -1080,6 +2353,24 @@
    "sha256": "9a72d3efd47106c7b3d02d3fd4fc2ff99900fb567850dffca7132b8981cfc584"
   },
   {
+   "path": "lib/meta/point-in-time-policy.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "c15c924e0b7c987fc71f25386c8a4ff6713e7bd533825ba07a087ad26d2e0abc"
+  },
+  {
+   "path": "lib/meta/provider-readback-contract.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "3fe08d5ae41226d8e26dd94a00b8c413629ec98a9958b24e4b1df054aced1d25"
+  },
+  {
+   "path": "lib/meta/provider-readback-contract.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "52662bdb7d05d99a9e856dc7883c5374d7bda6e443b644bfad528bf184e99e19"
+  },
+  {
    "path": "lib/meta/read-state-contract.ts",
    "git": "M",
    "class": "runtime",
@@ -1098,6 +2389,12 @@
    "sha256": "098b96bc6b4a1e8ca254198b5e5b58718d6d2ecb22eea20943c6eb9d667b0a61"
   },
   {
+   "path": "lib/meta/runtime-schema.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "06fa006ac95902942a9001631b3a1b1648b3557b7a4bc68104593d3d391672b8"
+  },
+  {
    "path": "lib/meta/snapshot.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -1108,6 +2405,24 @@
    "git": "M",
    "class": "runtime",
    "sha256": "a1be58cc8a4b86bdd08b031512bbe11d779cb2c191b5b40217bb67a717277dc8"
+  },
+  {
+   "path": "lib/meta/state-history-compaction-executor.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "60df5f661b8c4d45a92e8af2b19148fef8fe4b5796d90c71dd47a125ec1b72cc"
+  },
+  {
+   "path": "lib/meta/state-history-compaction-readiness.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "76cec4fe84742fc27331b5a9c8fb27789c7c17e46fa03afae7935d93f811cb82"
+  },
+  {
+   "path": "lib/meta/state-history-compaction.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "0c36ba04c94da85cc33a633f58c3f63f9253f079cf1595c764f944a578cabb27"
   },
   {
    "path": "lib/meta/watching-segments.ts",
@@ -1176,6 +2491,18 @@
    "sha256": "a15fb84bf1b6983e587b0119bb6d926e39cc250de4a1d29a7c4dedddbf711e09"
   },
   {
+   "path": "lib/sync/state-history-effective-size.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "cdadce2d5a49773a87588f2b0993d33e7300fac82ab9c57cb20124435c579eb5"
+  },
+  {
+   "path": "lib/sync/state-history-effective-size.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "d4d36f2330eb2d33d76b2ed202cdb7bd2a55d1d145f8d16c80902457b29e3807"
+  },
+  {
    "path": "lib/user-facing-report-cache-owners.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -1236,6 +2563,54 @@
    "sha256": "75dec64c31084df1d230ed08ffaee56908258e79eaa0af5542bc1cb96b59107f"
   },
   {
+   "path": "playwright/.evidence/d084-authenticated/authenticated-desktop-1440-cta.png",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "83c1b603bcbb01dec255d3bf509b824ee5cf138c1215dd57871243993002cce4"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/authenticated-desktop-1440.png",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "3b105078cd11947c38fa11917753b70afa4b8a25109773846d726110e7121be6"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/authenticated-mobile-390-decrease.png",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "dc09ca8f080e9e14067bf304a7b7b07193028737485584ba0db5ade39f6b54e9"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/authenticated-mobile-390.png",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "2bc519c84a8a0b0066dc306b3dbdcbd42b13796240b70966ba659c3e0a01a527"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/layout-authenticated-desktop-1440.json",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "5724fda327ac9521d2ffaf45eb4ed7b6a7dd64bb818f988a10fcdb79d20074f5"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/layout-authenticated-mobile-390.json",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "a8837e3185d12c75ddeee1858fed1adc13850f303661ed6eef4d38e391e02379"
+  },
+  {
+   "path": "playwright/.evidence/d084-authenticated/README.md",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "9d02b0320f3f0eeab581d29362672d8975fad935d7c142b09d1e114866404d0a"
+  },
+  {
+   "path": "playwright/tests/d084-budget-evidence-responsive.spec.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "53bd330edfb003c7aba5c3a6fa566dbdae665b153d0ac21a727f7684d893a58e"
+  },
+  {
    "path": "playwright/tests/full-ui-redesign-smoke.spec.ts",
    "git": "M",
    "class": "runtime",
@@ -1246,6 +2621,252 @@
    "git": "M",
    "class": "runtime",
    "sha256": "0cf137bbfcfd7cae6d08cfc0f8b8be29c4bf7b28ca886e6bf29f8708dfc0a7fd"
+  },
+  {
+   "path": "scripts/audits/canonical-digest.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "44f7b7ecbc603126be6b84e5aa012396398614679f8c9d88cca8265eb1a21541"
+  },
+  {
+   "path": "scripts/audits/d077-correction1-artifact-generator.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "cb3e40bce77f276667213ee49d52f08044e3de07d5b3626caaddcf9448e322df"
+  },
+  {
+   "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "d6295aec4b16c86a2e3e0f11c02450203874d7f4fe628d9878188c088f99d7dc"
+  },
+  {
+   "path": "scripts/audits/d077-provenance-contract.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "beb2c11f29e5ba05751bb3046e20acf5e840969c78b82679b6157a3e473339ef"
+  },
+  {
+   "path": "scripts/audits/d077-whole-shell-proof.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "8737a5eb35cf001302e561f9814da73e157809d2df9404fa4b22b17d68af73cf"
+  },
+  {
+   "path": "scripts/audits/d078-hard-action-recompute.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "ecbd3d738ff400cc28b014d3ff80c9222f8940c16dae3971fc272d515c1027d5"
+  },
+  {
+   "path": "scripts/audits/d078-lattice-seed.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "7e00aa770e350f2e5b76cd2a3fbc94118d4fe96578ed93269657450db2338bef"
+  },
+  {
+   "path": "scripts/audits/d078-local-ui-ephemeral-harness.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "c6705a97e5161329b1873e52b99b23b3bc4a415af023cb838a8217ce4b55df8c"
+  },
+  {
+   "path": "scripts/audits/d078-matrix-contract.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "18f41ad44226ed33299ff63643badb3bc3d59534c091a16d2af83acd9c74ea5f"
+  },
+  {
+   "path": "scripts/audits/d078-route-cta-runner.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "a244a859c2d6edd1fa09adeb98777d2251d3b7e15ac02c47d9a5a50d4f37d960"
+  },
+  {
+   "path": "scripts/audits/d078-six-business-evidence-bundle.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "a6d28cbafe659e799ca5d72ab26bff5b10f40f04da924544076bffa422c2fd57"
+  },
+  {
+   "path": "scripts/audits/d080-meta-budget-edit-evidence.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4b81994ce105302d0b2386210723eda31f02075b4eeb40f872b17645e8420ce4"
+  },
+  {
+   "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "4fb1398412384b5e08dcac4e79336c4ee3db19bdd9e07f7bf451a89ce26230f9"
+  },
+  {
+   "path": "scripts/audits/d080b-memory-architecture.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "7d506af49b5b8812e8fd4494c0c52c188a679bf206ef55f117feea56775f555c"
+  },
+  {
+   "path": "scripts/audits/d080b-meta-budget-policy-simulation.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "41755d688f4b9d77c35840af99cd9baca00b4ea0e4a77bd43f6d831f9f93c942"
+  },
+  {
+   "path": "scripts/audits/d080b-meta-budget-policy-simulation.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "52b11d96e1fa8e596f84d04a07feb922b3113d082c0963ed65db4e33b323ecc9"
+  },
+  {
+   "path": "scripts/audits/d081-meta-budget-capability-foundations.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "893ab7a794385ec51adad812bcbe16bc1e4bd19c71171fcaed2c2b89588d9445"
+  },
+  {
+   "path": "scripts/audits/d081-meta-budget-capability-foundations.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "51cf084915cc97f067012f61a481ac54300c03fe176b1f726f19362caf2fb3b4"
+  },
+  {
+   "path": "scripts/audits/d082-clean-checkout-inventory.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "8294a25b5aa573b5a481865d14e7348874ced4c4eb71aa35d37b8c8a7e7dcac0"
+  },
+  {
+   "path": "scripts/audits/d082-meta-role-provenance-replay.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "7d4d4e8cfd9b75e9b3e52a626a18c22f3ccd46791e5ec01d39f9b55ddf5fb060"
+  },
+  {
+   "path": "scripts/audits/d082-meta-role-provenance-replay.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "6fc9474c89134486d74ea5aeb8d42a95bbb93943e879db77c6678056cdad17c3"
+  },
+  {
+   "path": "scripts/audits/d083-meta-budget-fact-observation.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "329c9d2ceb31ead97d0f8b6a2a48b9e11210f0c1dc3e80cc1475853d2f1e6d48"
+  },
+  {
+   "path": "scripts/audits/d083-meta-budget-fact-observation.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "9c9e8132610355c7dbb63f8512314230ea40918fb4b46d7589410835eeffed02"
+  },
+  {
+   "path": "scripts/audits/d084-commercial-target-evidence.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4cd332e424f8bf18e8d272bbfde07328139f050ed2e3faf1c17084e69a38bfca"
+  },
+  {
+   "path": "scripts/audits/d084-commercial-target-evidence.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "5c223275db7e1e6624c8b2729b565b338dee50da25a2b6ceb9dc6cc10ef76dfb"
+  },
+  {
+   "path": "scripts/audits/d084-evidence-receipts.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "e409ad4b7777e86b737d7680047a09fabe6af02c3042e41f9125d872b591b49a"
+  },
+  {
+   "path": "scripts/audits/d084-independent-oracle.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "a3e2b754356627e57d3ecdd9e4313b188d0f7d17d40f5aed679fb5846b562a70"
+  },
+  {
+   "path": "scripts/audits/d084-pinned-sources.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "11ed6925eafb141c32ad21043cfb39d28cded73592e4b91502d3a6a179a52b25"
+  },
+  {
+   "path": "scripts/audits/d084-pinned-sources.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "f4c0defcb352755b1f09a8144db4a20e07a6a1b1517f2cf8bf5294ec51d59556"
+  },
+  {
+   "path": "scripts/audits/d084-possible-worlds.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "f714dfe53b6641e8d5117b6a807486a75016a8a2ba0d5c146a7b1031d6fee962"
+  },
+  {
+   "path": "scripts/audits/d085-budget-proposal-dry-run.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4eca7db11466ca9efcce6bacd68b0cff71f934abaa3883de4926db30a29a05a3"
+  },
+  {
+   "path": "scripts/audits/d085-budget-proposal-dry-run.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "03d42bcbc930322f46e6fece5e73ae75ce96201d254f3dfbd92cc18e7b09485f"
+  },
+  {
+   "path": "scripts/audits/d086-budget-readiness-input-pack.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "972f387d1eccc16c3efb55311cbf7376fce3d0b2fe5c4f76a3989d13bfad69a6"
+  },
+  {
+   "path": "scripts/audits/d086-budget-readiness-input-pack.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "e58a6ced3f8232248721e1e5ab5917751c21e38a70786427e29e674b92059dd3"
+  },
+  {
+   "path": "scripts/audits/d087-budget-write-simulation.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "34098f9b9a70f92ae7c0bcd9355567c8a3518dd0c009efd6bcb04ebe807c6548"
+  },
+  {
+   "path": "scripts/audits/d087-budget-write-simulation.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "8f540c9238f603ea5e7a7c83e51e4a6b5c2d319b9ca266fc74fae4a29332c580"
+  },
+  {
+   "path": "scripts/audits/d088-budget-counterfactual-replay.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "b9a3f318a4986c67e6eef7d2fdd3df5acebe873c42efa38819ab01b7129fe748"
+  },
+  {
+   "path": "scripts/audits/d088-budget-counterfactual-replay.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "66c5f49738f6bfd5c180e4da9d2d218f49ea2b3fba3eab84a6f5916e0a2d98fd"
+  },
+  {
+   "path": "scripts/audits/serving-freshness-current-preflight.ts",
+   "git": "A",
+   "class": "audit_script_non_runtime",
+   "sha256": "bd92338529a7d6d2c4fd7ece78a798944eef26bcdb365a01763bbd20e36f306c"
+  },
+  {
+   "path": "scripts/automation-capability-preflight-cli.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "1e878210153e547ab7e67432ecf665c55a61f62ac8602cdf2e7e8cbac7dae54d"
+  },
+  {
+   "path": "scripts/automation-off-readback-seam.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "42d83db7520db92829a868e2353161c44ba8d334b56afa721fe870271d3e3054"
   },
   {
    "path": "scripts/check-release-owner-references.sh",
@@ -1266,6 +2887,30 @@
    "sha256": "6a8e79a7eae1ff1c92077e6f278e9ac88fcfd2eeafacfd684a91e37b942d3ba6"
   },
   {
+   "path": "scripts/creative-decision-center/commercial-anchor-counterfactual.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "de6441ad9ae71a835e18dbff21367a4f4952e68b5e097824d760606541578492"
+  },
+  {
+   "path": "scripts/creative-decision-center/commercial-anchor-counterfactual.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "da81f44b2b53b0d3be9d3c7e7ad8ff30de704a46a82f8588083c5e38838a5ea9"
+  },
+  {
+   "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "06398094da4f20580ba0e54036f871351d4197c34dc66517f4fab65f9c94db49"
+  },
+  {
+   "path": "scripts/creative-decision-center/generalized-pit-replay.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "736e44f6734e40069d364f4512b88b9be7f6ba8dac078802499c90ac87818dc8"
+  },
+  {
    "path": "scripts/creative-decision-center/generate-demo-native-canonical-fixture.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
@@ -1278,6 +2923,18 @@
    "sha256": "3939d7680c6cfa0ce06ec8f67b7f2991486b704829a0efd1bf55a2ae828691b1"
   },
   {
+   "path": "scripts/creative-decision-center/h11b-context-lifecycle-bundle.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "7bfdd6e37c5f64c5f4629957d0a1435c59feaaa04c1b6df9a299c10a3d16418f"
+  },
+  {
+   "path": "scripts/creative-decision-center/h11b-context-lifecycle-eval.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "087c3d939e45d313d273a8d4b69f97f847911d281d13402bda4b1ce4ac8e25a2"
+  },
+  {
    "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.classifier.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -1288,6 +2945,36 @@
    "git": "M",
    "class": "script_ops_non_request_path",
    "sha256": "a52a96b4f09adbb4957ddc0961b7f96d388c34499397ab950c50b9e495043a9f"
+  },
+  {
+   "path": "scripts/d086-capture-to-readiness-child.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "723b0fa4b80b02dce7cdbc1b7abd00013ec38c57778b9ae369ccfaf3783e633a"
+  },
+  {
+   "path": "scripts/d086-capture-to-readiness-e2e.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "7de4ecb7d7e04398b9c99cfb206caa22b74c0928c3af1a7369e424fbc7f2c5e6"
+  },
+  {
+   "path": "scripts/d088-budget-proposal-migration-child.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "b10f23b51ca1323a7c25db035e9283c41d80a020c54df0ebbe8dbc58e3cda36f"
+  },
+  {
+   "path": "scripts/d088-budget-proposal-migration-seam.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "0fbc449a6fb5e777a2d8a7ff8b185afd4730d1d7e99adb9d26f82932dbd728e8"
+  },
+  {
+   "path": "scripts/ephemeral-postgres-d086-readiness-seam.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "2dd80a73be3f7aa1ab9e94a5d5f5dcfae47ec667db6a2990aacb23e09e10d800"
   },
   {
    "path": "scripts/ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
@@ -1317,7 +3004,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "e7daa4556f87c077d3f91968d133d2c42fdf9978c03ef2278fc0a5c67937ea7b"
+   "sha256": "627011595d1efbbb47b76e128dd80282212ce8814d2fd9be973d5bfcb8d60866"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -1338,6 +3025,30 @@
    "sha256": "1ba12ef0e82cd86befc10228974d3324895c7e3045cdb021a7a9cb6874d1d3c1"
   },
   {
+   "path": "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "d744b3b790ed070dbd9ad63e0f4c5112aeacf8e07ff948cccb726b67d7d15738"
+  },
+  {
+   "path": "scripts/state-history-compaction-cli.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "e55ba07e71325fe3ce438eaf083723a8bd2cf03f9fde8c27565a0c642c415ea2"
+  },
+  {
+   "path": "scripts/typecheck-split.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "9704785d47d5b15092da5ffa73c9c0ec301cfb4dfc7f66a35e0bbeb2b2aa9607"
+  },
+  {
+   "path": "scripts/typecheck-split.ts",
+   "git": "A",
+   "class": "script_ops_non_request_path",
+   "sha256": "7f00179974d797264222e8709a1fe3f4d21e74330e8e4fa68fe0b358dbb85eb3"
+  },
+  {
    "path": "scripts/verify-database-seams.sh",
    "git": "M",
    "class": "script_ops_non_request_path",
@@ -1350,1696 +3061,22 @@
    "sha256": "e6d0a45e82b681cd7bc8a141c62e7bac92df3abdd7d82482dbed93b2f7a66bb1"
   },
   {
-   "path": "scripts/zero-base/fixtures/decision-center.ts",
-   "git": "M",
-   "class": "script_ops_non_request_path",
-   "sha256": "c7f0c334c9c11a2ce551a3874f784ad626b8a6c30775ce52bf487cc9d1b7f8fe"
-  },
-  {
-   "path": ".github/scripts/automation-capability-env-harness.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "b92d83eb3246edb601f311072413d7b68d5c1defd0e977d7ff3c7327efb7f292"
-  },
-  {
-   "path": ".github/scripts/automation-capability-env.sh",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "8b039e07d08d5b7c85683ae1f5559e310f5844a7dd57a743245976a8ea883477"
-  },
-  {
-   "path": ".github/scripts/automation-capability-remote.sh",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "2f652a813c28fa55f2b85df7e079e08e9dd54ff257f1acfac628777f11076364"
-  },
-  {
-   "path": ".github/workflows/automation-capability-toggle-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "373c93d7973520a4bdfa1064c831178d8ef5dea9b5550174fe9f0009044ebd91"
-  },
-  {
-   "path": ".github/workflows/automation-capability-toggle-integration.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "61e21dff68697f3a0fd20c293eab9619dabddc17699fe20fbcf15044aa5add59"
-  },
-  {
-   "path": ".github/workflows/automation-capability-toggle.yml",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "6e591fef099bb3c86173ba9e8d029da7a89863f904bb5cc968d679021dc9aead"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/budget-master-switch-mutation-controls.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "05540f2aa02f60cda7347330e9ae8548ca7625fc4ecd85b15f90c775d31ab72d"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form-interaction.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "6d506ef15faccc8948fca494e184bd5b46e216cc425c8e0b6b1bd81287dc5e0b"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/budget-preparation-form.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "b3f1738633046d2ce5b42377faa6b232988d5b505878a2df4add0181d3386650"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/budget-readiness-section.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "79891339250ea64dd8942afd6953c883a83ace915108639c6466234763c47611"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/budget-write-readiness-section.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "97e771fbe8e705ceb1f6a2918bcd47cfe7634d3b876df70f43421f3f778f3158"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/legacy-page.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "600861b541f7a02db35187a54627dd3804a5f968a10e6a6fd3e8aec9332b6a87"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/automation/state-history-recovery-section.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4594455346b2f35f4d0a64636b41a9ae23a2cf82509d063dd2f54bb0d86c942f"
-  },
-  {
-   "path": "app/(dashboard)/platforms/meta/history/historical-account-scope.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "2351c1f001ee68cf72b94ca726cde190c359e020e4751f30b08fd5bd7cc02c0a"
-  },
-  {
-   "path": "app/api/meta/automation/budget-activation-behaviour.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "d987f32e98618cd6ae1b26e6e761241458a25dbfcf3c5deda85efa4dc8665fda"
-  },
-  {
-   "path": "app/api/meta/automation/budget-activation-route.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "d171b952670c5817d6f1db0a99743fed586f7d15f6668f511894ed5cc2e90b29"
-  },
-  {
-   "path": "app/api/meta/automation/budget-preparation-route.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "49a2921b59cc5290eb32554158197fd337509b475e00d9efcd558f159d69a192"
-  },
-  {
-   "path": "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "54e0c59124612797392039a53ffad59aac77d1a5b7f6627e74c8eaf93f441fee"
-  },
-  {
-   "path": "app/api/meta/decisions-workspace/drawer-cta.db.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "97e6a60dc10650549b8d006bc8bcfda35addbc849d65aff1d59dcded6beb175c"
-  },
-  {
-   "path": "app/api/meta/decisions-workspace/route.lattice-cta.db.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "0c9ae713b7906eced3f16071b606d1b6ca201ff0292621276c17328ab81367c2"
-  },
-  {
-   "path": "components/meta/decision-center/BudgetDecisionEvidencePanel.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "879d04affc46d3aa484fe40f967d5a09b4aa0ed23123166ceee06878f65a5808"
-  },
-  {
-   "path": "components/meta/decision-center/BudgetDecisionEvidencePanel.tsx",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "4fc469efd96adb0815aa99aaac9ec18567b85860abbf4173fc02abeab7e4604c"
-  },
-  {
-   "path": "components/meta/decision-center/BudgetDryRunPanel.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "27e94d93942a547c4b0383a7c4f22d1d2bd5cd3c1be20d237ad61fd71ab838e9"
-  },
-  {
-   "path": "components/meta/decision-center/BudgetDryRunPanel.tsx",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "3d3e639f0ff1b9be573918ade8b131be30f6229ad836930dba7b90f4a3c09d25"
-  },
-  {
-   "path": "components/meta/decision-center/account-coverage-strip.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "6a19ae46ca2981388c3f52599bf5905da515d1bf7e3e90c958fac18669de9363"
-  },
-  {
-   "path": "components/meta/decision-center/assigned-account-tri-state-adapter.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "cc8c6026ba967fcbf68f6d0150d964ad47115a8150bf2e6d907332b0c8b07582"
-  },
-  {
-   "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "a567e3cf95eb7e9f2e741fb8867cd1ecbd688063e070ba2778e0f1d7c7b3aed5"
-  },
-  {
-   "path": "components/meta/redesign/mobile-budget-evidence-projection.test.tsx",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "6e2c8d8256bb6d070da341a63f017316f3f261a9d1bf907688ba8ade068d417d"
-  },
-  {
-   "path": "docs/audits/AUTOMATION_OFF_READBACK_2026-09-03.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "010ce4da7283f78aedb5ed3ec981de627b23371761a83cf33ede4c0beac2e095"
-  },
-  {
-   "path": "docs/audits/AUTOMATION_RELEASE_POSTURE_2026-09-03.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "bf2974e9412bc0d605aa8e2eb73bd3424cfb8f5d4c81df3962569813f81a5e9c"
-  },
-  {
-   "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "d6842e6a2c677a9a1e098b16ff7af0ed1b15cb0743254b197048345699671502"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "ddea5e6cacc4d5991603add8db0ee02a9bab57ea781490d2b10324f66f76e66d"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "fac881de3bf4e7285fdca5fe25b6d26d103c61171e0ebfdc0a69002c2f504d9d"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_1_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "5d9e8de06ec098ee7a1e0e6e8590977f417e719678b6f75efa1f8d79873a3cef"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_2_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "da22e9b9e110109f8574627d6ab0fc3d91619681f5ff4a816395f7fbd2ab9b07"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_3_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "0c1599943ee9967ef65f0c1b484e9aa45518ef2568362f941ec7454451a00574"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_4_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "968366de896909ac0895339aa35bd4013d546cc16f637be13f85e7d889adf1db"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_5_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "464997c5d0ef892c1271ba42d0a7a6cb678a65aea412010c1a0c108f67f23f45"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_6_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "4257f116659dd7f383bca6d7509bec298d263cf7e301b132bedfd4a397d5d10c"
-  },
-  {
-   "path": "docs/audits/D077_PRODUCTION_RECOVERY_PREFLIGHT_CORRECTION_7_CODEX_INDEPENDENT_REJECTION_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "3e402717474920eb8a91f64fc628984a339150ff22c1d2f1bd9131ba3729b85a"
-  },
-  {
-   "path": "docs/audits/D077_STATE_HISTORY_COMPACTION_HARDENING_ACCEPTANCE_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "090098ae7fcad93c653015e7adb6aba9fbeeadc0515651a8a4c53b9b7903822d"
-  },
-  {
-   "path": "docs/audits/D078_CORRECTION_3_CODEX_INDEPENDENT_ACCEPTANCE_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "99f6f1fbd736e7a03030335aa964dc3031cf1be1a818bbc2c85f2a94549e5368"
-  },
-  {
-   "path": "docs/audits/D078_SIX_BUSINESS_META_DECISION_UI_READINESS_ACCEPTANCE_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "80fb1d9221eb2d70b5c8ff39d89f53d5c27f3ab052844bc66867674dfa711c32"
-  },
-  {
-   "path": "docs/audits/D080B_META_BUDGET_POLICY_SIMULATION_2026-09-01.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "1b06d998e15714c99d6c14158871f2de1da3e4f993eb3e673b2bf939f76dd063"
-  },
-  {
-   "path": "docs/audits/D080_META_BUDGET_EDIT_EVIDENCE_AND_CONTRACT_2026-08-31.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "9dc0b385538d683ada7d9e0cfec2684b8540c0eafa87d583e929781de6bc1f3e"
-  },
-  {
-   "path": "docs/audits/D081_META_BUDGET_CAPABILITY_FOUNDATIONS_2026-09-01.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "cbe02fc153bcf91000a97f430e6079f092361db4d815e8c26928e2f2a8722f85"
-  },
-  {
-   "path": "docs/audits/D082_META_ROLE_PROVENANCE_REPLAY_2026-09-01.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "5340fc545c2771f87524b6850cca4b6d3668d4cdc6def10142487e738914bd2b"
-  },
-  {
-   "path": "docs/audits/D083_META_BUDGET_FACT_OBSERVATION_2026-09-01.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "53efe423220e5b876f0ff9676038ec486cddeea7b6c3f94070a24a39eb931390"
-  },
-  {
-   "path": "docs/audits/GENERALIZED_PIT_REPLAY_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "81f0ba6434bdf2ee0d07be640e3ddd5618859b7b3d53b92209a522549bf2019e"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_CLAUDE_CROSS_REVIEW_2026-08-29.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "445b6a36cc0a7827bbf927dcf99b16ba5cb330ff83125c02583a385f3e3fc5b7"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_CLAUDE_INDEPENDENT_2026-08-29.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "2de7204623d1dfcc5baddbf6c45d695009fad04eaa14a0f9885f424fd3795d26"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_CODEX_CROSS_REVIEW_2026-08-29.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "6d8c94959b3745fbd034c922e936f13938fa9e3448a6a14934613b41a77da749"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_CODEX_INDEPENDENT_2026-08-29.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "55a461c016a24e06cce981a1032959f8b94b2c2ad8fbf7cafcad99c36adec173"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_RECONCILED_2026-08-29.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "a6251607b05c37edfe442da0b04267f5ee847d25cb0b3995ecff3a41b2986f08"
-  },
-  {
-   "path": "docs/audits/META_DECISION_SYSTEM_RETROSPECTIVE_COMPLETENESS_AUDIT_2026-08-30.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "6c0d7c62123fd682779cc976dc81a7f100889f9d5149c6c4cfab62c1b658a9d6"
-  },
-  {
-   "path": "docs/audits/PRE_DEPLOY_RELEASE_MANIFEST_2026-09-03.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "d0453c731306bac1bb99594d7db90965e37177ff8a5b9b9337d5e9d40a244daa"
-  },
-  {
-   "path": "docs/audits/generated/commercial-anchor-counterfactual-2026-08-31.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "33aad581fc578c863880cc2710428ed1c0500957ed986ba2b99c1cf0ab03f8f8"
-  },
-  {
-   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-08-30.log",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "a55e9f431112c557e2c3c41c6d06b4f70ab5e0b929239288243cf91575cec880"
-  },
-  {
-   "path": "docs/audits/generated/d077-canonical-database-seams-whole-shell-2026-09-03.log",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "6bc7f70e309ccd8b2cf5df06267bdf123179c38d6180fddf36c9ddab24bda653"
-  },
-  {
-   "path": "docs/audits/generated/d077-correction1-verification-ledger-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "7738f8f2f8eb6ba41d86cb7b1fd06edeb117b2e1c64fc8205a020d5139401057"
-  },
-  {
-   "path": "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "431a7421519c242bb569b0d86ca02d46b8de6bd071b6a0053ceeb60754e52e69"
-  },
-  {
-   "path": "docs/audits/generated/d077-production-recovery-readonly-evidence-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "eb9c94fb37a6eea131de16e5866206b21c6b22fabe805bb7faa7b4056f5a1cd1"
-  },
-  {
-   "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "5c3d18b37a659cb6aeb930b6f9ec410049690b269d8487112466687c3319206f"
-  },
-  {
-   "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "c08c95a12a66d04ea0f56822041d25e3c43ef8c00ecfe57c6a0c472fb1074ee8"
-  },
-  {
-   "path": "docs/audits/generated/d078-local-ui-acceptance-matrix-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "dd210e78b5ea572e1f24afa0f86f10515183348e77b07f4f6cde81eca540d388"
-  },
-  {
-   "path": "docs/audits/generated/d078-six-business-evidence-bundle-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "9c0d83aa4541849b43096056b95f686c9673169c461d8ebb97ebb3dd86db7b47"
-  },
-  {
-   "path": "docs/audits/generated/d080-meta-budget-edit-evidence-2026-08-31.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "d4a1898aba14bcb2a37ae60a335f207eb668df13d37619bdffb44330da4d7a69"
-  },
-  {
-   "path": "docs/audits/generated/d080b-meta-budget-policy-simulation-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "b46e6aa80c75aec0ebc724f2b8fcc288cda611353e9924a85504d3e498d155df"
-  },
-  {
-   "path": "docs/audits/generated/d081-meta-budget-capability-foundations-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "5514023bbad12923651b1a59810bf1ce2684f4361cac8bfcb0148033bbb402b3"
-  },
-  {
-   "path": "docs/audits/generated/d082-meta-role-provenance-replay-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "bc4d06d0ea2b2e1ef22d8016e7f4a5191ad633657140564b21c3adb48480868e"
-  },
-  {
-   "path": "docs/audits/generated/d083-meta-budget-fact-observation-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "0c437aed77ca47148c7af27b59e850a32561d9dc6e8d934e507de7491cf5e747"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "af8f8a9e1ea7e609af067f42b51a2a7950ffede7b4479ed49ce77769af214584"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r2.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "2d2f3f3796689e2b081424fcb23c53d8268946a21cd822481581e4013b8a822a"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r3.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "b13c108eaf859062b2b3dd5d31387db2c65781fe659e119ded3b773ef5a99df5"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r4.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "bf857fb178927b59f2f3a748f7ffeb485fb95b4a7bf62cadd3f614d976278ddd"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r5.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "d7395b1c0ca4d824de3e7cf2d127d340af67466645a32510f1b290b89e7ee840"
-  },
-  {
-   "path": "docs/audits/generated/d084-commercial-target-evidence-2026-09-01.r6.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "517780847ea93128d16406e75751e203034f7990fa5fbe34550d3f5c9f8c5b23"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "4f728bef6c91ac5345d4f3b7c44c262c647f734d2c12547cef7dc4343bf4d18c"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r10.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "3c73cc02866f1b39b3deacfc46bb2b669bb34f4d6ab93109b71c886825342185"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r11.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "245dcfac0ef48eae9e9962774edbabce3c8fb0567805646f0a99d0de6f025d00"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r12.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "7c992a40267142d959d1ee0786e7d15cf6414a685a5d2a76f236883da249070d"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r13.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "150277bab191a92ea68a82bf6cb258cbc8d87b9e116947679c5d1864365342cc"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r14.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "4ae8676b7a65bab4306e4960625c5c075a137c9dd91bd7363069fa0b5f1625dd"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r15.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "26523fcb7ab1ec09a469b6ec6777f2c93c1068033348745c456af85c6aee0862"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r16.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r2.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "0495c156fcc2cf84eacf6c1a93b0efd7ac5fda2bcaed1159c5696181732af86d"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r3.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "2848f8423b1875ddc2ab9d6910ce64172e2a29fc1478b53cb4246b50c45a4220"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r4.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "992f0a599a6ddf41131511023b20112973fd502a9c2db8acffa13d1035b65dc9"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r5.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "a55a091ac3cb157b5389bbc65e418129cb54fffe800d41ded0e3902da2c6799f"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r6.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "6771eb63574ba8d410809c62fc54394d93606622c2153adbf5e30d4abd311d32"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r7.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "b9e65b3d885fe2eb852c6ad2ed181a420cf66c2a6a33b29cab543ab7dd592c02"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r8.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "6652bc4b599f3281ae1f4fde63a8584f23835ad2fce09208908ae2c59d98e260"
-  },
-  {
-   "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r9.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "3442f8c5ff506ee036ac549317702c6f7ff7c3f68a19abbfc94b4d77aae1565a"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "d6216d89ceade39d1a16a393bfda4f677c537931190fbfdde0f913e51a23a522"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r2.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "1915eb3841a81f9546fed71a2b29f475a521e0dc4e54095a605a6cff99e27517"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r3.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "cb7dded3085ecc38f127fa3eff421d3aa396091b0a680f2f6e9b3238fe731d5b"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r4.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "4c572c9ec9357da307bdc319aa2a2d8cfa936a6c759134029541d5a70b6dea4c"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r5.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "6aa7f005009f64c4ff7df72f6c50868222c179fcea2fdc910db49280165b1430"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r6.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "9cd35ee3316a680e0e1a77838c86edb688132cb12657cf1a67b9e7dacbb2a03a"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r7.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "c1a2b954ae983ee398118aa53a867bf36ce3f6f1a2e7ecea5cdd824ccdeb0b91"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r8.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "34841229bd1aa07de587d1c241eca6a97fb603b8a7c5fcbacb32893747166270"
-  },
-  {
-   "path": "docs/audits/generated/d086-budget-readiness-input-pack-2026-09-02.r9.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "3317ab7425f9adba7e5664a8dbb8a566bc1d27e2fff4c7e54d9bca7048706ffe"
-  },
-  {
-   "path": "docs/audits/generated/d086-live-census-2026-09-02.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "4f3519bc8badb311aeae7ff7f37730a8527e5fa1065856c0d247ea0f60abd8cb"
-  },
-  {
-   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "6340a0d72620facf7b11ce80e1ed3f8269cc3075286bbfd42616cd9a96616477"
-  },
-  {
-   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r2.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "80e5670a95c3ea3d37667d43f4145afcd0f044bcfed65a6121c5edb93f7add29"
-  },
-  {
-   "path": "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r3.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "5da7c564154d0e5b92a0df387e44df2ccb5b4d0005d92bf0aca683382f9f2a32"
-  },
-  {
-   "path": "docs/audits/generated/generalized-pit-replay-evidence-2026-08-30.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "56f4472ba94363987a0c9854d3a20dbcd23a89dc9e9037f773e822e2be4ddfe1"
-  },
-  {
-   "path": "docs/audits/generated/serving-freshness-current-preflight-2026-09-03.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "b5a5ef7d05cb8e4af8e20a178cf78f8ba67c78eedf685be9269162753f180687"
-  },
-  {
-   "path": "docs/creative-decision-center/AUTOMATIC_CAMPAIGN_CONTEXT_SHADOW_ACCOUNT_SCOPED_2026-06-01_TO_2026-08-21.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "6255dd6a5c9830a81c3ba310343bc4521436f2040472f583a4a5d90e4b587953"
-  },
-  {
-   "path": "docs/creative-decision-center/H11B_CONTEXT_LIFECYCLE_CHALLENGER_2026-06-15_TO_2026-08-22.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "723b5490d8697c93613e80e278c5cb292a171fedc1d86a54e5251160ae60fb85"
-  },
-  {
-   "path": "docs/creative-decision-center/H11_CAMPAIGN_CONTEXT_V2_POSTHOC_REGRESSION_2025-12-01_TO_2026-07-05.md",
-   "git": "??",
-   "class": "docs",
-   "sha256": "4173828805aa4365e42287f25b94085dfc27350b0705036572770b4520f65880"
-  },
-  {
-   "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-bundle-2026-07-13-to-2026-08-22.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "f27f6cbe6437c2c8ecd3dff93ea24f9d91356403057d5253a17abc30b91cf13f"
-  },
-  {
-   "path": "docs/creative-decision-center/generated/h11b-context-lifecycle-eval.json",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "a99bd6c7cc0a11f57b48408ddfa6c7cab45ea505cfe58ec28842af2bc7ab4585"
-  },
-  {
-   "path": "docs/creative-decision-center/generated/h11b-train-diagnosis.md",
-   "git": "??",
-   "class": "generated_evidence",
-   "sha256": "01da97e8475153176545ab1fde9cb02606c5c6b9093d66ec40e4fa728be87138"
-  },
-  {
-   "path": "lib/creative-decision-engine/__tests__/anchor-profile-fixture.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "5306d233c3ac7ac3fc0de3ab717a634bf87435f9c274ae28fdd9a4a22e5ec65a"
-  },
-  {
-   "path": "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "5673a2d073335b9a1b02ca4d5dadc4df04775466cc7909364aafeaa69fbcdd43"
-  },
-  {
-   "path": "lib/creative-decision-engine/__tests__/campaign-context-resolver-v3.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4ee890a6183b5c3e4d81a1ae707ea0c81c9c2c64d1c1a54e45a3a356db36eaa4"
-  },
-  {
-   "path": "lib/creative-decision-engine/campaign-context/d081-name-authority.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e5c5c21206ce636c79f0d7d6cfafbaa58da3476008b881770254286addce613e"
-  },
-  {
-   "path": "lib/creative-decision-engine/campaign-context/resolver-v3.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "19a5990b975dd63c17fe850132ab5f2eecff1014381ad76aa938053c4288ca8b"
-  },
-  {
-   "path": "lib/creative-decision-engine/commercial-anchor.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "286a7e81809b6fe0cd8888ebd2fce1b7e975bedaa27ff75da857fdefcfbd2a5e"
-  },
-  {
-   "path": "lib/creative-decision-engine/commercial-anchor.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "643a65a4210a6c1d619640f0d431000a45ba3badfc4fbec54a35577eada39b63"
-  },
-  {
-   "path": "lib/currency/iso-4217-minor-units.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "87f558d1ea1a82dd9f5b796550dac72547024d968d3d7e83482cb513db2c654f"
-  },
-  {
-   "path": "lib/currency/iso-4217-minor-units.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "f858aa11a2a9358a38836d8fccbbd28fe7cedc3261a13a2180b9043b18f6cb1a"
-  },
-  {
-   "path": "lib/meta/__tests__/campaign-labels-isolation.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "2ad0674f0270684d8061cdb9ed82b87cf3f73f48a4fefa42b4aaa5d7bf895c69"
-  },
-  {
-   "path": "lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "47d6420551dab0cf4b020140e61559914cc2aa2bfb073d53826395b2c2b7228b"
-  },
-  {
-   "path": "lib/meta/__tests__/d077-artifact-hash-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "36422a68a9b893ed380192a7795226372029b7b95b4524c69d7dbcef83a20e5c"
-  },
-  {
-   "path": "lib/meta/__tests__/d078-acceptance-guards.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "eddc0c37300c7cf299986ba9d256c90410357057d110937ba6f0a6ea5cae0e01"
-  },
-  {
-   "path": "lib/meta/__tests__/d078-matrix-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e8474ff0b7fd574d35b5893923f7d470dfe61901b0738df303a6cacc0f1de4aa"
-  },
-  {
-   "path": "lib/meta/__tests__/observation-receipt-occurrence.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "b620ab2aed4728b3a757c48748f33c4a2c6ee491ff2edd2f16fe33ff4f8341c9"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-compaction-counts.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "7573ce9bf91d12d88ef3312f0ff73f2b4d98bbea2c79c70781c23e6fea2b2d63"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-compaction-hash-binding.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "15fafff8c6ad1bcc590616b17408e4c8d2b7a0f419619e3451a9391568183f94"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-compaction-isolation.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "a853c3a2dedd53c5a79647c20d966f6ec25f70dbeffdfd96745b27eb3b4bdb2b"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-compaction-planner-counts.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "c53c78822e30aea66ef38fc21ea1be41061264ab2389e801856e12344fdb43ee"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-compaction-readiness.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "ea711b8ee64fee74b9a51cf786d8c4b9b95ab7a27d36e9f0a77f7a41093cb1c1"
-  },
-  {
-   "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "5ea297cbfd6e0deabf798b7f8894b37aff621eded1b9f57f27c3bb57f4359f73"
-  },
-  {
-   "path": "lib/meta/assigned-account-states.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "3b5fe6f19b6a60afe1386632e838c75c8e084e50fd8b20639daebaeb19b53be6"
-  },
-  {
-   "path": "lib/meta/automation-capability-orchestrator.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "8be2300c3be2821fdec5ebeac5efa291768d1e24909eb61a88119a12fb25406a"
-  },
-  {
-   "path": "lib/meta/automation-capability-orchestrator.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "f903197869cb1ee7dd9dad7a759da15b318bdfe6c41398de310f67a82f28b3a4"
-  },
-  {
-   "path": "lib/meta/automation-capability-preflight.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e852bffc9a38abf650c1a9182b111cf27b64daadd687f817ca5bd54ede6130f6"
-  },
-  {
-   "path": "lib/meta/automation-capability-preflight.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "9ca186a32adf2aa5e0414f64d17466c2dba0f8816a10b066996dd8bcd83179b5"
-  },
-  {
-   "path": "lib/meta/automation-master-gate.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "3bf4a03f399bcde93c74b1380fa787f10ca87fe6dc89976087a232c1705e1df3"
-  },
-  {
-   "path": "lib/meta/automation-release-posture.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "148efcfc14cd7e82c22ee55aa048661d1d4ccbb5c9596f798568f80a2974f8b6"
-  },
-  {
-   "path": "lib/meta/automation-release-posture.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "f97f5300a28e874e5fbe7151347215393591ace61e7ebfe9e5260a9c2b0a4280"
-  },
-  {
-   "path": "lib/meta/budget-activation-readiness-server.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "4804fa1a5c9a1319464724543e80e690934a8918093f339ca6accd5282282f27"
-  },
-  {
-   "path": "lib/meta/budget-activation.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "5b9118249e3b9e3fccbb3f4dd50833e8a688999e46521a21c85fe9c8980671ab"
-  },
-  {
-   "path": "lib/meta/budget-automation-config-contract.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "264899587b92fadfcfe996e5209691f5104f9fc3a11336dd5bf042d96846ec32"
-  },
-  {
-   "path": "lib/meta/budget-automation-configuration.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "508eacd1e1eb1ca0b5e1de662bc3919e92fd808d8257022d6b10a8cac7c1a585"
-  },
-  {
-   "path": "lib/meta/budget-automation-configuration.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "8c6619a87a20940c29809e1b69cd1a5f7157b1a8c5be9f155770d6755fb96e15"
-  },
-  {
-   "path": "lib/meta/budget-automation-runtime.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "02c34fc10967cf2fb0a90dcb8ce5ce7e5a36f7f351dbaf1204840d4dbfcedc5a"
-  },
-  {
-   "path": "lib/meta/budget-automation-scheduled.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "5c366ea887125a9e8930935ad7c5191caab5271b53f4431262cdefcc1320b9b3"
-  },
-  {
-   "path": "lib/meta/budget-automation-worker.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "46ec853026099f539d94c34f138ffccc13348d173d777468e30461a80c614c02"
-  },
-  {
-   "path": "lib/meta/budget-decision-evidence-panel.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e8373c9c67f40acacaef39790a3e22b88267d5c65b8396e10cf000ec7ae3a0c7"
-  },
-  {
-   "path": "lib/meta/budget-decision-evidence-panel.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "0fc891281bc325667ab3cfc6aca4390d19ff0a1d26d92fea5e827925f7517eba"
-  },
-  {
-   "path": "lib/meta/budget-decision-gates.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "30221fa0176ea76ed622c53b38f63a492ac3bb8f95051d07ff3464f2d0f016f0"
-  },
-  {
-   "path": "lib/meta/budget-decision-gates.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "b2c1940252d1c4ace1f484c75d5432f244dc3c3ed33960385a33476bdb3a5dbe"
-  },
-  {
-   "path": "lib/meta/budget-decision-workspace-adapter.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "d79b644e61e6cd1bd12f0fd568fbc2df6da0e95ec26ff9ef83b643ae7faeef0b"
-  },
-  {
-   "path": "lib/meta/budget-decision-workspace-adapter.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "ae260d603b8b845863c85a4dc7c6fbd1a357bdbb754e2af728dd65027237f60e"
-  },
-  {
-   "path": "lib/meta/budget-dry-run-panel.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "83f1c8384f5e69e5d9810cd666fb76907183b7ace446a700d33448e83f9fc6df"
-  },
-  {
-   "path": "lib/meta/budget-execution-composition.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "ff8f3ba6df20f96f4b53d1d2040969860ff9e6b4da1da126247235a38012ad6e"
-  },
-  {
-   "path": "lib/meta/budget-execution-composition.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "414dbb21d1187a1009fd34e30212f85fae2c6f4e0a01ab43ccf1d4d30b609eee"
-  },
-  {
-   "path": "lib/meta/budget-execution-lifecycle.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "9e90ba8a8416a70b8ace05cfea388631223118aa194966bd293c60961b32c78d"
-  },
-  {
-   "path": "lib/meta/budget-execution-lifecycle.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "fbb079f8ca25afe9f995bb4729ff9e7a3a7ca41393175ab16d0e58f01a104c56"
-  },
-  {
-   "path": "lib/meta/budget-fact.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "c2c8c8c1a766edcd490d6edc40f85a26f5d7ef542e69d23a288a9279871e5f48"
-  },
-  {
-   "path": "lib/meta/budget-fact.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "baa38be8ff6e3ad581387ed6d7513617f1fd3f106fd00bd8b7b7edd9654164a9"
-  },
-  {
-   "path": "lib/meta/budget-intent-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "c790da751a7a1132cf84110000d2a8fdaa7363a0b427d629a6b2f795dbf246cc"
-  },
-  {
-   "path": "lib/meta/budget-intent-contract.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "e674b77e3b907ca9926454238e22af5a55d3f340898931daaf6152eab29e1a08"
-  },
-  {
-   "path": "lib/meta/budget-no-fabricated-defaults.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e6d28044e83e479c0c2ab1ba039b7ecbc59a7837c3054ec7beffb18094bf02d4"
-  },
-  {
-   "path": "lib/meta/budget-observation-projection.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "0d5d9de5c0d7c2cacb982034b5796bd7f123defb06746c8e8c1f0889f94977c9"
-  },
-  {
-   "path": "lib/meta/budget-preparation-contract.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "1ff038fc48a89214e136025cc5d5020c346c6888e596bdcf0156add7d7db340d"
-  },
-  {
-   "path": "lib/meta/budget-preparation-read.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "93f63ddcc42d07871d31693abf58b57e521ac84c5b9c6ec0ba45033dd79e571e"
-  },
-  {
-   "path": "lib/meta/budget-preparation-read.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "14263546b512c2aec0a5db9673085e5caf1fd394f6e4f3aae75301988aa421ff"
-  },
-  {
-   "path": "lib/meta/budget-production-path.c3.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4d87729a755505ea355ede29a6dd640301c31d4fb023979ee2824adec7d7d745"
-  },
-  {
-   "path": "lib/meta/budget-proposal-dry-run.authorized.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "6804dfdf1b60e2133be524941d4922cd7d12a351f8426f38961c5be7e7cdc602"
-  },
-  {
-   "path": "lib/meta/budget-proposal-dry-run.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "10d14aa1b90d5eb8dbdf74b7cf90106c9781d22a8b1002b83affb193551c1e18"
-  },
-  {
-   "path": "lib/meta/budget-proposal-dry-run.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "63bfc9ae94a51d1c6532610f76a381f04bec37795694ed9eb6e18afbd2222e59"
-  },
-  {
-   "path": "lib/meta/budget-proposal-producer.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "e096d90b85200a7dd5cfb2a94a5c01f7463dedebd6c3187675133bd45a3369ea"
-  },
-  {
-   "path": "lib/meta/budget-proposal-runtime.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "acb29c6fa766477b4f902ee7e8d630e267bc7a7602b0435ac1ae3d5d00e90077"
-  },
-  {
-   "path": "lib/meta/budget-proposal-server-readers.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "d01f2c6c109df3a1be0fba3b4b13b37998cf7aeb2ae0a3a34b323d49aeed5a30"
-  },
-  {
-   "path": "lib/meta/budget-proposal-server-runtime.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "c15f68623470bd8bfed6fbfe4998fb8f58bfec4881767b3188ba4a98e0932811"
-  },
-  {
-   "path": "lib/meta/budget-proposal-server-runtime.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "3762f7228e383e2cc2dbd1f816aa28c37969bd90a8a3ed7275495d1a23569167"
-  },
-  {
-   "path": "lib/meta/budget-proposal-source-loader.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "7f86716adc27cdcfa6589c5480fdd653ca0befa4b4ba1811ca039f813fdd2f2d"
-  },
-  {
-   "path": "lib/meta/budget-proposal-write-context.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "dde7ed7ae368f5053571d985417e40236e9beda844d32f87a29d9bdcce620b22"
-  },
-  {
-   "path": "lib/meta/budget-readiness-read-model.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "686e5578a284ce1682b7fe0ff2b0acbe1bb9d7ed246a7bfb3b99b98d14d83ebf"
-  },
-  {
-   "path": "lib/meta/budget-readiness-retention.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "97ce53051839fcc4e1c0ca9c6e4145fc22f66f49822d0a77af7c718d2e532a29"
-  },
-  {
-   "path": "lib/meta/budget-readiness-retention.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "2fed5f61905515d1acf07d5e64b2bb94119091d8dadcc3250ea41966ddc4df23"
-  },
-  {
-   "path": "lib/meta/budget-schema-verification.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "074d3ea86ebabb70997fe1bca04d1018c73c2244a5eeb9e40d288d9e4a07b2b2"
-  },
-  {
-   "path": "lib/meta/budget-schema-verification.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "3defbf4d2a2377fbb0590cab8c64ba6290310789e538d2c5e1cf655a184321a7"
-  },
-  {
-   "path": "lib/meta/budget-write-adapter.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "481c89bf9a832bbd2bd72048e46a53d9c554d646258e094dd2212a6f7efd910d"
-  },
-  {
-   "path": "lib/meta/budget-write-authority.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "fe7fe0be48ccd7d9697c196b6b5039b116edd81aa11193a29152d8840172f1ba"
-  },
-  {
-   "path": "lib/meta/budget-write-capability.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "e7cbc7a59b2cf22b3b06256d3abebfc1d8d6b9adfa36fc1f2dd60f46d5a22d53"
-  },
-  {
-   "path": "lib/meta/budget-write-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "bf5610977fb9ab7de91560dd89e179edded3dc3548e93ab9ccff3c8b3d747ff5"
-  },
-  {
-   "path": "lib/meta/budget-write-execution.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "f5f396da3d80346c8de6a21e38a9886b92ff59d12c9b7491f2fcce8c40fd0029"
-  },
-  {
-   "path": "lib/meta/budget-write-execution.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "903060f5499a0f6a9907e0b0a320818332cbf976022706ee870aa01061ad42b7"
-  },
-  {
-   "path": "lib/meta/budget-write-preflight.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "372e19d59de45e85533aabc3bd62f0ab7d575d6de88f661dc1b890d078e0b482"
-  },
-  {
-   "path": "lib/meta/budget-write-readiness-server.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "511dd5ee77ad9682132e5198938f83b4d198b2319f974891e4c62465acb1ebd9"
-  },
-  {
-   "path": "lib/meta/budget-write-readiness.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "a41aa28b38e708a07f07c327a14397751d8142bd6722b6db1e8f3f8353fd6e0e"
-  },
-  {
-   "path": "lib/meta/budget-write-request.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "78f3198dc030f547d550eb237d4454b7731b87f7f57556afc37f359f493f84be"
-  },
-  {
-   "path": "lib/meta/budget-write-safety-projection.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "2cf0a74860ad83967d98eb838c8f7f48984938c3fabb5698cbb060671e27791b"
-  },
-  {
-   "path": "lib/meta/budget-write-safety-projection.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "00b5c964adab6751499c06699c03c6a1680e8ea428a1cb28ec81fd4d8f26c02a"
-  },
-  {
-   "path": "lib/meta/campaign-role-authority.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "dbaa4e2bc19f0bd7fc329b5937ee32af58c922a77c02a24369376a6358a68156"
-  },
-  {
-   "path": "lib/meta/campaign-role-authority.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "041c7249837965f15f11c4275001351c89b567b2ab23f2dbc2790e935bd9ffea"
-  },
-  {
-   "path": "lib/meta/commercial-anchor-panel.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "2e14237e8803a9bad7d5eaacd9532fb4284afc4bc08d12533f8c0af6e9df0b88"
-  },
-  {
-   "path": "lib/meta/commercial-anchor-panel.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "a03e6c50e09f47c38394afcaf0f5b6076f9ecf936a2303e5b2c272a5db7b14cb"
-  },
-  {
-   "path": "lib/meta/d081-runtime-consumers.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4a014cfdd30d221b88950491fa6e77d03f24e483672f2706374cecf7c0a5b49e"
-  },
-  {
-   "path": "lib/meta/decision-pipeline-health.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "792bfcad8923a07506a739ffa2ac97530ddada7c751ebe861c25a4d012792fe9"
-  },
-  {
-   "path": "lib/meta/decision-pipeline-health.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "e0a33eb567f5f0f33d5a49aacce49f55d374b067fce2963091afcc5ce2c9da4d"
-  },
-  {
-   "path": "lib/meta/point-in-time-policy.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "c15c924e0b7c987fc71f25386c8a4ff6713e7bd533825ba07a087ad26d2e0abc"
-  },
-  {
-   "path": "lib/meta/provider-readback-contract.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "3fe08d5ae41226d8e26dd94a00b8c413629ec98a9958b24e4b1df054aced1d25"
-  },
-  {
-   "path": "lib/meta/provider-readback-contract.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "52662bdb7d05d99a9e856dc7883c5374d7bda6e443b644bfad528bf184e99e19"
-  },
-  {
-   "path": "lib/meta/runtime-schema.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "06fa006ac95902942a9001631b3a1b1648b3557b7a4bc68104593d3d391672b8"
-  },
-  {
-   "path": "lib/meta/state-history-compaction-executor.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "60df5f661b8c4d45a92e8af2b19148fef8fe4b5796d90c71dd47a125ec1b72cc"
-  },
-  {
-   "path": "lib/meta/state-history-compaction-readiness.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "76cec4fe84742fc27331b5a9c8fb27789c7c17e46fa03afae7935d93f811cb82"
-  },
-  {
-   "path": "lib/meta/state-history-compaction.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "0c36ba04c94da85cc33a633f58c3f63f9253f079cf1595c764f944a578cabb27"
-  },
-  {
-   "path": "lib/sync/state-history-effective-size.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "cdadce2d5a49773a87588f2b0993d33e7300fac82ab9c57cb20124435c579eb5"
-  },
-  {
-   "path": "lib/sync/state-history-effective-size.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "d4d36f2330eb2d33d76b2ed202cdb7bd2a55d1d145f8d16c80902457b29e3807"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/README.md",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "9d02b0320f3f0eeab581d29362672d8975fad935d7c142b09d1e114866404d0a"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/authenticated-desktop-1440-cta.png",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "83c1b603bcbb01dec255d3bf509b824ee5cf138c1215dd57871243993002cce4"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/authenticated-desktop-1440.png",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "3b105078cd11947c38fa11917753b70afa4b8a25109773846d726110e7121be6"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/authenticated-mobile-390-decrease.png",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "dc09ca8f080e9e14067bf304a7b7b07193028737485584ba0db5ade39f6b54e9"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/authenticated-mobile-390.png",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "2bc519c84a8a0b0066dc306b3dbdcbd42b13796240b70966ba659c3e0a01a527"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/layout-authenticated-desktop-1440.json",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "5724fda327ac9521d2ffaf45eb4ed7b6a7dd64bb818f988a10fcdb79d20074f5"
-  },
-  {
-   "path": "playwright/.evidence/d084-authenticated/layout-authenticated-mobile-390.json",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "a8837e3185d12c75ddeee1858fed1adc13850f303661ed6eef4d38e391e02379"
-  },
-  {
-   "path": "playwright/tests/d084-budget-evidence-responsive.spec.ts",
-   "git": "??",
-   "class": "runtime",
-   "sha256": "53bd330edfb003c7aba5c3a6fa566dbdae665b153d0ac21a727f7684d893a58e"
-  },
-  {
-   "path": "scripts/audits/canonical-digest.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "44f7b7ecbc603126be6b84e5aa012396398614679f8c9d88cca8265eb1a21541"
-  },
-  {
-   "path": "scripts/audits/d077-correction1-artifact-generator.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "fa0b713c51e123090e6e82c045a1f2809ce865ba5b2b4d18e843f194623e892c"
-  },
-  {
-   "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "d6295aec4b16c86a2e3e0f11c02450203874d7f4fe628d9878188c088f99d7dc"
-  },
-  {
-   "path": "scripts/audits/d077-provenance-contract.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "beb2c11f29e5ba05751bb3046e20acf5e840969c78b82679b6157a3e473339ef"
-  },
-  {
-   "path": "scripts/audits/d077-whole-shell-proof.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "8737a5eb35cf001302e561f9814da73e157809d2df9404fa4b22b17d68af73cf"
-  },
-  {
-   "path": "scripts/audits/d078-hard-action-recompute.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "ecbd3d738ff400cc28b014d3ff80c9222f8940c16dae3971fc272d515c1027d5"
-  },
-  {
-   "path": "scripts/audits/d078-lattice-seed.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "7e00aa770e350f2e5b76cd2a3fbc94118d4fe96578ed93269657450db2338bef"
-  },
-  {
-   "path": "scripts/audits/d078-local-ui-ephemeral-harness.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "c6705a97e5161329b1873e52b99b23b3bc4a415af023cb838a8217ce4b55df8c"
-  },
-  {
-   "path": "scripts/audits/d078-matrix-contract.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "18f41ad44226ed33299ff63643badb3bc3d59534c091a16d2af83acd9c74ea5f"
-  },
-  {
-   "path": "scripts/audits/d078-route-cta-runner.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "a244a859c2d6edd1fa09adeb98777d2251d3b7e15ac02c47d9a5a50d4f37d960"
-  },
-  {
-   "path": "scripts/audits/d078-six-business-evidence-bundle.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "a6d28cbafe659e799ca5d72ab26bff5b10f40f04da924544076bffa422c2fd57"
-  },
-  {
-   "path": "scripts/audits/d080-meta-budget-edit-evidence.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4b81994ce105302d0b2386210723eda31f02075b4eeb40f872b17645e8420ce4"
-  },
-  {
-   "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "4fb1398412384b5e08dcac4e79336c4ee3db19bdd9e07f7bf451a89ce26230f9"
-  },
-  {
-   "path": "scripts/audits/d080b-memory-architecture.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "7d506af49b5b8812e8fd4494c0c52c188a679bf206ef55f117feea56775f555c"
-  },
-  {
-   "path": "scripts/audits/d080b-meta-budget-policy-simulation.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "41755d688f4b9d77c35840af99cd9baca00b4ea0e4a77bd43f6d831f9f93c942"
-  },
-  {
-   "path": "scripts/audits/d080b-meta-budget-policy-simulation.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "52b11d96e1fa8e596f84d04a07feb922b3113d082c0963ed65db4e33b323ecc9"
-  },
-  {
-   "path": "scripts/audits/d081-meta-budget-capability-foundations.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "893ab7a794385ec51adad812bcbe16bc1e4bd19c71171fcaed2c2b89588d9445"
-  },
-  {
-   "path": "scripts/audits/d081-meta-budget-capability-foundations.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "51cf084915cc97f067012f61a481ac54300c03fe176b1f726f19362caf2fb3b4"
-  },
-  {
-   "path": "scripts/audits/d082-clean-checkout-inventory.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "8294a25b5aa573b5a481865d14e7348874ced4c4eb71aa35d37b8c8a7e7dcac0"
-  },
-  {
-   "path": "scripts/audits/d082-meta-role-provenance-replay.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "7d4d4e8cfd9b75e9b3e52a626a18c22f3ccd46791e5ec01d39f9b55ddf5fb060"
-  },
-  {
-   "path": "scripts/audits/d082-meta-role-provenance-replay.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "6fc9474c89134486d74ea5aeb8d42a95bbb93943e879db77c6678056cdad17c3"
-  },
-  {
-   "path": "scripts/audits/d083-meta-budget-fact-observation.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "329c9d2ceb31ead97d0f8b6a2a48b9e11210f0c1dc3e80cc1475853d2f1e6d48"
-  },
-  {
-   "path": "scripts/audits/d083-meta-budget-fact-observation.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "9c9e8132610355c7dbb63f8512314230ea40918fb4b46d7589410835eeffed02"
-  },
-  {
-   "path": "scripts/audits/d084-commercial-target-evidence.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4cd332e424f8bf18e8d272bbfde07328139f050ed2e3faf1c17084e69a38bfca"
-  },
-  {
-   "path": "scripts/audits/d084-commercial-target-evidence.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "5c223275db7e1e6624c8b2729b565b338dee50da25a2b6ceb9dc6cc10ef76dfb"
-  },
-  {
-   "path": "scripts/audits/d084-evidence-receipts.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "e409ad4b7777e86b737d7680047a09fabe6af02c3042e41f9125d872b591b49a"
-  },
-  {
-   "path": "scripts/audits/d084-independent-oracle.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "a3e2b754356627e57d3ecdd9e4313b188d0f7d17d40f5aed679fb5846b562a70"
-  },
-  {
-   "path": "scripts/audits/d084-pinned-sources.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "11ed6925eafb141c32ad21043cfb39d28cded73592e4b91502d3a6a179a52b25"
-  },
-  {
-   "path": "scripts/audits/d084-pinned-sources.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "f4c0defcb352755b1f09a8144db4a20e07a6a1b1517f2cf8bf5294ec51d59556"
-  },
-  {
-   "path": "scripts/audits/d084-possible-worlds.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "f714dfe53b6641e8d5117b6a807486a75016a8a2ba0d5c146a7b1031d6fee962"
-  },
-  {
-   "path": "scripts/audits/d085-budget-proposal-dry-run.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "4eca7db11466ca9efcce6bacd68b0cff71f934abaa3883de4926db30a29a05a3"
-  },
-  {
-   "path": "scripts/audits/d085-budget-proposal-dry-run.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "03d42bcbc930322f46e6fece5e73ae75ce96201d254f3dfbd92cc18e7b09485f"
-  },
-  {
-   "path": "scripts/audits/d086-budget-readiness-input-pack.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "972f387d1eccc16c3efb55311cbf7376fce3d0b2fe5c4f76a3989d13bfad69a6"
-  },
-  {
-   "path": "scripts/audits/d086-budget-readiness-input-pack.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "e58a6ced3f8232248721e1e5ab5917751c21e38a70786427e29e674b92059dd3"
-  },
-  {
-   "path": "scripts/audits/d087-budget-write-simulation.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "34098f9b9a70f92ae7c0bcd9355567c8a3518dd0c009efd6bcb04ebe807c6548"
-  },
-  {
-   "path": "scripts/audits/d087-budget-write-simulation.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "8f540c9238f603ea5e7a7c83e51e4a6b5c2d319b9ca266fc74fae4a29332c580"
-  },
-  {
-   "path": "scripts/audits/d088-budget-counterfactual-replay.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "b9a3f318a4986c67e6eef7d2fdd3df5acebe873c42efa38819ab01b7129fe748"
-  },
-  {
-   "path": "scripts/audits/d088-budget-counterfactual-replay.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "66c5f49738f6bfd5c180e4da9d2d218f49ea2b3fba3eab84a6f5916e0a2d98fd"
-  },
-  {
-   "path": "scripts/audits/serving-freshness-current-preflight.ts",
-   "git": "??",
-   "class": "audit_script_non_runtime",
-   "sha256": "bd92338529a7d6d2c4fd7ece78a798944eef26bcdb365a01763bbd20e36f306c"
-  },
-  {
-   "path": "scripts/automation-capability-preflight-cli.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "1e878210153e547ab7e67432ecf665c55a61f62ac8602cdf2e7e8cbac7dae54d"
-  },
-  {
-   "path": "scripts/automation-off-readback-seam.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "42d83db7520db92829a868e2353161c44ba8d334b56afa721fe870271d3e3054"
-  },
-  {
-   "path": "scripts/creative-decision-center/commercial-anchor-counterfactual.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "de6441ad9ae71a835e18dbff21367a4f4952e68b5e097824d760606541578492"
-  },
-  {
-   "path": "scripts/creative-decision-center/commercial-anchor-counterfactual.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "da81f44b2b53b0d3be9d3c7e7ad8ff30de704a46a82f8588083c5e38838a5ea9"
-  },
-  {
-   "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "06398094da4f20580ba0e54036f871351d4197c34dc66517f4fab65f9c94db49"
-  },
-  {
-   "path": "scripts/creative-decision-center/generalized-pit-replay.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "736e44f6734e40069d364f4512b88b9be7f6ba8dac078802499c90ac87818dc8"
-  },
-  {
-   "path": "scripts/creative-decision-center/h11b-context-lifecycle-bundle.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "7bfdd6e37c5f64c5f4629957d0a1435c59feaaa04c1b6df9a299c10a3d16418f"
-  },
-  {
-   "path": "scripts/creative-decision-center/h11b-context-lifecycle-eval.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "087c3d939e45d313d273a8d4b69f97f847911d281d13402bda4b1ce4ac8e25a2"
-  },
-  {
-   "path": "scripts/d086-capture-to-readiness-child.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "723b0fa4b80b02dce7cdbc1b7abd00013ec38c57778b9ae369ccfaf3783e633a"
-  },
-  {
-   "path": "scripts/d086-capture-to-readiness-e2e.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "7de4ecb7d7e04398b9c99cfb206caa22b74c0928c3af1a7369e424fbc7f2c5e6"
-  },
-  {
-   "path": "scripts/d088-budget-proposal-migration-child.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "b10f23b51ca1323a7c25db035e9283c41d80a020c54df0ebbe8dbc58e3cda36f"
-  },
-  {
-   "path": "scripts/d088-budget-proposal-migration-seam.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "0fbc449a6fb5e777a2d8a7ff8b185afd4730d1d7e99adb9d26f82932dbd728e8"
-  },
-  {
-   "path": "scripts/ephemeral-postgres-d086-readiness-seam.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "2dd80a73be3f7aa1ab9e94a5d5f5dcfae47ec667db6a2990aacb23e09e10d800"
-  },
-  {
-   "path": "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "d744b3b790ed070dbd9ad63e0f4c5112aeacf8e07ff948cccb726b67d7d15738"
-  },
-  {
-   "path": "scripts/state-history-compaction-cli.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "e55ba07e71325fe3ce438eaf083723a8bd2cf03f9fde8c27565a0c642c415ea2"
-  },
-  {
-   "path": "scripts/typecheck-split.test.ts",
-   "git": "??",
-   "class": "tests_only",
-   "sha256": "9704785d47d5b15092da5ffa73c9c0ec301cfb4dfc7f66a35e0bbeb2b2aa9607"
-  },
-  {
-   "path": "scripts/typecheck-split.ts",
-   "git": "??",
-   "class": "script_ops_non_request_path",
-   "sha256": "7f00179974d797264222e8709a1fe3f4d21e74330e8e4fa68fe0b358dbb85eb3"
-  },
-  {
    "path": "scripts/verify-whitespace.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "a768127f0c876f4f60e89fa50504b4a2c46c9a96e5c1aad4c86e4bb6529bf1d1"
   },
   {
    "path": "scripts/zero-base/build-budget-evidence-harness.tsx",
-   "git": "??",
+   "git": "A",
    "class": "script_ops_non_request_path",
    "sha256": "b7f213c92ece02433867033badac3cee6c5574a93171904c1b76c59532c5aa0a"
+  },
+  {
+   "path": "scripts/zero-base/fixtures/decision-center.ts",
+   "git": "M",
+   "class": "script_ops_non_request_path",
+   "sha256": "c7f0c334c9c11a2ce551a3874f784ad626b8a6c30775ce52bf487cc9d1b7f8fe"
   }
  ]
 }

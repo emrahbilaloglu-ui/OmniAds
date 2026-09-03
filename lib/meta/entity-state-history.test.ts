@@ -245,6 +245,112 @@ describe("Meta entity state history", () => {
     );
   });
 
+  /*
+    PR #272 review — `budget_shape_support` was mapped but never selected.
+
+    The row type declared it, `toMetaEntityState` read `row.budget_shape_support`
+    and the writers persisted it, but NEITHER projection branch of `stateSelect`
+    asked for the column. Every read through `readMetaEntityStatesAsOf`
+    therefore reported `budgetShapeSupport: undefined` no matter what the
+    account actually held — a stored "unsupported_shape" read as "we never
+    looked". Both branches are asserted here because only one of them was
+    exercised by the case above.
+  */
+  it("selects budget_shape_support in the explicit-entityIds projection", async () => {
+    const sql = createSqlMock([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await readMetaEntityStatesAsOf({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      entityType: "campaign",
+      entityIds: ["campaign_1"],
+      cutoff: "2026-07-12T04:00:00Z",
+    });
+
+    const query = sql.queries.join("\n");
+    expect(query).toContain("budget_shape_support");
+    // The branch under test, not the other one.
+    expect(query).toContain("entity_id = ANY(");
+  });
+
+  it("selects budget_shape_support in the all-entities projection", async () => {
+    const sql = createSqlMock([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await readMetaEntityStatesAsOf({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      entityType: "campaign",
+      entityIds: [],
+      cutoff: "2026-07-12T04:00:00Z",
+    });
+
+    const query = sql.queries.join("\n");
+    expect(query).toContain("budget_shape_support");
+    expect(query).not.toContain("entity_id = ANY(");
+  });
+
+  it.each(["supported", "unsupported_shape"] as const)(
+    "maps a non-null %s row through to the public budgetShapeSupport field",
+    async (stored) => {
+      const sql = createSqlMock([
+        {
+          id: "state_1",
+          run_id: "run_1",
+          business_ref_id: "biz_ref_1",
+          business_id: "biz_1",
+          provider_account_ref_id: "account_ref_1",
+          provider_account_id: "act_1",
+          entity_type: "campaign",
+          entity_id: "campaign_1",
+          campaign_id: "campaign_1",
+          adset_id: null,
+          ad_id: null,
+          creative_id: null,
+          entity_name: "Campaign one",
+          configured_status: "ACTIVE",
+          effective_status: "ACTIVE",
+          learning_status: null,
+          learning_source: "not_observed",
+          campaign_daily_budget_raw: "10000",
+          campaign_lifetime_budget_raw: null,
+          adset_daily_budget_raw: null,
+          adset_lifetime_budget_raw: null,
+          budget_currency: "USD",
+          budget_origin: "campaign",
+          budget_currency_exponent: 2,
+          budget_currency_registry_version: "iso4217.minor-units.2026-09-01",
+          budget_shape_support: stored,
+          review_status: null,
+          policy_status: null,
+          policy_reasons_json: null,
+          provider_updated_at: "2026-07-12T02:50:00.000Z",
+          presence: "present",
+          field_coverage_json: { status: true },
+          observed_at: "2026-07-12T03:00:00.000Z",
+          captured_at: "2026-07-12T03:00:02.000Z",
+          run_completeness: "complete",
+          state_hash: "d".repeat(64),
+        },
+      ]);
+      vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+      const rows = await readMetaEntityStatesAsOf({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        entityType: "campaign",
+        entityIds: ["campaign_1"],
+        cutoff: "2026-07-12T04:00:00Z",
+      });
+
+      expect(rows[0]?.budgetShapeSupport).toBe(stored);
+      // Lossless: the value is carried, not re-derived from anything else.
+      expect(rows[0]?.budgetShapeSupport).not.toBeNull();
+      expect(rows[0]?.budgetShapeSupport).not.toBeUndefined();
+    },
+  );
+
   it("reads only explicit tombstones and exposes the latest truth event", async () => {
     const tombstoneSql = createSqlMock([
       {

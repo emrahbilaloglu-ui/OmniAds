@@ -1,6 +1,7 @@
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import { readThroughCache } from "@/lib/server-cache";
 
 const META_ACCOUNT_CONTEXT_CACHE_TTL_MS = Math.max(
@@ -28,6 +29,8 @@ export interface MetaAccountContext {
   businessId: string;
   connected: boolean;
   accessToken: string | null;
+  /** Captured from the same integration row as accessToken for write CAS. */
+  connectionGeneration: string | null;
   accountIds: string[];
   primaryAccountId: string | null;
   primaryAccountTimezone: string | null;
@@ -40,7 +43,7 @@ function shouldBypassMetaAccountContextCache() {
 }
 
 function buildMetaAccountContextCacheKey(businessId: string) {
-  return `meta-account-context:v2:${businessId}`;
+  return `meta-account-context:v3:${businessId}`;
 }
 
 async function fetchMetaAccountProfile(
@@ -141,6 +144,7 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
     businessId,
     connected: integration?.status === "connected",
     accessToken,
+    connectionGeneration: connectionGenerationTokenFromIntegration(integration),
     accountIds,
     primaryAccountId,
     primaryAccountTimezone,

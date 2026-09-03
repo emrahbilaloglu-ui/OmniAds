@@ -30,7 +30,7 @@
 import { getDb } from "@/lib/db";
 import { META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES } from "@/lib/meta/automation-proposals";
 import { readMetaEntityBudgetState } from "@/lib/meta/ads-write";
-import { buildMetaWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import {
   getMetaAutomationControlPlane,
   type MetaAutomationGuardrails,
@@ -162,12 +162,14 @@ export async function loadBudgetCompositionSourcesForCandidate(
     && budgetField !== null;
 
   const writeContext = providerContactPermitted
-    ? await buildMetaWriteContextForProposal({ businessId, providerAccountId })
+    ? await buildMetaBudgetWriteContextForProposal({ businessId, providerAccountId })
       .catch(() => null)
     : null;
   const baselineRead = writeContext
     ? await readMetaEntityBudgetState(writeContext, {
-      entityId: candidate.scopeId, budgetField: budgetField!,
+      entityId: candidate.scopeId,
+      budgetField: budgetField!,
+      accountCurrency: writeContext.accountCurrency,
     }).catch(() => ({ ok: false as const, reason: "read_failed" }))
     : null;
   const baseline = baselineRead?.ok === true ? baselineRead : null;

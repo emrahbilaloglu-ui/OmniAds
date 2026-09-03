@@ -248,6 +248,9 @@ const readersFor = (shape: Shape, journal: ReturnType<typeof makeJournal>) => ({
       governance: {
         verified: true, writeBlocked: false, killSwitchEngaged: false, blockReason: null,
       },
+      // PR #272 review: the account's VERIFIED currency, as the budget write
+      // context carries it. The adapter refuses without one.
+      accountCurrency: "TRY",
       automationEnabled: true,
       capability: D087_BUDGET_TRANSPORT_CAPABILITY,
       policy: {

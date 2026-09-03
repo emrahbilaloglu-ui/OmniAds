@@ -105,6 +105,17 @@ export interface BudgetWriteDeps {
   newId(): string;
   actor: BudgetWriteActorContext;
   governance: BudgetWriteGovernance;
+  /**
+   * The ad account's VERIFIED currency, carried from the account profile the
+   * budget write context holds.
+   *
+   * PR #272 review: the orchestrator used to hand `request.currency` to the
+   * adapter as the currency to verify against, which let a proposal's own
+   * claim about itself stand in for a fact about the account. REQUIRED, and
+   * empty when unknown — an empty value refuses inside the adapter rather
+   * than being quietly substituted.
+   */
+  accountCurrency: string;
   automationEnabled: boolean;
   capability: ProviderCapabilityContract;
   policy: BudgetWritePolicy | null;
@@ -337,7 +348,14 @@ export async function executeBudgetWrite(
       entityId: request.scope.entityId,
       budgetField: request.budgetField,
       amountMinor: request.intendedAmountMinor,
-      expectedCurrency: request.currency,
+      /*
+        The ACCOUNT's verified currency, not `request.currency`. The preflight
+        above has already refused this attempt if the two disagree — the
+        baseline it compares carries the same verified value — so reaching
+        here means they match, and the adapter is told the one that was
+        proven rather than the one that was asserted.
+      */
+      expectedCurrency: deps.accountCurrency,
       // The ACCEPTED baseline, carried to the adapter's own last-word check.
       expectedPreviousAmountMinor: request.baseline.amountMinor,
       beforeProviderPost: options?.beforeProviderPost,

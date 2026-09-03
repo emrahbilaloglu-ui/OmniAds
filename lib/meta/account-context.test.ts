@@ -32,6 +32,7 @@ describe("Meta account currency context", () => {
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
       access_token: "token-1",
+      connection_generation: 7,
     } as never);
     vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
       account_ids: ["act_1"],
@@ -64,6 +65,7 @@ describe("Meta account currency context", () => {
     const context = await getMetaAccountContext("biz-1");
 
     expect(context.currency).toBe("TRY");
+    expect(context.connectionGeneration).toBe("7:connected");
     expect(context.accountProfiles.act_1?.currency).toBe("TRY");
     expect(fetchMock).not.toHaveBeenCalled();
   });

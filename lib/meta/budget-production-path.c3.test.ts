@@ -267,9 +267,12 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   return {
     ...actual,
     getMetaAccountContext: vi.fn(async () => ({
+      connected: true,
       accessToken: "secret-token",
       connectionGeneration: "1:connected",
-      accountProfiles: { [ACCOUNT]: { id: ACCOUNT } },
+      // PR #272 review: a usable ad account reports its currency, and the
+      // budget write context refuses to exist without one.
+      accountProfiles: { [ACCOUNT]: { id: ACCOUNT, currency: "TRY" } },
     })),
   };
 });

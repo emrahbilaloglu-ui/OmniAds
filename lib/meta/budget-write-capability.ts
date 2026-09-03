@@ -51,11 +51,23 @@ export const BUDGET_MUTATION_BODY_KEYS: Readonly<Record<BudgetField, string>> =
   });
 
 /**
- * The exact read-back field list. A budget read-back that did not also read the
- * account and the currency cannot prove it looked at the right object.
+ * The exact read-back field list.
+ *
+ * PR #272 review: `currency` USED to be in this list, and it could never have
+ * worked. Currency is an AD ACCOUNT field on the Meta graph, not a campaign or
+ * ad-set field, so asking a campaign/ad-set node for it makes Meta reject the
+ * whole GET with error #100 — which failed every baseline, every
+ * compare-and-set and every post-write read-back, not just the currency half.
+ *
+ * `account_id` stays, and it is what proves the object: an ad account holds
+ * exactly one currency, so a read-back verified to be on the intended account
+ * is a read-back in that account's currency. The currency VALUE itself comes
+ * from the account profile the write context carries — see
+ * `MetaBudgetWriteContext` — never from this entity payload and never from a
+ * request's own claim about itself.
  */
 export const BUDGET_READBACK_FIELDS =
-  "id,account_id,name,daily_budget,lifetime_budget,currency,status,effective_status" as const;
+  "id,account_id,name,daily_budget,lifetime_budget,status,effective_status" as const;
 
 export function budgetTransportPathFor(
   grain: BudgetOwnerGrain,

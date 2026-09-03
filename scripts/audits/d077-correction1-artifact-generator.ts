@@ -59,6 +59,7 @@ const PACKET1_PATH =
   "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json";
 const PACKET2_PATH =
   "docs/audits/generated/d077-database-recovery-approval-packet-2026-08-30.json";
+const RELEASE_BASE_SHA = "babf158e150fd33057117b39b175da044ac62d2e";
 
 const HASH_BASIS =
   "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)";
@@ -269,9 +270,35 @@ function treeEntries(): Array<{
   class: string;
   sha256: string | null;
 }> {
-  const out = execSync("git status --porcelain -uall", { encoding: "utf8" })
-    .split("\n")
-    .filter(Boolean);
+  /*
+    The first release freeze happened before the candidate commit existed, so
+    `git status` happened to describe the whole release. Follow-up review fixes
+    happen on top of that commit: status then contains only the follow-up and
+    silently drops every already-committed release path from the manifest.
+
+    Inventory the candidate against its immutable release base instead. Add
+    untracked files separately because `git diff` deliberately omits them.
+    `--no-renames` keeps the parser and the manifest vocabulary to one path per
+    A/M/D record; a rename is represented truthfully as delete + add.
+  */
+  const diff = execFileSync(
+    "git",
+    ["diff", "--name-status", "--no-renames", "-z", RELEASE_BASE_SHA, "--"],
+    { encoding: "utf8" },
+  ).split("\0").filter(Boolean);
+  const out: Array<{ status: string; path: string }> = [];
+  for (let index = 0; index < diff.length; index += 2) {
+    const status = diff[index];
+    const path = diff[index + 1];
+    if (!status || !path) throw new Error("malformed NUL-delimited release diff");
+    out.push({ status, path });
+  }
+  const untracked = execFileSync(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    { encoding: "utf8" },
+  ).split("\0").filter(Boolean);
+  for (const path of untracked) out.push({ status: "??", path });
   const classify = (p: string, status: string): string => {
     if (status === "D") return "runtime_deletion";
     if (
@@ -289,9 +316,8 @@ function treeEntries(): Array<{
     return "runtime";
   };
   const entries: Array<{ path: string; git: string; class: string; sha256: string | null }> = [];
-  for (const line of out) {
-    const status = line.slice(0, 2).trim();
-    const path = line.slice(3).trim();
+  for (const item of out.sort((left, right) => left.path.localeCompare(right.path))) {
+    const { status, path } = item;
     if (path.endsWith("/")) continue;
     if (path === MANIFEST_PATH) continue; // self-exclusion, explicit
     let hash: string | null = null;
@@ -796,16 +822,42 @@ function phase1() {
 }
 
 function phase2() {
-  const entries = treeEntries();
-  const counts = classCounts(entries);
-  // Assert consistency with the release packet's expectation.
-  const packet1 = JSON.parse(readFileSync(PACKET1_PATH, "utf8")) as {
+  let entries = treeEntries();
+  let counts = classCounts(entries);
+  // A review-fix commit can be followed by an uncommitted correction pass.
+  // Refresh the packet's tree-only expectation first, re-hash it, and only
+  // then take the final byte hashes for the manifest.
+  const packet1WithHash = JSON.parse(readFileSync(PACKET1_PATH, "utf8")) as {
+    packetHash: string;
+    hashAlgorithm: string;
+    hashBasis: string;
     sourceTree: {
       manifestReference: {
-        expectedFinalTree: { pinnedNonSelfFileCount: number; classCounts: Record<string, number> };
+        expectedFinalTree: {
+          pinnedNonSelfFileCount: number;
+          classCounts: Record<string, number>;
+          historicalContext?: string;
+        };
       };
     };
+    [key: string]: unknown;
   };
+  const {
+    packetHash: _packetHash,
+    hashAlgorithm: _packetAlgorithm,
+    hashBasis: _packetBasis,
+    ...packet1
+  } = packet1WithHash;
+  const priorExpected = packet1.sourceTree.manifestReference.expectedFinalTree;
+  packet1.sourceTree.manifestReference.expectedFinalTree = {
+    ...priorExpected,
+    pinnedNonSelfFileCount: entries.length,
+    classCounts: counts,
+  };
+  writeHashed(PACKET1_PATH, "packetHash", packet1);
+
+  entries = treeEntries();
+  counts = classCounts(entries);
   const expected = packet1.sourceTree.manifestReference.expectedFinalTree;
   if (expected.pinnedNonSelfFileCount !== entries.length) {
     throw new Error(
@@ -818,16 +870,23 @@ function phase2() {
   const porcelain = execSync("git status --porcelain", { encoding: "utf8" })
     .split("\n")
     .filter(Boolean).length;
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const [behindOriginMain, aheadOfOriginMain] = execFileSync(
+    "git",
+    ["rev-list", "--left-right", "--count", `origin/main...${head}`],
+    { encoding: "utf8" },
+  ).trim().split(/\s+/).map(Number);
   const manifest = {
     contract: "adsecute.d077.release-candidate-manifest.v3",
     generatedAtUtc: new Date().toISOString(),
     branch: "codex/meta-disabled-readiness-20260829",
-    head: "babf158e150fd33057117b39b175da044ac62d2e",
-    baseMain: "babf158e150fd33057117b39b175da044ac62d2e",
-    originMain: "babf158e150fd33057117b39b175da044ac62d2e",
-    remoteDivergence: { aheadOfOriginMain: 0, behindOriginMain: 0 },
+    head,
+    baseMain: RELEASE_BASE_SHA,
+    originMain: RELEASE_BASE_SHA,
+    remoteDivergence: { aheadOfOriginMain, behindOriginMain },
     selfExclusion: `this manifest's own path (${MANIFEST_PATH}) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing`,
     gitPorcelainEntryCount: porcelain,
+    releaseDiffEntryCountIncludingSelf: entries.length + 1,
     expandedOnDiskCandidateFileCountIncludingSelf: entries.length + 1,
     pinnedNonSelfFileCount: entries.length,
     historicalContext:

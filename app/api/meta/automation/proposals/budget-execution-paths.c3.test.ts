@@ -105,8 +105,11 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   return {
     ...actual,
     getMetaAccountContext: vi.fn(async () => ({
+      connected: true,
       accessToken: "secret-token", connectionGeneration: "1:connected",
-      accountProfiles: { [ACCOUNT]: { id: ACCOUNT } },
+      // PR #272 review: a real ad-account profile carries its currency, and
+      // a budget write context refuses to exist without one.
+      accountProfiles: { [ACCOUNT]: { id: ACCOUNT, currency: "TRY" } },
     })),
     resolveMetaAccountAuthority: vi.fn(async () => ({
       state: "authorized", errorMessage: null,
@@ -312,11 +315,36 @@ const baseQuery = async (sql: string, params: unknown[] = []): Promise<unknown[]
   }
   if (text.includes("FROM meta_automation_business_controls")
     && text.includes("auto_execution_enabled = TRUE")) {
-    return [{ business_id: BIZ }];
+    /*
+      PR #272 review: the persisted control row carries the single bound
+      account, and the sweep is required to refuse a null one. `boundAccount`
+      is deliberately separate from `activatedAccount`: the first is what the
+      QUEUE was selected against, the second what the FRESH gate says now, and
+      the whole point of the second check is that they can differ.
+    */
+    return boundAccount === null
+      ? []
+      : [{ business_id: BIZ, provider_account_id: boundAccount }];
   }
   if (text.includes("FROM meta_automation_proposals")
     && text.includes("proposed_action = 'budget'")) {
-    return [{ id: PROPOSAL_ID, provider_account_id: ACCOUNT }];
+    /*
+      The queue page, with the real predicate applied: business, THEN the exact
+      account, then order, then limit. Filtering here is what makes a starvation
+      case meaningful — a mock that ignored the account parameter would report
+      the fix working whether or not the SQL actually had one.
+    */
+    const scoped = text.includes("provider_account_id = $2")
+      ? pendingRows.filter((row) => row.provider_account_id === String(params[1]))
+      : pendingRows;
+    const ordered = text.includes("ORDER BY provider_account_id")
+      ? [...scoped].sort((a, b) =>
+        a.provider_account_id.localeCompare(b.provider_account_id)
+        || a.created_at.localeCompare(b.created_at))
+      : [...scoped].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return ordered.slice(0, 100).map((row) => ({
+      id: row.id, provider_account_id: row.provider_account_id,
+    }));
   }
   if (text.includes("FROM meta_entity_state_history")) {
     return [
@@ -349,6 +377,12 @@ vi.mock("@/lib/db", () => ({
 }));
 
 let activatedAccount: string | null = null;
+/** The single account the persisted control row binds automatic execution to. */
+let boundAccount: string | null = ACCOUNT;
+/** The pending budget queue, as rows the real predicate can be applied to. */
+let pendingRows: Array<{
+  id: string; provider_account_id: string; created_at: string;
+}> = [];
 
 const access = await import("@/lib/access");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
@@ -466,6 +500,11 @@ describe("D088 C3 — a projected budget row through the real manual route", () 
     journalRows.length = 0;
     query.mockClear();
     activatedAccount = null;
+    boundAccount = ACCOUNT;
+    pendingRows = [{
+      id: PROPOSAL_ID, provider_account_id: ACCOUNT,
+      created_at: "2026-08-31T11:00:00.000Z",
+    }];
     vi.stubGlobal("fetch", vi.fn());
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
@@ -612,6 +651,11 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     journalRows.length = 0;
     query.mockClear();
     activatedAccount = ACCOUNT;
+    boundAccount = ACCOUNT;
+    pendingRows = [{
+      id: PROPOSAL_ID, provider_account_id: ACCOUNT,
+      created_at: "2026-08-31T11:00:00.000Z",
+    }];
     vi.stubGlobal("fetch", vi.fn());
     vi.stubEnv(CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV,
       CAMPAIGN_CONTEXT_RESOLVER_VERSION);
@@ -675,6 +719,120 @@ describe("D088 C3 — the SCHEDULED path shares the one lifecycle", () => {
     if (!result.skipped) {
       expect(result.reports[0]!.blockers).toEqual(["account_not_activated"]);
     }
+  });
+
+  it("keeps proposals pending when the write context is temporarily unavailable", async () => {
+    const accountContext = await import("@/lib/meta/account-context");
+    vi.mocked(accountContext.getMetaAccountContext).mockResolvedValueOnce(null as never);
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.reports[0]).toMatchObject({
+        ran: false,
+        blockers: ["write_context_unavailable"],
+        considered: 1,
+        executed: 0,
+        skipped: 1,
+        failed: 0,
+      });
+    }
+    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(store.settleMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
+  });
+
+  /*
+    PR #272 review — queue starvation.
+
+    The page used to be selected across every account of the business and
+    grouped afterwards, so `LIMIT 100` could be filled entirely by an account
+    that is not the bound one. These cases put 150 OLDER rows on an unbound
+    account and one newer row on the bound account: with the account filter
+    applied before the limit, the bound row is still the one that runs.
+  */
+  it("claims the BOUND account's proposal even behind 150 older unbound rows", async () => {
+    const unbound = "act_999000";
+    pendingRows = [
+      ...Array.from({ length: 150 }, (_unused, index) => ({
+        id: `unbound-${index}`,
+        provider_account_id: unbound,
+        // Older than the bound row, so an unfiltered ORDER BY put them first.
+        created_at: `2026-08-30T${String(index % 24).padStart(2, "0")}:00:00.000Z`,
+      })),
+      {
+        id: PROPOSAL_ID, provider_account_id: ACCOUNT,
+        created_at: "2026-08-31T11:00:00.000Z",
+      },
+    ];
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(node(CBO.current))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(node(CBO.intended));
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped, JSON.stringify(result)).toBe(false);
+    const claims = vi.mocked(store.claimMetaAutomationProposal).mock.calls;
+    expect(claims).toHaveLength(1);
+    expect(claims[0]![0]).toMatchObject({
+      proposalId: PROPOSAL_ID, providerAccountId: ACCOUNT,
+    });
+    // Not one row of the unbound account was even considered.
+    if (!result.skipped) expect(result.reports[0]!.considered).toBe(1);
+  });
+
+  it("applies the exact-account filter BEFORE the limit, in the SQL itself", async () => {
+    await runMetaBudgetAutomationSweepIfDue();
+
+    const queueCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("FROM meta_automation_proposals")
+      && String(sql).includes("proposed_action = 'budget'"));
+    expect(queueCall, "the queue query was never issued").toBeDefined();
+    const [sql, params] = queueCall as [string, unknown[]];
+    expect(sql).toContain("provider_account_id = $2");
+    expect(params[1]).toBe(ACCOUNT);
+    // Order matters: a filter after the limit would not be a filter.
+    expect(sql.indexOf("provider_account_id = $2")).toBeLessThan(sql.indexOf("LIMIT"));
+    // And the page is no longer selected across accounts.
+    expect(sql).not.toContain("ORDER BY provider_account_id");
+  });
+
+  it("reads the binding in the enablement query and refuses a null one", async () => {
+    boundAccount = null;
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(true);
+    if (result.skipped) expect(result.reason).toBe("no_business_enabled");
+    // No queue query, no claim, no provider call.
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("FROM meta_automation_proposals"))).toBe(false);
+    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
+  });
+
+  it("refuses when the binding CHANGES after the queue was selected", async () => {
+    /*
+      The exact TOCTOU the fresh gate exists for: the enablement query bound
+      this account, and by the time the verdict is read the activation names a
+      different one. Zero claims, zero provider calls.
+    */
+    boundAccount = ACCOUNT;
+    activatedAccount = "act_888111";
+
+    const result = await runMetaBudgetAutomationSweepIfDue();
+
+    expect(result.skipped).toBe(false);
+    if (!result.skipped) {
+      expect(result.reports[0]!.blockers).toEqual(["account_not_activated"]);
+      expect(result.reports[0]!.executed).toBe(0);
+    }
+    expect(vi.mocked(store.claimMetaAutomationProposal)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(0);
   });
 
   it("a non-UUID enabling actor claims nothing", async () => {

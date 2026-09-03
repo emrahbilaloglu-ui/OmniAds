@@ -201,7 +201,7 @@ describe("D088 C1 — the approval route passes a CONCRETE runtime", () => {
     expect(PROPOSALS_ROUTE).toContain("budgetRuntime: async (runtimeInput)");
     expect(PROPOSALS_ROUTE).toContain("createBudgetProposalServerRuntime(");
     expect(PROPOSALS_ROUTE).toContain("createBudgetServerReaders(");
-    expect(PROPOSALS_ROUTE).toContain("buildMetaWriteContextForProposal(");
+    expect(PROPOSALS_ROUTE).toContain("buildMetaBudgetWriteContextForProposal(");
     // And it enters the ONE lifecycle the scheduled sweep enters.
     expect(PROPOSALS_ROUTE).toContain("runClaimedProposalExecution(");
   });

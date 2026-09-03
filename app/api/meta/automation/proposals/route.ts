@@ -58,7 +58,7 @@ import { BUDGET_PROPOSAL_ACTION } from "@/lib/meta/budget-proposal-runtime";
 import { createBudgetProposalServerRuntime } from "@/lib/meta/budget-proposal-server-runtime";
 import { runClaimedProposalExecution } from "@/lib/meta/budget-execution-lifecycle";
 import { createBudgetServerReaders } from "@/lib/meta/budget-proposal-server-readers";
-import { buildMetaWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
+import { buildMetaBudgetWriteContextForProposal } from "@/lib/meta/budget-proposal-write-context";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 
 export const dynamic = "force-dynamic";
@@ -605,7 +605,7 @@ async function approve(input: {
           createBudgetServerReaders({
             businessId: input.businessId,
             actorUserId: input.access.session.user.id,
-            writeContext: await buildMetaWriteContextForProposal({
+            writeContext: await buildMetaBudgetWriteContextForProposal({
               businessId: input.businessId,
               providerAccountId: input.providerAccountId,
             }),

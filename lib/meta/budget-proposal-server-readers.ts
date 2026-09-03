@@ -24,7 +24,8 @@ import { campaignContextAuthorityResolverVersion }
 import type { WriteSafetyStep } from "@/lib/meta/write-safety-contract";
 import type { BudgetWritePolicy } from "@/lib/meta/budget-write-preflight";
 import { readMetaReleaseGates } from "@/lib/meta/release-gates";
-import { readMetaEntityBudgetState, type MetaAdsWriteContext } from "@/lib/meta/ads-write";
+import { readMetaEntityBudgetState } from "@/lib/meta/ads-write";
+import type { MetaBudgetWriteContext } from "@/lib/meta/budget-proposal-write-context";
 import {
   D086_STATE_BUDGET_SQL,
   D086_ACCOUNT_TIMEZONE_SQL,
@@ -300,8 +301,13 @@ export async function readMeasuredBudgetHistory(input: {
 export interface BudgetServerReadersInput {
   businessId: string;
   actorUserId: string;
-  /** Built by the caller from the existing credential boundary, or null. */
-  writeContext: MetaAdsWriteContext | null;
+  /**
+   * Built by the caller from the existing credential boundary, or null.
+   *
+   * PR #272 review: the BUDGET refinement, so the account's verified currency
+   * travels with the credential rather than being taken from a request.
+   */
+  writeContext: MetaBudgetWriteContext | null;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -520,7 +526,9 @@ export function createBudgetServerReaders(
       });
 
       const baseline = await readMetaEntityBudgetState(input.writeContext, {
-        entityId: envelope.entityId, budgetField: envelope.budgetField,
+        entityId: envelope.entityId,
+        budgetField: envelope.budgetField,
+        accountCurrency: input.writeContext.accountCurrency,
       }).catch(() => ({ ok: false as const, reason: "read_failed" }));
 
       // A failed read is UNKNOWN, and unknown blocks.
@@ -714,6 +722,12 @@ export function createBudgetServerReaders(
           writeScopeBound: Boolean(accountContext?.accountProfiles[proposal.providerAccountId]),
           selectedProviderAccountId: proposal.providerAccountId,
         },
+        /*
+          PR #272 review: the account's verified currency, or "" when there is
+          no write context to take one from. Empty refuses in the adapter; it
+          is never substituted with the request's own claim.
+        */
+        accountCurrency: input.writeContext?.accountCurrency ?? "",
         governance: {
           verified: governance?.verified === true,
           writeBlocked: governance?.writeBlocked !== false,
@@ -745,7 +759,9 @@ export function createBudgetServerReaders(
         readProviderBaseline: async (probe) => {
           if (!input.writeContext) return null;
           const read = await readMetaEntityBudgetState(input.writeContext, {
-            entityId: probe.entityId, budgetField: probe.budgetField,
+            entityId: probe.entityId,
+            budgetField: probe.budgetField,
+            accountCurrency: input.writeContext.accountCurrency,
           });
           return read.ok
             ? {

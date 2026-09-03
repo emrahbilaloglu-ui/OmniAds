@@ -249,7 +249,7 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     expect(mismatches, `entries whose pinned sha256 no longer matches disk: ${mismatches.join(", ")}`).toEqual([]);
   });
 
-  it("every currently modified-or-new file in the working tree (minus deletions) is present in the manifest's entries[]", () => {
+  it("the manifest exactly covers the cumulative release diff plus untracked files", () => {
     // Guards the OTHER direction of staleness: not just "what's pinned still
     // matches disk" but "nothing changed or added is silently absent from
     // the pin set" — exactly the gap that let a new test file
@@ -258,27 +258,29 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     // with itself; it is checked against `git` on the live tree.
     const manifestPath = `${GEN}/d077-release-candidate-manifest-2026-08-30.json`;
     const manifest = mustLoadJson(manifestPath) as unknown as {
+      baseMain: string;
       entries: Array<{ path: string }>;
     };
     const pinned = new Set(manifest.entries.map((entry) => entry.path));
+    expect(manifest.baseMain).toMatch(/^[0-9a-f]{40}$/);
+    const releaseDiff = execFileSync(
+      "git",
+      ["diff", "--name-only", "--no-renames", "-z", manifest.baseMain, "--"],
+      { cwd: ROOT, encoding: "utf8" },
+    ).split("\0").filter(Boolean);
+    const untracked = execFileSync(
+      "git",
+      ["ls-files", "--others", "--exclude-standard", "-z"],
+      { cwd: ROOT, encoding: "utf8" },
+    ).split("\0").filter(Boolean);
+    const candidate = new Set(
+      [...releaseDiff, ...untracked].filter((path) => path !== manifestPath),
+    );
 
-    const modified = execFileSync("git", ["diff", "--name-only", "--diff-filter=M"], {
-      cwd: ROOT,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const untracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], {
-      cwd: ROOT,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const missing = [...modified, ...untracked].filter((path) => path !== manifestPath && !pinned.has(path));
+    const missing = [...candidate].filter((path) => !pinned.has(path));
+    const extra = [...pinned].filter((path) => !candidate.has(path));
     expect(missing, `changed/new files absent from the manifest: ${missing.join(", ")}`).toEqual([]);
+    expect(extra, `manifest paths outside the release diff: ${extra.join(", ")}`).toEqual([]);
   });
 
   it("runtimeVersions carries the complete version set and a VALID canonical pnpm provenance contract", () => {

@@ -136,7 +136,7 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     const code = stripComments(
       readFileSync("lib/meta/budget-proposal-source-loader.ts", "utf8"));
     // A real GET-only read through the existing write-context boundary...
-    expect(code).toContain("buildMetaWriteContextForProposal(");
+    expect(code).toContain("buildMetaBudgetWriteContextForProposal(");
     expect(code).toContain("readMetaEntityBudgetState(");
     // ...gated by persisted posture, so defaults contact nothing.
     expect(code).toContain("providerContactPermitted");

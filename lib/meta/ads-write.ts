@@ -2824,6 +2824,18 @@ export async function readMetaEntityBudgetState(
   input: {
     entityId: string;
     budgetField: "daily_budget" | "lifetime_budget";
+    /**
+     * The ad account's VERIFIED currency, from the account profile the budget
+     * write context carries.
+     *
+     * PR #272 review: this used to be read off the campaign/ad-set payload.
+     * Meta has no currency field on those nodes, so asking for it made the
+     * whole GET fail — and the only value that could ever have arrived here
+     * instead was one the caller made up. Currency belongs to the account,
+     * `account_id` is verified against the context on every read, and this is
+     * the account's own normalised code.
+     */
+    accountCurrency: string;
   },
 ): Promise<{
   ok: true;
@@ -2834,6 +2846,11 @@ export async function readMetaEntityBudgetState(
   currency: string;
   readAtMs: number;
 } | { ok: false; reason: string }> {
+  // Unknown currency is refusal, before any provider contact — and a caller
+  // that supplies no string at all is exactly that, not a crash.
+  const currency = typeof input.accountCurrency === "string"
+    ? input.accountCurrency.trim() : "";
+  if (currency === "") return { ok: false, reason: "account_currency_missing" };
   const verification = await verifyEntity({
     ctx, entityId: input.entityId, fields: BUDGET_READBACK_FIELDS,
   });
@@ -2841,8 +2858,6 @@ export async function readMetaEntityBudgetState(
     return { ok: false, reason: verification.error?.code ?? "verification_failed" };
   }
   const payload = verification.payload;
-  const currency = typeof payload?.currency === "string" ? payload.currency.trim() : "";
-  if (currency === "") return { ok: false, reason: "currency_not_reported" };
   const raw = payload?.[input.budgetField];
   const amount = typeof raw === "string" || typeof raw === "number" ? Number(raw) : Number.NaN;
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -2866,7 +2881,16 @@ export async function updateEntityBudget(
     entityId: string;
     budgetField: "daily_budget" | "lifetime_budget";
     amountMinor: number;
-    /** The retained currency. A read-back in another currency is not this budget. */
+    /**
+     * The ad account's VERIFIED currency, from the account profile the budget
+     * write context carries — not the request's own claim about itself.
+     *
+     * PR #272 review: the caller used to pass `request.currency` straight
+     * through, so a proposal that named the wrong currency proved itself. The
+     * value that arrives here is now the one the account actually holds, and
+     * the preflight has already refused any request whose own currency
+     * disagrees with it — before this adapter is reached at all.
+     */
     expectedCurrency: string;
     /**
      * The value the caller's accepted baseline says the account holds RIGHT NOW.
@@ -2990,29 +3014,24 @@ export async function updateEntityBudget(
       };
     }
     /*
-      D087 C1: currency is OBSERVED. The previous version accepted an empty or
-      absent `currency` and substituted the request's — which made a request in
-      a currency the account does not hold prove itself, and contradicted the
-      read-back field list that asks for it.
+      D087 C1 asked Meta for the entity's `currency` and refused an empty
+      answer. PR #272 review: that answer was ALWAYS going to be empty —
+      currency is an ad-account field, never a campaign or ad-set one, and
+      asking for it made Meta reject the entire GET.
+
+      What proves the currency here is the pair above it: `account_id` was
+      verified against this context, and an ad account holds exactly one
+      currency. So the account's own verified code is the currency of this
+      budget, and the only thing left to refuse is not having one.
     */
-    const verifiedCurrency = typeof verificationPayload?.currency === "string"
-      ? verificationPayload.currency.trim() : "";
+    const verifiedCurrency = typeof input.expectedCurrency === "string"
+      ? input.expectedCurrency.trim() : "";
     if (verifiedCurrency === "") {
       return {
         failure: mismatch(
           `${expect.prefix}_currency_absent`,
-          `Meta did not report a currency for ${input.entityId}, so the minor-unit `
-          + "amount cannot be proven to mean anything.",
-          payload, verificationPayload,
-        ),
-        ...none,
-      };
-    }
-    if (verifiedCurrency !== input.expectedCurrency) {
-      return {
-        failure: mismatch(
-          `${expect.prefix}_currency_mismatch`,
-          `Meta reported the budget in ${verifiedCurrency}, not the retained ${input.expectedCurrency}.`,
+          `No verified account currency was supplied for ${input.entityId}, so the `
+          + "minor-unit amount cannot be proven to mean anything.",
           payload, verificationPayload,
         ),
         ...none,

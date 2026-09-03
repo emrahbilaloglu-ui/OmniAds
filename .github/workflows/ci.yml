@@ -56,7 +56,12 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The full suite is intentionally serial at the file level on this release
+    # and completes in roughly 39 minutes locally. PR #272 proved the previous
+    # 20-minute job bound canceled a healthy run mid-suite. Keep a finite bound
+    # with enough measured headroom; assertions and per-test timeouts are
+    # unchanged.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -2163,7 +2163,8 @@ function stateSelect(
           campaign_end_time::text AS campaign_end_time,
           adset_start_time::text AS adset_start_time,
           adset_end_time::text AS adset_end_time,
-          budget_currency_exponent, budget_currency_registry_version, provider_api_version,
+          budget_currency_exponent, budget_currency_registry_version, budget_shape_support,
+          provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash
@@ -2188,7 +2189,8 @@ function stateSelect(
           campaign_end_time::text AS campaign_end_time,
           adset_start_time::text AS adset_start_time,
           adset_end_time::text AS adset_end_time,
-          budget_currency_exponent, budget_currency_registry_version, provider_api_version,
+          budget_currency_exponent, budget_currency_registry_version, budget_shape_support,
+          provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash
